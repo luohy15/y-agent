@@ -62,7 +62,11 @@ A `shell` module owns everything that decides what the centre column looks like;
 the host keeps the leaves whose dependencies are measured in megabytes
 (`ArtifactView`, `PatchDiff`, `ImageLightbox`, `CodeEditor`, `exportElementToPng`)
 plus the visibility-gated chat image leaves (`ChatImageScope`, `ChatImage`,
-`ChatMessageImages`; contract v15) and exports them on `@y/host`. See `docs/prd/module-system.md`, *The `shell`
+`ChatMessageImages`; contract v15) and exports them on `@y/host`. Contract v16
+adds no new export. It adds the host-owned activity-bar visibility bridge:
+the `module` intent carries `activityBarVisibility: {hiddenSlugs, loaded, saving, error}`,
+and the module calls `module.setActivityBarVisibility` (`{slug, visible}`) and
+`module.retryActivityBarVisibility` through the existing `runHostCommand`. See `docs/prd/module-system.md`, *The `shell`
 surface and the renderer seam*, before bundling anything heavy into a module.
 Public demo composition and isolation rules live in
 `docs/prd/public-module-demos.md`.

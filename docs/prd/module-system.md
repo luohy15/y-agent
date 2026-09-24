@@ -470,6 +470,42 @@ declaring `shell` alone still gets a sidebar entry. The column's name promises
 more than it delivers; treat it as a claim on host slots, not as a manifest of
 the bundle.
 
+### Per-user activity-bar visibility
+
+Whether a module **appears in the left activity bar** is a personal navigation
+choice, not a property of the module, its version, or `ui_surfaces`. Todo 3676
+stores a string array of hidden slugs at `user_preference.key =
+activityBarHiddenModules`, scoped to the signed-in caller by the existing
+preference routes. Absence or null means nothing is hidden. A slug in the set
+only drops that module's icon from the desktop rail and the mobile rail, after
+the full catalog has been ordered, so unhiding restores the previous position.
+It does not disable the module, remove it from `GET /api/module/list`, change
+`activityBarOrder`, unmount an open panel, or stop a shell (including Chat).
+
+The host owns the preference. App is the only writer. It publishes the current
+set on the existing `module` intent as
+`activityBarVisibility: {hiddenSlugs, loaded, saving, error}`, preserving any
+other fields already latched for that slug. The module list toggles through two
+host commands, `module.setActivityBarVisibility` with `{slug, visible}` and
+`module.retryActivityBarVisibility`, via `runHostCommand`. The host checks the
+payload types and that the slug is in the caller's unfiltered module list,
+including disabled rows the Modules panel shows. The enabled-only rail catalog
+is not that list. A desired-state command cannot double-flip. The published
+intent keeps its object identity until `hiddenSlugs`, `loaded`, `saving`, or
+`error` actually changes. These commands are not a new `@y/host`
+export. Browser contract **v15 → v16** exists so a module built against them
+stamps `min_host_version` 16 and will not load on an older host. There is no
+new endpoint, no `module_host` capability, and no schema migration.
+
+Public and preview rails are `presentationOnly` and neither read nor apply the
+preference. Hiding the Modules entry itself is allowed. The signed-in account
+menu keeps a `Modules` action, on desktop and mobile, that opens that sidebar
+whenever the module is mountable, so the rail is not the only way back. A failed
+first read is an error, not an empty preference, and is never written back. A
+failed write restores the last confirmed set; Retry resends the same intended
+value. The stored set is last-successful-write-wins. A second device sees it on
+load or refocus, not by push. Slugs are not pruned when discovery omits them.
+
 **`ui_public` gates anonymous UI-byte delivery.** It is the version-level opt-in
 for public demo lookup and public bundle routes (Option B of
 `pages/decision-3042-public-dispatch-scope.md`: anonymous *UI bytes only*, never
@@ -700,6 +736,12 @@ Todo 3612 bumps the browser contract from 14 to **15** by exporting
 `ChatImageScope`, `ChatImage`, and `ChatMessageImages` (visibility-gated chat
 image loading). Chat-module publish that consumes those leaves waits on this
 host deploy.
+
+Todo 3676 bumps the browser contract from 15 to **16** with no new `@y/host`
+export. The `module` intent gains `activityBarVisibility`, and the host
+registers `module.setActivityBarVisibility` plus
+`module.retryActivityBarVisibility`. A module that toggles activity-bar
+visibility waits on this host deploy.
 
 Todo 3384 enriches the existing `tag_get` todo row shape with a nullable
 `created_at` ISO timestamp (the todo row's own creation time, distinct from
@@ -1375,4 +1417,5 @@ hook, both of which cost more than the single-user failure mode justifies.
 | 3107 | File History now resolves the containing Git repository on the selected VM, including linked worktrees, and builds a GitHub commits URL from a usable remote-backed ref plus the path relative to that repository root. Home-workspace files continue to resolve through y-history. Non-repository, untracked, non-GitHub-remote, detached, local-only, and ref/path-mismatch cases omit the action instead of guessing a likely 404. Published as file v12 (`ui=2b11f051f3ef…` / `api=522b9fc5d3d0…`) from y-module `bbfff23`; rollback target is v11 via `y module rollback file`. No host contract change or migration. | - | `pages/plan-3107-repository-aware-file-history.md` | - | `pages/review-3107-repository-aware-file-history.md` | shipped; runtime UI verification pending |
 | 3119 | Made file downloads byte-exact by classifying `/read` content on the VM, carrying accepted UTF-8 text as base64, and reserving `/raw` for binary bytes. Binary and files over 10 MB now render a download-only pane instead of an editor or unsupported preview. Published atomically as file v14 (`ui=d22c4779cb76…` / `api=e9626790a071…`) from y-module `66568cc`; v1–v13 remain unsafe rollback targets for binary downloads. The reported ZIP matched production `/raw` byte-for-byte: 12,312 bytes and SHA-256 `81aa33e1882bdf4c8e4bfe85bedc229ff15be1ca63dfe52d1ddbb6d2d79c1c67`. No host contract change, host deploy, or migration. | - | `pages/plan-3119-file-viewer-binary.md` | - | `pages/review-3119-file-viewer-binary.md` | shipped; runtime UI verification pending |
 | 3093 | Module documentation ownership split: each module's domain description lives in `code/y-module/<slug>/README.md`; y-agent keeps host architecture, the module-system contract, public user docs, and one pointer per module. Active version numbers/hashes leave prose (queryable via `y module list`); known-bad version ranges stay in module READMEs. PRD gains *Documentation ownership* (D1/D3/D6) and this row. | - | `pages/plan-3093-module-docs-ownership.md` | - | `pages/review-3093-y-module-docs.md`, `pages/review-3093-y-agent-docs-trim.md` | reviewed |
+| 3676 | Per-user activity-bar visibility. Host stores hidden module slugs at `user_preference.key = activityBarHiddenModules` and applies them only as a left-rail render projection (desktop and mobile), after full-catalog ordering. Hiding does not disable a module, filter `GET /api/module/list`, change `activityBarOrder`, or unmount an open panel or shell. The module list toggles through host commands `module.setActivityBarVisibility` (`{slug, visible}`) and `module.retryActivityBarVisibility`; App publishes `activityBarVisibility: {hiddenSlugs, loaded, saving, error}` on the existing `module` intent. Browser contract **v15 → v16** stamps that dependency; no new `@y/host` export, endpoint, `module_host` capability, or schema migration. Account menu gains a `Modules` recovery action. Module-side gestures stay in `code/y-module` and publish only after this host is deployed. | - | `pages/plan-3676-module-activity-visibility.md` | - | `pages/review-3676-host-activity-bar-visibility.md` | host implemented; module publish pending |
 | 3580 | Host-only contract bump for resolved-date labels: backend **v16 → v17** adds `describe_time_range` to the `storage.service.time_range` allowlist; browser **v13 → v14** exports `formatResolvedDateRange`, `formatResolvedInstantRange`, and `ResolvedRangeLabel` on `@y/host`. Exact payload and component signatures: `pages/decision-3580-host-sdk-backend-contract.md`. Module labels (finance/bot/monitor/household) wait on this host deploy. | - | `pages/plan-3580-resolved-date-range-display.md` | `pages/decision-3580-host-sdk-backend-contract.md` | - | host implemented; module publish pending |

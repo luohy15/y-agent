@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type
 import { isPreview } from "../hooks/useAuth";
 import { useUserPreference, type SyncStatus } from "../hooks/useUserPreference";
 import type { Module } from "../host/artifacts";
+import { projectActivityBarOrder } from "../utils/activityBarVisibility";
 import { buildModulePanelItems, type PanelItem } from "./panelCatalog";
 import UserMenu from "./UserMenu";
 
@@ -55,8 +56,19 @@ interface ActivityBarProps {
    * signed-in rail shape (`isLoggedIn` icons/groups) while disabling every
    * durable path: no `/api/user-preference`, no localStorage read/migrate/write,
    * no drag-reorder persistence. Default false preserves authenticated behavior.
+   * Also ignores `hiddenSlugs`: a public rail must not apply an authenticated
+   * visibility preference.
    */
   presentationOnly?: boolean;
+  /**
+   * Module slugs whose left-rail icon is hidden (todo 3676). Applied only at
+   * render, after full-catalog ordering, so unhiding restores the previous
+   * position. Does not change `order`, localStorage, or `activityBarOrder`.
+   */
+  hiddenSlugs?: readonly string[];
+  /** Signed-in account menu: open the Modules sidebar even when its icon is hidden. */
+  onOpenModules?: () => void;
+  modulesAvailable?: boolean;
 }
 
 export const BUILT_IN_PANEL_ITEMS: PanelItem<SidebarPanel>[] = [
@@ -273,7 +285,7 @@ function saveOrder(order: SidebarPanel[]) {
 interface DragState { key: SidebarPanel }
 interface DropTargetState { key: SidebarPanel; pos: "before" | "after" }
 
-export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, activePanel, onSelectPanel, mobile, email, gsiReady, onLogout, artifacts = [], artifactsLoaded = true, unavailableKeys = [], unavailableTitles, onUnavailableSelect, availableOrder, forceSignInFooter = false, presentationOnly = false }: ActivityBarProps) {
+export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, activePanel, onSelectPanel, mobile, email, gsiReady, onLogout, artifacts = [], artifactsLoaded = true, unavailableKeys = [], unavailableTitles, onUnavailableSelect, availableOrder, forceSignInFooter = false, presentationOnly = false, hiddenSlugs = [], onOpenModules, modulesAvailable = false }: ActivityBarProps) {
   const signinRef: RefCallback<HTMLDivElement> = useCallback((node) => {
     if (!node || isLoggedIn || !gsiReady || presentationOnly) return;
     if (!isPreview && (window as any).google?.accounts?.id) {
@@ -529,11 +541,13 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
 
   const unavailableSet = useMemo(() => new Set(unavailableKeys), [unavailableKeys]);
   const liveOrder = useMemo(() => {
-    if (availableOrder && availableOrder.length > 0) {
-      return availableOrder.filter((key) => panelByKey.has(key as SidebarPanel) && !unavailableSet.has(key)) as SidebarPanel[];
-    }
-    return order.filter((key) => !unavailableSet.has(key));
-  }, [availableOrder, order, panelByKey, unavailableSet]);
+    const source = availableOrder && availableOrder.length > 0
+      ? availableOrder.filter((key) => panelByKey.has(key as SidebarPanel) && !unavailableSet.has(key))
+      : order.filter((key) => !unavailableSet.has(key));
+    // Hide is a render projection only. presentationOnly never applies it.
+    if (presentationOnly || hiddenSlugs.length === 0) return source as SidebarPanel[];
+    return projectActivityBarOrder(source, hiddenSlugs) as SidebarPanel[];
+  }, [availableOrder, hiddenSlugs, order, panelByKey, presentationOnly, unavailableSet]);
   const unavailableOrdered = useMemo(() => {
     if (unavailableKeys.length === 0) return [] as SidebarPanel[];
     // Preserve caller order; fall back to any remaining unavailable keys present in the catalog.
@@ -633,7 +647,13 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
         {mobile && <span>GitHub</span>}
       </a>
       {isLoggedIn && !forceSignInFooter ? (
-        <UserMenu email={email ?? null} isLoggedIn={isLoggedIn} mobile={!!mobile} onLogout={() => onLogout?.()} />
+        <UserMenu
+          email={email ?? null}
+          isLoggedIn={isLoggedIn}
+          mobile={!!mobile}
+          onLogout={() => onLogout?.()}
+          onOpenModules={modulesAvailable ? onOpenModules : undefined}
+        />
       ) : mobile ? (
         forceSignInFooter ? (
           <a

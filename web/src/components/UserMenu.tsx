@@ -8,9 +8,11 @@ interface UserMenuProps {
   isLoggedIn: boolean;
   mobile: boolean;
   onLogout: () => void;
+  /** Opens the Modules sidebar. Present even when that rail icon is hidden. */
+  onOpenModules?: () => void;
 }
 
-export default function UserMenu({ email, isLoggedIn, mobile, onLogout }: UserMenuProps) {
+export default function UserMenu({ email, isLoggedIn, mobile, onLogout, onOpenModules }: UserMenuProps) {
   const [open, setOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -94,6 +96,18 @@ export default function UserMenu({ email, isLoggedIn, mobile, onLogout }: UserMe
               </svg>
               <span>User info</span>
             </button>
+            {onOpenModules && (
+              <button
+                role="menuitem"
+                onClick={() => { setOpen(false); onOpenModules(); }}
+                className="w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-sol-base03 text-sol-base1 flex items-center gap-2"
+              >
+                <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m7.5 4.27 9 5.15" /><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" /><path d="M3.29 7 12 12l8.71-5" /><path d="M12 22V12" />
+                </svg>
+                <span>Modules</span>
+              </button>
+            )}
             <button
               role="menuitem"
               onClick={() => { setOpen(false); setSettingsOpen(true); }}

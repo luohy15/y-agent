@@ -22,6 +22,12 @@
 import { useEffect, useState } from "react";
 
 const intents = new Map<string, unknown>();
+
+/** Host-internal read of the latched intent, so a new field can be merged
+ * without dropping unrelated focus state already set for the same slug. */
+export function getArtifactIntent(slug: string): unknown {
+  return intents.get(slug);
+}
 const listeners = new Map<string, Set<(intent: unknown) => void>>();
 
 /** Host-internal setter. Not exported through `@y/host` — only built-in host

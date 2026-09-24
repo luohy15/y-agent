@@ -91,6 +91,8 @@ import {
 } from "./host/artifacts";
 import { registerHostCommand } from "./host/commands";
 import { registerArtifactDetailOpener, setArtifactIntent } from "./host/intents";
+import { publishActivityBarVisibility, registerActivityBarVisibilityCommands } from "./host/activityBarVisibilityBridge";
+import { useActivityBarVisibility } from "./hooks/useActivityBarVisibility";
 
 interface VmConfigItem {
   name: string;
@@ -131,6 +133,19 @@ export default function App() {
   } = useSWR<unknown>(auth.isLoggedIn ? `${API}/api/module/list?enabled_only=true` : null, jsonFetcher);
   const uiArtifacts = useMemo(() => modulesFromPayload(uiArtifactsResponse), [uiArtifactsResponse]);
   const mountedUiArtifacts = useMemo(() => mountableUiArtifacts(uiArtifacts), [uiArtifacts]);
+  // The Modules panel lists every module, including disabled rows. Visibility
+  // authorization follows that list, not the enabled-only rail catalog.
+  const { data: moduleListResponse } = useSWR<unknown>(
+    auth.isLoggedIn ? `${API}/api/module/list` : null,
+    jsonFetcher,
+  );
+  const activityBarVisibility = useActivityBarVisibility(auth.isLoggedIn ? auth.email : null);
+  const activityBarVisibilityRef = useRef(activityBarVisibility);
+  activityBarVisibilityRef.current = activityBarVisibility;
+  const authorizedModuleSlugs = useMemo(
+    () => new Set(modulesFromPayload(moduleListResponse).map((artifact) => artifact.slug)),
+    [moduleListResponse],
+  );
   const uiArtifactBySlug = useMemo(
     () => new Map(mountedUiArtifacts.map((artifact) => [artifact.slug, artifact])),
     [mountedUiArtifacts],
@@ -1372,6 +1387,36 @@ export default function App() {
     if (window.innerWidth < 768) setSidebarOpen(false);
   }, [handleOpenFile, handlePreviewFile, defaultWorkDir, handleSelectFeed]);
 
+  const openModulesPanel = useCallback(() => {
+    if (!uiArtifactBySlug.has("module")) return;
+    setSidebarPanel("artifact:module");
+    if (window.innerWidth < 768) {
+      setActivityBarOpen(false);
+      setSidebarOpen(true);
+    } else {
+      setDesktopSidebarOpen(true);
+    }
+  }, [uiArtifactBySlug]);
+
+  useEffect(() => {
+    const current = activityBarVisibilityRef.current;
+    publishActivityBarVisibility(current);
+    return registerActivityBarVisibilityCommands({
+      get hiddenSlugs() { return activityBarVisibilityRef.current.hiddenSlugs; },
+      get loaded() { return activityBarVisibilityRef.current.loaded; },
+      get saving() { return activityBarVisibilityRef.current.saving; },
+      get error() { return activityBarVisibilityRef.current.error; },
+      setSlugVisible: (slug, visible) => activityBarVisibilityRef.current.setSlugVisible(slug, visible),
+      retry: () => activityBarVisibilityRef.current.retry(),
+    }, authorizedModuleSlugs);
+  }, [
+    activityBarVisibility.hiddenSlugs,
+    activityBarVisibility.loaded,
+    activityBarVisibility.saving,
+    activityBarVisibility.error,
+    authorizedModuleSlugs,
+  ]);
+
   useEffect(() => {
     // Todo 3164: tag module result clicks open carrier viewers through the host.
     return registerHostCommand("tag.open", (payload) => {
@@ -1604,6 +1649,9 @@ export default function App() {
           email={auth.email}
           gsiReady={auth.gsiReady}
           onLogout={handleLogout}
+          hiddenSlugs={activityBarVisibility.hiddenSlugs}
+          modulesAvailable={uiArtifactBySlug.has("module")}
+          onOpenModules={openModulesPanel}
         />
         {/* Mobile overlay backdrop (sidebar or activity bar) */}
         {(sidebarOpen || activityBarOpen) && (
@@ -1631,6 +1679,9 @@ export default function App() {
             email={auth.email}
             gsiReady={auth.gsiReady}
             onLogout={handleLogout}
+            hiddenSlugs={activityBarVisibility.hiddenSlugs}
+            modulesAvailable={uiArtifactBySlug.has("module")}
+            onOpenModules={openModulesPanel}
           />
         </div>
         {/* Left: Sidebar (global views) */}
