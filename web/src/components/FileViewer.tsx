@@ -11,9 +11,9 @@ import EnglishView from "./EnglishView";
 import ArtifactView, { type ArtifactMode, type ArtifactType } from "./ArtifactView";
 import ArtifactMount from "../host/ArtifactMount";
 import { artifactLabel as uiArtifactLabel, artifactSlugFromTab, type MountableModule } from "../host/artifacts";
-import { createTabRefreshRegistry, type TabRefreshRegistry } from "../host/tabRefresh";
 import TabRefreshButton from "./shell/TabRefreshButton";
-import { runTabRefresh, scopedTabRefresh, tabRefreshTitle, tabRefreshVisible } from "./shell/tabRefreshState";
+import { tabRefreshTitle, tabRefreshVisible } from "./shell/tabRefreshState";
+import { useTabRefreshChrome } from "./shell/useTabRefreshChrome";
 import { fileDetailContext, type FocusRequest, type OrdinaryFileTab, type TabHistoryMap } from "../utils/fileWorkspace";
 import { closeTabShortcutLabel, isApplePlatform } from "../utils/platform";
 import FileTabStrip, { FileBreadcrumb } from "./shell/FileTabStrip";
@@ -618,14 +618,11 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
   const [mdPreview, setMdPreview] = useState<Record<string, boolean>>({});
-  // One refresh registry and one remount nonce per open module tab (todo 3674,
-  // contract v18). Keyed by tab key, not slug: every open tab stays mounted
-  // while hidden, so a refresh must reach exactly the active tab's subtree.
-  const tabRegistries = useRef<Map<string, TabRefreshRegistry>>(new Map());
-  const [refreshNonces, setRefreshNonces] = useState<Record<string, number>>({});
-  // Spin is per tab. One shared flag would disable a different tab's control
-  // while this one is still finishing.
-  const [refreshingTabs, setRefreshingTabs] = useState<Record<string, boolean>>({});
+  // One refresh registry, remount nonce, and spin flag per open module tab
+  // (todo 3674, contract v18; shared runner extracted for todo 3680). Keyed by
+  // tab key, not slug: every open tab stays mounted while hidden, so a refresh
+  // must reach exactly the active tab's subtree.
+  const tabRefreshChrome = useTabRefreshChrome(openFiles);
   const blobUrls = useRef<Set<string>>(new Set());
   const activeFileName = activeFile?.replace(/^\.\//, "") ?? "";
   const isDiff = !!(activeFile && diffFiles?.has(activeFile));
@@ -637,30 +634,6 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const isEnglishPreview = !isDiff && activeFileName === "english.md";
   const isDev = !isDiff && activeFileName.endsWith("dev.md");
   // C1: host FileViewer no longer fetches ordinary files; only special tabs remain.
-
-  // Drop the registry and nonce of tabs that are no longer open.
-  useEffect(() => {
-    const open = new Set(openFiles);
-    for (const path of tabRegistries.current.keys()) {
-      if (!open.has(path)) tabRegistries.current.delete(path);
-    }
-    setRefreshNonces((prev) => {
-      const stale = Object.keys(prev).filter((path) => !open.has(path));
-      if (stale.length === 0) return prev;
-      const next = { ...prev };
-      for (const path of stale) delete next[path];
-      return next;
-    });
-  }, [openFiles]);
-
-  const registryFor = useCallback((path: string): TabRefreshRegistry => {
-    let registry = tabRegistries.current.get(path);
-    if (!registry) {
-      registry = createTabRefreshRegistry();
-      tabRegistries.current.set(path, registry);
-    }
-    return registry;
-  }, []);
 
   // Clean up blob URLs and cache for closed files (link previews still use cache).
   useEffect(() => {
@@ -719,29 +692,18 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
 
   const hostRefreshable = !!activeFile && !isArtifact && !isUiArtifact && !fileTabs[activeFile];
   const showRefresh = tabRefreshVisible(hostRefreshable, isUiArtifact);
-  const refreshing = !!(activeFile && refreshingTabs[activeFile]);
+  const refreshing = !!activeFile && tabRefreshChrome.isRefreshing(activeFile);
 
   const onRefreshClick = useCallback(() => {
-    if (!activeFile || refreshingTabs[activeFile]) return;
-    const path = activeFile;
+    if (!activeFile || tabRefreshChrome.isRefreshing(activeFile)) return;
     // Legacy special tabs keep their own targeted invalidation; module tabs get
     // the generic two-stage refresh with no module cooperation.
-    const run = hostRefreshable
-      ? () => handleRefresh()
-      : () =>
-          scopedTabRefresh(tabRegistries.current.get(path), () =>
-            setRefreshNonces((prev) => ({ ...prev, [path]: (prev[path] ?? 0) + 1 })),
-          );
-    setRefreshingTabs((prev) => ({ ...prev, [path]: true }));
-    runTabRefresh(run, () => {
-      setRefreshingTabs((prev) => {
-        if (!prev[path]) return prev;
-        const next = { ...prev };
-        delete next[path];
-        return next;
-      });
-    });
-  }, [activeFile, refreshingTabs, hostRefreshable, handleRefresh]);
+    if (hostRefreshable) {
+      tabRefreshChrome.trigger(activeFile, () => handleRefresh());
+    } else {
+      tabRefreshChrome.triggerScoped(activeFile);
+    }
+  }, [activeFile, tabRefreshChrome, hostRefreshable, handleRefresh]);
 
   if (mode === "public") {
     return (
@@ -964,8 +926,8 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                     surface="detail"
                     detailContext={{ active: isActive }}
                     onRolledBack={onUiArtifactRolledBack}
-                    refreshRegistry={registryFor(filePath)}
-                    refreshNonce={refreshNonces[filePath] ?? 0}
+                    refreshRegistry={tabRefreshChrome.registryFor(filePath)}
+                    refreshNonce={tabRefreshChrome.nonceFor(filePath)}
                   />
                 </div>
               ) : fileUiArtifactSlug ? (

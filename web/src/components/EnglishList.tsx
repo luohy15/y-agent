@@ -34,6 +34,9 @@ interface EnglishListProps {
   isLoggedIn: boolean;
   selectedCorrectionId?: string | null;
   onSelectCorrection?: (correctionId: string) => void;
+  // See EntityList's `hideRefreshButton` (todo 3680): hidden when the host
+  // sidebar row above this panel already offers refresh.
+  hideRefreshButton?: boolean;
 }
 
 const STATUS_KEY = "englishListStatus";
@@ -92,6 +95,7 @@ export default function EnglishList({
   isLoggedIn,
   selectedCorrectionId,
   onSelectCorrection,
+  hideRefreshButton,
 }: EnglishListProps) {
   const [status, setStatus] = useState<StatusFilter>(
     () => (localStorage.getItem(STATUS_KEY) as StatusFilter) || "active",
@@ -214,20 +218,22 @@ export default function EnglishList({
               className="flex-1 min-w-0 bg-transparent text-sol-base0 outline-none placeholder:text-sol-base01"
             />
           </div>
-          <button
-            onClick={() => {
-              mutate();
-              setSpinning(true);
-              setTimeout(() => setSpinning(false), 600);
-            }}
-            className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
-            title="Refresh"
-          >
-            <svg className={`w-3.5 h-3.5 ${spinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" />
-              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-            </svg>
-          </button>
+          {!hideRefreshButton && (
+            <button
+              onClick={() => {
+                mutate();
+                setSpinning(true);
+                setTimeout(() => setSpinning(false), 600);
+              }}
+              className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
+              title="Refresh"
+            >
+              <svg className={`w-3.5 h-3.5 ${spinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" />
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+              </svg>
+            </button>
+          )}
         </div>
 
         <div className="flex items-center gap-1 flex-wrap">

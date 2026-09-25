@@ -19,6 +19,9 @@ interface Reminder {
 
 interface ReminderListProps {
   isLoggedIn: boolean;
+  // See EntityList's `hideRefreshButton` (todo 3680): hidden when the host
+  // sidebar row above this panel already offers refresh.
+  hideRefreshButton?: boolean;
 }
 
 type StatusFilter = "pending" | "sent" | "cancelled" | "all";
@@ -246,7 +249,7 @@ function ReminderForm({ form, setForm, onSave, onCancel, onDelete, busy, error }
   );
 }
 
-export default function ReminderList({ isLoggedIn }: ReminderListProps) {
+export default function ReminderList({ isLoggedIn, hideRefreshButton }: ReminderListProps) {
   const [spinning, setSpinning] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => {
     const saved = localStorage.getItem("reminderListStatusFilter");
@@ -386,13 +389,15 @@ export default function ReminderList({ isLoggedIn }: ReminderListProps) {
           >
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           </button>
-          <button
-            onClick={() => { mutate(); setSpinning(true); setTimeout(() => setSpinning(false), 600); }}
-            className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
-            title="Refresh"
-          >
-            <svg className={`w-3.5 h-3.5 ${spinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-          </button>
+          {!hideRefreshButton && (
+            <button
+              onClick={() => { mutate(); setSpinning(true); setTimeout(() => setSpinning(false), 600); }}
+              className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
+              title="Refresh"
+            >
+              <svg className={`w-3.5 h-3.5 ${spinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            </button>
+          )}
         </div>
         <div className="flex gap-1 items-center">
           {filterPills.map((f) => (

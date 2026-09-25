@@ -289,18 +289,21 @@ declare module "@y/host" {
   /** Read the host-only context for this detail mount (generic; shape is host-defined). */
   export function useDetailContext<T = unknown>(): T | null;
 
-  // tabRefresh.ts (contract v18) — tab refresh is generic host logic. Every
-  // module detail tab gets the control unconditionally: the host revalidates
-  // every SWR key the tab subscribes to, then remounts the tab's subtree. A
-  // module registers nothing and cannot opt out. A refresh discards
-  // in-component state for that tab (drafts, scroll, transient expand state),
-  // through the remount and also through a revalidation whose fresh payload
-  // makes the surface swap the editor out; persisted state (localStorage,
-  // user_preference, module-level stores) and every other tab survive.
-  /** Report an unsaved draft in this detail surface. While this is true the
-   * host confirms before it starts a refresh at all, and cancelling leaves
-   * both the revalidation and the remount unstarted. Not a capability gate —
-   * refresh works without it. No-op outside a detail surface. */
+  // tabRefresh.ts (contract v18; extended to `panel` surfaces at v19, todo
+  // 3680) — refresh is generic host logic. Every module detail tab gets the
+  // control unconditionally, and a left-sidebar panel gets it wherever the
+  // host renders a host refresh row above it: the host revalidates every SWR
+  // key the mount subscribes to, then remounts its subtree. A module
+  // registers nothing and cannot opt out. A refresh discards in-component
+  // state for that mount (drafts, scroll, transient expand state), through
+  // the remount and also through a revalidation whose fresh payload makes the
+  // surface swap the editor out; persisted state (localStorage,
+  // user_preference, module-level stores) and every other tab/panel survive.
+  /** Report an unsaved draft in this detail or panel surface. While this is
+   * true the host confirms before it starts a refresh at all, and cancelling
+   * leaves both the revalidation and the remount unstarted. Not a capability
+   * gate — refresh works without it. No-op outside a detail/panel surface, or
+   * where the host renders no refresh chrome for this mount. */
   export function useTabDirty(dirty: boolean): void;
 
   // Superseded v17 registration channel, kept as a documented no-op while v17

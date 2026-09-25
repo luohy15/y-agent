@@ -8,9 +8,9 @@
 //
 // In-shell navigation is local React state and resets on full page load.
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { createTabRefreshRegistry, type TabRefreshRegistry } from "../host/tabRefresh";
+import type { TabRefreshRegistry } from "../host/tabRefresh";
 import TabRefreshButton from "../components/shell/TabRefreshButton";
-import { runTabRefresh, scopedTabRefresh } from "../components/shell/tabRefreshState";
+import { useTabRefreshChrome } from "../components/shell/useTabRefreshChrome";
 import ActivityBar, {
   BUILT_IN_PANEL_ITEMS,
   type SidebarPanel,
@@ -62,6 +62,9 @@ function DemoBadge() {
     </span>
   );
 }
+
+// One registry + remount nonce for the single detail slot (contract v18).
+const DETAIL_REFRESH_KEY = "detail";
 
 function fileTabLabel(path: string): string {
   const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
@@ -117,19 +120,15 @@ export default function DemoShell() {
   const [mobileRightOpen, setMobileRightOpen] = useState(false);
   const leftResizeRef = useRef(false);
   const rightResizeRef = useRef(false);
-  // One registry + remount nonce for the single detail slot (contract v18).
-  const detailRegistry = useRef(createTabRefreshRegistry());
-  const [detailNonce, setDetailNonce] = useState(0);
-  const [detailRefreshing, setDetailRefreshing] = useState(false);
+  // Shared runner extracted for todo 3680.
+  const detailRefreshChrome = useTabRefreshChrome([DETAIL_REFRESH_KEY]);
+  const detailRegistry = detailRefreshChrome.registryFor(DETAIL_REFRESH_KEY);
+  const detailNonce = detailRefreshChrome.nonceFor(DETAIL_REFRESH_KEY);
+  const detailRefreshing = detailRefreshChrome.isRefreshing(DETAIL_REFRESH_KEY);
 
   const onDetailRefresh = useCallback(() => {
-    if (detailRefreshing) return;
-    setDetailRefreshing(true);
-    runTabRefresh(
-      () => scopedTabRefresh(detailRegistry.current, () => setDetailNonce((n) => n + 1)),
-      () => setDetailRefreshing(false),
-    );
-  }, [detailRefreshing]);
+    detailRefreshChrome.triggerScoped(DETAIL_REFRESH_KEY);
+  }, [detailRefreshChrome]);
 
   useEffect(() => {
     let cancelled = false;
@@ -437,7 +436,7 @@ export default function DemoShell() {
               demoKey="todo"
               surface="detail"
               detailContext={todoDetailContext}
-              refreshRegistry={detailRegistry.current}
+              refreshRegistry={detailRegistry}
               refreshNonce={detailNonce}
             />
           </div>

@@ -52,6 +52,9 @@ interface RoutineListProps {
   isLoggedIn: boolean;
   onShowChats?: (routineName: string) => void;
   onShowAllChats?: () => void;
+  // See EntityList's `hideRefreshButton` (todo 3680): hidden when the host
+  // sidebar row above this panel already offers refresh.
+  hideRefreshButton?: boolean;
 }
 
 function targetLabel(r: Routine): string {
@@ -274,7 +277,7 @@ function Field({ label, hint, required, children }: { label: string; hint?: stri
   );
 }
 
-export default function RoutineList({ isLoggedIn, onShowChats, onShowAllChats }: RoutineListProps) {
+export default function RoutineList({ isLoggedIn, onShowChats, onShowAllChats, hideRefreshButton }: RoutineListProps) {
   const [enabledFilter, setEnabledFilter] = useState<EnabledFilter>(() => {
     const saved = localStorage.getItem("routineListEnabledFilter") as EnabledFilter | null;
     return saved === "enabled" || saved === "disabled" || saved === "all" ? saved : "all";
@@ -418,13 +421,15 @@ export default function RoutineList({ isLoggedIn, onShowChats, onShowAllChats }:
           >
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           </button>
-          <button
-            onClick={refresh}
-            className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
-            title="Refresh"
-          >
-            <svg className={`w-3.5 h-3.5 ${spinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-          </button>
+          {!hideRefreshButton && (
+            <button
+              onClick={refresh}
+              className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
+              title="Refresh"
+            >
+              <svg className={`w-3.5 h-3.5 ${spinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            </button>
+          )}
         </div>
         <div className="flex gap-1 items-center">
           {(["all", "enabled", "disabled"] as const).map((f) => (

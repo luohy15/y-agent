@@ -357,6 +357,69 @@ while keeping unsaved edits - strictly better than the generic remount. Giving
 those tabs a second chrome row duplicating path and copy would be a larger
 change with worse refresh semantics.
 
+### Sidebar-panel refresh (todo 3680)
+
+The left sidebar (the activity-rail-selected panel: Links, RSS, Entities,
+Reminders, Routines, English, and any module panel mounted there) gets the same
+explicit-refresh affordance as a centre tab, scoped narrowly:
+
+- **Selected panel, not the rail.** The control refreshes the currently
+  selected sidebar panel's own reads. It does not rediscover the module
+  registry, touch unrelated unread/badge state, mark anything read, restart
+  SSE, or invalidate the whole SWR cache. The activity rail itself (desktop or
+  its separate mobile drawer) gets no new control.
+- **One row, reused.** The control sits in the same host row already used for
+  a module panel's "Open … full view" action, trailing that action when it
+  exists. A built-in panel with no such action (Links, RSS, Entities,
+  Reminders, Routines, English) gets a compact label plus the same trailing
+  control in that row, rather than a second row.
+- **Same runner, isolated state.** Sidebar chrome shares the exact
+  invocation/minimum-spin/duplicate-click-guard runner the centre tab
+  mechanism uses (`useTabRefreshChrome`, extracted from the todo 3674
+  FileViewer implementation so centre tabs, the sidebar, and the demo shell's
+  detail slot all run one primitive). The sidebar's registry and remount nonce
+  are keyed by panel identity plus account, are entirely separate from any
+  centre tab's or the right drawer's, and are reset when the selected panel or
+  the signed-in account changes - never by a refresh click, and never by the
+  previously selected panel's late-completing request.
+- **Built-in owners register nothing new, and get stage 1 only.** Each
+  built-in panel already reads through `useSWR`; wrapping the sidebar body in
+  the same registry-tracking SWR config the centre tab mechanism uses is
+  enough for a panel's own bound `mutate` to be recorded automatically. Unlike
+  a centre tab or a module panel, the sidebar control for these six panels
+  runs **stage 1 only** (revalidate, no remount): each one keeps load-bearing
+  local React state (loaded pages, an active search, an open create/edit
+  form) that a remount would silently discard, and being host code they have
+  no draft-guard escape hatch of their own - a module tab can opt into
+  `useTabDirty`, a host built-in cannot ask itself for permission. Since
+  `useSWR`'s bound mutate is what actually refetches (see *Explicit refresh:
+  scoped revalidation, then a scoped remount*), stage 1 alone reproduces
+  exactly what the retired per-panel button did, at zero cost to that state.
+  Each such panel's separate in-panel refresh button (Links, RSS, Entities,
+  Reminders, and Routines all shipped one) is retired only where it
+  duplicates the new host-owned control - the same instance rendered in the
+  centre tab or the public trace view keeps its own button, because those
+  mounts render no sidebar refresh row.
+- **The module-panel host half ships in this slice; per-module adoption does
+  not.** The wrapping that makes a panel's SWR mutates trackable is host code
+  (`ArtifactMount`'s `surface="panel"` branch, mirrored in the public demo's
+  `DemoMount`), ships as browser contract **v19** (see *Contract and delivery
+  shape*, and the version ledger in [module-system](module-system.md)), and is
+  actually wired: the host's own module-panel mount
+  (`App.tsx`'s `sidebarArtifact` branch) passes a real per-panel registry and
+  nonce into `ArtifactMount`, and a module panel that already renders its own
+  "Open ... full view" row gets a trailing refresh control on that same row
+  unconditionally - the same "every module tab gets it, no cooperation
+  required" default the centre tab mechanism already applies, including the
+  two-stage revalidate-then-remount. This is deliberately *not* the built-in
+  panels' behavior (see the bullet above): a module may opt into `useTabDirty`
+  as its own guard, the same way a centre detail tab can. What is **not** in
+  this slice: a compact label row for a module panel with no detail surface to
+  open (it renders no host row at all here), and any per-module adoption work
+  - retiring a module's own duplicate in-panel button and declaring
+  `min_host_version: 19` - which is separate work in the module repository,
+  now unblocked because the host half is live.
+
 ### Contract and delivery shape
 
 - The generic mechanism itself needs no contract export: it is host chrome plus
@@ -368,6 +431,12 @@ change with worse refresh semantics.
   network access, so both are demo-safe; omitting either from the allowlist
   would make the public demo throw once a module published against them loads
   there.
+- Extending the same mechanism's registry/middleware wrapping to
+  `surface="panel"` mounts (todo 3680) bumps the contract again, **18 to 19**,
+  across the same set of files. No new export: the bump documents that the
+  host now performs the wrapping on a panel mount at all, so a module
+  requiring it declares `min_host_version: 19` rather than assuming an older
+  host's panel surface already behaves this way.
 - v17's `useTabRefresh` is kept as a documented no-op rather than deleted,
   because the module versions that call it (tag v20, todo v26, bot v49) stay
   rollback-reachable. Deleting it is a follow-up for when they are not.
@@ -455,12 +524,19 @@ is the user's step, not an agent's.
   defaults.
 - **Module bundle or server-side response caching, and payload trimming.**
   Different problem, different feature.
-- **Refresh controls on left-rail panel surfaces.** The tab-chrome contract
-  reaches centre tabs only.
+- **Refresh controls on the activity rail itself**, desktop or its separate
+  mobile drawer. As of todo 3680 the selected sidebar *panel* is in scope (see
+  *Sidebar-panel refresh*); rediscovering the module registry or any other
+  rail-level chrome is not.
 - **The File module's own header refresh on ordinary file tabs**, and the
-  refresh controls on surfaces the tab chrome does not reach (left-rail panels,
-  the chat shell). Module view-refresh buttons on centre detail tabs are
-  retired by this feature, not deferred.
+  refresh controls on surfaces neither the tab-chrome nor the sidebar-panel
+  mechanism reaches (the right drawer, the chat shell). Module view-refresh
+  buttons on centre detail tabs are retired by this feature, not deferred.
+- **Per-module sidebar-panel adoption** (retiring a module's own duplicate
+  in-panel button, adding a `useTabDirty` guard, declaring
+  `min_host_version: 19`) - the host half, including the row itself, ships
+  with this feature; the module-side work is separate, in the module
+  repository (todo 3680 sub-task S5).
 - **Migrating the host's five legacy special tabs onto the same registry
   mechanism.** They keep their existing targeted invalidation behind the same
   control.
@@ -484,3 +560,4 @@ is the user's step, not an agent's.
 |------|---------|--------|------|-----------|--------|--------|
 | 3519 | Host per-tab active signal through the existing detail-context channel, plus a Bot-owned real-key visibility policy for the rate and limit-window reads (suppress polling / focus / reconnect / automatic retry while hidden, one owner per resource, one explicit refresh on activation). No contract bump. | - | `pages/plan-3519-web-refresh-policy.md` (superseded by the decision note; retained as the audit of the rejected generic gate) | `pages/decision-3519-explicit-surface-refresh.md` (approved replacement); `pages/impl-3519-bot-visibility.md` (both-artifact implementation inventory) | `pages/review-3519-surface-visibility.md` (round 4 approve); `pages/investigation-3519-bot-v38-digest.md` (published-byte equivalence of the active Bot version) | shipped: host `369dd50`, Deploy Web run 34733872345 success; Bot module v38 active from `fe26e45` |
 | 3674 | Generic host-owned tab refresh on every module detail tab, with no module opt-in: the host wraps each detail mount in a per-tab registry plus an SWR middleware that records each mounted hook's bound `mutate`, then refreshes in two stages (revalidate every key the tab subscribes to, await, then remount that tab's subtree via a nonce on the render boundary). `@y/host` v18 adds `useTabDirty(dirty)` as a draft guard before the remount and reduces v17's `useTabRefresh` to a documented no-op kept for rollback-reachable module versions. Retires the Tag, Todo, Bot, Email and Eat in-tab view-refresh buttons (Household never had one; Finance is documentation-only); keeps the Bot spend sync, the Bot limit-window retry, Finance's ledger re-read and the File module's header refresh as separate domain actions. | - | `pages/plan-3674-fileviewer-tab-refresh.md` (revision 3) | This PRD; `pages/impl-3674-host-tab-refresh.md`; `pages/impl-3674-module-tab-refresh.md` | `pages/review-3674-tab-refresh-contract.md` (round 5 approve for revision 3; rounds 1-3 approved only the superseded v17 candidate) | revision 3 reviewed and approved (round 5); the v17 registration design shipped as `265599a` and was rejected by Roy, so its publication authorization does not carry over; host baseline `265599a`, module baseline `f4d07e1`; candidates frozen, integration, web deploy and the tag/todo/bot/calendar/email/eat module publishes pending |
+| 3680 | Extends explicit refresh to the selected left-sidebar panel (scope A: no activity-rail change). Extracts the 3674 invocation/minimum-spin/duplicate-click runner into `useTabRefreshChrome`, shared by centre tabs, the sidebar, and the demo shell's detail slot. Adds a host refresh row above the selected panel (trailing an existing "Open … full view" action, or a new compact label row when none exists), with its own registry/nonce keyed by panel identity plus account. Wires the built-in Links, RSS, Entities, Reminders, Routines and English panels onto it (stage-1 revalidate only, no remount, since these host components hold local state a remount would destroy and have no draft-guard escape hatch), retiring each one's own in-panel refresh button only in the sidebar mount. Extends `ArtifactMount`'s (and the public demo's `DemoMount`'s) `surface="panel"` branch to wrap in the same registry/SWR-tracking config as `detail`, bumping `@y/host` **v18 → v19**, and wires it live: the host's own module-panel mount passes a real registry/nonce into `ArtifactMount` and adds a trailing refresh control to a module panel's existing "Open … full view" row, running the full two-stage refresh (module may opt into `useTabDirty`); no new export. | - | `pages/plan-3680-sidebar-refresh.md` | This PRD | `pages/review-3680-sidebar-refresh.md` (round 1 request-changes, both findings fixed in round 2; round 2 request-changes on F3 - the module-panel two-stage refresh has no `useTabDirty` guard on any shipped module yet - resolved by publication ordering: land the `bot` and `file` module `useTabDirty` adoption before the host v19 deploy, the same sequencing todo 3674 used for its own detail-tab remount) | host slice (shared runner, sidebar chrome, built-in wiring at stage-1-only, module-panel host wiring, `ArtifactMount`/`DemoMount` v19 panel capability, this PRD/SDK/ledger update) implemented in the `sidebar-refresh-3680` worktree, pending re-review and commit; module-panel *adoption* (sub-task S5: `useTabDirty` guard on `bot`/`file` panels at minimum, retire a module's own duplicate button, stamp `min_host_version: 19`) is separate work in a `y-module` worktree, gates the host v19 deploy |

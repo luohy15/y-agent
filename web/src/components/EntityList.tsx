@@ -14,9 +14,13 @@ interface EntityListProps {
   isLoggedIn: boolean;
   selectedEntityId?: string | null;
   onSelectEntity?: (entityId: string) => void;
+  // Set by the host sidebar mount (todo 3680): the host's own refresh row
+  // above this panel now revalidates it, so the panel's own duplicate button
+  // is hidden there. Other mounts (centre tab, public trace, standalone) keep it.
+  hideRefreshButton?: boolean;
 }
 
-export default function EntityList({ isLoggedIn, selectedEntityId, onSelectEntity }: EntityListProps) {
+export default function EntityList({ isLoggedIn, selectedEntityId, onSelectEntity, hideRefreshButton }: EntityListProps) {
   const [typeFilter, setTypeFilter] = useState<string>(() => localStorage.getItem("entityListType") || "");
   const [search, setSearch] = useState("");
   const [spinning, setSpinning] = useState(false);
@@ -61,13 +65,15 @@ export default function EntityList({ isLoggedIn, selectedEntityId, onSelectEntit
             onChange={(e) => setSearch(e.target.value)}
             className="y-field flex-1 min-w-0 px-2 py-1 rounded"
           />
-          <button
-            onClick={() => { mutate(); setSpinning(true); setTimeout(() => setSpinning(false), 600); }}
-            className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
-            title="Refresh"
-          >
-            <svg className={`w-3.5 h-3.5 ${spinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-          </button>
+          {!hideRefreshButton && (
+            <button
+              onClick={() => { mutate(); setSpinning(true); setTimeout(() => setSpinning(false), 600); }}
+              className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
+              title="Refresh"
+            >
+              <svg className={`w-3.5 h-3.5 ${spinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            </button>
+          )}
         </div>
         {types.length > 0 && (
           <div className="flex gap-1 flex-wrap">

@@ -208,14 +208,16 @@ interface ArtifactMountProps {
   // Contract v8: host-only per-detail-mount context, exposed through
   // `useDetailContext()` on surface="detail". Ignored on panel/shell.
   detailContext?: unknown;
-  // Contract v18: the host tab's refresh registry. Every SWR hook mounted in
-  // this detail subtree records its bound `mutate` here, so refresh is generic
-  // and needs no module cooperation. Ignored on panel/shell; null when the
-  // mount has no tab chrome (ordinary file tabs keep the File module's own
-  // header control -- plan decision D-A).
+  // Contract v18 (detail), extended to `panel` at contract v19 (todo 3680):
+  // the host tab/panel's refresh registry. Every SWR hook mounted in this
+  // subtree records its bound `mutate` here, so refresh is generic and needs
+  // no module cooperation. Ignored on shell; null when the mount has no
+  // refresh chrome (ordinary file tabs keep the File module's own header
+  // control -- plan decision D-A; a panel mount with no host refresh row
+  // simply gets no registry).
   refreshRegistry?: TabRefreshRegistry | null;
-  // Contract v18 stage 2: bumped by the host to remount this detail subtree,
-  // reaching state a revalidation cannot (plain `useEffect` fetches).
+  // Stage 2: bumped by the host to remount this subtree, reaching state a
+  // revalidation cannot (plain `useEffect` fetches).
   refreshNonce?: number;
 }
 
@@ -357,7 +359,19 @@ export default function ArtifactMount({
     </div>
   );
   if (surface === "panel") {
-    return <PanelLocationProvider value={panelLocation ?? "left"}>{body}</PanelLocationProvider>;
+    return (
+      <PanelLocationProvider value={panelLocation ?? "left"}>
+        {/* Contract v19 (todo 3680): the same registry/tracking wrapper as a
+            detail mount, so a left-sidebar panel's bound SWR mutates are
+            recorded whenever the host renders it under refresh chrome. A
+            caller that passes no registry (or an older host without this
+            branch) leaves the module byte-for-byte unaffected: `registry` is
+            null and the middleware is a pass-through. */}
+        <TabRefreshRegistryProvider registry={refreshRegistry ?? null}>
+          <SWRConfig value={TAB_REFRESH_SWR_CONFIG}>{body}</SWRConfig>
+        </TabRefreshRegistryProvider>
+      </PanelLocationProvider>
+    );
   }
   if (surface === "detail") {
     return (

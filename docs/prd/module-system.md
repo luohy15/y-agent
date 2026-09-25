@@ -1136,7 +1136,15 @@ payload no longer contains the edited record destroys the draft just as a
 remount does. It is a guard, not a capability gate. Both hooks are pure state with no network
 access, so both are on the public demo's allowlist; a module published at v18
 refuses to mount on an older host. Requirements and which per-module buttons
-move live in [web-refresh-policy](web-refresh-policy.md). The rule of thumb: **the module owns everything that
+move live in [web-refresh-policy](web-refresh-policy.md). Browser contract
+**v18 → v19** (todo 3680) extends the same registry/middleware wrapping to
+`surface="panel"` mounts: a left-sidebar panel rendered under the host's own
+panel refresh row gets its bound SWR mutates recorded and can call the
+existing `useTabDirty(dirty)` exactly as a detail tab does. No new export —
+the guarantee is that the host actually performs the wrapping for a panel
+mount, so a module that depends on it declares `min_host_version: 19` rather
+than assuming an older host's panel mount already behaves this way. The rule
+of thumb: **the module owns everything that
 decides what a message looks like; the host owns every leaf measured in
 megabytes.**
 

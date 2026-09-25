@@ -255,9 +255,13 @@ interface LinkListProps {
   // Injected-data path (public trace projection): when `items` is supplied the list
   // renders presentationally with no self-fetch; clicking a row link-outs to the URL.
   items?: Link[];
+  // See EntityList's `hideRefreshButton` (todo 3680): hidden only for the
+  // sidebar mount, which the host's own refresh row now covers. The centre
+  // "links.md" tab and other mounts keep their own button.
+  hideRefreshButton?: boolean;
 }
 
-export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFilters, refreshKey, items }: LinkListProps) {
+export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFilters, refreshKey, items, hideRefreshButton }: LinkListProps) {
   const [filter, setFilter] = useState<FilterState>(loadFilter);
   const [rangeExpanded, setRangeExpanded] = useState<boolean>(filter.mode === "range");
   const [downloadedOnly, setDownloadedOnly] = useState(() => localStorage.getItem("linkListDownloaded") === "true");
@@ -434,13 +438,15 @@ export default function LinkList({ isLoggedIn, onPreview, todoId, feedId, hideFi
               onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
               className="y-field flex-1 px-2 py-1 rounded"
             />
-            <button
-              onClick={() => { mutate(); setSpinning(true); setTimeout(() => setSpinning(false), 600); }}
-              className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
-              title="Refresh"
-            >
-              <svg className={`w-3.5 h-3.5 ${spinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-            </button>
+            {!hideRefreshButton && (
+              <button
+                onClick={() => { mutate(); setSpinning(true); setTimeout(() => setSpinning(false), 600); }}
+                className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
+                title="Refresh"
+              >
+                <svg className={`w-3.5 h-3.5 ${spinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              </button>
+            )}
           </div>
           <div className="flex gap-1 items-center">
             {(["today", "7d", "30d", "all"] as const).map((c) => {

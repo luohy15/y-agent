@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router";
-import useSWR from "swr";
+import useSWR, { SWRConfig } from "swr";
 import { useAuth } from "./hooks/useAuth";
 import { useUserPreference } from "./hooks/useUserPreference";
 import { API, authFetch, jsonFetcher } from "./api";
@@ -12,6 +12,9 @@ import RightActivityBar from "./components/RightActivityBar";
 import { buildChatPanelItem, buildFilePanelItem, buildNotePanelItem, resolveRightPanel, restoreRightPanel, type PanelItem } from "./components/panelCatalog";
 import DesktopHeaderBar from "./components/shell/DesktopHeaderBar";
 import CentreModeTabs from "./components/shell/CentreModeTabs";
+import TabRefreshButton from "./components/shell/TabRefreshButton";
+import { useTabRefreshChrome } from "./components/shell/useTabRefreshChrome";
+import { TAB_REFRESH_SWR_CONFIG, TabRefreshRegistryProvider } from "./host/tabRefresh";
 import CommandPalette, { CommandAction } from "./components/CommandPalette";
 import TerminalView from "./components/TerminalView";
 import LinkList from "./components/LinkList";
@@ -113,6 +116,17 @@ interface BotConfigItem {
 // (selection now lives in the Todo module detail). Public `/t/:shareId`
 // keeps its own permanent tab and is not in this set.
 const RETIRED_TABS = new Set(["bot.md", "calendar.md", "todo.md", "trace.md", "email.md"]);
+
+// Built-in sidebar panels with no "Open ... full view" action of their own
+// (todo 3680): the host refresh row shows this label instead.
+const BUILT_IN_SIDEBAR_PANEL_LABELS: Partial<Record<SidebarPanel, string>> = {
+  links: "Links",
+  rss: "RSS",
+  entity: "Entities",
+  reminder: "Reminders",
+  routine: "Routines",
+  english: "English",
+};
 
 // Round-2 gap closure (plan-3046-right-sidebar.md R1) + module cuts: exactly
 // four right categories. Chat, Notes, and Files resolve dynamically; Diff stays
@@ -254,6 +268,11 @@ export default function App() {
     ) as SidebarPanel;
     return BUILT_IN_PANEL_ITEMS.some((panel) => panel.key === saved) || saved?.startsWith("artifact:") ? saved : "artifact:todo";
   });
+  // Left-sidebar panel refresh (todo 3680, scope A: selected panel, not the
+  // rail). Keyed by panel identity plus account so switching panels or
+  // signing in as someone else starts a clean registry/nonce, never a click.
+  const sidebarRefreshKey = `${sidebarPanel}::${auth.email ?? ""}`;
+  const sidebarRefreshChrome = useTabRefreshChrome([sidebarRefreshKey]);
   const [diffFiles, setDiffFiles] = useState<Set<string>>(new Set());
   const [chatWorkDir, setChatWorkDir] = useState<string | null>(null);
   const [chatTopic, setChatTopic] = useState<string | null>(null);
@@ -1704,7 +1723,17 @@ export default function App() {
                   ? { path: artifactTabKey(sidebarArtifact.slug), label: `Open ${artifactLabel(sidebarArtifact)} full view` }
                   : undefined)
               : panelFileMap[sidebarPanel];
-            const body =
+            // Host refresh row label for a built-in panel with no "Open ...
+            // full view" action of its own (todo 3680).
+            const builtInRefreshLabel = sidebarArtifact ? undefined : BUILT_IN_SIDEBAR_PANEL_LABELS[sidebarPanel];
+            // A module panel's own "Open ... full view" row gets a trailing
+            // refresh control too (contract v19 host half): the registry and
+            // nonce are supplied unconditionally below, so any module that
+            // adopts the mechanism (or already reads through plain `useSWR`)
+            // gets it revalidated/remounted the same way a centre detail tab
+            // does; the module may opt into `useTabDirty` as its own guard.
+            const isModulePanelFile = !!sidebarArtifact && !!panelFile;
+            const rawBody =
               sidebarArtifact ? (
                 <div className="h-full overflow-auto" data-ui-artifact-sidebar={sidebarArtifact.slug}>
                   <ArtifactMount
@@ -1718,19 +1747,22 @@ export default function App() {
                     onDetailAvailable={(hasDetail) => setUiArtifactHasDetail((prev) => (
                       prev[sidebarArtifact.slug] === hasDetail ? prev : { ...prev, [sidebarArtifact.slug]: hasDetail }
                     ))}
+                    refreshRegistry={sidebarRefreshChrome.registryFor(sidebarRefreshKey)}
+                    refreshNonce={sidebarRefreshChrome.nonceFor(sidebarRefreshKey)}
                   />
                 </div>
               ) : sidebarPanel === "links" ? (
-                <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkLinkId(null); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); }} />
+                <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkLinkId(null); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); }} hideRefreshButton />
               ) : sidebarPanel === "rss" ? (
-                <RssFeedList isLoggedIn={auth.isLoggedIn} onSelectFeed={handleSelectFeed} selectedFeedId={selectedFeedId} />
+                <RssFeedList isLoggedIn={auth.isLoggedIn} onSelectFeed={handleSelectFeed} selectedFeedId={selectedFeedId} hideRefreshButton />
               ) : sidebarPanel === "entity" ? (
-                <EntityList isLoggedIn={auth.isLoggedIn} selectedEntityId={selectedEntityId} onSelectEntity={(id) => { setSelectedEntityId(id); handleOpenFile("entity.md"); }} />
+                <EntityList isLoggedIn={auth.isLoggedIn} selectedEntityId={selectedEntityId} onSelectEntity={(id) => { setSelectedEntityId(id); handleOpenFile("entity.md"); }} hideRefreshButton />
               ) : sidebarPanel === "reminder" ? (
-                <ReminderList isLoggedIn={auth.isLoggedIn} />
+                <ReminderList isLoggedIn={auth.isLoggedIn} hideRefreshButton />
               ) : sidebarPanel === "routine" ? (
                 <RoutineList
                   isLoggedIn={auth.isLoggedIn}
+                  hideRefreshButton
                   onShowChats={(routineName) => {
                     setChatListRoutineName(routineName);
                     setChatListRoutineOnly(false);
@@ -1762,15 +1794,33 @@ export default function App() {
                     setSelectedCorrectionId(id);
                     handleOpenFile("english.md");
                   }}
+                  hideRefreshButton
                 />
               ) : null;
+            // Built-in panels register their own bound SWR mutates via the
+            // same registry-tracking config the centre tab mechanism uses
+            // (todo 3680), but the sidebar control only revalidates them
+            // (stage 1): these are host-authored components with load-bearing
+            // local state (pagination, filters, an open form) and no way to
+            // opt into the module-facing `useTabDirty` guard, so a remount
+            // would silently destroy that state for no additional benefit
+            // (they all read through `useSWR`, which stage 1 alone refetches).
+            // `sidebarRefreshChrome`'s nonce for this key is deliberately
+            // never bumped on this branch (only `triggerRevalidateOnly` runs
+            // here, never `triggerScoped`); it exists only because the same
+            // per-key chrome instance is shared with the module-panel branch.
+            const body = builtInRefreshLabel ? (
+              <TabRefreshRegistryProvider registry={sidebarRefreshChrome.registryFor(sidebarRefreshKey)}>
+                <SWRConfig value={TAB_REFRESH_SWR_CONFIG}>{rawBody}</SWRConfig>
+              </TabRefreshRegistryProvider>
+            ) : rawBody;
             return (
               <div className="flex flex-col h-full min-h-0">
-                {panelFile && (
-                  <div className="p-2 border-b border-sol-base02 shrink-0">
+                {panelFile ? (
+                  <div className="p-2 border-b border-sol-base02 shrink-0 flex items-center">
                     <button
                       onClick={() => handleOpenFile(panelFile.path)}
-                      className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded text-xs text-sol-base1 bg-sol-base02 hover:bg-sol-base01/20 cursor-pointer"
+                      className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded text-xs text-sol-base1 bg-sol-base02 hover:bg-sol-base01/20 cursor-pointer"
                       title={panelFile.label}
                     >
                       <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1778,8 +1828,26 @@ export default function App() {
                       </svg>
                       <span>{panelFile.label}</span>
                     </button>
+                    {isModulePanelFile && auth.isLoggedIn && (
+                      <TabRefreshButton
+                        title="Refresh"
+                        spinning={sidebarRefreshChrome.isRefreshing(sidebarRefreshKey)}
+                        onClick={() => sidebarRefreshChrome.triggerScoped(sidebarRefreshKey)}
+                      />
+                    )}
                   </div>
-                )}
+                ) : builtInRefreshLabel ? (
+                  <div className="px-2 py-1.5 border-b border-sol-base02 shrink-0 flex items-center justify-between">
+                    <span className="text-xs text-sol-base01">{builtInRefreshLabel}</span>
+                    {auth.isLoggedIn && (
+                      <TabRefreshButton
+                        title="Refresh"
+                        spinning={sidebarRefreshChrome.isRefreshing(sidebarRefreshKey)}
+                        onClick={() => sidebarRefreshChrome.triggerRevalidateOnly(sidebarRefreshKey)}
+                      />
+                    )}
+                  </div>
+                ) : null}
                 <div className="flex-1 min-h-0 overflow-hidden">
                   <ErrorBoundary label="Panel">{body}</ErrorBoundary>
                 </div>

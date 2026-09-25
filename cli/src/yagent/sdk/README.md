@@ -72,7 +72,13 @@ the control unconditionally, the host revalidates the SWR keys that tab
 subscribes to and then remounts its subtree, and a module registers nothing.
 `useTabDirty(dirty)` only asks the host to confirm before a refresh would
 discard a draft; cancelling leaves both stages unstarted. The v17 `useTabRefresh` registration is a documented no-op kept
-for rollback-reachable module versions. See `docs/prd/module-system.md`, *The `shell`
+for rollback-reachable module versions. Contract v19 extends the same
+mechanism to `surface="panel"` mounts (the left sidebar, todo 3680): a module
+panel with its own "Open ... full view" host row gets a trailing refresh
+control on that row, unconditionally, the same as a detail tab - its bound SWR
+mutates are recorded the same way and `useTabDirty` works there too. No new
+export; a module that wants the guarantee declares `min_host_version: 19`.
+See `docs/prd/module-system.md`, *The `shell`
 surface and the renderer seam*, before bundling anything heavy into a module.
 Public demo composition and isolation rules live in
 `docs/prd/public-module-demos.md`.

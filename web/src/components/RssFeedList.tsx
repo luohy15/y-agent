@@ -38,6 +38,9 @@ interface RssFeedListProps {
   isLoggedIn: boolean;
   onSelectFeed?: (feedId: string, label: string) => void;
   selectedFeedId?: string | null;
+  // See EntityList's `hideRefreshButton` (todo 3680): hidden when the host
+  // sidebar row above this panel already offers refresh.
+  hideRefreshButton?: boolean;
 }
 
 function getDomain(url: string): string {
@@ -58,7 +61,7 @@ function formatRelative(iso?: string): string {
   return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
-export default function RssFeedList({ isLoggedIn, onSelectFeed, selectedFeedId }: RssFeedListProps) {
+export default function RssFeedList({ isLoggedIn, onSelectFeed, selectedFeedId, hideRefreshButton }: RssFeedListProps) {
   const [urlInput, setUrlInput] = useState("");
   const [contextMenu, setContextMenu] = useState<{ feed: RssFeed; x: number; y: number } | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
@@ -181,13 +184,15 @@ export default function RssFeedList({ isLoggedIn, onSelectFeed, selectedFeedId }
             onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
             className="y-field flex-1 min-w-0 px-2 py-1 rounded"
           />
-          <button
-            onClick={() => { mutate(); setSpinning(true); setTimeout(() => setSpinning(false), 600); }}
-            className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
-            title="Refresh"
-          >
-            <svg className={`w-3.5 h-3.5 ${spinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-          </button>
+          {!hideRefreshButton && (
+            <button
+              onClick={() => { mutate(); setSpinning(true); setTimeout(() => setSpinning(false), 600); }}
+              className="px-1.5 py-1 bg-sol-base02 border border-sol-base01 rounded text-sol-base01 hover:text-sol-base0 hover:border-sol-base0 transition-colors cursor-pointer"
+              title="Refresh"
+            >
+              <svg className={`w-3.5 h-3.5 ${spinning ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            </button>
+          )}
         </div>
         <div className="flex gap-1.5">
           <select

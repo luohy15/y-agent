@@ -51,7 +51,8 @@ export interface DemoMountProps {
   surface?: "panel" | "detail" | "shell";
   panelLocation?: "left" | "right";
   detailContext?: unknown;
-  // Contract v18: same generic tab refresh as the authenticated host.
+  // Contract v18 (detail) / v19 (panel): same generic refresh as the
+  // authenticated host.
   refreshRegistry?: TabRefreshRegistry | null;
   refreshNonce?: number;
 }
@@ -134,7 +135,15 @@ export default function DemoMount({
     </div>
   );
   if (surface === "panel") {
-    return <PanelLocationProvider value={panelLocation ?? "left"}>{body}</PanelLocationProvider>;
+    // Contract v19 (todo 3680): mirrors ArtifactMount's panel wrapping so the
+    // public demo's left-sidebar slot behaves the same as production.
+    return (
+      <PanelLocationProvider value={panelLocation ?? "left"}>
+        <TabRefreshRegistryProvider registry={refreshRegistry ?? null}>
+          <SWRConfig value={TAB_REFRESH_SWR_CONFIG}>{body}</SWRConfig>
+        </TabRefreshRegistryProvider>
+      </PanelLocationProvider>
+    );
   }
   if (surface === "detail") {
     return (
