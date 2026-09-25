@@ -52,15 +52,20 @@ refreshes that resource once. Real keys, cached data, errors, and mutations are
 never substituted, so nothing on the surface is lost by hiding it. Adoption is
 per resource and per module, never a blanket host promise.
 
-**Explicit refresh is host-owned tab chrome.** The centre tab's breadcrumb row
-carries at most one refresh control, in the same place with the same icon and
-the same spinner for every tab kind. For the host's own special tabs the host
-refreshes its data directly. For a module detail tab, the module registers a
-refresh handler through the `@y/host` browser contract and the host renders the
-control only if a handler was registered - so the button exists exactly when it
-works. The host owns placement, icon, spinner and invocation; the module owns
-what refresh means and supplies the hover title. Per-module refresh buttons that
-duplicate this affordance are retired.
+**Explicit refresh is generic host-owned tab chrome.** The centre tab's
+breadcrumb row carries at most one refresh control, in the same place with the
+same icon and the same spinner for every tab kind, and a module does nothing to
+get it. For the host's own special tabs the host refreshes its data directly.
+For every module detail tab the host runs one generic two-stage refresh: it
+revalidates every SWR key that tab's subtree currently subscribes to, then
+remounts that tab's subtree. Stage 1 reaches shared cached data without
+discarding anything; stage 2 reaches state no cache write can reach, such as a
+surface that fetches in a plain effect. Refresh therefore works in every
+internal view of every module, including views nobody thought to wire up. A
+module owns only two things: whether it has an unsaved draft the remount would
+discard, and any *domain* action (an upstream sync, a ledger re-read) that is
+not a view refresh and keeps its own control. Per-module view-refresh buttons
+that duplicate the tab affordance are retired.
 
 The two halves are deliberately separate mechanisms: one is about not fetching
 data nobody is reading, the other is about fetching on demand. They share only
@@ -124,37 +129,44 @@ this document.
 16. As a web user, I want the control absent on a tab with nothing to refresh -
     an inline chart, diagram, or SVG artifact tab - so that the chrome does not
     offer a meaningless action.
-17. As a web user, I want the control absent on a module tab whose surface has
-    not registered a refresh handler, so that I never click a button that does
-    nothing.
+17. As a web user, I want the control present and working on every module tab
+    by default, whether or not that module did anything to enable it, so that
+    refresh is a property of the app rather than a per-module feature I have to
+    discover the absence of.
 18. As a web user, I want visible spinner feedback for the duration of the
     refresh, with a minimum visible spin, so that a fast refresh still reads as
     having happened.
-19. As a web user, I want the control's hover title to say what this tab's
-    refresh actually does, supplied by the surface when its semantics are
-    specific rather than a generic "refresh".
-20. As a module author, I want to register a refresh handler from my detail
-    surface and have the host render the control, so that I stop shipping and
-    styling my own button.
-21. As a module author, I want registration scoped to my tab, so that my hidden
-    but still-mounted surface cannot hijack the active tab's refresh control.
-22. As a module author, I want my registration removed when my surface
-    unmounts, so that closing the tab removes the control with it.
-23. As a module author, I want the registration hook to be a safe no-op where
-    the host renders no tab chrome - a panel surface, the demo shell without
-    the channel - so that one component can be used in both places.
-24. As a module author, I want the host to own the spinner by awaiting my
-    handler's promise, so that I delete my local spin state and timers instead
-    of reimplementing them.
-25. As a web user on the Tag detail tab, I want its refresh to move to the tab
-    chrome with unchanged behavior: revalidate the tag's results.
-26. As a web user on the Todo tab, I want the list refresh to move to the tab
-    chrome with unchanged behavior: revalidate the list without losing mode,
-    filters, selection, sort, or already-loaded pages.
-27. As a web user on the Bot usage view, I want the tab-chrome control to keep
-    performing the existing spend sync from the relay and then revalidate, with
-    a title that says so, and to be offered only while the usage view is the
-    shown view.
+19. As a web user, I want one predictable hover title - "Refresh" on a module
+    tab, "Refresh file" on a host special tab - because refresh now means the
+    same thing on every module tab and a per-surface wording would imply a
+    per-surface behavior that no longer exists.
+20. As a module author, I want to ship no refresh code at all - no hook call,
+    no handler, no button, no spin state - and still have my tab refresh
+    correctly, so that a new module surface cannot ship without the affordance.
+21. As a module author, I want refresh scoped to the refreshed tab's own
+    subtree: only the keys that tab subscribes to are refetched, and my hidden
+    but still-mounted surface is neither refreshed nor able to hijack the
+    active tab's control. A tab that happens to share a key with the refreshed
+    one receives the fresh data without issuing a second request.
+22. As a module author, I want the host to drop a tab's refresh state when the
+    tab closes, so that reopening it starts clean.
+23. As a module author, I want the mechanism inert where the host renders no
+    tab chrome - a panel surface, a mount with no registry - so that one
+    component can be used in both places.
+24. As a module author, I want the host to own the spinner - across the
+    revalidation and the remount it schedules, though not across network work
+    my remounted surface starts afterwards, which my own loading states already
+    show - so that I delete my local spin state and timers instead of
+    reimplementing them.
+25. As a web user on the Tag detail tab, I want refresh to keep revalidating the
+    tag's results, with the module's own button and its hook call removed.
+26. As a web user on the Todo tab, I want refresh to revalidate the list
+    including every already-loaded page, without losing mode, filters,
+    selection, or sort, and to ask me first when an open detail edit would be
+    discarded.
+27. As a web user on the Bot tab, I want refresh to work in *every* Bot view,
+    including configuration and providers, not only Usage - that was the
+    original complaint about a per-view opt-in.
 28. As a web user on the Bot usage view, I want the separate limit-window retry
     control to stay where it is, because subscription limit status is a
     different read from spend data and must be refreshable independently.
@@ -165,19 +177,41 @@ this document.
     offer the same refresh control as the signed-in app, so that the demo does
     not silently lose an affordance.
 31. As a maintainer, I want a module published against the newer browser
-    contract to refuse to mount on an older host rather than render a dead
-    control, relying on the existing contract-floor check instead of an
-    in-module fallback.
+    contract to refuse to mount on an older host rather than render a surface
+    whose draft guard silently does nothing, relying on the existing
+    contract-floor check instead of an in-module fallback.
 32. As a maintainer, I want a module that consumes the new hook to be published
     only with the matching contract floor stamped on it, because a module
     bundle stamped with the older floor still mounts on an older host and then
     crashes at render instead of showing the clean version-skew card that story
     31 relies on.
 33. As a maintainer, I want the rollback hazard stated: rolling the host web
-    bundle back below the contract version that introduces the registration
-    hook, while module versions that require it are active, disables those tabs
-    at once. Rollback is therefore per module, and each module's active version
-    is recorded before publishing.
+    bundle back below the contract version an active module version requires
+    disables those tabs at once. Rollback is therefore per module, and each
+    module's active version is recorded before publishing. The host keeps
+    exporting the superseded registration hook as a no-op precisely so the
+    module versions that still call it stay rollback-reachable.
+34. As a web user, I want the control to actually refetch every time I click it,
+    including immediately after a failed read and including a second click a
+    moment after the first, because "it looks like it did nothing" is the whole
+    reason I clicked.
+35. As a web user, I want refresh to also reach a surface that does not use the
+    shared cache at all, so that a view built on a plain effect fetch is not
+    quietly unrefreshable.
+36. As a web user, I want to know what a refresh costs me: my persisted view
+    choice, sort, filters and navigation survive it, every other open tab is
+    untouched, and what a refresh does discard is limited to that tab's
+    transient in-component state - scroll position, expand/collapse, and any
+    unsaved draft.
+37. As a web user with an unsaved draft in the refreshed tab, I want to be asked
+    before anything happens, not between the two stages, because fresh data can
+    itself replace the editor holding my draft. Cancelling must leave the tab
+    exactly as it was, with neither stage started.
+38. As a web user, I want a domain action that is not a view refresh - the Bot
+    spend sync from the relay, the Finance ledger re-read, the Bot limit-window
+    retry - to stay its own control with its own wording, because collapsing it
+    into the tab refresh would either hide it or make every refresh
+    side-effecting.
 
 ## Implementation Decisions
 
@@ -229,51 +263,114 @@ adapter, not a visibility option. The middleware was removed from production
 source; its regression evidence is retained locally as history, not as a
 pending requirement.
 
-### Explicit refresh: registration, not a broadcast
+### Explicit refresh: scoped revalidation, then a scoped remount
 
-The host renders the tab refresh control from a registration, not from a
-broadcast signal:
+The control is unconditional, and what it runs is generic host logic:
 
-- A host-internal provider wraps each mounted detail surface; the browser
-  contract exports a `useTabRefresh(handler, { title })` hook. The handler is
-  held in a ref so an inline arrow function does not re-register on every
-  render, and registration is cleared on unmount.
-- The host keys registrations by tab key, because every open tab's detail mount
-  stays mounted while hidden. Entries for closed tabs are dropped.
-- The rejected alternative was pushing a refresh nonce through the existing
-  detail-context channel: no contract bump, but the host then cannot know which
-  module tabs honour it, so most tabs would show a dead control, and a host-side
-  blanket `mutate` fallback reproduces a previously shipped failure mode where
-  wildcard cache writes emptied a rendered list.
-- One control, two sources: for the host's legacy special tabs it calls the
-  host's own refresh; for a module detail tab it calls the registered handler.
-  Inline artifact tabs register nothing and get no control.
-- The host awaits the handler's returned promise and owns a minimum visible
-  spin duration. Modules delete their local spin state and timers.
+- The host owns one **refresh registry** and one **remount nonce** per open
+  module tab, keyed by tab key because every open tab's detail mount stays
+  mounted while hidden. Both are dropped when the tab closes.
+- Each detail mount is wrapped in that registry plus a nested SWR config that
+  appends one host middleware. The middleware records each SWR hook's *bound*
+  `mutate` for as long as that hook is mounted inside the tab. No module code
+  participates, and the nested config passes no cache provider, so the
+  persisted cache and cross-panel `mutate` are inherited unchanged.
+- **Stage 1** awaits every recorded mutate. A bound mutate is the only thing
+  that reliably refetches: SWR's mount-time revalidation is dedupe-gated and is
+  skipped outright while a request for that key is still registered - which, in
+  the installed version, lasts for the whole deduping interval *after* the
+  request resolves - and is not attempted at all when the key holds an error and
+  another subscriber is still mounted. That error case is exactly the state a
+  user clicks refresh in. Mutation-driven revalidation bypasses both gates.
+- **Stage 2** bumps the tab's nonce, remounting that tab's subtree. This is what
+  reaches a surface that fetches in a plain effect and holds no cache key.
+- Ordering is load-bearing twice over. The draft guard runs **before either
+  stage**, because stage 1 is not inherently lossless: a refreshed payload that
+  no longer contains the edited record makes the surface swap its editor for an
+  unavailable branch, destroying the draft and clearing the dirty report, so a
+  confirm asked between the stages is either too late or never shown at all.
+  Cancelling therefore starts neither stage. Once accepted, the remount still
+  waits for stage 1 to settle, because the root abort middleware aborts
+  in-flight fetches on unmount and remounting first would cancel the
+  revalidation it just started.
+- Recording bound mutates rather than keys avoids serializing function keys and
+  is what makes `useSWRInfinite` work: the host middleware sits outside SWR's
+  own infinite middleware, so the recorded mutate is the infinite-bound one for
+  the whole list rather than one per page.
+- The nonce keys the render boundary *inside* the mount, never the mount
+  itself, so the verified bundle is not re-fetched or re-hashed and the injected
+  scoped `<style>` does not churn. A surface that crashed while rendering is
+  reloaded through the loader's promise cache on the same bump, so refresh can
+  recover it.
+- Two rejected alternatives. Registration (the superseded v17 design) made
+  refresh a per-module opt-in, which is the requirement this revision exists to
+  fix. Remount alone is not a refresh: within the deduping interval it issues
+  zero requests, it does nothing after a failed read, and modules that set
+  `revalidateIfStale: false` or a long deduping interval would be unrefreshable
+  for as long as that interval lasts.
+- One control, two mechanisms behind it: the host's legacy special tabs keep
+  their existing targeted invalidation; module tabs get the two-stage refresh.
+  Inline artifact tabs render a static spec and get no control.
+- The host owns a minimum visible spin duration and awaits stage 1 plus the
+  scheduling of the nonce. It does not await network work a remounted surface
+  starts afterwards; that surface's own loading states communicate it. Modules
+  delete their local spin state and timers.
 - The control lives in the breadcrumb row's trailing slot beside Copy path,
   reusing the existing refresh icon and adding no new tab-strip slot. That row
   is visually the row the File module's own detail header occupies, so
   placement is consistent across tab kinds.
 
-### Module semantics are preserved, not genericised
+### What a refresh preserves, and what it costs
 
-Retiring a per-module button relocates the affordance; it never redefines what
-refresh does. The Bot usage control keeps performing its upstream spend sync
-before revalidating and is registered only while the usage view is shown. The
-Bot limit-window retry stays a separate control. Ordinary file tabs keep the
-File module's header refresh, because giving them a host breadcrumb row they
-deliberately do not have would be a larger change than the problem warrants.
+A refresh discards in-component state for the refreshed tab only, so the cost is
+stated rather than discovered. Both stages can do it: stage 2 unconditionally,
+and stage 1 whenever the fresh payload makes the surface render something other
+than the editor that held the state.
+
+- **Preserved**: anything persisted outside the component (`localStorage` view
+  selectors, sort and filter state; server-side user preferences such as Todo
+  navigation and the file workspace), module-level stores, host intents, and
+  every other open tab.
+- **Lost**: unsaved drafts, scroll position, transient expand/collapse, and any
+  view selector a module chose not to persist.
+- Losing a draft silently would contradict behavior the app already treats as
+  worth a confirm, so the contract adds `useTabDirty(dirty)`. While the active
+  tab reports a draft the host confirms before it starts a refresh at all;
+  cancelling leaves both stages unstarted, so the user keeps their draft and the
+  data they were already looking at. The hook is a guard, not a capability gate:
+  refresh works on a module that never calls it.
+- An explicit refresh deliberately overrides a module's long automatic-
+  revalidation deduping interval (Finance's 30s provider-cost window). Explicit
+  user intent beats an automatic-fetch cost policy.
+
+### View refresh is generic; domain actions stay module-owned
+
+Making view refresh generic does not absorb the domain actions that happened to
+share a button with it. Bot's spend sync from the relay is an upstream write
+followed by a read, so it stays a Bot-owned control in the Usage view with its
+own wording; folding it into the tab refresh would make every Bot refresh
+side-effecting. The Bot limit-window retry and Finance's ledger re-read stay
+separate for the same reason. Ordinary file tabs keep the File module's header
+refresh: they render no host breadcrumb row by design, that header already
+carries path, copy, history and save, and its refresh clears loaded content
+while keeping unsaved edits - strictly better than the generic remount. Giving
+those tabs a second chrome row duplicating path and copy would be a larger
+change with worse refresh semantics.
 
 ### Contract and delivery shape
 
-- The registration hook bumps the `@y/host` browser contract from 16 to **17**
-  (v16 is the already-shipped activity-bar visibility bridge and has no refresh
-  hook):
-  the contract JSON, the generated type declaration, the host SDK export
-  surface, the SDK README, and the demo runtime's allowlist of keys safe to
-  expose to unauthenticated demo code. The hook is pure registration with no
-  network access, so it is demo-safe; omitting it from the allowlist would make
-  the public demo throw once a module published against v17 loads there.
+- The generic mechanism itself needs no contract export: it is host chrome plus
+  a host middleware. The draft guard does, so `useTabDirty(dirty)` bumps the
+  `@y/host` browser contract from 17 to **18** across the contract JSON, the
+  generated type declaration, the host SDK export surface, the SDK README, and
+  the demo runtime's allowlist of keys safe to expose to unauthenticated demo
+  code. Both it and the superseded `useTabRefresh` no-op are pure state with no
+  network access, so both are demo-safe; omitting either from the allowlist
+  would make the public demo throw once a module published against them loads
+  there.
+- v17's `useTabRefresh` is kept as a documented no-op rather than deleted,
+  because the module versions that call it (tag v20, todo v26, bot v49) stay
+  rollback-reachable. Deleting it is a follow-up for when they are not.
 - The version ledger that narrates each browser-contract bump stays in
   `docs/prd/module-system.md`. This PRD states which version introduces the
   hook and does not duplicate the ledger.
@@ -298,7 +395,7 @@ deliberately do not have would be a larger change than the problem warrants.
   live leaves those tabs on a version-skew failure card; publishing with a
   stale stamped floor is worse, because the module mounts and crashes instead.
 - The contract floor is enforced client-side by the module loader, so a module
-  requiring v17 on an older host refuses to mount. No in-module fallback button
+  requiring v18 on an older host refuses to mount. No in-module fallback button
   is needed or possible.
 - Each module's currently active version is recorded immediately before its
   publish, because rollback is per module and another trace may have moved a
@@ -315,10 +412,20 @@ is the user's step, not an agent's.
   survive hiding, that a delayed explicit retry writes the real cache rather
   than a synthetic entry, that a pending automatic retry does not fire while
   hidden, that polling resumes on activation, and that a non-polling metadata
-  read never acquires an interval. For the refresh-control half, assert that a
-  module tab with no registration renders no control, that a registered tab
-  renders one and clicking it invokes the handler exactly once, and that
-  unmounting clears the registration.
+  read never acquires an interval. For the refresh-control half, the
+  claims that must be proved against the real SWR instance are: a module tab
+  that registers nothing renders an enabled control; a refresh refetches on a
+  *second* click inside the deduping window that a remount is silently skipped
+  in; a refresh refetches a key whose cached state is an error while another
+  subscriber is mounted; a refresh touches only the keys the refreshed tab
+  subscribes to; one `useSWRInfinite` hook contributes exactly one
+  infinite-bound mutate; the remount is not issued until the revalidation
+  settles; cancelling the draft guard leaves *both* stages unstarted, asserted
+  against a mounted dirty editor whose refreshed payload would replace it, not
+  only against a stubbed registry; and bumping
+  one tab's nonce leaves another tab's mount alone. Asserting the host's own
+  helpers in isolation is not enough here, because every one of these claims is
+  a claim about SWR's behavior.
 - **Integrate against real module source.** The 3519 slice was verified by
   mounting the actual module detail component with real SWR under jsdom, with
   only fetch and host presentation dependencies mocked, and a local Vitest
@@ -350,9 +457,13 @@ is the user's step, not an agent's.
   Different problem, different feature.
 - **Refresh controls on left-rail panel surfaces.** The tab-chrome contract
   reaches centre tabs only.
-- **Adopting the remaining detail surfaces that ship their own refresh**
-  (monitor, email, eat, calendar, the chat shell), and the File module's own
-  header refresh on ordinary file tabs.
+- **The File module's own header refresh on ordinary file tabs**, and the
+  refresh controls on surfaces the tab chrome does not reach (left-rail panels,
+  the chat shell). Module view-refresh buttons on centre detail tabs are
+  retired by this feature, not deferred.
+- **Migrating the host's five legacy special tabs onto the same registry
+  mechanism.** They keep their existing targeted invalidation behind the same
+  control.
 - **The browser-contract version ledger** - owned by
   [module-system](module-system.md), which narrates each bump.
 - **What Bot spend and limit-window data mean, how they are read, persisted and
@@ -372,4 +483,4 @@ is the user's step, not an agent's.
 | Todo | Outcome | Design | Plan | Decisions | Review | Status |
 |------|---------|--------|------|-----------|--------|--------|
 | 3519 | Host per-tab active signal through the existing detail-context channel, plus a Bot-owned real-key visibility policy for the rate and limit-window reads (suppress polling / focus / reconnect / automatic retry while hidden, one owner per resource, one explicit refresh on activation). No contract bump. | - | `pages/plan-3519-web-refresh-policy.md` (superseded by the decision note; retained as the audit of the rejected generic gate) | `pages/decision-3519-explicit-surface-refresh.md` (approved replacement); `pages/impl-3519-bot-visibility.md` (both-artifact implementation inventory) | `pages/review-3519-surface-visibility.md` (round 4 approve); `pages/investigation-3519-bot-v38-digest.md` (published-byte equivalence of the active Bot version) | shipped: host `369dd50`, Deploy Web run 34733872345 success; Bot module v38 active from `fe26e45` |
-| 3674 | Host-owned tab-level refresh control in the centre tab's breadcrumb chrome, backed by a new `@y/host` v17 `useTabRefresh(handler, { title })` registration; retires the Tag detail, Todo list, and Bot usage spend-sync buttons while preserving their semantics. Keeps the Bot limit-window retry and the File module's own header refresh separate. | - | `pages/plan-3674-fileviewer-tab-refresh.md` | This PRD; `pages/impl-3674-host-tab-refresh.md`; `pages/impl-3674-module-tab-refresh.md` | `pages/review-3674-tab-refresh-contract.md` (round 3 approve) | reviewed; local candidate commits authorized; publication pending; host baseline `22fdc78`, module baseline `cfc2f66` |
+| 3674 | Generic host-owned tab refresh on every module detail tab, with no module opt-in: the host wraps each detail mount in a per-tab registry plus an SWR middleware that records each mounted hook's bound `mutate`, then refreshes in two stages (revalidate every key the tab subscribes to, await, then remount that tab's subtree via a nonce on the render boundary). `@y/host` v18 adds `useTabDirty(dirty)` as a draft guard before the remount and reduces v17's `useTabRefresh` to a documented no-op kept for rollback-reachable module versions. Retires the Tag, Todo, Bot, Email and Eat in-tab view-refresh buttons (Household never had one; Finance is documentation-only); keeps the Bot spend sync, the Bot limit-window retry, Finance's ledger re-read and the File module's header refresh as separate domain actions. | - | `pages/plan-3674-fileviewer-tab-refresh.md` (revision 3) | This PRD; `pages/impl-3674-host-tab-refresh.md`; `pages/impl-3674-module-tab-refresh.md` | `pages/review-3674-tab-refresh-contract.md` (round 5 approve for revision 3; rounds 1-3 approved only the superseded v17 candidate) | revision 3 reviewed and approved (round 5); the v17 registration design shipped as `265599a` and was rejected by Roy, so its publication authorization does not carry over; host baseline `265599a`, module baseline `f4d07e1`; candidates frozen, integration, web deploy and the tag/todo/bot/calendar/email/eat module publishes pending |

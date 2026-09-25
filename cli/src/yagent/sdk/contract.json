@@ -1,5 +1,5 @@
 {
-  "version": 17,
+  "version": 18,
   "externals": [
     "react",
     "react-dom",

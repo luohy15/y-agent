@@ -67,8 +67,12 @@ adds no new export. It adds the host-owned activity-bar visibility bridge:
 the `module` intent carries `activityBarVisibility: {hiddenSlugs, loaded, saving, error}`,
 and the module calls `module.setActivityBarVisibility` (`{slug, visible}`) and
 `module.retryActivityBarVisibility` through the existing `runHostCommand`.
-Contract v17 adds `useTabRefresh`, the registration a detail surface uses so the
-host centre-tab chrome can refresh it. See `docs/prd/module-system.md`, *The `shell`
+Contract v18 makes tab refresh generic host logic: every module detail tab gets
+the control unconditionally, the host revalidates the SWR keys that tab
+subscribes to and then remounts its subtree, and a module registers nothing.
+`useTabDirty(dirty)` only asks the host to confirm before a refresh would
+discard a draft; cancelling leaves both stages unstarted. The v17 `useTabRefresh` registration is a documented no-op kept
+for rollback-reachable module versions. See `docs/prd/module-system.md`, *The `shell`
 surface and the renderer seam*, before bundling anything heavy into a module.
 Public demo composition and isolation rules live in
 `docs/prd/public-module-demos.md`.

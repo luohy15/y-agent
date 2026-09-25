@@ -6,11 +6,12 @@
 //  - every failure renders one generic state with no version, slug, message,
 //    rollback action, management call, or sign-in path;
 //  - it refuses to load at all unless the restricted runtime is installed.
-import { Component, useEffect, useRef, useState, type ComponentType, type ErrorInfo, type ReactNode } from "react";
+import { Component, useEffect, useState, type ComponentType, type ErrorInfo, type ReactNode } from "react";
+import { SWRConfig } from "swr";
 import { loadDemoArtifact, type ArtifactVersionRef, type LoadedArtifact } from "../host/loader";
 import { DetailContextProvider } from "../host/detailContext";
 import { PanelLocationProvider } from "../host/panelLocation";
-import { TabRefreshProvider, type TabRefreshEntry } from "../host/tabRefresh";
+import { TAB_REFRESH_SWR_CONFIG, TabRefreshRegistryProvider, type TabRefreshRegistry } from "../host/tabRefresh";
 import { isPublicDemoRuntimeInstalled } from "./runtime";
 import { DemoUnavailable } from "./DemoStates";
 
@@ -50,7 +51,9 @@ export interface DemoMountProps {
   surface?: "panel" | "detail" | "shell";
   panelLocation?: "left" | "right";
   detailContext?: unknown;
-  onRefreshChange?: (entry: TabRefreshEntry | null) => void;
+  // Contract v18: same generic tab refresh as the authenticated host.
+  refreshRegistry?: TabRefreshRegistry | null;
+  refreshNonce?: number;
 }
 
 export default function DemoMount({
@@ -59,11 +62,10 @@ export default function DemoMount({
   surface = "panel",
   panelLocation,
   detailContext,
-  onRefreshChange,
+  refreshRegistry,
+  refreshNonce,
 }: DemoMountProps) {
   const [state, setState] = useState<MountState>({ status: "loading" });
-  const onRefreshChangeRef = useRef(onRefreshChange);
-  onRefreshChangeRef.current = onRefreshChange;
 
   useEffect(() => {
     let cancelled = false;
@@ -126,7 +128,7 @@ export default function DemoMount({
   }>;
   const body = (
     <div data-y-artifact={slug} data-y-artifact-surface={surface} className="h-full">
-      <RenderBoundary onError={() => setState({ status: "failed" })}>
+      <RenderBoundary key={refreshNonce} onError={() => setState({ status: "failed" })}>
         <Demo surface={surface} panelLocation={panelLocation} detailContext={detailContext} />
       </RenderBoundary>
     </div>
@@ -137,9 +139,9 @@ export default function DemoMount({
   if (surface === "detail") {
     return (
       <DetailContextProvider value={detailContext ?? null}>
-        <TabRefreshProvider onChange={(entry) => onRefreshChangeRef.current?.(entry)}>
-          {body}
-        </TabRefreshProvider>
+        <TabRefreshRegistryProvider registry={refreshRegistry ?? null}>
+          <SWRConfig value={TAB_REFRESH_SWR_CONFIG}>{body}</SWRConfig>
+        </TabRefreshRegistryProvider>
       </DetailContextProvider>
     );
   }

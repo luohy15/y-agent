@@ -289,14 +289,24 @@ declare module "@y/host" {
   /** Read the host-only context for this detail mount (generic; shape is host-defined). */
   export function useDetailContext<T = unknown>(): T | null;
 
-  // tabRefresh.ts (contract v17) — register this detail surface's refresh
-  // handler with the host tab chrome. No-op outside a detail surface that
-  // provides the channel (panel, shell, and mounts without tab chrome).
-  // `title` is the control's hover text. The host owns the spinner by awaiting
-  // a returned promise. PromiseLike<unknown> accepts a handler that returns
-  // SWR's mutate promise without voiding it.
-  /** Register the handler the host tab refresh control should call.
-   * Null clears the registration so the control is not offered. */
+  // tabRefresh.ts (contract v18) — tab refresh is generic host logic. Every
+  // module detail tab gets the control unconditionally: the host revalidates
+  // every SWR key the tab subscribes to, then remounts the tab's subtree. A
+  // module registers nothing and cannot opt out. A refresh discards
+  // in-component state for that tab (drafts, scroll, transient expand state),
+  // through the remount and also through a revalidation whose fresh payload
+  // makes the surface swap the editor out; persisted state (localStorage,
+  // user_preference, module-level stores) and every other tab survive.
+  /** Report an unsaved draft in this detail surface. While this is true the
+   * host confirms before it starts a refresh at all, and cancelling leaves
+   * both the revalidation and the remount unstarted. Not a capability gate —
+   * refresh works without it. No-op outside a detail surface. */
+  export function useTabDirty(dirty: boolean): void;
+
+  // Superseded v17 registration channel, kept as a documented no-op while v17
+  // module versions are still rollback-reachable. Do not call it in new code.
+  /** @deprecated No-op since contract v18. The host owns tab refresh
+   * generically; use `useTabDirty` to guard a draft. */
   export function useTabRefresh(
     handler: (() => void | PromiseLike<unknown>) | null,
     options?: { title?: string },

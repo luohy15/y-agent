@@ -6,6 +6,7 @@
 // fallback names the artifact + version and offers a one-click rollback to
 // the previous published version (mirrors ErrorBoundary.tsx's Reload button).
 import { Component, useCallback, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from "react";
+import { SWRConfig } from "swr";
 import { API, authFetch } from "../api";
 import {
   ArtifactLoadError,
@@ -16,7 +17,7 @@ import {
 } from "./loader";
 import { DetailContextProvider } from "./detailContext";
 import { PanelLocationProvider } from "./panelLocation";
-import { TabRefreshProvider, type TabRefreshEntry } from "./tabRefresh";
+import { TAB_REFRESH_SWR_CONFIG, TabRefreshRegistryProvider, type TabRefreshRegistry } from "./tabRefresh";
 
 type FailureKind = ArtifactLoadErrorKind | "render";
 
@@ -207,10 +208,15 @@ interface ArtifactMountProps {
   // Contract v8: host-only per-detail-mount context, exposed through
   // `useDetailContext()` on surface="detail". Ignored on panel/shell.
   detailContext?: unknown;
-  // Contract v16: reports the refresh handler the mounted detail surface
-  // registered (or null when it unregisters / unmounts). Held in a ref so an
-  // inline arrow does not re-render the mount. Ignored on panel/shell.
-  onRefreshChange?: (entry: TabRefreshEntry | null) => void;
+  // Contract v18: the host tab's refresh registry. Every SWR hook mounted in
+  // this detail subtree records its bound `mutate` here, so refresh is generic
+  // and needs no module cooperation. Ignored on panel/shell; null when the
+  // mount has no tab chrome (ordinary file tabs keep the File module's own
+  // header control -- plan decision D-A).
+  refreshRegistry?: TabRefreshRegistry | null;
+  // Contract v18 stage 2: bumped by the host to remount this detail subtree,
+  // reaching state a revalidation cannot (plain `useEffect` fetches).
+  refreshNonce?: number;
 }
 
 export default function ArtifactMount({
@@ -224,16 +230,20 @@ export default function ArtifactMount({
   fallback,
   panelLocation,
   detailContext,
-  onRefreshChange,
+  refreshRegistry,
+  refreshNonce,
 }: ArtifactMountProps) {
   const [state, setState] = useState<MountState>({ status: "loading" });
+  // Bumped only to recover a crashed render (below); the version triple is the
+  // ordinary reason to reload.
+  const [loadNonce, setLoadNonce] = useState(0);
 
   // Held in a ref so a caller passing an inline arrow does not re-trigger the
   // load effect on every host re-render.
   const onDetailAvailableRef = useRef(onDetailAvailable);
   onDetailAvailableRef.current = onDetailAvailable;
-  const onRefreshChangeRef = useRef(onRefreshChange);
-  onRefreshChangeRef.current = onRefreshChange;
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   useEffect(() => {
     let cancelled = false;
@@ -259,7 +269,17 @@ export default function ArtifactMount({
     return () => {
       cancelled = true;
     };
-  }, [version.version_id, version.ui_sha256, version.min_host_version]);
+  }, [version.version_id, version.ui_sha256, version.min_host_version, loadNonce]);
+
+  // A render throw replaces the whole body with the FailureCard, so the nonce
+  // `key` below cannot reach it. Re-running the load is what clears that state;
+  // `loadArtifact` is promise-cached on url+sha256 (loader.ts F5), so nothing
+  // is re-fetched or re-hashed.
+  useEffect(() => {
+    if (refreshNonce === undefined) return;
+    const current = stateRef.current;
+    if (current.status === "error" && current.kind === "render") setLoadNonce((n) => n + 1);
+  }, [refreshNonce]);
 
   // D2/D3 (decision note): the module's inlined `css` export is injected as a
   // scoped <style> on mount and removed on unmount so a swapped-out artifact
@@ -328,7 +348,10 @@ export default function ArtifactMount({
         : state.artifact.Panel;
   const body = (
     <div data-y-artifact={slug} data-y-artifact-surface={surface} className="h-full">
-      <RenderBoundary onError={handleRenderError}>
+      {/* The nonce keys the boundary, never the mount: the verified bundle is
+          not re-fetched or re-hashed and the injected <style> does not churn,
+          while the module subtree (and the boundary's own error state) resets. */}
+      <RenderBoundary key={refreshNonce} onError={handleRenderError}>
         <Artifact />
       </RenderBoundary>
     </div>
@@ -339,9 +362,11 @@ export default function ArtifactMount({
   if (surface === "detail") {
     return (
       <DetailContextProvider value={detailContext ?? null}>
-        <TabRefreshProvider onChange={(entry) => onRefreshChangeRef.current?.(entry)}>
-          {body}
-        </TabRefreshProvider>
+        <TabRefreshRegistryProvider registry={refreshRegistry ?? null}>
+          {/* No `provider`: the nested config inherits the root cache and the
+              root abort middleware, and only appends the tracking middleware. */}
+          <SWRConfig value={TAB_REFRESH_SWR_CONFIG}>{body}</SWRConfig>
+        </TabRefreshRegistryProvider>
       </DetailContextProvider>
     );
   }

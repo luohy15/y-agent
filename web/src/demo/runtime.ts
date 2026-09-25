@@ -266,8 +266,10 @@ const DEMO_SAFE_KEYS: readonly string[] = [
   "useArtifactIntent",
   "usePanelLocation",
   "useDetailContext",
-  // tabRefresh.ts (contract v17) — pure registration, no network. Omitting it
-  // makes the public demo throw once a module published at v17 loads there.
+  // tabRefresh.ts (contract v18) — draft reporting, plus the superseded v17
+  // registration no-op. Pure state, no network. Omitting either makes the
+  // public demo throw once a module published against them loads there.
+  "useTabDirty",
   "useTabRefresh",
   "runHostCommand",
   "openArtifactDetail",

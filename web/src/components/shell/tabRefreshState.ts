@@ -1,52 +1,43 @@
-import type { TabRefreshEntry } from "../../host/tabRefresh";
+import type { TabRefreshRegistry } from "../../host/tabRefresh";
 
-/** Map update for one tab's registration. `storedTitle` is the title this map
- * last accepted for `path`: the hook mutates `entry.title` before publishing,
- * so `prev[path].title` is already the new value and cannot detect the change. */
-export function nextTabRefreshMap(
-  prev: Record<string, TabRefreshEntry>,
-  path: string,
-  entry: TabRefreshEntry | null,
-  storedTitle: Record<string, string | undefined>,
-): Record<string, TabRefreshEntry> {
-  if (entry) {
-    if (prev[path] === entry && storedTitle[path] === entry.title) return prev;
-    storedTitle[path] = entry.title;
-    return { ...prev, [path]: entry };
-  }
-  if (!(path in prev)) return prev;
-  delete storedTitle[path];
-  const next = { ...prev };
-  delete next[path];
-  return next;
+/** Whether the host breadcrumb offers refresh for the active tab. Module tabs
+ * always can (contract v18: refresh is generic host logic, not a module opt-in);
+ * legacy special tabs keep their own targeted mechanism. Inline `artifact:`
+ * tabs render a static spec and have nothing to refetch. */
+export function tabRefreshVisible(hostRefreshable: boolean, isModuleTab: boolean): boolean {
+  return hostRefreshable || isModuleTab;
 }
 
-/** Whether the host breadcrumb should offer refresh for the active tab.
- * Legacy special tabs always can. A module tab can only when it registered. */
-export function tabRefreshVisible(
-  hostRefreshable: boolean,
-  registered: TabRefreshEntry | undefined,
-): boolean {
-  return hostRefreshable || !!registered;
+/** Hover text. Legacy special tabs keep "Refresh file". */
+export function tabRefreshTitle(hostRefreshable: boolean): string {
+  return hostRefreshable ? "Refresh file" : "Refresh";
 }
 
-/** The handler the control should call, or null when there is nothing to do. */
-export function tabRefreshAction(
-  registered: TabRefreshEntry | undefined,
-  hostRefresh: (() => void) | null,
-): (() => void | Promise<void>) | null {
-  if (registered) return registered.handler;
-  return hostRefresh;
-}
+export const TAB_REFRESH_DIRTY_CONFIRM =
+  "This tab has unsaved changes. Refreshing discards them. Refresh anyway?";
 
-/** Hover text. A registration's title wins. Legacy special tabs keep "Refresh file". */
-export function tabRefreshTitle(
-  registered: TabRefreshEntry | undefined,
-  hostRefreshable: boolean,
-): string {
-  if (registered?.title) return registered.title;
-  if (hostRefreshable) return "Refresh file";
-  return "Refresh";
+/** The generic module-tab refresh: revalidate everything this tab subscribes
+ * to, then remount it.
+ *
+ * The draft guard runs **before** either stage, not between them. Revalidation
+ * is not inherently lossless: a refreshed payload that no longer contains the
+ * edited record makes the surface swap the editor for its unavailable branch,
+ * which destroys the draft and clears the dirty report - so a confirm asked
+ * afterwards is either too late or never shown. Cancelling therefore leaves
+ * both stages unstarted.
+ *
+ * After acceptance the remount still waits for stage 1 to settle, because the
+ * root abort middleware cancels in-flight fetches on unmount. `confirm` is
+ * injected so tests need no window stub. */
+export async function scopedTabRefresh(
+  registry: TabRefreshRegistry | undefined,
+  remount: () => void,
+  confirm: (message: string) => boolean = (message) => window.confirm(message),
+): Promise<void> {
+  if (!registry) return;
+  if (registry.isDirty() && !confirm(TAB_REFRESH_DIRTY_CONFIRM)) return;
+  await registry.revalidateAll();
+  remount();
 }
 
 export const TAB_REFRESH_MIN_SPIN_MS = 600;
