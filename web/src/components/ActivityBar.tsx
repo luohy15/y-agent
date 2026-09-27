@@ -10,8 +10,6 @@ export type BuiltInSidebarPanel =
   | "links"
   | "rss"
   | "entity"
-  | "reminder"
-  | "routine"
   | "english"
   | "dev";
 
@@ -87,16 +85,6 @@ export const BUILT_IN_PANEL_ITEMS: PanelItem<SidebarPanel>[] = [
       <path d="M20 7h-9" /><path d="M14 17H5" /><circle cx="17" cy="17" r="3" /><circle cx="7" cy="7" r="3" />
     </svg>
   )},
-  { key: "reminder", label: "Reminders", icon: (
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
-    </svg>
-  )},
-  { key: "routine", label: "Routines", icon: (
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15 14" />
-    </svg>
-  )},
   { key: "english", label: "English", icon: (
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
@@ -132,6 +120,9 @@ const APP_TO_PANEL: Record<string, SidebarPanel | null> = {
   files: "artifact:file",
   // Todo 3164: built-in Tags panel identity becomes the tag module panel key.
   tags: "artifact:tag",
+  // Todo 3708 batch 1: built-in Reminders / Routines become UI modules.
+  reminder: "artifact:reminder",
+  routine: "artifact:routine",
 };
 
 /** Map a persisted activity-bar key through the one-shot APP_TO_PANEL renames. */
@@ -246,9 +237,11 @@ function loadOrder(defaults: SidebarPanel[]): SidebarPanel[] {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed) && parsed.every(x => typeof x === "string")) {
           const migrated = parsed.map((key) => migrateActivityPanelKey(key));
-          const merged = mergeWithDefaults(migrated, defaults);
-          if (migrated.some((key, index) => key !== parsed[index])) saveOrder(merged);
-          return merged;
+          // Persist the renamed list itself, not the merge: before the module
+          // catalog loads, defaults are built-ins only and merging would drop
+          // every artifact key's saved position (todo 3708 P2).
+          if (migrated.some((key, index) => key !== parsed[index])) saveOrder(migrated);
+          return mergeWithDefaults(migrated, defaults);
         }
       } catch { /* ignore */ }
       const migrated = migrateUnifiedV1(raw, defaults);
@@ -349,12 +342,15 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
       saveOrder(merged);
       if (migrated.some((key, index) => key !== pref.serverValue?.[index])) pref.setValue(merged);
     } else {
-      // Server has no value — bootstrap with local order if it differs from default
+      // Server has no value — bootstrap with local order if it differs from default.
+      // Re-read it against the full catalog: `order` may still be the
+      // built-ins-only mount state when the catalog lands in this same commit.
+      const local = loadOrder(defaultOrder);
       const isDefault =
-        order.length === defaultOrder.length &&
-        order.every((k, i) => k === defaultOrder[i]);
+        local.length === defaultOrder.length &&
+        local.every((k, i) => k === defaultOrder[i]);
       if (!isDefault) {
-        pref.setValue(order);
+        pref.setValue(local);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

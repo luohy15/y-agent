@@ -7,7 +7,7 @@ import { API, authFetch, jsonFetcher } from "./api";
 import ChatFallbackView from "./components/ChatFallbackView";
 import GoogleSignInButton from "./components/GoogleSignInButton";
 import FileViewer from "./components/FileViewer";
-import ActivityBar, { BUILT_IN_PANEL_ITEMS, type SidebarPanel } from "./components/ActivityBar";
+import ActivityBar, { BUILT_IN_PANEL_ITEMS, migrateActivityPanelKey, type SidebarPanel } from "./components/ActivityBar";
 import RightActivityBar from "./components/RightActivityBar";
 import { buildChatPanelItem, buildFilePanelItem, buildNotePanelItem, resolveRightPanel, restoreRightPanel, type PanelItem } from "./components/panelCatalog";
 import DesktopHeaderBar from "./components/shell/DesktopHeaderBar";
@@ -73,8 +73,6 @@ import { resolveFileWorkspaceModeTransition } from "./utils/fileWorkspaceMode";
 import { closeTabShortcutLabel, isApplePlatform } from "./utils/platform";
 import FileSearchDialog from "./components/FileSearchDialog";
 import { usePublishNoteIntent } from "./utils/noteHost";
-import ReminderList from "./components/ReminderList";
-import RoutineList from "./components/RoutineList";
 import EnglishList from "./components/EnglishList";
 import GitPanel from "./components/GitPanel";
 import LinkActionDialog from "./components/LinkActionDialog";
@@ -123,8 +121,6 @@ const BUILT_IN_SIDEBAR_PANEL_LABELS: Partial<Record<SidebarPanel, string>> = {
   links: "Links",
   rss: "RSS",
   entity: "Entities",
-  reminder: "Reminders",
-  routine: "Routines",
   english: "English",
 };
 
@@ -257,15 +253,9 @@ export default function App() {
   const [chatListOpen, setChatListOpen] = useState(() => { const v = localStorage.getItem("chatListOpen"); return v === null ? false : v !== "false"; });
   const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>(() => {
     const raw = localStorage.getItem("sidebarPanel");
-    // C1 / todo 3164: migrate retired fixed entries onto their module panel keys.
-    // `tags` becomes `artifact:tag`.
-    const saved = (
-      raw === "files" ? "artifact:file"
-        : raw === "notes" ? "artifact:note"
-          : raw === "tags" ? "artifact:tag"
-            : raw === "email" ? "artifact:email"
-              : raw
-    ) as SidebarPanel;
+    // Same one-shot map as the activity-bar order (APP_TO_PANEL), including
+    // retired built-ins such as reminder / routine (todo 3708).
+    const saved = (raw ? migrateActivityPanelKey(raw) : raw) as SidebarPanel;
     return BUILT_IN_PANEL_ITEMS.some((panel) => panel.key === saved) || saved?.startsWith("artifact:") ? saved : "artifact:todo";
   });
   // Left-sidebar panel refresh (todo 3680, scope A: selected panel, not the
@@ -1772,15 +1762,6 @@ export default function App() {
                 <RssFeedList isLoggedIn={auth.isLoggedIn} onSelectFeed={handleSelectFeed} selectedFeedId={selectedFeedId} hideRefreshButton />
               ) : sidebarPanel === "entity" ? (
                 <EntityList isLoggedIn={auth.isLoggedIn} selectedEntityId={selectedEntityId} onSelectEntity={(id) => { setSelectedEntityId(id); handleOpenFile("entity.md"); }} hideRefreshButton />
-              ) : sidebarPanel === "reminder" ? (
-                <ReminderList isLoggedIn={auth.isLoggedIn} hideRefreshButton />
-              ) : sidebarPanel === "routine" ? (
-                <RoutineList
-                  isLoggedIn={auth.isLoggedIn}
-                  hideRefreshButton
-                  onShowChats={(routineName) => runHostCommand("chat.setRoutineFilter", { routineName, routineOnly: false })}
-                  onShowAllChats={() => runHostCommand("chat.setRoutineFilter", { routineName: null, routineOnly: true })}
-                />
               ) : sidebarPanel === "english" ? (
                 <EnglishList
                   isLoggedIn={auth.isLoggedIn}

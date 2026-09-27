@@ -78,6 +78,10 @@ panel with its own "Open ... full view" host row gets a trailing refresh
 control on that row, unconditionally, the same as a detail tab - its bound SWR
 mutates are recorded the same way and `useTabDirty` works there too. No new
 export; a module that wants the guarantee declares `min_host_version: 19`.
+Contract v20 (todo 3708) adds the `bell` and `clock` icon keys and registers
+the host command `chat.setRoutineFilter` (`{routineName: string|null, routineOnly: boolean}`).
+No new `@y/host` export. A module that declares either icon, or that calls the
+command, sets `min_host_version: 20`.
 See `docs/prd/module-system.md`, *The `shell`
 surface and the renderer seam*, before bundling anything heavy into a module.
 Public demo composition and isolation rules live in

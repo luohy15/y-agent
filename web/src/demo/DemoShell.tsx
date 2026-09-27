@@ -205,6 +205,8 @@ export default function DemoShell() {
       { slug: "tag", label: "Tags", icon: "tag" },
       { slug: "file", label: "Files", icon: "file" },
       { slug: "calendar", label: "Calendar", icon: "calendar" },
+      { slug: "reminder", label: "Reminders", icon: "bell" },
+      { slug: "routine", label: "Routines", icon: "clock" },
       { slug: "email", label: "Email", icon: "mail" },
     ];
     for (const extra of extras) {

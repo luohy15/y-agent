@@ -203,7 +203,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
       {!hideFilters && (
         // Filter row inputs: search, trace_id (todo), topic, routine, skill, bot, status. routine_id
         // can be typed directly here or supplied externally via the routineId prop (e.g.
-        // RoutineList "Chats" handoff); either way it renders in the routine input with a
+        // chat.setRoutineFilter); either way it renders in the routine input with a
         // clear button. Row badges also set these filters on click (filterBy* helpers).
         <div className="p-2 border-b border-sol-base02 flex flex-col gap-1.5">
           <div className="flex gap-1.5">

@@ -95,10 +95,10 @@ export function navigateTag(entityType: string, item: TagResultItem, deps: TagNa
       }
       break;
     case "reminder":
-      deps.setSidebarPanel("reminder");
+      deps.setSidebarPanel(artifactPanelKey("reminder"));
       break;
     case "routine":
-      deps.setSidebarPanel("routine");
+      deps.setSidebarPanel(artifactPanelKey("routine"));
       break;
     default:
       break;
