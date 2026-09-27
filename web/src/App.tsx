@@ -21,6 +21,7 @@ import LinkList from "./components/LinkList";
 import RssFeedList from "./components/RssFeedList";
 import EntityList from "./components/EntityList";
 import { openCalendarFocusDate } from "./utils/calendarNavigate";
+import { handleEntityOpen } from "./utils/entityNavigate";
 import { navigateTag, type TagResultItem } from "./utils/tagNavigate";
 import {
   applyTodoDeepLink,
@@ -675,6 +676,11 @@ export default function App() {
       window.history.replaceState(null, "", "/");
       window.dispatchEvent(new PopStateEvent("popstate"));
     });
+    // Todo 3708 A2: entity module row clicks open ui:entity. Built-in callers
+    // stay on entity.md until host B.
+    const unregisterEntityOpen = registerHostCommand("entity.open", (payload) => {
+      handleEntityOpen(payload, handleOpenFile);
+    });
     return () => {
       unregisterTodoDetail();
       unregisterChatOpen();
@@ -683,6 +689,7 @@ export default function App() {
       unregisterLinkOpen();
       unregisterCalendarFocus();
       unregisterTraceClearRoute();
+      unregisterEntityOpen();
     };
   }, [handleOpenFile, selectedChatId]);
 

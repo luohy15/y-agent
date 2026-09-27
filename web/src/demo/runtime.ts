@@ -288,6 +288,10 @@ const DEMO_SAFE_KEYS: readonly string[] = [
   "ChatMessageImages",
   // TagsEditor.tsx (contract v12) — presentational chip editor, no network.
   "TagsEditor",
+  // shell/MarkdownPreview.tsx (contract v21) — presentational markdown leaf.
+  // Local-file and external-link callbacks are supplied by the caller; the
+  // component itself does not fetch.
+  "MarkdownPreview",
   // TraceView is intentionally NOT demo-safe: authenticated fetches would hit
   // real APIs. Public demos keep the module-local fictional trace (todo 3158).
   // Markdown / citation helpers (pure).

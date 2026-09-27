@@ -924,7 +924,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                     version={fileUiArtifact.active_version}
                     label={uiArtifactLabel(fileUiArtifact)}
                     surface="detail"
-                    detailContext={{ active: isActive }}
+                    detailContext={{ active: isActive, vmName: vmName ?? null, workDir: workDir ?? null, defaultWorkDir: defaultWorkDir ?? null }}
                     onRolledBack={onUiArtifactRolledBack}
                     refreshRegistry={tabRefreshChrome.registryFor(filePath)}
                     refreshNonce={tabRefreshChrome.nonceFor(filePath)}

@@ -430,6 +430,18 @@ declare module "@y/host" {
   }
   export function HtmlPreview(props: HtmlPreviewProps): any;
 
+  // shell/MarkdownPreview.tsx (contract v21, todo 3708 A1) — host-owned markdown
+  // leaf shared by FileViewer, public notes, the demo, and the entity module.
+  // Front matter, TOC, highlighting and local-file link handling stay in the
+  // host; a module passes content and optional open/external-link callbacks.
+  export interface MarkdownPreviewProps {
+    content: string;
+    currentFilePath?: string;
+    onOpenFile?: (path: string, line?: number) => void;
+    onExternalLinkClick?: (url: string) => void;
+  }
+  export function MarkdownPreview(props: MarkdownPreviewProps): any;
+
   // resolvedRange.ts / ResolvedRangeLabel.tsx (contract v14, todo 3580) —
   // host-owned inclusive date/instant range formatter and presentational
   // label. Calendar `from_date`/`to_date` are YYYY-MM-DD and are never

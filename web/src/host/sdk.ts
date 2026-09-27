@@ -30,6 +30,7 @@ import { PatchDiff } from "@pierre/diffs/react";
 import ArtifactView from "../components/ArtifactView";
 import CodeEditor from "../components/CodeEditor";
 import HtmlPreview from "../components/HtmlPreview";
+import MarkdownPreview from "../components/shell/MarkdownPreview";
 import { ChatImage, ChatImageScope, ChatMessageImages } from "../components/ChatImage";
 import ImageLightbox from "../components/ImageLightbox";
 import ResolvedRangeLabel from "../components/ResolvedRangeLabel";
@@ -152,6 +153,12 @@ export const hostSdk = {
   // preview and the public shared-note HTML viewer.
   HtmlPreview,
 
+  // shell/MarkdownPreview.tsx (contract v21, todo 3708 A1) — host-owned markdown
+  // leaf (front matter, TOC, highlighting, local-file links). Entity detail
+  // mounts the same physical renderer as link, public-note and demo consumers
+  // instead of bundling a copy.
+  MarkdownPreview,
+
   // resolvedRange.ts / ResolvedRangeLabel.tsx (contract v14, todo 3580) —
   // host-owned inclusive date/instant range formatter plus the presentational
   // label. One physical copy for host LinkList and the six y-module surfaces;
@@ -202,6 +209,7 @@ export type {
 } from "../components/TraceView";
 export type { TagsEditorProps } from "../components/TagsEditor";
 export type { HtmlPreviewProps } from "../components/HtmlPreview";
+export type { MarkdownPreviewProps } from "../components/shell/MarkdownPreview";
 export type { ResolvedRangeLabelProps } from "../components/ResolvedRangeLabel";
 export type {
   FormatResolvedRangeOptions,
