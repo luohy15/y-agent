@@ -17,7 +17,7 @@ import {
 
 /**
  * Host consumption fixture for @y/design (todo 3657, extended 0.2.0 in
- * todo 3666, Combobox in 0.3.0 / todo 3695). Not mounted by any route.
+ * todo 3666, Combobox in 0.3.0, freeText in 0.4.0 / todo 3695). Not mounted by any route.
  * Exists so the host Vite/Tailwind build actually resolves the package and
  * emits utilities that live only inside dist (uppercase, tracking-wide,
  * tabular-nums, the Badge tone colors, the align="center" Table cells, and
@@ -42,6 +42,7 @@ const MODEL_OPTIONS = [
 export function DesignTableFixture() {
   const [environment, setEnvironment] = useState("prod");
   const [model, setModel] = useState("");
+  const [query, setQuery] = useState("claude");
   const [range, setRange] = useState<DateRange>({ from: "", to: "2026-09-24" });
 
   return (
@@ -86,6 +87,14 @@ export function DesignTableFixture() {
         value={model}
         options={MODEL_OPTIONS}
         onValueChange={setModel}
+        placeholder="Search models"
+      />
+      <Combobox
+        label="Filter models"
+        freeText
+        value={query}
+        options={MODEL_OPTIONS}
+        onValueChange={setQuery}
         placeholder="Search models"
       />
       <DateRangeInput value={range} onChange={setRange} onApply={() => {}} max="2026-09-24" />

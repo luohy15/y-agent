@@ -402,31 +402,47 @@ expired-login card tells the user to run.
 64. As a web user relying on assistive technology, I want each legend entry to
     expose its toggle state programmatically rather than through dimming alone,
     so that which model the chart is filtered to is announced, not just seen.
-65. As a web user, I want the filter to survive a granularity change and to
-    clear itself automatically when the filtered model is no longer in the top
-    five (for example after switching metric), so that the chart never renders a
-    stale or empty filter. Story 66b supersedes the top-five clearing rule:
-    the filter stays while that model still has usage in the current range
-    and metric, even if it has dropped out of the top five.
-66. As a web user, I want the per-model-by-period table under the chart to keep
-    showing every model regardless of the chart filter, so that the filter stays
-    a chart-reading aid while the table remains the complete record of the range.
-66a. As a web user, I want a searchable model dropdown on the Over-time chart
-    card (to the right of the metric-over-time title, not in the global filter
-    row) listing All models, Other only when the legend has Other, then every
-    model with non-zero usage for the selected metric in rank order, so that I
-    can read one long-tail model's trend instead of only the legend's top five.
-    Choosing a model and clicking its legend entry share one filter. The
-    heatmap, history table, averages, metric, granularity, and time controls
-    stay unfiltered, and the choice is not persisted.
-66b. As a web user, I want that model filter to clear only when the chosen
-    model is no longer among the options (no usage in the current range and
-    metric), so that changing metric or range does not drop a model merely
-    because it left the top five. A model outside the legend keeps no legend
-    entry pressed, and the dropdown still shows that model. Its bar uses the
-    existing categorical color when it is in the top seven series, and neutral
-    base0 otherwise; no new categorical hue is invented for it. This supersedes
-    story 65's top-five clearing rule.
+65. As a web user, I want the legend filter to survive a granularity change
+    and to clear itself automatically when the filtered model is no longer in
+    the top five (for example after switching metric), so that the chart never
+    renders a stale or empty filter. This applies to the default chart (empty
+    model query). A non-empty model query replaces that legend, and story 66b
+    governs it instead.
+66. As a web user, I want the per-model-by-period table under the chart, the
+    heatmap or hourly grid, and the averages row to keep showing every model
+    regardless of the chart filter, so that the filter stays a chart-reading
+    aid while those surfaces remain the complete record of the range.
+66a. As a web user, I want a search on the Over-time chart card (to the right
+    of the metric-over-time title, labelled Filter models, placeholder Search
+    models, not in the global filter row) whose text defines a model set, so
+    that typing a substring such as claude charts every matching model as its
+    own series. Matching is a case-insensitive substring on the model name,
+    over models with non-zero usage for the selected metric in the current
+    range, kept in global rank order. An empty query leaves the default chart:
+    the top-seven-plus-Other stack and the top-five-plus-Other legend. A
+    non-empty query with matches stacks every match, with no Other slice and
+    no cap, and the legend lists every match. Suggestions in the dropdown are
+    those ranked model names only, so the open list previews the charted set.
+66b. As a web user, I want a non-empty query that matches nothing, once data
+    has loaded, to show an empty chart that says no models match that query in
+    this range, so that a miss is never mistaken for all models. The chart
+    frame stays, the legend hides, and the query stays as typed. Nothing
+    clears the query except emptying the field. Clicking a legend entry only
+    isolates that one series until I click it again or edit the query, and
+    that isolation is not saved. The legend's Other isolation exists only when
+    the query is empty.
+66c. As a web user, I want the raw model-query text persisted in local storage
+    under botUsageOverTimeModelQuery, one value across metric, granularity,
+    and time, so that the chart reopens on the same set. An empty query
+    removes the key. Loading, a metric or range change, and a query that
+    currently matches nothing never rewrite or clear the stored text.
+66d. As a web user, I want each model's color to depend only on its global
+    rank for the current range and metric, so that editing the query never
+    repaints a model. Ranks 1 through 7 keep the default stack colors, rank 8
+    uses the default Other color, and rank 9 and beyond are neutral base0 with
+    a base03 segment stroke. No new hue is invented, and the legend Other
+    swatch stays base01. More than eight matches stay separate segments. None
+    are folded into Other.
 
 ### Controls and state
 
@@ -434,9 +450,9 @@ expired-login card tells the user to run.
     with independent per-mode values (Live defaults to today, Over-time
     defaults to the current month) persisted across sessions, so that each mode
     remembers its own natural window.
-68. As a web user, I want the usage view's mode, view toggle, granularity, and
-    time inputs persisted in local storage, so that the panel reopens the way I
-    left it.
+68. As a web user, I want the usage view's mode, view toggle, granularity,
+    time inputs, and the Over-time model query (story 66c) persisted in local
+    storage, so that the panel reopens the way I left it.
 69. As a web user, I want wide ranges ("all", a full year) to return complete
     data rather than silently truncating at a small row limit, so that
     long-window charts are trustworthy.
@@ -1542,7 +1558,7 @@ expired-login card tells the user to run.
 
 | Todo | Outcome | Design | Plan | Decisions | Review | Status |
 |------|---------|--------|------|-----------|--------|--------|
-| 3695 | Searchable model filter on the Over-time chart via `@y/design` Combobox 0.3.0; stories 66a/66b. Host pin only in this row's host slice; bot consumption is a later publish | - | `pages/plan-3695-bot-usage-model-filter.md` | this PRD; implementation evidence `pages/impl-3695-y-agent-design-pin.md` | `pages/review-3695-y-design-combobox.md`, `pages/review-3695-y-agent-design-pin.md` | y-design 0.3.0 published; host pin reviewed and approved, not integrated; bot consumption pending |
+| 3695 | Search-defined model set on the Over-time chart. Iteration 1 shipped a single-model Combobox (y-design 0.3.0 at 5b7b589, host c1fceb6, bot v53 from 8d8eb6a, UI 43828e03f36e, API 8fa2814fd22f; no y-module Git push). Iteration 3 replaces that with a persisted substring query (`botUsageOverTimeModelQuery`, stories 66a-66d) on `@y/design` Combobox 0.4.0 `freeText`. Iteration 2 (persisting the single selection) will not ship | - | `pages/plan-3695-bot-usage-model-filter.md` | this PRD; `pages/impl-3695-y-agent-design-pin.md`; `pages/impl-3695-bot-t5-model-filter.md` | `pages/review-3695-y-design-combobox.md`, `pages/review-3695-y-agent-design-pin.md`, `pages/review-3695-bot-model-filter.md` | Iteration 1 shipped: host c1fceb6 deployed (Deploy 36311820539, Deploy Web 36311820524), bot v53 enabled. Iteration 3 y-design 0.4.0 published at f24d54d; host pin reviewed and approved (round 2), not integrated; bot consumption pending |
 | 3584 | Removed the usage averages methodology caption from the over-time views | - | - | - | `pages/review-3584-methodology-caption.md` | shipped: bot v45 active from `0e61114`, UI `8a7a12adfd44...`, API `59318933a0b4...` unchanged; source digest `51090cb4...` matches the reviewed worktree; charts, averages tiles, labels and `usageAverages` semantics unchanged; no module Git push; ready for user verification |
 | 3569 | Explain equal-weight usage disparity and add model Sessions, Turns and Avg turns/chat | - | `pages/plan-3569-bot-usage-sessions.md`; `pages/plan-3569-module-publication-path.md` | `pages/handoff-3569-bot-module-ui.md`; `pages/release-3569-bot-usage.md` | `pages/review-3569-chat-model-activity-host.md`; `pages/review-3569-bot-module-live-columns.md` | shipped: host `80101ce`, SQL applied, bot v43 active from `446da28`; no historical backfill or module Git push; ready for user verification |
 | 3571 | Adaptive per-window heatmap bins and recorded-day usage averages with normalized weekly/monthly estimates | - | `pages/plan-3571-heatmap-adaptive-scale.md` | this PRD; `pages/prd-3571-bot-usage-patch.md`; `pages/impl-3571-heatmap-adaptive-scale.md` | `pages/review-3571-heatmap-adaptive-scale.md` (3 rounds) | shipped `e412b07`, bot v42 enabled; UI `8ea65613c9f0...`, API `59318933a0b4...` unchanged; 424 assertions passed, no new typecheck diagnostics; canonical build matches published UI, source digest matches review; feature-home edits local only; ready for user verification |
