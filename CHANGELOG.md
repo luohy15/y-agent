@@ -13,6 +13,18 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+- **Reminder and routine module host support (3708)**: browser contract v20 adds `bell` and `clock` icon keys and the `chat.setRoutineFilter` command. The built-in Reminders and Routines panels are retired; persisted `reminder` and `routine` sidebar keys move to `artifact:reminder` and `artifact:routine`.
+
+### Changed
+- **Host and SDK design package 0.4.0 (3695)**: vendored `@y/design` moves from 0.2.0 through 0.3.0 (Combobox) to 0.4.0 (`freeText` Combobox). The host Tailwind scan includes `dist/combobox.js`.
+
+### Fixed
+
+### Removed
+
+## [0.5.29] - 2026-09-27
+
+### Added
 - **Generic tab refresh (3674, 3680)**: every module detail tab gets the centre-tab refresh control unconditionally. The host revalidates every SWR key that tab subscribes to, then remounts that tab's subtree, so refresh works in every internal view with no module opt-in. `@y/host` browser contract v18 adds `useTabDirty(dirty)` to confirm before a refresh discards a draft (cancelling starts neither stage); the v17 `useTabRefresh` registration is now a no-op kept for rollback-reachable module versions. Contract v19 extends the same control to left-sidebar panels: built-in panels revalidate only (pagination, filters, and open forms stay), and a module panel gets a refresh control on its existing Open-full-view row.
 - **Per-user activity-bar visibility (3676)**: hide or show modules on the left rail without disabling them or changing order; a Modules recovery action stays in the account menu. Browser contract v16.
 - **Registered chat wakeups (3655)**: `y chat --at` schedules a durable, owner-scoped message to an existing traced chat; pending wakeups count as watchdog liveness evidence until delivery or the grace deadline.
