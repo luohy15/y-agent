@@ -5,8 +5,12 @@
  * @y/design ships complete utility strings in dist JS (todo 3657).
  * Tailwind v4 does not scan node_modules, so point at the resolved
  * package entry explicitly. Do not scan node_modules broadly.
+ * 0.3.0 puts Combobox classes in dist/combobox.js, which index.js only
+ * re-exports (todo 3695). The SDK build scans every dist JS file; the
+ * host has to name this one too.
  */
 @source "../node_modules/@y/design/dist/index.js";
+@source "../node_modules/@y/design/dist/combobox.js";
 
 html {
   font-size: 110%;

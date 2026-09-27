@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   Badge,
+  Combobox,
   DateRangeInput,
   Select,
   Table,
@@ -16,10 +17,11 @@ import {
 
 /**
  * Host consumption fixture for @y/design (todo 3657, extended 0.2.0 in
- * todo 3666). Not mounted by any route. Exists so the host Vite/Tailwind
- * build actually resolves the package and emits utilities that live only
- * inside dist/index.js (uppercase, tracking-wide, tabular-nums, the
- * Badge tone colors, and the align="center" Table cells).
+ * todo 3666, Combobox in 0.3.0 / todo 3695). Not mounted by any route.
+ * Exists so the host Vite/Tailwind build actually resolves the package and
+ * emits utilities that live only inside dist (uppercase, tracking-wide,
+ * tabular-nums, the Badge tone colors, the align="center" Table cells, and
+ * the Combobox popup: shadow-float, z-30, max-h-48, overflow-y-auto).
  */
 const ROWS = [
   { route: "GET /api/todo", p95: 412, requests: 1804, tone: "success" as const, active: true },
@@ -31,8 +33,15 @@ const ENVIRONMENT_OPTIONS = [
   { value: "staging", label: "Staging" },
 ];
 
+const MODEL_OPTIONS = [
+  { value: "", label: "All models" },
+  { value: "claude-opus", label: "claude-opus" },
+  { value: "claude-sonnet", label: "claude-sonnet" },
+];
+
 export function DesignTableFixture() {
   const [environment, setEnvironment] = useState("prod");
+  const [model, setModel] = useState("");
   const [range, setRange] = useState<DateRange>({ from: "", to: "2026-09-24" });
 
   return (
@@ -71,6 +80,13 @@ export function DesignTableFixture() {
         onValueChange={setEnvironment}
         error="Unreachable"
         className="aria-invalid:border-sol-red"
+      />
+      <Combobox
+        label="Model"
+        value={model}
+        options={MODEL_OPTIONS}
+        onValueChange={setModel}
+        placeholder="Search models"
       />
       <DateRangeInput value={range} onChange={setRange} onApply={() => {}} max="2026-09-24" />
     </div>
