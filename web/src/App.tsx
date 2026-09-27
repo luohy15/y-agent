@@ -92,7 +92,7 @@ import {
   resolveShellSlot,
   shellClaimant,
 } from "./host/artifacts";
-import { registerHostCommand } from "./host/commands";
+import { registerHostCommand, runHostCommand } from "./host/commands";
 import { registerArtifactDetailOpener, setArtifactIntent } from "./host/intents";
 import { publishActivityBarVisibility, registerActivityBarVisibilityCommands } from "./host/activityBarVisibilityBridge";
 import { useActivityBarVisibility } from "./hooks/useActivityBarVisibility";
@@ -648,6 +648,20 @@ export default function App() {
       if (traceId === undefined) return;
       setChatTraceFilter(traceId, setChatListTraceId);
     });
+    const unregisterChatSetRoutineFilter = registerHostCommand("chat.setRoutineFilter", (payload) => {
+      if (!payload || typeof payload !== "object") return;
+      const { routineName, routineOnly } = payload as { routineName?: unknown; routineOnly?: unknown };
+      if ((routineName !== null && typeof routineName !== "string") || typeof routineOnly !== "boolean") return;
+      setChatListRoutineName(routineName);
+      setChatListRoutineOnly(routineOnly);
+      setArtifactIntent("chat", { kind: "routine-filter", routineName, routineOnly, nonce: Date.now() });
+      setSidebarPanel("artifact:chat");
+      if (window.innerWidth < 768) {
+        setSidebarOpen(true);
+      } else {
+        setDesktopSidebarOpen(true);
+      }
+    });
     // Todo 3179 H1: narrow adapters for the exported TraceView module leaf.
     // chat.open / file.open already cover chat + note/file callbacks; these three
     // fill the remaining link / calendar / deep-link-back gaps without aliases.
@@ -675,6 +689,7 @@ export default function App() {
       unregisterTodoDetail();
       unregisterChatOpen();
       unregisterChatSetTraceFilter();
+      unregisterChatSetRoutineFilter();
       unregisterLinkOpen();
       unregisterCalendarFocus();
       unregisterTraceClearRoute();
@@ -1763,28 +1778,8 @@ export default function App() {
                 <RoutineList
                   isLoggedIn={auth.isLoggedIn}
                   hideRefreshButton
-                  onShowChats={(routineName) => {
-                    setChatListRoutineName(routineName);
-                    setChatListRoutineOnly(false);
-                    setArtifactIntent("chat", { kind: "routine-filter", routineName, routineOnly: false, nonce: Date.now() });
-                    setSidebarPanel("artifact:chat");
-                    if (window.innerWidth < 768) {
-                      setSidebarOpen(true);
-                    } else {
-                      setDesktopSidebarOpen(true);
-                    }
-                  }}
-                  onShowAllChats={() => {
-                    setChatListRoutineName(null);
-                    setChatListRoutineOnly(true);
-                    setArtifactIntent("chat", { kind: "routine-filter", routineName: null, routineOnly: true, nonce: Date.now() });
-                    setSidebarPanel("artifact:chat");
-                    if (window.innerWidth < 768) {
-                      setSidebarOpen(true);
-                    } else {
-                      setDesktopSidebarOpen(true);
-                    }
-                  }}
+                  onShowChats={(routineName) => runHostCommand("chat.setRoutineFilter", { routineName, routineOnly: false })}
+                  onShowAllChats={() => runHostCommand("chat.setRoutineFilter", { routineName: null, routineOnly: true })}
                 />
               ) : sidebarPanel === "english" ? (
                 <EnglishList
