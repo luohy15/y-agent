@@ -161,7 +161,7 @@ export const hostSdk = {
 
   // resolvedRange.ts / ResolvedRangeLabel.tsx (contract v14, todo 3580) —
   // host-owned inclusive date/instant range formatter plus the presentational
-  // label. One physical copy for host LinkList and the six y-module surfaces;
+  // label. One physical copy for the y-module surfaces;
   // `code/y-module/shared/ui/` cannot serve the host.
   formatResolvedDateRange,
   formatResolvedInstantRange,

@@ -166,13 +166,11 @@ export function isHostWorkspaceTab(path: string): boolean {
   if (path.startsWith("ui:") || path.startsWith("artifact:") || path.startsWith("diff:")) return true;
   // Ordinary host tab ids are JSON.stringify([vm, workDir, path]).
   if (path.startsWith("[")) return false;
-  const name = path.replace(/^\.\//, "");
-  // Authenticated `trace.md` is retired (todo 3179 H3); public FileViewer keeps
-  // its own permanent tab and never uses this host classification helper.
-  return (
-    name === "link.md"
-    || name === "links.md"
-  );
+  // Authenticated `trace.md` is retired (todo 3179 H3), and so are the
+  // `link.md` / `links.md` specials (todo 3708: Links and RSS are modules);
+  // public FileViewer keeps its own permanent tab and never uses this host
+  // classification helper.
+  return false;
 }
 
 export function isOrdinaryFilePath(path: string): boolean {

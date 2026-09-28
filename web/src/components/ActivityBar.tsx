@@ -6,11 +6,9 @@ import { projectActivityBarOrder } from "../utils/activityBarVisibility";
 import { buildModulePanelItems, type PanelItem } from "./panelCatalog";
 import UserMenu from "./UserMenu";
 
-export type BuiltInSidebarPanel =
-  | "links"
-  | "rss";
-
-export type SidebarPanel = BuiltInSidebarPanel | `artifact:${string}`;
+// Every left-rail panel is module-backed since todo 3708 retired the last
+// built-ins (Links, RSS).
+export type SidebarPanel = `artifact:${string}`;
 
 interface ActivityBarProps {
   isLoggedIn: boolean;
@@ -66,18 +64,7 @@ interface ActivityBarProps {
   modulesAvailable?: boolean;
 }
 
-export const BUILT_IN_PANEL_ITEMS: PanelItem<SidebarPanel>[] = [
-  { key: "links", label: "Links", icon: (
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-    </svg>
-  )},
-  { key: "rss", label: "RSS", icon: (
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 11a9 9 0 0 1 9 9" /><path d="M4 4a16 16 0 0 1 16 16" /><circle cx="5" cy="19" r="1" />
-    </svg>
-  )},
-];
+export const BUILT_IN_PANEL_ITEMS: PanelItem<SidebarPanel>[] = [];
 
 export function buildActivityPanelItems(artifacts: Module[]): PanelItem<SidebarPanel>[] {
   return [...BUILT_IN_PANEL_ITEMS, ...buildModulePanelItems(artifacts)];
@@ -101,6 +88,9 @@ const APP_TO_PANEL: Record<string, SidebarPanel | null> = {
   // Todo 3708 batch 3: built-in English panel and exact special tab become the module.
   english: "artifact:english",
   "english.md": "artifact:english",
+  // Todo 3708 batch 4: built-in Links / RSS panels become UI modules.
+  links: "artifact:link",
+  rss: "artifact:rss",
   chats: "artifact:chat",
   // C1: fixed left module-backed entries become artifact panel keys.
   notes: "artifact:note",

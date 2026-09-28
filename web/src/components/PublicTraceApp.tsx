@@ -5,7 +5,7 @@ import ChatSnapshotView from "./ChatSnapshotView";
 import ChatList from "./ChatList";
 import FileViewer from "./FileViewer";
 import PublicNoteList from "./PublicNoteList";
-import LinkList, { type Link } from "./LinkList";
+import PublicLinkList, { type Link } from "./PublicLinkList";
 import ErrorBoundary from "./ErrorBoundary";
 import { type TraceChat } from "./WaterfallChart";
 import { type TodoInfo, type TodoNoteInfo } from "./TraceTodoDetail";
@@ -270,7 +270,7 @@ export default function PublicTraceApp() {
             onSelectNote={openNote}
           />
         ) : (
-          <LinkList isLoggedIn={false} onPreview={() => {}} items={data.links ?? []} />
+          <PublicLinkList items={data.links ?? []} />
         )}
       </div>
     </div>

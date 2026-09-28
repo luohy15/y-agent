@@ -19,7 +19,7 @@ export const DEMO_SHOWCASE_ORDER = [
 
 /** Visibly unavailable left-rail destinations (design-3158 lines 97–132 + Link). */
 export const DEMO_LEFT_UNAVAILABLE = [
-  "links",
+  "artifact:link",
   "artifact:module",
   "artifact:tag",
   "artifact:file",
@@ -28,7 +28,7 @@ export const DEMO_LEFT_UNAVAILABLE = [
   "artifact:routine",
   "artifact:email",
   "artifact:english",
-  "rss",
+  "artifact:rss",
   "artifact:dev",
 ] as const;
 

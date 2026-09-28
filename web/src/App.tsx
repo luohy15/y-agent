@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router";
-import useSWR, { SWRConfig } from "swr";
+import useSWR from "swr";
 import { useAuth } from "./hooks/useAuth";
 import { useUserPreference } from "./hooks/useUserPreference";
 import { API, authFetch, jsonFetcher } from "./api";
@@ -14,15 +14,12 @@ import DesktopHeaderBar from "./components/shell/DesktopHeaderBar";
 import CentreModeTabs from "./components/shell/CentreModeTabs";
 import TabRefreshButton from "./components/shell/TabRefreshButton";
 import { useTabRefreshChrome } from "./components/shell/useTabRefreshChrome";
-import { TAB_REFRESH_SWR_CONFIG, TabRefreshRegistryProvider } from "./host/tabRefresh";
 import CommandPalette, { CommandAction } from "./components/CommandPalette";
 import TerminalView from "./components/TerminalView";
-import LinkList from "./components/LinkList";
-import RssFeedList from "./components/RssFeedList";
 import { openCalendarFocusDate } from "./utils/calendarNavigate";
 import { handleEntityOpen, openEntity } from "./utils/entityNavigate";
 import { handleEnglishOpen } from "./utils/englishNavigate";
-import { dispatchLinkOpen } from "./utils/linkNavigate";
+import { handleLinkOpen } from "./utils/linkNavigate";
 import { handleRssOpen } from "./utils/rssNavigate";
 import { navigateTag, type TagResultItem } from "./utils/tagNavigate";
 import {
@@ -77,7 +74,6 @@ import { closeTabShortcutLabel, isApplePlatform } from "./utils/platform";
 import FileSearchDialog from "./components/FileSearchDialog";
 import { usePublishNoteIntent } from "./utils/noteHost";
 import GitPanel from "./components/GitPanel";
-import LinkActionDialog from "./components/LinkActionDialog";
 import ErrorBoundary from "./components/ErrorBoundary";
 import type { ArtifactType } from "./components/ArtifactView";
 import ArtifactMount from "./host/ArtifactMount";
@@ -115,14 +111,7 @@ interface BotConfigItem {
 // `trace.md` is the authenticated host special retired by todo 3179 H3
 // (selection now lives in the Todo module detail). Public `/t/:shareId`
 // keeps its own permanent tab and is not in this set.
-const RETIRED_TABS = new Set(["bot.md", "calendar.md", "todo.md", "trace.md", "email.md", "entity.md", "dev.md", "english.md"]);
-
-// Built-in sidebar panels with no "Open ... full view" action of their own
-// (todo 3680): the host refresh row shows this label instead.
-const BUILT_IN_SIDEBAR_PANEL_LABELS: Partial<Record<SidebarPanel, string>> = {
-  links: "Links",
-  rss: "RSS",
-};
+const RETIRED_TABS = new Set(["bot.md", "calendar.md", "todo.md", "trace.md", "email.md", "entity.md", "dev.md", "english.md", "link.md", "links.md"]);
 
 // Round-2 gap closure (plan-3046-right-sidebar.md R1) + module cuts: exactly
 // four right categories. Chat, Notes, and Files resolve dynamically; Diff stays
@@ -270,13 +259,6 @@ export default function App() {
   const [chatTraceId, setChatTraceId] = useState<string | null>(null);
   const [chatBackend, setChatBackend] = useState<string | null>(null);
   const [chatBotName, setChatBotName] = useState<string | null>(null);
-  const [selectedLinkId, setSelectedLinkId] = useState<string | null>(() => localStorage.getItem("selectedLinkId") || null);
-  const [selectedLinkLinkId, setSelectedLinkLinkId] = useState<string | null>(() => localStorage.getItem("selectedLinkLinkId") || null);
-  const [selectedLinkContentKey, setSelectedLinkContentKey] = useState<string | null>(() => localStorage.getItem("selectedLinkContentKey") || null);
-  const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null);
-  const [pendingLinkStatus, setPendingLinkStatus] = useState<string | null>(null);
-  const [selectedFeedId, setSelectedFeedId] = useState<string | null>(null);
-  const [selectedFeedLabel, setSelectedFeedLabel] = useState<string | null>(null);
   const [chatRefreshKey, setChatRefreshKey] = useState(0);
   // Todo row-body re-open of the selected chat (todo 3715); read at lookup
   // resolution time, so the ref tracks the latest selection.
@@ -356,9 +338,6 @@ export default function App() {
       localStorage.setItem("host.fileDescriptors.v1", JSON.stringify(Object.values(fileTabs)));
     } catch { /* quota — leave prior descriptors */ }
   }, [fileTabs]);
-  useEffect(() => { if (selectedLinkId) localStorage.setItem("selectedLinkId", selectedLinkId); else localStorage.removeItem("selectedLinkId"); }, [selectedLinkId]);
-  useEffect(() => { if (selectedLinkLinkId) localStorage.setItem("selectedLinkLinkId", selectedLinkLinkId); else localStorage.removeItem("selectedLinkLinkId"); }, [selectedLinkLinkId]);
-  useEffect(() => { if (selectedLinkContentKey) localStorage.setItem("selectedLinkContentKey", selectedLinkContentKey); else localStorage.removeItem("selectedLinkContentKey"); }, [selectedLinkContentKey]);
 
   const openFilesRef = useRef(openFiles);
   openFilesRef.current = openFiles;
@@ -658,16 +637,10 @@ export default function App() {
     // Todo 3179 H1: narrow adapters for the exported TraceView module leaf.
     // chat.open / file.open already cover chat + note/file callbacks; these three
     // fill the remaining link / calendar / deep-link-back gaps without aliases.
-    // Transition rule (todo 3708 A3): the link module, once mountable, owns
-    // navigation; the legacy branch stays live until B retires it so the
-    // entity/todo trace-detail callers keep working before M publishes.
+    // The link module owns navigation (todo 3708); the built-in `link.md`
+    // tab is retired.
     const unregisterLinkOpen = registerHostCommand("link.open", (payload) => {
-      dispatchLinkOpen(payload, uiArtifactBySlug.has("link"), handleOpenFile, (activityId, contentKey) => {
-        setSelectedLinkId(activityId);
-        setSelectedLinkLinkId(null);
-        setSelectedLinkContentKey(contentKey);
-        handleOpenFile("link.md");
-      });
+      handleLinkOpen(payload, handleOpenFile);
     });
     const unregisterCalendarFocus = registerHostCommand("calendar.focusDate", (payload) => {
       if (!payload || typeof payload !== "object") return;
@@ -705,7 +678,7 @@ export default function App() {
       unregisterEnglishOpen();
       unregisterRssOpen();
     };
-  }, [handleOpenFile, selectedChatId, uiArtifactBySlug]);
+  }, [handleOpenFile, selectedChatId]);
 
   useEffect(() => {
     if (uiArtifactsLoading) return;
@@ -1396,17 +1369,6 @@ export default function App() {
     };
   }, [handleChatCreated, handleOpenFile, handleOpenArtifact, handlePreviewFile]);
 
-  const handleSelectFeed = useCallback((feedId: string, label: string) => {
-    setSelectedFeedId(feedId);
-    setSelectedFeedLabel(label);
-    handleOpenFile("links.md");
-  }, [handleOpenFile]);
-
-  const handleClearFeed = useCallback(() => {
-    setSelectedFeedId(null);
-    setSelectedFeedLabel(null);
-  }, []);
-
   // Tag module click-to-navigate: one type-dispatch callback covering all 10
   // tag carriers. The actual dispatch logic lives in utils/tagNavigate.ts; this
   // supplies bound setters and closes the mobile sidebar drawer after navigating.
@@ -1419,14 +1381,10 @@ export default function App() {
       handleOpenFile,
       handlePreviewFile,
       defaultWorkDir,
-      setSelectedLinkId,
-      setSelectedLinkLinkId,
-      setSelectedLinkContentKey,
-      handleSelectFeed,
       setSidebarPanel,
     });
     if (window.innerWidth < 768) setSidebarOpen(false);
-  }, [handleOpenFile, handlePreviewFile, defaultWorkDir, handleSelectFeed]);
+  }, [handleOpenFile, handlePreviewFile, defaultWorkDir]);
 
   const openModulesPanel = useCallback(() => {
     if (!uiArtifactBySlug.has("module")) return;
@@ -1471,28 +1429,6 @@ export default function App() {
       handleTagNavigate(entityType, resultItem);
     });
   }, [handleTagNavigate]);
-
-  const handleExternalLinkClick = useCallback(async (url: string) => {
-    try {
-      const res = await authFetch(`${API}/api/link/resolve?url=${encodeURIComponent(url)}`);
-      if (!res.ok) {
-        window.open(url, "_blank", "noopener,noreferrer");
-        return;
-      }
-      const data = await res.json();
-      if (data.download_status === "done" && data.content_key) {
-        setSelectedLinkId(data.activity_id ?? null);
-        setSelectedLinkLinkId(data.link_id ?? null);
-        setSelectedLinkContentKey(data.content_key);
-        handleOpenFile("link.md");
-        return;
-      }
-      setPendingLinkUrl(url);
-      setPendingLinkStatus(data.download_status ?? null);
-    } catch {
-      window.open(url, "_blank", "noopener,noreferrer");
-    }
-  }, [handleOpenFile]);
 
   const handleLogout = useCallback(() => {
     auth.logout();
@@ -1740,9 +1676,6 @@ export default function App() {
             const panelFile = sidebarArtifact && uiArtifactHasDetail[sidebarArtifact.slug]
               ? { path: artifactTabKey(sidebarArtifact.slug), label: `Open ${artifactLabel(sidebarArtifact)} full view` }
               : undefined;
-            // Host refresh row label for a built-in panel with no "Open ...
-            // full view" action of its own (todo 3680).
-            const builtInRefreshLabel = sidebarArtifact ? undefined : BUILT_IN_SIDEBAR_PANEL_LABELS[sidebarPanel];
             // A module panel's own "Open ... full view" row gets a trailing
             // refresh control too (contract v19 host half): the registry and
             // nonce are supplied unconditionally below, so any module that
@@ -1750,7 +1683,7 @@ export default function App() {
             // gets it revalidated/remounted the same way a centre detail tab
             // does; the module may opt into `useTabDirty` as its own guard.
             const isModulePanelFile = !!sidebarArtifact && !!panelFile;
-            const rawBody =
+            const body =
               sidebarArtifact ? (
                 <div className="h-full overflow-auto" data-ui-artifact-sidebar={sidebarArtifact.slug}>
                   <ArtifactMount
@@ -1768,28 +1701,7 @@ export default function App() {
                     refreshNonce={sidebarRefreshChrome.nonceFor(sidebarRefreshKey)}
                   />
                 </div>
-              ) : sidebarPanel === "links" ? (
-                <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkLinkId(null); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); }} hideRefreshButton />
-              ) : sidebarPanel === "rss" ? (
-                <RssFeedList isLoggedIn={auth.isLoggedIn} onSelectFeed={handleSelectFeed} selectedFeedId={selectedFeedId} hideRefreshButton />
               ) : null;
-            // Built-in panels register their own bound SWR mutates via the
-            // same registry-tracking config the centre tab mechanism uses
-            // (todo 3680), but the sidebar control only revalidates them
-            // (stage 1): these are host-authored components with load-bearing
-            // local state (pagination, filters, an open form) and no way to
-            // opt into the module-facing `useTabDirty` guard, so a remount
-            // would silently destroy that state for no additional benefit
-            // (they all read through `useSWR`, which stage 1 alone refetches).
-            // `sidebarRefreshChrome`'s nonce for this key is deliberately
-            // never bumped on this branch (only `triggerRevalidateOnly` runs
-            // here, never `triggerScoped`); it exists only because the same
-            // per-key chrome instance is shared with the module-panel branch.
-            const body = builtInRefreshLabel ? (
-              <TabRefreshRegistryProvider registry={sidebarRefreshChrome.registryFor(sidebarRefreshKey)}>
-                <SWRConfig value={TAB_REFRESH_SWR_CONFIG}>{rawBody}</SWRConfig>
-              </TabRefreshRegistryProvider>
-            ) : rawBody;
             return (
               <div className="flex flex-col h-full min-h-0">
                 {panelFile ? (
@@ -1809,17 +1721,6 @@ export default function App() {
                         title="Refresh"
                         spinning={sidebarRefreshChrome.isRefreshing(sidebarRefreshKey)}
                         onClick={() => sidebarRefreshChrome.triggerScoped(sidebarRefreshKey)}
-                      />
-                    )}
-                  </div>
-                ) : builtInRefreshLabel ? (
-                  <div className="px-2 py-1.5 border-b border-sol-base02 shrink-0 flex items-center justify-between">
-                    <span className="text-xs text-sol-base01">{builtInRefreshLabel}</span>
-                    {auth.isLoggedIn && (
-                      <TabRefreshButton
-                        title="Refresh"
-                        spinning={sidebarRefreshChrome.isRefreshing(sidebarRefreshKey)}
-                        onClick={() => sidebarRefreshChrome.triggerRevalidateOnly(sidebarRefreshKey)}
                       />
                     )}
                   </div>
@@ -1852,7 +1753,7 @@ export default function App() {
               {/* FileViewer (shown when chat hidden) */}
               <div className={`absolute inset-0 ${chatHide ? "" : "hidden"}`}>
                 <ErrorBoundary label="Panel">
-                  <FileViewer openFiles={workspaceVisible ? openFiles : []} activeFile={workspaceVisible ? activeFile : null} onSelectFile={handleSelectFile} onCloseFile={handleCloseFile} onReorderFiles={handleReorderFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} fileTabs={workspaceVisible ? fileTabs : {}} fileDirty={fileDirty} fileFocus={fileFocus} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} isLoggedIn={auth.isLoggedIn} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={workspaceVisible ? previewFile : null} onPinFile={handlePinFile} fileHistory={fileHistory} onFileBack={handleFileBack} onFileForward={handleFileForward} />
+                  <FileViewer openFiles={workspaceVisible ? openFiles : []} activeFile={workspaceVisible ? activeFile : null} onSelectFile={handleSelectFile} onCloseFile={handleCloseFile} onReorderFiles={handleReorderFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} fileTabs={workspaceVisible ? fileTabs : {}} fileDirty={fileDirty} fileFocus={fileFocus} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} previewFile={workspaceVisible ? previewFile : null} onPinFile={handlePinFile} fileHistory={fileHistory} onFileBack={handleFileBack} onFileForward={handleFileForward} />
                 </ErrorBoundary>
               </div>
               {/* Chat stays mounted while hidden. The shell module owns the live
@@ -1984,12 +1885,6 @@ export default function App() {
         workDir={fileSearchContext.workDir ?? undefined}
         openFiles={openFiles.map((key) => fileTabs[key]?.path ?? key)}
         onCloseAll={handleCloseAllFiles}
-      />
-      <LinkActionDialog
-        open={!!pendingLinkUrl}
-        url={pendingLinkUrl}
-        status={pendingLinkStatus}
-        onClose={() => { setPendingLinkUrl(null); setPendingLinkStatus(null); }}
       />
     </div>
     </ErrorBoundary>

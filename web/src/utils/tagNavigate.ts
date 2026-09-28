@@ -6,6 +6,8 @@ import { artifactPanelKey } from "../host/artifacts";
 import { openCalendarFocusDate } from "./calendarNavigate";
 import { openEmailThread } from "./emailNavigate";
 import { openEntity } from "./entityNavigate";
+import { openLink } from "./linkNavigate";
+import { openRss } from "./rssNavigate";
 import { openTodoDetail } from "./todoDetailNavigate";
 
 export interface TagResultItem {
@@ -53,10 +55,6 @@ export function openTodo(todoId: string, deps: OpenTodoDeps): void {
 export interface TagNavigateDeps extends OpenTodoDeps {
   handlePreviewFile: (path: string) => void;
   defaultWorkDir?: string | null;
-  setSelectedLinkId: (id: string | null) => void;
-  setSelectedLinkLinkId: (id: string | null) => void;
-  setSelectedLinkContentKey: (key: string | null) => void;
-  handleSelectFeed: (feedId: string, label: string) => void;
   setSidebarPanel: (panel: SidebarPanel) => void;
 }
 
@@ -81,13 +79,10 @@ export function navigateTag(entityType: string, item: TagResultItem, deps: TagNa
       openEntity(item.id, deps.handleOpenFile);
       break;
     case "link":
-      deps.setSelectedLinkId(item.id);
-      deps.setSelectedLinkLinkId(null);
-      deps.setSelectedLinkContentKey(null);
-      deps.handleOpenFile("link.md");
+      openLink({ activityId: item.id, linkId: null, contentKey: null }, deps.handleOpenFile);
       break;
     case "rss_feed":
-      deps.handleSelectFeed(item.id, item.title || item.id);
+      openRss({ feedId: item.id, label: item.title || item.id }, deps.handleOpenFile);
       break;
     case "calendar_event":
       authFetch(`${API}/api/calendar/detail?event_id=${encodeURIComponent(item.id)}`)

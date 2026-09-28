@@ -78,23 +78,3 @@ export function handleLinkOpen(
   if (!parsed) return;
   openLink(parsed, handleOpenFile);
 }
-
-/** Transition rule for `link.open` during A→M (todo 3708 A3): once the
- * `link` module is mountable, route through the module intent; otherwise
- * fall back to the legacy `link.md` tab body via `legacyOpen`. B removes
- * this branch and calls `handleLinkOpen` unconditionally. */
-export function dispatchLinkOpen(
-  payload: unknown,
-  linkModuleMountable: boolean,
-  handleOpenFile: (path: string) => void,
-  legacyOpen: (activityId: string, contentKey: string | null) => void,
-): void {
-  if (linkModuleMountable) {
-    handleLinkOpen(payload, handleOpenFile);
-    return;
-  }
-  if (!payload || typeof payload !== "object") return;
-  const { activityId, contentKey } = payload as { activityId?: unknown; contentKey?: unknown };
-  if (typeof activityId !== "string") return;
-  legacyOpen(activityId, typeof contentKey === "string" ? contentKey : null);
-}

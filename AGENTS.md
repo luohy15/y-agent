@@ -113,8 +113,13 @@ entity + controller + service + CLI slices, and most have a web panel.
   (`seed` / `list` / `mark` / `stats`). Tiers 3k/5k/10k are derived from rank.
 - **RSS** — two-stage pipeline: admin schedules feed jobs → worker scrapes feed XML →
   downloader fetches each item's content → storage on S3 (per-activity key). `y rss` CLI
-  for feeds + items.
-- **Link archive** — EC2 is the single source of truth: `~/luohy15/lifelog/link/<link_id>/{content,summary}.md` is canonical (legacy `links/` paths remain valid until data is moved), `content_key`/`summary_content_key` are paths relative to `~/luohy15/` on EC2, API reads via SSH-cat, and S3 is not used for links.
+  for feeds + items. The feed panel and feed-filtered list are the UI-only `rss`
+  module (todo 3708, `code/y-module/rss/README.md`); the host keeps the APIs,
+  CLI, data, pipelines and the `rss.open` command.
+- **Link archive** — EC2 is the single source of truth: `~/luohy15/lifelog/link/<link_id>/{content,summary}.md` is canonical (legacy `links/` paths remain valid until data is moved), `content_key`/`summary_content_key` are paths relative to `~/luohy15/` on EC2, API reads via SSH-cat, and S3 is not used for links. The Links panel and link
+  detail are the UI-only `link` module (todo 3708, `code/y-module/link/README.md`),
+  opened through the host `link.open` command; the logged-out public trace keeps
+  the host `PublicLinkList`.
 - **Browser cookies** — `y cookies sync` stores local browser cookies in the API/DB so remote `y link fetch` can pass them to `yt-dlp`.
 - **Reminder** — `reminder` table, `/api/reminder`, `y reminder` CLI. Admin Lambda runs
   `check_reminders` on a schedule and pushes matches to Telegram.
@@ -378,10 +383,11 @@ Grouped by feature area:
   logged-out shares
 - `host/commands.ts`, runtime-loaded `todo` artifact; `TraceView` stays bundled for
   unauthenticated shares
-- `LinkList.tsx`, `RssFeedList.tsx`, `DiffViewer.tsx`,
+- `PublicLinkList.tsx` (public trace only), `DiffViewer.tsx`,
   `GitPanel.tsx`, `CommandPalette.tsx`,
   `api.ts`, `hooks/useAuth.ts`. English corrections, patterns, vocabulary and
-  refine are the UI-only `english` module (`code/y-module/english/README.md`).
+  refine are the UI-only `english` module (`code/y-module/english/README.md`);
+  Links and RSS are the UI-only `link` / `rss` modules.
 
 ### CLI (`cli/src/yagent/`)
 - `command_option.py` — root `y` group

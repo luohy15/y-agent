@@ -16,6 +16,10 @@ import { applyPrefs, loadPrefs } from "./utils/theme";
 import { API } from "./api";
 import { isDemoPath } from "./demo/routes";
 import { installHostRegistry } from "./host/registry";
+// Global highlight.js theme for every `.hljs` block (ArtifactView raw specs
+// and module code views). Loaded here so it no longer depends on which host
+// component happens to import highlight.js (todo 3708).
+import "highlight.js/styles/base16/solarized-dark.min.css";
 
 function RootGate() {
   const { isLoggedIn } = useAuth();

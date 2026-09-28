@@ -21,11 +21,6 @@ export interface TabRefreshChrome {
    * the same dirty-draft confirm as the centre-tab mechanism. Appropriate for
    * a module mount, which may opt into the guard via `useTabDirty`. */
   triggerScoped(key: string, confirm?: (message: string) => boolean): void;
-  /** Stage 1 only: revalidate everything `key`'s registry recorded, with no
-   * remount. For a host-owned surface whose local React state (filters,
-   * pagination, an open form) a remount would destroy, and which has no way
-   * to call the module-facing `useTabDirty` guard. */
-  triggerRevalidateOnly(key: string): void;
 }
 
 function pruneStale<T>(prev: Record<string, T>, open: ReadonlySet<string>): Record<string, T> {
@@ -93,21 +88,11 @@ export function useTabRefreshChrome(activeKeys: readonly string[]): TabRefreshCh
     [trigger],
   );
 
-  const triggerRevalidateOnly = useCallback(
-    (key: string) => {
-      // `run`'s return type is `void | Promise<void>`, so a missing registry
-      // (nothing has mounted under this key yet) resolving to `undefined`
-      // needs no `?? Promise.resolve()` fallback.
-      trigger(key, () => registries.current.get(key)?.revalidateAll());
-    },
-    [trigger],
-  );
-
   const nonceFor = useCallback((key: string) => nonces[key] ?? 0, [nonces]);
   const isRefreshing = useCallback((key: string) => !!refreshing[key], [refreshing]);
 
   return useMemo(
-    () => ({ registryFor, nonceFor, isRefreshing, trigger, triggerScoped, triggerRevalidateOnly }),
-    [registryFor, nonceFor, isRefreshing, trigger, triggerScoped, triggerRevalidateOnly],
+    () => ({ registryFor, nonceFor, isRefreshing, trigger, triggerScoped }),
+    [registryFor, nonceFor, isRefreshing, trigger, triggerScoped],
   );
 }

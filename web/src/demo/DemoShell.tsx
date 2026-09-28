@@ -201,6 +201,7 @@ export default function DemoShell() {
     const base = modules.slice();
     // Synthetic entries for unavailable module-shaped keys that are not showcase.
     const extras: Array<{ slug: string; label: string; icon: string }> = [
+      { slug: "link", label: "Links", icon: "link" },
       { slug: "module", label: "Modules", icon: "package" },
       { slug: "tag", label: "Tags", icon: "tag" },
       { slug: "file", label: "Files", icon: "file" },
@@ -209,6 +210,7 @@ export default function DemoShell() {
       { slug: "routine", label: "Routines", icon: "clock" },
       { slug: "email", label: "Email", icon: "mail" },
       { slug: "english", label: "English", icon: "pencil" },
+      { slug: "rss", label: "RSS", icon: "rss" },
       { slug: "dev", label: "Dev", icon: "git-branch" },
     ];
     for (const extra of extras) {

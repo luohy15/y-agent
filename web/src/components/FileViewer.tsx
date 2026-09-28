@@ -1,11 +1,7 @@
-import { useEffect, useState, useRef, useMemo, useCallback } from "react";
-import { useSWRConfig } from "swr";
-import { API, authFetch } from "../api";
-import hljs from "highlight.js";
-import "highlight.js/styles/base16/solarized-dark.min.css";
+import { useEffect, useState, useCallback } from "react";
+import { API } from "../api";
 import DiffViewer from "./DiffViewer";
 import TraceView, { type TraceChatsResponse, type TraceNote } from "./TraceView";
-import LinkList from "./LinkList";
 import ArtifactView, { type ArtifactMode, type ArtifactType } from "./ArtifactView";
 import ArtifactMount from "../host/ArtifactMount";
 import { artifactLabel as uiArtifactLabel, artifactSlugFromTab, type MountableModule } from "../host/artifacts";
@@ -35,17 +31,7 @@ interface FileViewerProps {
   uiArtifacts?: MountableModule[];
   uiArtifactsLoaded?: boolean;
   onUiArtifactRolledBack?: () => void;
-  isLoggedIn?: boolean;
-  selectedLinkId?: string | null;
-  selectedLinkLinkId?: string | null;
-  selectedLinkContentKey?: string | null;
-  selectedFeedId?: string | null;
-  selectedFeedLabel?: string | null;
-  onClearFeed?: () => void;
   onSelectChat?: (chatId: string) => void;
-  onPreviewLink?: (activityId: string) => void;
-  onPreviewLinkFull?: (activityId: string, contentKey: string | null) => void;
-  onExternalLinkClick?: (url: string) => void;
   previewFile?: string | null;
   onPinFile?: (path: string) => void;
   // Per-tab back/forward navigation history (todo 3288). Shown only when the
@@ -66,30 +52,9 @@ interface FileViewerProps {
 // Reserved share-tab key for the trace.md special-view in the public FileViewer.
 const PUBLIC_TRACE_TAB = "trace.md";
 
-function getExt(path: string): string {
-  const dot = path.lastIndexOf(".");
-  return dot >= 0 ? path.slice(dot + 1).toLowerCase() : "";
-}
-
 function getFileName(path: string): string {
   const slash = path.lastIndexOf("/");
   return slash >= 0 ? path.slice(slash + 1) : path;
-}
-
-// Download a file preserving its original name/extension. Pass `blobUrl` for
-// binary files (images/PDFs) or `content` for text; one of the two is used.
-function downloadFile(filename: string, source: { content?: string | null; blobUrl?: string }) {
-  const safe = (filename || "download").replace(/[\\/:*?"<>|]/g, "_");
-  const url = source.blobUrl ?? URL.createObjectURL(
-    new Blob([source.content ?? ""], { type: "application/octet-stream" })
-  );
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = safe;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  if (!source.blobUrl) URL.revokeObjectURL(url);
 }
 
 function inlineArtifactLabel(path: string, artifactTabs?: Record<string, { type: ArtifactType; spec: string }>): string {
@@ -100,212 +65,6 @@ function uiArtifactLabelForPath(path: string, artifacts: MountableModule[]): str
   const slug = artifactSlugFromTab(path);
   const artifact = slug ? artifacts.find((item) => item.slug === slug) : undefined;
   return artifact ? uiArtifactLabel(artifact) : slug ?? "ui";
-}
-
-interface FileCache {
-  content?: string | null;
-  summary?: string | null;
-  blobUrl?: string;
-  loading: boolean;
-  error?: string;
-  linkTitle?: string;
-  linkUrl?: string;
-  summaryContentKey?: string;
-}
-
-function FileContentTable({ filePath, content }: { filePath: string; content: string }) {
-  const highlightedHtml = useMemo(() => {
-    const lang = getExt(filePath);
-    try {
-      if (lang && hljs.getLanguage(lang)) {
-        return hljs.highlight(content, { language: lang }).value;
-      }
-      return hljs.highlightAuto(content).value;
-    } catch {
-      return null;
-    }
-  }, [content, filePath]);
-
-  const lines = (content ?? "").split("\n");
-  const highlightedLines = highlightedHtml?.split("\n");
-
-  return (
-    <table className="text-sm font-mono leading-relaxed w-full border-collapse">
-      <tbody>
-        {lines.map((line, i) => (
-          <tr key={i}>
-            <td className="select-none text-right pr-3 pl-2 text-sol-base01 border-r border-sol-base02 align-top bg-sol-base03 sticky left-0 w-[1%]">
-              {i + 1}
-            </td>
-            {highlightedLines ? (
-              <td className="pl-4 pr-3 whitespace-pre-wrap break-all hljs" dangerouslySetInnerHTML={{ __html: highlightedLines[i] ?? "" }} />
-            ) : (
-              <td className="pl-4 pr-3 text-sol-base0 whitespace-pre-wrap break-all">
-                {line}
-              </td>
-            )}
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-async function fetchLinkContent({ activityId, linkId }: { activityId?: string | null; linkId?: string | null }): Promise<{ title?: string; url?: string; content: string | null; summary?: string | null; summaryContentKey?: string }> {
-  const qs = activityId
-    ? `activity_id=${encodeURIComponent(activityId)}`
-    : linkId
-    ? `link_id=${encodeURIComponent(linkId)}`
-    : "";
-  const res = await authFetch(`${API}/api/link/content?${qs}`);
-  if (!res.ok) throw new Error("Failed to fetch content");
-  const data = await res.json();
-  return { title: data.title, url: data.url || data.base_url, content: data.content, summary: data.summary, summaryContentKey: data.summary_content_key };
-}
-
-function LinkContentView({ activityId, linkId, cache, setCache, raw, onExternalLinkClick }: { activityId: string | null; linkId?: string | null; cache: Record<string, FileCache>; setCache: React.Dispatch<React.SetStateAction<Record<string, FileCache>>>; raw?: boolean; onExternalLinkClick?: (url: string) => void }) {
-  const cacheKey = activityId ? `link:activity:${activityId}` : linkId ? `link:link:${linkId}` : "";
-  const fileData = cacheKey ? cache[cacheKey] : undefined;
-  const [showSummary, setShowSummary] = useState(false);
-  const [generatingSummary, setGeneratingSummary] = useState(false);
-
-  useEffect(() => {
-    if (!cacheKey) return;
-    if (!activityId && !linkId) return;
-    if (fileData && !fileData.error) return;
-
-    setCache((prev) => ({ ...prev, [cacheKey]: { loading: true } }));
-    fetchLinkContent({ activityId, linkId })
-      .then(({ title, url, content, summary, summaryContentKey }) => setCache((prev) => ({ ...prev, [cacheKey]: { content, summary, summaryContentKey, linkTitle: title, linkUrl: url, loading: false } })))
-      .catch((e) => setCache((prev) => ({ ...prev, [cacheKey]: { loading: false, error: e.message } })));
-  }, [activityId, linkId, fileData, setCache, cacheKey]);
-
-  const handleGenerateSummary = async () => {
-    if (!cacheKey || generatingSummary) return;
-    setGeneratingSummary(true);
-    try {
-      const body = linkId ? { link_id: linkId } : { activity_id: activityId };
-      const res = await authFetch(`${API}/api/link/tldr`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) throw new Error("Failed to generate TLDR");
-      const data = await res.json();
-      setCache((prev) => ({
-        ...prev,
-        [cacheKey]: {
-          ...(prev[cacheKey] || { loading: false }),
-          loading: false,
-          summary: data.summary,
-          summaryContentKey: data.summary_content_key,
-        },
-      }));
-      setShowSummary(true);
-    } catch (e) {
-      setCache((prev) => ({ ...prev, [cacheKey]: { ...(prev[cacheKey] || { loading: false }), loading: false, error: e instanceof Error ? e.message : String(e) } }));
-    } finally {
-      setGeneratingSummary(false);
-    }
-  };
-
-  if (!activityId && !linkId) {
-    return <p className="text-sol-base01 italic text-sm p-3">No link selected.</p>;
-  }
-
-  if (!fileData || fileData.loading) {
-    return <p className="text-sol-base01 italic text-sm p-3">Loading...</p>;
-  }
-  if (fileData.error) {
-    return <p className="text-sol-red text-sm p-3">{fileData.error}</p>;
-  }
-  if (fileData.content !== undefined || fileData.summary !== undefined) {
-    const contentMissing = fileData.content === null || fileData.content === undefined;
-    const visibleContent = showSummary && fileData.summary ? fileData.summary : (fileData.content || "");
-    const header = (fileData.linkTitle || fileData.linkUrl || fileData.summaryContentKey) ? (
-      <div className="px-4 pt-3 pb-2 border-b border-sol-base02 shrink-0">
-        {fileData.linkTitle && (
-          <button
-            type="button"
-            onClick={() => { navigator.clipboard.writeText(fileData.linkTitle!); }}
-            className="text-sol-base1 font-semibold text-sm break-words text-left cursor-pointer bg-transparent border-0 p-0 hover:text-sol-blue"
-            title={`Copy title: ${fileData.linkTitle}`}
-          >
-            {fileData.linkTitle}
-          </button>
-        )}
-        {fileData.linkUrl && (
-          <button
-            type="button"
-            onClick={() => { navigator.clipboard.writeText(fileData.linkUrl!); }}
-            className="text-sol-blue hover:text-sol-cyan text-xs truncate block mt-0.5 text-left cursor-pointer bg-transparent border-0 p-0 w-full"
-            title={`Copy URL: ${fileData.linkUrl}`}
-          >
-            {fileData.linkUrl}
-          </button>
-        )}
-        <div className="flex gap-1 mt-2">
-          {contentMissing && (
-            <span className="px-1.5 py-0.5 rounded text-[0.6rem] bg-sol-orange/20 text-sol-orange" title="content_key is set but the file is not present on the EC2 VM">
-              not on VM
-            </span>
-          )}
-          {fileData.summaryContentKey && (
-            <button
-              onClick={() => setShowSummary((v) => !v)}
-              className="px-1.5 py-0.5 rounded text-[0.6rem] bg-sol-blue/20 text-sol-blue hover:text-sol-cyan cursor-pointer"
-              title={fileData.summaryContentKey}
-            >
-              {showSummary ? "Full Content" : "TLDR"}
-            </button>
-          )}
-          {!fileData.summaryContentKey && (
-            <button
-              onClick={handleGenerateSummary}
-              disabled={generatingSummary}
-              className="px-1.5 py-0.5 rounded text-[0.6rem] bg-sol-base02 text-sol-base01 hover:text-sol-base0 cursor-pointer disabled:opacity-50"
-            >
-              {generatingSummary ? "Generating TLDR..." : "Generate TLDR"}
-            </button>
-          )}
-        </div>
-      </div>
-    ) : null;
-    return (
-      <div className="flex flex-col h-full">
-        {header}
-        <div className="flex-1 min-h-0 overflow-auto">
-          {contentMissing && !showSummary ? (
-            <p className="text-sol-base01 italic text-sm p-3">Content key is set, but the file is not on the EC2 VM.</p>
-          ) : raw ? <FileContentTable filePath={cacheKey} content={visibleContent} /> : <MarkdownPreview content={visibleContent} onExternalLinkClick={onExternalLinkClick} />}
-        </div>
-      </div>
-    );
-  }
-  return null;
-}
-
-function LinksMdView({ isLoggedIn, feedId, feedLabel, onClearFeed, onPreview }: { isLoggedIn: boolean; feedId: string | null; feedLabel: string | null; onClearFeed?: () => void; onPreview: (activityId: string, contentKey: string | null) => void }) {
-  return (
-    <div className="flex flex-col h-full">
-      {feedId ? (
-        <div className="px-3 py-1.5 border-b border-sol-base02 flex items-center gap-2 bg-sol-base02/50 shrink-0">
-          <span className="text-sol-base01 text-xs shrink-0">Feed:</span>
-          <span className="text-sol-base0 text-sm truncate flex-1" title={feedId}>{feedLabel || feedId}</span>
-          {onClearFeed && (
-            <button onClick={onClearFeed} className="shrink-0 text-sol-base01 hover:text-sol-red cursor-pointer" title="Clear feed filter">
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-          )}
-        </div>
-      ) : (
-        <div className="px-3 py-2 text-sol-base01 text-sm italic shrink-0">No feed selected. Click a feed in the sidebar.</div>
-      )}
-      <div className="flex-1 min-h-0">
-        <LinkList isLoggedIn={isLoggedIn} onPreview={(link) => onPreview(link.activity_id, link.content_key || null)} feedId={feedId} />
-      </div>
-    </div>
-  );
 }
 
 interface PublicNoteCache {
@@ -409,66 +168,17 @@ function PublicFileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, on
   );
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, fileTabs = {}, fileDirty = {}, fileFocus = {}, uiArtifacts = [], uiArtifactsLoaded = true, onUiArtifactRolledBack, isLoggedIn, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, fileHistory = {}, onFileBack, onFileForward, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
-  const { mutate } = useSWRConfig();
-  const [cache, setCache] = useState<Record<string, FileCache>>({});
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, fileTabs = {}, fileDirty = {}, fileFocus = {}, uiArtifacts = [], uiArtifactsLoaded = true, onUiArtifactRolledBack, onSelectChat, previewFile, onPinFile, fileHistory = {}, onFileBack, onFileForward, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
   const [mdPreview, setMdPreview] = useState<Record<string, boolean>>({});
   // One refresh registry, remount nonce, and spin flag per open module tab
   // (todo 3674, contract v18; shared runner extracted for todo 3680). Keyed by
   // tab key, not slug: every open tab stays mounted while hidden, so a refresh
   // must reach exactly the active tab's subtree.
   const tabRefreshChrome = useTabRefreshChrome(openFiles);
-  const blobUrls = useRef<Set<string>>(new Set());
-  const activeFileName = activeFile?.replace(/^\.\//, "") ?? "";
   const isDiff = !!(activeFile && diffFiles?.has(activeFile));
   const isArtifact = !!activeFile?.startsWith("artifact:");
   const isUiArtifact = !!activeFile?.startsWith("ui:");
-  const isLinkPreview = !isDiff && activeFileName === "link.md";
-  const isLinksMd = !isDiff && activeFileName === "links.md";
   // C1: host FileViewer no longer fetches ordinary files; only special tabs remain.
-
-  // Clean up blob URLs and cache for closed files (link previews still use cache).
-  useEffect(() => {
-    setCache((prev) => {
-      const next: Record<string, FileCache> = {};
-      for (const f of openFiles) {
-        if (prev[f]) next[f] = prev[f];
-      }
-      // Keep link: activity/link cache keys while their special tab is open.
-      for (const [path, entry] of Object.entries(prev)) {
-        if (path.startsWith("link:") && openFiles.includes("link.md")) next[path] = entry;
-        if (!openFiles.includes(path) && !path.startsWith("link:") && entry.blobUrl) {
-          URL.revokeObjectURL(entry.blobUrl);
-          blobUrls.current.delete(entry.blobUrl);
-        }
-      }
-      return next;
-    });
-  }, [openFiles]);
-
-  useEffect(() => {
-    return () => {
-      blobUrls.current.forEach((url) => URL.revokeObjectURL(url));
-    };
-  }, []);
-
-  const handleRefresh = useCallback(() => {
-    if (!activeFile) return;
-    if (isLinkPreview) {
-      setCache((prev) => {
-        const next = { ...prev };
-        delete next[activeFile];
-        if (selectedLinkId) delete next[`link:activity:${selectedLinkId}`];
-        if (selectedLinkLinkId) delete next[`link:link:${selectedLinkLinkId}`];
-        return next;
-      });
-      return;
-    }
-    if (isLinksMd) {
-      mutate((key) => typeof key === "string" && key.includes("/api/link/list"));
-      return;
-    }
-  }, [activeFile, isLinkPreview, isLinksMd, mutate, selectedLinkId, selectedLinkLinkId]);
 
   const hostRefreshable = !!activeFile && !isArtifact && !isUiArtifact && !fileTabs[activeFile];
   const showRefresh = tabRefreshVisible(hostRefreshable, isUiArtifact);
@@ -476,14 +186,15 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
 
   const onRefreshClick = useCallback(() => {
     if (!activeFile || tabRefreshChrome.isRefreshing(activeFile)) return;
-    // Legacy special tabs keep their own targeted invalidation; module tabs get
-    // the generic two-stage refresh with no module cooperation.
+    // Diff tabs keep the plain host spin (they have nothing cached to
+    // invalidate); module tabs get the generic two-stage refresh with no
+    // module cooperation.
     if (hostRefreshable) {
-      tabRefreshChrome.trigger(activeFile, () => handleRefresh());
+      tabRefreshChrome.trigger(activeFile, () => {});
     } else {
       tabRefreshChrome.triggerScoped(activeFile);
     }
-  }, [activeFile, tabRefreshChrome, hostRefreshable, handleRefresh]);
+  }, [activeFile, tabRefreshChrome, hostRefreshable]);
 
   if (mode === "public") {
     return (
@@ -559,8 +270,6 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       ? inlineArtifactLabel(activeFile, artifactTabs)
       : isUiArtifact
       ? uiArtifactLabelForPath(activeFile, uiArtifacts)
-      : isLinkPreview && selectedLinkContentKey
-      ? (defaultWorkDir ? `${defaultWorkDir}/${selectedLinkContentKey}` : selectedLinkContentKey)
       : activeFile.replace(/^diff:/, "")
     : "";
 
@@ -581,51 +290,6 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
             leading={isDiff ? <span className="text-sol-yellow font-semibold mr-1 shrink-0">DIFF</span> : undefined}
             trailing={
               <>
-                {isLinkPreview && (
-                  <button
-                    onClick={() => setMdPreview((prev) => ({ ...prev, [activeFile]: prev[activeFile] === false }))}
-                    className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0 text-xs"
-                    title={mdPreview[activeFile] !== false ? "Show raw" : "Show preview"}
-                  >
-                    {mdPreview[activeFile] !== false ? "Raw" : "Preview"}
-                  </button>
-                )}
-                {isLinkPreview && selectedLinkContentKey && (
-                  <a
-                    href={`https://github.com/luohy15/y-history/commits/main/${selectedLinkContentKey}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0 text-xs"
-                    title="View file history"
-                  >
-                    History
-                  </a>
-                )}
-                {isLinkPreview && (selectedLinkId || selectedLinkLinkId) && (() => {
-                  const linkCacheKey = selectedLinkId
-                    ? `link:activity:${selectedLinkId}`
-                    : selectedLinkLinkId
-                    ? `link:link:${selectedLinkLinkId}`
-                    : "";
-                  const linkContent = linkCacheKey ? cache[linkCacheKey]?.content : undefined;
-                  if (!linkContent) return null;
-                  const nameSource = selectedLinkContentKey
-                    ? getFileName(selectedLinkContentKey)
-                    : `link-${selectedLinkId || selectedLinkLinkId}`;
-                  return (
-                    <button
-                      onClick={() => downloadFile(`${nameSource.replace(/\.md$/i, "")}.md`, { content: linkContent })}
-                      className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-2 shrink-0"
-                      title="Download as Markdown"
-                    >
-                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                        <polyline points="7 10 12 15 17 10"/>
-                        <line x1="12" y1="15" x2="12" y2="3"/>
-                      </svg>
-                    </button>
-                  );
-                })()}
                 {showRefresh && (
                   <TabRefreshButton
                     title={tabRefreshTitle(hostRefreshable)}
@@ -634,12 +298,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                   />
                 )}
                 {!isArtifact && !isUiArtifact && <button
-                  onClick={() => {
-                    const pathToCopy = isLinkPreview && selectedLinkContentKey && defaultWorkDir
-                      ? `${defaultWorkDir}/${selectedLinkContentKey}`
-                      : activeFile.replace(/^\.\//, "");
-                    navigator.clipboard.writeText(pathToCopy);
-                  }}
+                  onClick={() => navigator.clipboard.writeText(activeFile.replace(/^\.\//, ""))}
                   className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-1 shrink-0"
                   title="Copy path"
                 >
@@ -665,13 +324,11 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
             ? uiArtifacts.find((artifact) => artifact.slug === "file")
             : undefined;
           const fileName = filePath.replace(/^\.\//, "").replace(/^diff:/, "");
-          const fileLinkPreview = !fileDiff && !ordinaryTab && fileName === "link.md";
-          const fileLinksMd = !fileDiff && !ordinaryTab && fileName === "links.md";
           const isActive = filePath === activeFile;
           return (
             <div
               key={filePath}
-              className={`absolute inset-0 ${ordinaryTab || fileArtifact || fileUiArtifactSlug || fileDiff || fileLinksMd ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
+              className={`absolute inset-0 ${ordinaryTab || fileArtifact || fileUiArtifactSlug || fileDiff ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
             >
               {ordinaryTab && fileModule ? (
                 <div className="h-full overflow-hidden" data-ui-artifact-route="file" data-file-tab={ordinaryTab.id}>
@@ -720,19 +377,6 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                   mode={(mdPreview[filePath] !== false ? "preview" : "raw") as ArtifactMode}
                   onModeChange={(mode) => setMdPreview((prev) => ({ ...prev, [filePath]: mode === "preview" }))}
                   variant="tab"
-                />
-              ) : fileLinkPreview ? (
-                <LinkContentView activityId={selectedLinkId || null} linkId={selectedLinkLinkId || null} cache={cache} setCache={setCache} raw={mdPreview[filePath] === false} onExternalLinkClick={onExternalLinkClick} />
-              ) : fileLinksMd ? (
-                <LinksMdView
-                  isLoggedIn={!!isLoggedIn}
-                  feedId={selectedFeedId || null}
-                  feedLabel={selectedFeedLabel || null}
-                  onClearFeed={onClearFeed}
-                  onPreview={(activityId, contentKey) => {
-                    if (onPreviewLinkFull) onPreviewLinkFull(activityId, contentKey);
-                    else if (onPreviewLink) onPreviewLink(activityId);
-                  }}
                 />
               ) : (
                 <p className="text-sol-base01 italic text-sm p-3">Unknown tab.</p>
