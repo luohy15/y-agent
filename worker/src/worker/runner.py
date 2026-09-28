@@ -711,6 +711,8 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
     api_key = bot_config.api_key if bot_config.api_key else None
     env = {
         "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
+        # Agent shells report local time. Bare `date` is Hangzhou, not UTC.
+        "TZ": os.getenv("Y_AGENT_TIMEZONE") or "Asia/Shanghai",
         # Global override so bot model config stays a plain model id (no [1m]
         # suffix): Claude Code only fills in this window for model ids it has
         # no registry entry for, so known Claude models are unaffected.
