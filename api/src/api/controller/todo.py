@@ -118,10 +118,13 @@ async def get_todo(request: Request, todo_id: str = Query(...)):
 @router.post("")
 async def create_todo(req: CreateTodoRequest, request: Request):
     user_id = _get_user_id(request)
-    todo = todo_service.create_todo(
-        user_id, req.name, desc=req.desc, tags=req.tags,
-        due_date=req.due_date, priority=req.priority,
-    )
+    try:
+        todo = todo_service.create_todo(
+            user_id, req.name, desc=req.desc, tags=req.tags,
+            due_date=req.due_date, priority=req.priority,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return todo.to_dict()
 
 

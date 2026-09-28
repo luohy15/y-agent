@@ -1,4 +1,5 @@
 import click
+import httpx
 from yagent.api_client import api_request
 from yagent.tag_option import resolve_tags
 
@@ -23,6 +24,9 @@ def todo_add(name, desc, due, priority, tags):
     if resolved_tags is not None:
         body["tags"] = resolved_tags
 
-    resp = api_request("POST", "/api/todo", json=body)
+    try:
+        resp = api_request("POST", "/api/todo", json=body)
+    except httpx.HTTPStatusError as exc:
+        raise click.ClickException(str(exc)) from exc
     todo = resp.json()
     click.echo(f"Created todo '{todo['name']}' ({todo['todo_id']})")

@@ -1,4 +1,5 @@
 import click
+import httpx
 from yagent.api_client import api_request
 from yagent.tag_option import resolve_tags
 
@@ -34,6 +35,9 @@ def todo_update(todo_id, name, desc, due, priority, tags, progress):
         click.echo("No fields to update")
         return
 
-    resp = api_request("POST", "/api/todo/update", json=body)
+    try:
+        resp = api_request("POST", "/api/todo/update", json=body)
+    except httpx.HTTPStatusError as exc:
+        raise click.ClickException(str(exc)) from exc
     todo = resp.json()
     click.echo(f"Updated todo '{todo['name']}' ({todo['todo_id']})")

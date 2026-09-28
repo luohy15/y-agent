@@ -5,6 +5,8 @@ import re
 from typing import List, Optional, Tuple
 from loguru import logger
 from storage.entity.dto import Todo, TodoHistoryEntry
+from storage.entity.tag_vocabulary import TagVocabularyEntity
+from storage.database.base import get_db
 from storage.repository import todo as todo_repo
 from storage.repository import entity_tag as tag_repo
 from storage.repository.entity_tag import normalize_tags
@@ -58,6 +60,33 @@ def get_todo(user_id: int, todo_id: str) -> Optional[Todo]:
     return todo_repo.get_todo(user_id, todo_id)
 
 
+def _require_known_tags(session, user_id: int, tags: Optional[List[str]], existing: Optional[List[str]] = None) -> Optional[List[str]]:
+    """Normalize `tags` and reject spellings newly added that are not in this owner's vocabulary.
+
+    Removal and tags already on the row stay allowed, so a todo can drop or keep a
+    tag that has since left the vocabulary. `None` means the caller did not set tags.
+    `session` is the caller's transaction: the update path is already holding the
+    todo row lock, and a nested session would commit independently of it.
+    """
+    if tags is None:
+        return None
+    normalized = normalize_tags(tags)
+    already = set(normalize_tags(existing or []))
+    added = [tag for tag in normalized if tag not in already]
+    if not added:
+        return normalized
+    known = {
+        row[0]
+        for row in session.query(TagVocabularyEntity.tag)
+        .filter(TagVocabularyEntity.user_id == user_id, TagVocabularyEntity.tag.in_(added))
+        .all()
+    }
+    unknown = [tag for tag in added if tag not in known]
+    if unknown:
+        raise ValueError(f"unknown tag(s): {', '.join(unknown)}; see y tag list")
+    return normalized
+
+
 def find_todos_by_ids(user_id: int, todo_ids: List[str]) -> dict:
     """Return {todo_id: Todo} for owner-scoped tag hydration."""
     return todo_repo.find_todos_by_ids(user_id, todo_ids)
@@ -84,7 +113,8 @@ def create_todo(
         next_id += 1
 
     if tags is not None:
-        tags = normalize_tags(tags)
+        with get_db() as session:
+            tags = _require_known_tags(session, user_id, tags)
 
     todo = Todo(
         todo_id=str(next_id),
@@ -211,8 +241,8 @@ def _transition_locked(session, row, fields, *, action="updated", extra_note=Non
         if fields.get("status", row.status) != "awaiting":
             raise ValueError("awaiting_chat is only valid while status is awaiting")
         _pointer_chat(session, row, fields["awaiting_chat"])
-    if "tags" in fields and fields["tags"] is not None:
-        fields["tags"] = normalize_tags(fields["tags"])
+    if "tags" in fields:
+        fields["tags"] = _require_known_tags(session, row.user_id, fields["tags"], existing=row.tags)
     changed = {k: v for k, v in fields.items() if getattr(row, k) != v}
     if not changed:
         return False
