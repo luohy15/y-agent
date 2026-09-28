@@ -31,28 +31,42 @@ export function setChatTraceFilter(
 }
 
 /** Host -> chat artifact focus intent published whenever selectedChatId,
- * botName, or the host trace filter changes (D-C, pages/decision-3042-chat-
- * shell-host-seam.md: vmName and defaultWorkDir already have working
- * shell-side fallbacks, botName did not have any path until that widening;
- * traceId added by plan-3046-right-sidebar.md R7 so the right chat panel can
- * consume the host's `chatListTraceId` through this same retained channel). */
+ * botName, the host trace filter, or the same-chat refresh counter changes
+ * (D-C, pages/decision-3042-chat-shell-host-seam.md: vmName and defaultWorkDir
+ * already have working shell-side fallbacks, botName did not have any path
+ * until that widening; traceId added by plan-3046-right-sidebar.md R7 so the
+ * right chat panel can consume the host's `chatListTraceId` through this same
+ * retained channel). `refreshKey` is the host's same-chat re-selection
+ * counter (todo 3715): it is omitted unless the caller passes a number, so a
+ * bot or trace-filter republish is not itself a reload request. */
 export function publishSelectedChatIntent(
   chatId: string | null,
   botName: string | null = null,
   traceId: string | null = null,
+  refreshKey?: number,
 ): void {
-  setArtifactIntent("chat", { kind: "selected", chatId, botName, traceId, nonce: Date.now() });
+  setArtifactIntent("chat", {
+    kind: "selected",
+    chatId,
+    botName,
+    traceId,
+    ...(typeof refreshKey === "number" ? { refreshKey } : {}),
+    nonce: Date.now(),
+  });
 }
 
-/** Publish the selected-chat intent on every selectedChatId/botName/traceId change (including null). */
+/** Publish the selected-chat intent on every selectedChatId/botName/traceId/
+ * refreshKey change (including null). `refreshKey` is optional and only
+ * included in the payload when it is a number. */
 export function usePublishSelectedChatIntent(
   selectedChatId: string | null,
   botName: string | null = null,
   traceId: string | null = null,
+  refreshKey?: number,
 ): void {
   useEffect(() => {
-    publishSelectedChatIntent(selectedChatId, botName, traceId);
-  }, [selectedChatId, botName, traceId]);
+    publishSelectedChatIntent(selectedChatId, botName, traceId, refreshKey);
+  }, [selectedChatId, botName, traceId, refreshKey]);
 }
 
 /** Parse `{ chatId }` from a host-command payload; undefined means malformed. */

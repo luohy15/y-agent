@@ -128,7 +128,11 @@ mode (`-i`) serves a human at a terminal.
    reflects what I have actually seen. Opening does not clear
    `needs_attention`: merely reading a question a session is blocked on does
    not unblock the session, so a `needs_attention` chat stays that way until I
-   actually reply.
+   actually reply. Clicking the already-selected row reloads that chat's
+   messages and context with the same effect as the shell header's Refresh
+   chat and context button (todo 3715). Switching to a different chat still
+   loads once through the ordinary path, and a bot or trace-filter change is
+   not itself a reload.
 10. As a web user, I want the list to refresh when a chat I am watching
     completes, and a manual refresh button, so that statuses stay current.
 
