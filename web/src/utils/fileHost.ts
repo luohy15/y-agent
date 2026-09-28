@@ -172,7 +172,6 @@ export function isHostWorkspaceTab(path: string): boolean {
   return (
     name === "link.md"
     || name === "links.md"
-    || name === "english.md"
   );
 }
 

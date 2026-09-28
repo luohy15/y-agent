@@ -74,7 +74,6 @@ import { resolveFileWorkspaceModeTransition } from "./utils/fileWorkspaceMode";
 import { closeTabShortcutLabel, isApplePlatform } from "./utils/platform";
 import FileSearchDialog from "./components/FileSearchDialog";
 import { usePublishNoteIntent } from "./utils/noteHost";
-import EnglishList from "./components/EnglishList";
 import GitPanel from "./components/GitPanel";
 import LinkActionDialog from "./components/LinkActionDialog";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -114,14 +113,13 @@ interface BotConfigItem {
 // `trace.md` is the authenticated host special retired by todo 3179 H3
 // (selection now lives in the Todo module detail). Public `/t/:shareId`
 // keeps its own permanent tab and is not in this set.
-const RETIRED_TABS = new Set(["bot.md", "calendar.md", "todo.md", "trace.md", "email.md", "entity.md", "dev.md"]);
+const RETIRED_TABS = new Set(["bot.md", "calendar.md", "todo.md", "trace.md", "email.md", "entity.md", "dev.md", "english.md"]);
 
 // Built-in sidebar panels with no "Open ... full view" action of their own
 // (todo 3680): the host refresh row shows this label instead.
 const BUILT_IN_SIDEBAR_PANEL_LABELS: Partial<Record<SidebarPanel, string>> = {
   links: "Links",
   rss: "RSS",
-  english: "English",
 };
 
 // Round-2 gap closure (plan-3046-right-sidebar.md R1) + module cuts: exactly
@@ -275,7 +273,6 @@ export default function App() {
   const [selectedLinkContentKey, setSelectedLinkContentKey] = useState<string | null>(() => localStorage.getItem("selectedLinkContentKey") || null);
   const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null);
   const [pendingLinkStatus, setPendingLinkStatus] = useState<string | null>(null);
-  const [selectedCorrectionId, setSelectedCorrectionId] = useState<string | null>(() => localStorage.getItem("selectedCorrectionId") || null);
   const [selectedFeedId, setSelectedFeedId] = useState<string | null>(null);
   const [selectedFeedLabel, setSelectedFeedLabel] = useState<string | null>(null);
   const [chatRefreshKey, setChatRefreshKey] = useState(0);
@@ -360,7 +357,6 @@ export default function App() {
   useEffect(() => { if (selectedLinkId) localStorage.setItem("selectedLinkId", selectedLinkId); else localStorage.removeItem("selectedLinkId"); }, [selectedLinkId]);
   useEffect(() => { if (selectedLinkLinkId) localStorage.setItem("selectedLinkLinkId", selectedLinkLinkId); else localStorage.removeItem("selectedLinkLinkId"); }, [selectedLinkLinkId]);
   useEffect(() => { if (selectedLinkContentKey) localStorage.setItem("selectedLinkContentKey", selectedLinkContentKey); else localStorage.removeItem("selectedLinkContentKey"); }, [selectedLinkContentKey]);
-  useEffect(() => { if (selectedCorrectionId) localStorage.setItem("selectedCorrectionId", selectedCorrectionId); else localStorage.removeItem("selectedCorrectionId"); }, [selectedCorrectionId]);
 
   const openFilesRef = useRef(openFiles);
   openFilesRef.current = openFiles;
@@ -685,7 +681,7 @@ export default function App() {
       handleEntityOpen(payload, handleOpenFile);
     });
     // English selections share the module's persisted, latched intent
-    // (todo 3708 A2). Built-in English callers/state remain until batch B.
+    // (todo 3708). The built-in panel is retired; this command stays.
     const unregisterEnglishOpen = registerHostCommand("english.open", (payload) => {
       handleEnglishOpen(payload, handleOpenFile);
     });
@@ -1767,16 +1763,6 @@ export default function App() {
                 <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkLinkId(null); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); }} hideRefreshButton />
               ) : sidebarPanel === "rss" ? (
                 <RssFeedList isLoggedIn={auth.isLoggedIn} onSelectFeed={handleSelectFeed} selectedFeedId={selectedFeedId} hideRefreshButton />
-              ) : sidebarPanel === "english" ? (
-                <EnglishList
-                  isLoggedIn={auth.isLoggedIn}
-                  selectedCorrectionId={selectedCorrectionId}
-                  onSelectCorrection={(id) => {
-                    setSelectedCorrectionId(id);
-                    handleOpenFile("english.md");
-                  }}
-                  hideRefreshButton
-                />
               ) : null;
             // Built-in panels register their own bound SWR mutates via the
             // same registry-tracking config the centre tab mechanism uses
@@ -1857,7 +1843,7 @@ export default function App() {
               {/* FileViewer (shown when chat hidden) */}
               <div className={`absolute inset-0 ${chatHide ? "" : "hidden"}`}>
                 <ErrorBoundary label="Panel">
-                  <FileViewer openFiles={workspaceVisible ? openFiles : []} activeFile={workspaceVisible ? activeFile : null} onSelectFile={handleSelectFile} onCloseFile={handleCloseFile} onReorderFiles={handleReorderFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} fileTabs={workspaceVisible ? fileTabs : {}} fileDirty={fileDirty} fileFocus={fileFocus} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} isLoggedIn={auth.isLoggedIn} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedCorrectionId={selectedCorrectionId} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={workspaceVisible ? previewFile : null} onPinFile={handlePinFile} fileHistory={fileHistory} onFileBack={handleFileBack} onFileForward={handleFileForward} />
+                  <FileViewer openFiles={workspaceVisible ? openFiles : []} activeFile={workspaceVisible ? activeFile : null} onSelectFile={handleSelectFile} onCloseFile={handleCloseFile} onReorderFiles={handleReorderFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} fileTabs={workspaceVisible ? fileTabs : {}} fileDirty={fileDirty} fileFocus={fileFocus} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} isLoggedIn={auth.isLoggedIn} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={workspaceVisible ? previewFile : null} onPinFile={handlePinFile} fileHistory={fileHistory} onFileBack={handleFileBack} onFileForward={handleFileForward} />
                 </ErrorBoundary>
               </div>
               {/* Chat stays mounted while hidden. The shell module owns the live

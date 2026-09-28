@@ -6,7 +6,6 @@ import "highlight.js/styles/base16/solarized-dark.min.css";
 import DiffViewer from "./DiffViewer";
 import TraceView, { type TraceChatsResponse, type TraceNote } from "./TraceView";
 import LinkList from "./LinkList";
-import EnglishView from "./EnglishView";
 import ArtifactView, { type ArtifactMode, type ArtifactType } from "./ArtifactView";
 import ArtifactMount from "../host/ArtifactMount";
 import { artifactLabel as uiArtifactLabel, artifactSlugFromTab, type MountableModule } from "../host/artifacts";
@@ -40,7 +39,6 @@ interface FileViewerProps {
   selectedLinkId?: string | null;
   selectedLinkLinkId?: string | null;
   selectedLinkContentKey?: string | null;
-  selectedCorrectionId?: string | null;
   selectedFeedId?: string | null;
   selectedFeedLabel?: string | null;
   onClearFeed?: () => void;
@@ -411,7 +409,7 @@ function PublicFileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, on
   );
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, fileTabs = {}, fileDirty = {}, fileFocus = {}, uiArtifacts = [], uiArtifactsLoaded = true, onUiArtifactRolledBack, isLoggedIn, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedCorrectionId, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, fileHistory = {}, onFileBack, onFileForward, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, fileTabs = {}, fileDirty = {}, fileFocus = {}, uiArtifacts = [], uiArtifactsLoaded = true, onUiArtifactRolledBack, isLoggedIn, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, fileHistory = {}, onFileBack, onFileForward, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
   const { mutate } = useSWRConfig();
   const [cache, setCache] = useState<Record<string, FileCache>>({});
   const [mdPreview, setMdPreview] = useState<Record<string, boolean>>({});
@@ -427,7 +425,6 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const isUiArtifact = !!activeFile?.startsWith("ui:");
   const isLinkPreview = !isDiff && activeFileName === "link.md";
   const isLinksMd = !isDiff && activeFileName === "links.md";
-  const isEnglishPreview = !isDiff && activeFileName === "english.md";
   // C1: host FileViewer no longer fetches ordinary files; only special tabs remain.
 
   // Clean up blob URLs and cache for closed files (link previews still use cache).
@@ -471,11 +468,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       mutate((key) => typeof key === "string" && key.includes("/api/link/list"));
       return;
     }
-    if (isEnglishPreview) {
-      mutate((key) => typeof key === "string" && key.includes("/api/english/"));
-      return;
-    }
-  }, [activeFile, isLinkPreview, isLinksMd, isEnglishPreview, mutate, selectedLinkId, selectedLinkLinkId]);
+  }, [activeFile, isLinkPreview, isLinksMd, mutate, selectedLinkId, selectedLinkLinkId]);
 
   const hostRefreshable = !!activeFile && !isArtifact && !isUiArtifact && !fileTabs[activeFile];
   const showRefresh = tabRefreshVisible(hostRefreshable, isUiArtifact);
@@ -674,12 +667,11 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
           const fileName = filePath.replace(/^\.\//, "").replace(/^diff:/, "");
           const fileLinkPreview = !fileDiff && !ordinaryTab && fileName === "link.md";
           const fileLinksMd = !fileDiff && !ordinaryTab && fileName === "links.md";
-          const fileEnglishPreview = !fileDiff && !ordinaryTab && fileName === "english.md";
           const isActive = filePath === activeFile;
           return (
             <div
               key={filePath}
-              className={`absolute inset-0 ${ordinaryTab || fileArtifact || fileUiArtifactSlug || fileDiff || fileLinksMd || fileEnglishPreview ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
+              className={`absolute inset-0 ${ordinaryTab || fileArtifact || fileUiArtifactSlug || fileDiff || fileLinksMd ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
             >
               {ordinaryTab && fileModule ? (
                 <div className="h-full overflow-hidden" data-ui-artifact-route="file" data-file-tab={ordinaryTab.id}>
@@ -742,8 +734,6 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                     else if (onPreviewLink) onPreviewLink(activityId);
                   }}
                 />
-              ) : fileEnglishPreview ? (
-                <EnglishView correctionId={selectedCorrectionId || ""} />
               ) : (
                 <p className="text-sol-base01 italic text-sm p-3">Unknown tab.</p>
               )}

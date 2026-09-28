@@ -103,11 +103,13 @@ entity + controller + service + CLI slices, and most have a web panel.
   English); the live chat pipeline is untouched. The web English panel also has an
   on-demand Refine sub-tab (`POST /api/english/refine`) that uses the `inline` bot
   and persists changed text into the same `english_correction` table. The diff is
-  computed at read time in the web `English` panel, never stored.
+  computed at read time in the English module, never stored. The panel and
+  correction detail are the UI-only `english` module (todo 3708); this host
+  keeps the APIs, CLI, data, and offline workflow.
 - **English vocabulary** — host-owned `english_word` inventory of a frequency-ranked
   top-10k list. `y english vocab seed` inserts per-user rows from the packaged
   `storage/data/english_words_10k.txt`; scan-and-mark (`unseen` / `known` / `unknown`)
-  lives in the English panel Vocabulary sub-tab and `y english vocab`
+  lives in the English module Vocabulary sub-tab and `y english vocab`
   (`seed` / `list` / `mark` / `stats`). Tiers 3k/5k/10k are derived from rank.
 - **RSS** — two-stage pipeline: admin schedules feed jobs → worker scrapes feed XML →
   downloader fetches each item's content → storage on S3 (per-activity key). `y rss` CLI
@@ -377,8 +379,9 @@ Grouped by feature area:
 - `host/commands.ts`, runtime-loaded `todo` artifact; `TraceView` stays bundled for
   unauthenticated shares
 - `LinkList.tsx`, `RssFeedList.tsx`, `DiffViewer.tsx`,
-  `GitPanel.tsx`, `CommandPalette.tsx`, `EnglishList.tsx`, `VocabularyTab.tsx`,
-  `api.ts`, `hooks/useAuth.ts`
+  `GitPanel.tsx`, `CommandPalette.tsx`,
+  `api.ts`, `hooks/useAuth.ts`. English corrections, patterns, vocabulary and
+  refine are the UI-only `english` module (`code/y-module/english/README.md`).
 
 ### CLI (`cli/src/yagent/`)
 - `command_option.py` — root `y` group

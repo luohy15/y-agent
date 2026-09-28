@@ -27,7 +27,7 @@ export const DEMO_LEFT_UNAVAILABLE = [
   "artifact:reminder",
   "artifact:routine",
   "artifact:email",
-  "english",
+  "artifact:english",
   "rss",
   "artifact:dev",
 ] as const;
