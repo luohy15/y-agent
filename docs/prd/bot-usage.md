@@ -184,6 +184,11 @@ expired-login card tells the user to run.
     re-enabled below 95% even if I had disabled it, so new dispatches stop
     landing on an exhausted Fable subscription without a separate polling
     service.
+28. As a user, I want every limit refresh, including the ones that fail or
+    find a provider missing, kept as history I can read back by hour next to
+    that hour's token and cost totals, so that a window resetting inside the
+    hour does not erase the peak and a failed probe is not mistaken for "no
+    usage".
 
 ### Provider credentials
 
@@ -705,10 +710,13 @@ expired-login card tells the user to run.
 ### Subscription limit-window status
 
 - **Separate operational dataset; one persisted latest snapshot (revised
-  todo 3226).** Subscription limit windows are current provider-account
-  status, not spend history: they do not share the daily per-model table,
-  relay sync, date filtering, or historical analytics, and there is still no
-  migration SQL. The original "every read is live, nothing is persisted"
+  todo 3226), plus a limit-window history (todo 3717).** Subscription limit
+  windows are current provider-account status, not spend: they do not share
+  the daily per-model table, relay sync, or spend aggregation. The latest
+  snapshot still lives in `user_preference` and needs no migration. Todo 3717
+  adds a second, append-only history of the same refreshes (see "Limit-window
+  history" below) so the latest card and the hourly record answer different
+  questions. The original "every read is live, nothing is persisted"
   design was replaced because `GET /api/usage/limits` was consistently one of
   the three slowest y-agent routes (24h baseline p50 3.63s / p95 12.30s / p99
   15.46s, VM/SSH/CLI on every request): a 30-minute worker schedule now
@@ -887,6 +895,56 @@ expired-login card tells the user to run.
   [`bot-routing.md`](bot-routing.md), not closed here. Binding the named
   Fable bot to the owner's default usage-VM subscription is a load-bearing
   unverified operational assumption.
+- **Limit-window history (todo 3717).** The 30-minute sweep and a manual
+  `?refresh=true` already share `refresh_and_persist_snapshot`. That function
+  now also writes history, after the snapshot write and the Fable gate, and a
+  history failure only logs a warning: the returned snapshot is unchanged.
+  Cadence stays "every 30 minutes while the VM is awake, plus manual
+  refreshes". The hour is the query grain, not a promise that a collection
+  happened. A lock-skipped call is not an attempt and is not recorded.
+  Two tables: `model_usage_limit_attempt` (one row per attempt, with the
+  local date and hour of `attempted_at`) and `model_usage_limit_observation`
+  (one row per window, cascading on attempt delete). A failed attempt
+  (`vm_unreachable`, `no_usage_vm`, `cli_failed`, `bad_payload`, or a
+  providers-less envelope) writes the attempt only. A successful attempt
+  records the incoming normalized envelope, never the merged-snapshot
+  fallback. Each non-null window is a row (`five_hour`, `one_week`,
+  `billing_period`, or `extra:<key>`); a provider that reports an error or no
+  windows gets one provider-level row with an empty `window_key`; an expected
+  backend absent from the envelope gets `state=missing`, with its error taken
+  from `errors[]` by origin. NaN, bool, and non-numeric percents are stored
+  NULL. `attempted_at` (collection) and `observed_at` (source) are never
+  substituted. Freshness is derived at read from `attempted_at - observed_at`:
+  null source time is `unknown`, a negative age is `future`, within 300
+  seconds is `fresh` (so the 240-second Claude on-VM cache counts as fresh),
+  otherwise `stale`, and any state other than `available` is `unavailable`.
+  This describes the source at collection, not how fresh the row is now.
+  `attempt_id` is a full uuid minted once per attempt (a 6-character id
+  collides often enough, across all users, that a real attempt would be
+  dropped as a replay). The attempt plus its observations commit in one
+  transaction. A replay is detected by an empty `RETURNING`, not by
+  `rowcount`, which psycopg reports as -1 for `ON CONFLICT DO NOTHING`; the
+  observations are then not written, so they cannot attach to the attempt
+  that already owns the id. History is not written when the snapshot write
+  itself raises, or when the sweep cancels the attempt before it returns.
+  Two attempts that captured the same source reading are both kept, and the
+  read reports them as one `distinct_observations`. Reset identity is the
+  exact `reset_at`; a null reset is its own group and is never merged with a
+  known reset or inferred from the window length, so a reset inside an hour
+  yields two entries and the pre-reset peak survives in `max_used_percent`.
+  A null reset is never inferred, so `max_used_percent` for a null-reset
+  group is only an upper bound across whatever resets the source did not
+  report.
+  Whether a Claude TUI `reset_at` is stable to the minute is unverified, and
+  two different values are kept apart rather than fuzzy-merged. Codex
+  `plan_type` and `rate_limit.limit_reached` are account-wide: they are copied
+  onto every Codex row of that attempt and never read as a per-window fact.
+  `rate_limit.allowed` is a different field and is not stored. Claude and xAI
+  leave both NULL. The public Codex payload model
+  (`RateLimitStatusPayload` / `RateLimitStatusDetails` in
+  openai/codex `codex-rs/codex-backend-openapi-models`, read 2026-09-28)
+  defines both fields; no authenticated response was probed, so a live body
+  that diverges stays NULL rather than being guessed.
 - **Refresh is owner-scoped, and the sweep is bounded (todo 3226 defect
   fix).** A subscription-limit read reports the provider logins of whatever
   machine it runs on, so it runs only on the user's *own* `default` VM config
@@ -1153,15 +1211,29 @@ expired-login card tells the user to run.
   ranges never truncate; per-model daily rows are small enough that this is
   safe.
 - **Latest limit status.** A provider-neutral, authenticated endpoint
-  (`GET /api/usage/limits[?refresh=true]`) SSH-execs the VM CLI's one-shot
-  read, normalizes each returned provider entry (used/remaining percent,
-  absolute reset time, observation time, availability, freshness), and selects
+  (`GET /api/usage/limits[?refresh=true]`) reads the persisted latest snapshot.
+  The VM CLI read happens only on the 30-minute sweep and on `?refresh=true`.
+  The response normalizes each provider entry (used/remaining percent,
+  absolute reset time, observation time, availability, freshness) and selects
   one deterministic best candidate per backend. A single reader's failure is
-  isolated into a per-origin error list rather than failing the whole read;
-  manual retry and the web view's periodic poll call this same endpoint, the
-  former with `refresh=true`, and nothing is persisted on the y-agent side.
+  isolated into a per-origin error list rather than failing the whole read.
   Responses omit internal integer ids and never fabricate a current value after
   a failed read: missing or malformed data stays null and visibly unavailable.
+- **Limit-window history (todo 3717).** `GET /api/usage/limit-history` and
+  `y usage limit-history` return the same bounded read: every local hour in
+  an inclusive range of at most 31 days, up to the current hour, including
+  hours with no evidence, plus that hour's provider token, request, and cost
+  sums from `model_usage_hourly`. An optional `backend` narrows the entries
+  only. Attempt counts and the spend sums stay for the whole hour, so a
+  filtered read still shows whether the hour was probed and what it cost.
+  A wider range, a reversed range, an
+  unbounded `time` token, or a range holding more than 60,000 observations or
+  60,000 attempts is a 422 / CLI error (`range_too_large`), never a silently
+  truncated payload. The spend side is joined in full too: the hourly
+  listing defaults to 1,000 rows, so the history read counts first and asks
+  for at least that many. `cost_basis` is returned with the cost, because
+  that figure is the stored API-equivalent cost and not measured subscription
+  spend. No internal integer id is returned. There is no web view.
 
 ### Web views
 
@@ -1544,6 +1616,27 @@ expired-login card tells the user to run.
   checked against the absolute API timestamps. These are asserted in component
   tests and fixtures; screenshots are taken only on request, per the house
   policy that agent-driven UI runtime checks are opt-in.
+- **Limit-window history (todo 3717).** Unit coverage, no database: an
+  attempt failure writes no observation; a provider error with a null source
+  time stays, with `freshness=unavailable` (only an `available` row can be
+  `unknown`); an absent Grok is `missing` and
+  inherits its origin error; a merged fallback row is never recorded; a UTC
+  16:30 bucket lands on the next local midnight hour; freshness is
+  fresh/stale/future/unknown against the collection time, with a 240-second
+  cache counted fresh; a reset inside an hour and a null reset are separate
+  groups, and two distinct Claude reset values are not merged; replaying one
+  attempt id writes nothing and two attempts sharing a source time count as
+  one distinct observation; empty hours are present with zero attempts; 32
+  days, too many observations, and too many attempts all refuse; the spend
+  join asks for more than the 1,000-row default and keeps the `x-ai` provider
+  and its `cost_basis`; NaN and bool percents store NULL. The refresh hook
+  records exactly one attempt for each outcome and records nothing when the
+  lock is already held, and a raised history error still returns the
+  snapshot. Codex `allowed=false` without `limit_reached` stores NULL.
+  Owner isolation is asserted by the read asking the repository for that
+  user only; the single-transaction idempotency is the `ON CONFLICT DO
+  NOTHING` insert, which commits the attempt and its observations together
+  and skips both on a replay.
 - **Post-deploy smoke:** trigger a sync, confirm rows appear for the current
   day, spot-check a date's totals against the relay dashboard, then call the
   deployed limits endpoint and confirm all three providers return with an empty
@@ -1587,6 +1680,7 @@ expired-login card tells the user to run.
 | 3566 | Over-time `H` granularity replaces the daily contribution card with a seven-day by 24-hour grid built from the hourly rows `H` already fetches: seven local calendar dates (oldest first, today last) x 24 columns, all 168 slots generated from the resolved window, summed across every model, driven by the existing metric selector and the shared absolute-threshold color scale applied per hourly cell. Recorded zero, missing row, future slot and server `partial` are four distinct states readable without color; a successful empty response still renders the window instead of hiding the view. Dates, hour columns and the zone label follow the shipped todo 3346 browser-timezone contract. D / W / M, the model filter's chart-only scope, the history table, the API and the schema are unchanged | - | `pages/plan-3566-bot-hourly-grid.md` | this PRD; `pages/plan-3346-date-range-timezone-audit.md` (D7) | `pages/review-3566-bot-hourly-grid.md` (4 rounds) | shipped `38df195`, bot v41 enabled; UI `f765f176398b...`, API `59318933a0b4...` unchanged; 237 checks passed, build passed, 183 unchanged typecheck diagnostics; canonical build reproduces published digest, worktree difference is source-path comments only; ready for user verification |
 | 3569 | Explain why equal tier route weights do not imply equal tokens or spend, add distinct y-agent Sessions and answered Turns per model, and surface relay Requests per attributed Turn as `Avg requests` in the Live usage table; bot v43 preserves the historical `Avg turns/chat` iteration, while the current reviewed contract uses compact headers, no header asterisks, and only conditional activity status copy | - | `pages/plan-3569-bot-usage-sessions.md` | this PRD; `pages/handoff-3569-bot-module-ui.md` | `pages/review-3569-chat-model-activity-host.md`; `pages/review-3569-bot-module-live-columns.md` (round 3 current metric/header contract) | reviewed; current module iteration unpublished |
 | 3580 | Display-only resolved-date labels beside the Usage filter and heatmap. Host `GET /api/usage/range` returns `describe_time_range`; browser contract v14 exports the shared formatter. Query timezone stays the browser zone (todo 3346). Module labels land in a later publish | - | `pages/plan-3580-resolved-date-range-display.md` | `pages/feature-y-agent-resolved-date-range-display.md`; `pages/decision-3580-host-sdk-backend-contract.md` | - | host implemented; module labels pending |
+| 3717 | Hourly subscription limit-window history for Claude, Codex and Grok, recorded from the existing 30-minute refresh plus manual retries, with a bounded per-hour read aligned to provider tokens and cost. No UI, no estimation, no cadence change | - | `pages/plan-3717-subscription-quota-history.md` | this PRD; `pages/impl-3717-subscription-quota-history.md` | `pages/review-3717-subscription-quota-history.md` (round 3) | reviewed; publication pending, migration unapplied |
 
 ## Out of Scope
 

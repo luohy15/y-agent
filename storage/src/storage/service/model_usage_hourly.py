@@ -43,6 +43,20 @@ def list_for(
     return repo.list_for(user_id, source=source, from_date=from_date, to_date=to_date, limit=limit)
 
 
+def count_for(
+    user_id: int,
+    source: str | None = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
+) -> int:
+    """How many hourly rows a range holds, so a caller can ask for all of them.
+
+    list_for defaults to LIMIT 1000, which silently drops a wide range. A
+    complete read counts first and passes a limit at least that large.
+    """
+    return repo.count_for(user_id, source=source, from_date=from_date, to_date=to_date)
+
+
 # --- date window helpers ----------------------------------------------------
 
 def hourly_date_list(days: int, *, include_today: bool = True) -> list[str]:

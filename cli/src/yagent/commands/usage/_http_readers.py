@@ -69,8 +69,8 @@ XAI_SOURCE = "xai_billing_credits"
 
 
 def _row(*, backend, provider, source, error, availability, windows, extra_windows,
-         observed_at, account_id=None, account_name=None) -> dict:
-    return {
+         observed_at, account_id=None, account_name=None, plan=None, limit_reached=None) -> dict:
+    row = {
         "backend": backend,
         "provider": provider,
         "account_id": account_id,
@@ -82,6 +82,14 @@ def _row(*, backend, provider, source, error, availability, windows, extra_windo
         "windows": windows,
         "extra_windows": extra_windows,
     }
+    # Account-wide signals, present only when the source defined them. `plan`
+    # and `limit_reached` are not per-window facts, and `allowed` is a
+    # different flag that must never be stored as limit_reached.
+    if plan is not None:
+        row["plan"] = plan
+    if limit_reached is not None:
+        row["limit_reached"] = limit_reached
+    return row
 
 
 def read_codex_provider() -> dict:
@@ -134,14 +142,40 @@ def read_codex_provider() -> dict:
                     windows={}, extra_windows={}, observed_at=observed_at, account_id=account_id)
 
     windows = _parse_codex_windows(body)
+    plan, limit_reached = _parse_codex_account(body)
     if not windows:
         return _row(backend="codex", provider="openai", source=CODEX_SOURCE,
                     error=ERROR_PARSE_FAILED, availability="unavailable",
-                    windows={}, extra_windows={}, observed_at=observed_at, account_id=account_id)
+                    windows={}, extra_windows={}, observed_at=observed_at, account_id=account_id,
+                    plan=plan, limit_reached=limit_reached)
 
     return _row(backend="codex", provider="openai", source=CODEX_SOURCE,
                 error=None, availability="available",
-                windows=windows, extra_windows={}, observed_at=observed_at, account_id=account_id)
+                windows=windows, extra_windows={}, observed_at=observed_at, account_id=account_id,
+                plan=plan, limit_reached=limit_reached)
+
+
+def _parse_codex_account(body: dict) -> tuple:
+    """Account-wide plan and limit_reached from the public Codex usage model.
+
+    `codex-rs` `RateLimitStatusPayload` carries `plan_type` and a
+    `rate_limit` object whose `limit_reached` is a bool (see
+    codex-backend-openapi-models rate_limit_status_payload.rs and
+    rate_limit_status_details.rs, read 2026-09-28). Both describe the
+    account, not one window. `rate_limit.allowed` is a separate field and is
+    intentionally not read: a false `allowed` is not evidence of a limit hit.
+    A missing or wrong-typed value stays None rather than being guessed.
+    """
+    if not isinstance(body, dict):
+        return None, None
+    plan = body.get("plan_type")
+    if not isinstance(plan, str) or not plan:
+        plan = None
+    rate_limit = body.get("rate_limit")
+    reached = None
+    if isinstance(rate_limit, dict) and isinstance(rate_limit.get("limit_reached"), bool):
+        reached = rate_limit["limit_reached"]
+    return plan, reached
 
 
 def _parse_codex_windows(body: dict) -> dict:

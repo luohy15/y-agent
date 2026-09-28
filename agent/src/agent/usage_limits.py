@@ -30,6 +30,7 @@ caller offloads it.
 
 import asyncio
 import json
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 from loguru import logger
@@ -37,6 +38,7 @@ from loguru import logger
 from agent.ec2_wake import is_vm_asleep
 from agent.tool_base import Tool
 from storage.database.base import statement_timeout
+from storage.service import model_usage_limit_history as limit_history
 from storage.service import model_usage_limits as limits
 from storage.service import pipeline_lock as pipeline_lock_service
 from storage.service import vm_config as vm_service
@@ -196,6 +198,23 @@ async def _record_failure(user_id: int, error_code: str, attempt_at: str) -> dic
     return await offload(limits.record_refresh_failure, user_id, error_code, attempt_at)
 
 
+async def _record_history(user_id: int, attempt_id: str, attempt_at: str, trigger: str,
+                          status: str, error: str | None, envelope: dict | None) -> None:
+    """Leave durable evidence of this attempt. A history failure is logged and
+    swallowed: it must not change the snapshot this refresh already persisted,
+    nor the value the caller gets back. The envelope is not logged."""
+    try:
+        await offload(
+            limit_history.record_attempt,
+            user_id, attempt_id, attempt_at, trigger, status, error, envelope,
+        )
+    except Exception as e:
+        logger.warning(
+            "refresh_and_persist_snapshot: history write failed for user {} attempt {}: {}",
+            user_id, attempt_id, e,
+        )
+
+
 async def refresh_and_persist_snapshot(user_id: int, force: bool = False) -> dict | None:
     """The one refresh function shared by the 30-minute scheduled worker
     sweep and the explicit `?refresh=true` API path. Acquires this user's
@@ -230,18 +249,31 @@ async def refresh_and_persist_snapshot(user_id: int, force: bool = False) -> dic
         return None
 
     attempt_at = get_utc_iso8601_timestamp()
+    # Full uuid, not generate_id()'s 6 hex chars. attempt_id is unique across
+    # every user, and a collision is treated as a replay: the real attempt
+    # would be dropped. 48 refreshes a day makes a 6-char id collide.
+    attempt_id = uuid.uuid4().hex
+    # force=True is the explicit user retry; the scheduled sweep passes False.
+    trigger = "manual" if force else "scheduled"
     try:
         try:
             vm_config = await offload(resolve_usage_vm_config, user_id)
             if vm_config is None:
-                return await _record_failure(user_id, _ERROR_NO_USAGE_VM, attempt_at)
+                result = await _record_failure(user_id, _ERROR_NO_USAGE_VM, attempt_at)
+                await _record_history(user_id, attempt_id, attempt_at, trigger, "failed", _ERROR_NO_USAGE_VM, None)
+                return result
             if await offload(is_vm_asleep, vm_config):
-                return await _record_failure(user_id, _ERROR_VM_UNREACHABLE, attempt_at)
+                result = await _record_failure(user_id, _ERROR_VM_UNREACHABLE, attempt_at)
+                await _record_history(user_id, attempt_id, attempt_at, trigger, "failed", _ERROR_VM_UNREACHABLE, None)
+                return result
             output = await _run_usage_limits_cli(vm_config, refresh=force)
             raw = json.loads(output.strip())
         except Exception as e:
             logger.warning("refresh_and_persist_snapshot: CLI read failed for user {}: {}", user_id, e)
-            return await _record_failure(user_id, _error_code(e), attempt_at)
+            error_code = _error_code(e)
+            result = await _record_failure(user_id, error_code, attempt_at)
+            await _record_history(user_id, attempt_id, attempt_at, trigger, "failed", error_code, None)
+            return result
 
         envelope = limits.normalize_envelope(raw, limits.DEFAULT_TTL_SECONDS)
         if not envelope["providers"] and envelope["errors"]:
@@ -251,9 +283,15 @@ async def refresh_and_persist_snapshot(user_id: int, force: bool = False) -> dic
             # a providers-less snapshot that would blank an otherwise-good
             # card.
             error_code = envelope["errors"][0].get("error") or _ERROR_BAD_PAYLOAD
-            return await _record_failure(user_id, error_code, attempt_at)
+            result = await _record_failure(user_id, error_code, attempt_at)
+            await _record_history(user_id, attempt_id, attempt_at, trigger, "failed", error_code, None)
+            return result
 
-        return await offload(limits.record_refresh_success, user_id, envelope, attempt_at)
+        result = await offload(limits.record_refresh_success, user_id, envelope, attempt_at)
+        # History records the incoming envelope, never the merged snapshot the
+        # success path returns: a fallback row is not evidence from this attempt.
+        await _record_history(user_id, attempt_id, attempt_at, trigger, "ok", None, envelope)
+        return result
     finally:
         # Shielded *and* bounded, in that order. Shielded because the caller's
         # timeout (the sweep cancels an attempt that outlives its per-user

@@ -91,6 +91,25 @@ def upsert_hourly(user_id: int, rows: list[dict], synced_at: str) -> int:
         return len(rows)
 
 
+def count_for(
+    user_id: int,
+    source: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+) -> int:
+    parsed_from = date.fromisoformat(from_date) if from_date else None
+    parsed_to = date.fromisoformat(to_date) if to_date else None
+    with get_db() as session:
+        query = session.query(ModelUsageHourlyEntity).filter_by(user_id=user_id)
+        if source:
+            query = query.filter_by(source=source)
+        if parsed_from:
+            query = query.filter(ModelUsageHourlyEntity.usage_date >= parsed_from)
+        if parsed_to:
+            query = query.filter(ModelUsageHourlyEntity.usage_date <= parsed_to)
+        return query.count()
+
+
 def list_for(
     user_id: int,
     source: Optional[str] = None,

@@ -8,6 +8,7 @@ from agent import usage_limits as limits_service
 from storage.service import chat_model_activity as activity_service
 from storage.service import model_usage_daily as usage_service
 from storage.service import model_usage_hourly as hourly_service
+from storage.service import model_usage_limit_history as limit_history_service
 from storage.service import usage_rate as rate_service
 from storage.service.time_range import describe_time_range, parse_time_range
 from storage.util import local_today
@@ -198,6 +199,44 @@ async def rate(request: Request):
     dashboard directly with the caller's stored admin credentials. See
     docs/prd/bot-usage.md "Realtime run rate"."""
     return rate_service.read_rate(request.state.user_id)
+
+
+@router.get("/limit-history")
+async def limit_history(
+    request: Request,
+    time: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    tz: Optional[str] = None,
+    backend: Optional[str] = None,
+):
+    """Bounded subscription limit-window history (todo 3717).
+
+    Same date grammar as model-hourly: `time` wins, otherwise from/to, and
+    with nothing given the window is local today. The body is every local
+    hour in range up to the current hour, including hours with no evidence,
+    plus the hourly spend rows for the same window. `backend` narrows the
+    entries only; attempt counts and the spend sums stay for the whole hour.
+    A range wider than 31
+    days, a reversed range, or one that holds more rows than the cap is 422.
+    No internal ids are returned.
+    """
+    if time is not None:
+        start, end = parse_time_range(time, tz=tz)
+        from_date = start.isoformat() if start else None
+        to_date = (end - timedelta(days=1)).isoformat() if end else None
+    else:
+        today = local_today(tz).isoformat()
+        from_date = from_date or today
+        to_date = to_date or today
+    if not from_date or not to_date:
+        raise HTTPException(status_code=422, detail="limit history requires a bounded date range")
+    try:
+        return limit_history_service.list_limit_history(
+            request.state.user_id, from_date, to_date, backend=backend,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/limits")

@@ -4,6 +4,7 @@ from .backfill import backfill
 from .activity_backfill import backfill_activity
 from .credentials_cmd import credentials
 from .crs_creds import crs_creds
+from .limit_history import limit_history
 from .limits import limits
 from .rate import rate
 from .sync import sync
@@ -22,4 +23,5 @@ usage_group.add_command(backfill_activity)
 usage_group.add_command(credentials)
 usage_group.add_command(crs_creds)
 usage_group.add_command(limits)
+usage_group.add_command(limit_history)
 usage_group.add_command(rate)

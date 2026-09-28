@@ -278,6 +278,10 @@ exceptions noted):
 - **Link / RSS**: `link`, `link_todo_relation`, `rss_feed`, `pipeline_lock` (RSS scrape
   coordination, no service)
 - **English learning**: `english_correction`, `english_word`
+- **Subscription limit history** (todo 3717): `model_usage_limit_attempt`,
+  `model_usage_limit_observation`. One attempt per refresh that actually ran,
+  one observation per window (or a provider-level miss). The latest snapshot
+  stays in `user_preference` and is not one of these tables.
 - **Dev / trace**: `dev_worktree`, `dev_release`, `dev_release_waiter`, `trace_share`
 - **API telemetry**: `api_latency_event`, `api_latency_rollup`
 - **Provider status**: `provider_status_source`, `provider_status_component`,
@@ -308,7 +312,9 @@ Grouped by feature area:
   (five host share routes and sharing helpers only), `entity.py`,
   `entity_note_relation.py`, `entity_rss_relation.py`
 - **Content pipelines**: `link.py`, `link_todo_relation.py`, `rss_feed.py`, `email.py`,
-  `english_correction.py`, `english_word.py` (`/english/vocab`)
+  `english_correction.py`, `english_word.py` (`/english/vocab`),
+  `model_usage.py` (spend rows, the latest limit snapshot, and
+  `GET /api/usage/limit-history`, the bounded hourly limit-window history)
 - **Modules**: `module.py` (list / versions / publish / activate / rollback / enable /
   disable / delete / bundle); module-owned domain routes are dispatched under
   `/api/module/<slug>/*` by `api/module_runtime/` (not a built-in controller per

@@ -2,8 +2,12 @@
 subscription limit-window status (Claude / Codex 5h + 1w windows, Grok
 billing-period window).
 
-Separate operational dataset from `model_usage_daily`: no migration SQL, no
-sync, no history table. There *is* now one persisted row per user, though:
+Separate operational dataset from `model_usage_daily`: no migration SQL and
+no sync of its own. The latest snapshot below is still one `user_preference`
+row. Limit-window *history* is a different dataset (todo 3717,
+`storage.service.model_usage_limit_history`): one attempt row per refresh
+plus one observation per window, written by the refresh hook and never read
+back into this snapshot. There *is* now one persisted row per user, though:
 the latest normalized snapshot lives in the existing `user_preference` table
 under key `usage_limits_latest` (see "persisted snapshot" below), so ordinary
 `GET /api/usage/limits` reads (`agent.usage_limits.get_limit_status`,
@@ -182,7 +186,7 @@ def _normalize_account(item: dict, ttl_seconds: int) -> dict:
     extra_windows = {k: _normalize_window(v) for k, v in extra_raw.items()}
     observed_at = item.get("observed_at")
     availability = item.get("availability") or "unavailable"
-    return {
+    account = {
         "backend": item.get("backend"),
         "provider": item.get("provider"),
         "account_id": item.get("account_id"),
@@ -195,6 +199,14 @@ def _normalize_account(item: dict, ttl_seconds: int) -> dict:
         "windows": windows,
         "extra_windows": extra_windows,
     }
+    # Account-wide, and only when the source actually sent them. Kept off the
+    # row otherwise so an older payload shape stays byte-for-byte unchanged.
+    plan = item.get("plan")
+    if isinstance(plan, str) and plan:
+        account["plan"] = plan
+    if isinstance(item.get("limit_reached"), bool):
+        account["limit_reached"] = item["limit_reached"]
+    return account
 
 
 def _observed_timestamp(observed_at: str | None) -> float:
