@@ -21,6 +21,7 @@ import LinkList from "./components/LinkList";
 import RssFeedList from "./components/RssFeedList";
 import { openCalendarFocusDate } from "./utils/calendarNavigate";
 import { handleEntityOpen, openEntity } from "./utils/entityNavigate";
+import { handleEnglishOpen } from "./utils/englishNavigate";
 import { navigateTag, type TagResultItem } from "./utils/tagNavigate";
 import {
   applyTodoDeepLink,
@@ -683,6 +684,11 @@ export default function App() {
     const unregisterEntityOpen = registerHostCommand("entity.open", (payload) => {
       handleEntityOpen(payload, handleOpenFile);
     });
+    // English selections share the module's persisted, latched intent
+    // (todo 3708 A2). Built-in English callers/state remain until batch B.
+    const unregisterEnglishOpen = registerHostCommand("english.open", (payload) => {
+      handleEnglishOpen(payload, handleOpenFile);
+    });
     return () => {
       unregisterTodoDetail();
       unregisterChatOpen();
@@ -692,6 +698,7 @@ export default function App() {
       unregisterCalendarFocus();
       unregisterTraceClearRoute();
       unregisterEntityOpen();
+      unregisterEnglishOpen();
     };
   }, [handleOpenFile, selectedChatId]);
 

@@ -1,5 +1,5 @@
 {
-  "version": 21,
+  "version": 22,
   "externals": [
     "react",
     "react-dom",
@@ -31,6 +31,7 @@
     "clock",
     "utensils",
     "entity",
-    "git-branch"
+    "git-branch",
+    "pencil"
   ]
 }
