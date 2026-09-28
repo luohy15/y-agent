@@ -48,7 +48,13 @@ MAX_BACKOFF_DOUBLINGS = 5
 PREFIX_RE = re.compile(
     r"^\[(?:trace:([^\s\]]+)|routine:[^\]\n]*)[^\]\n]*?to_chat:([0-9a-z-]+)\]"
 )
-COUNTERS = ("input_tokens", "output_tokens", "cache_creation_tokens", "cache_read_tokens")
+# Upload counter name -> the key a Claude Code transcript's `message.usage` uses.
+COUNTERS = {
+    "input_tokens": "input_tokens",
+    "output_tokens": "output_tokens",
+    "cache_creation_tokens": "cache_creation_input_tokens",
+    "cache_read_tokens": "cache_read_input_tokens",
+}
 
 RUN_FIELDS = (
     "files_seen", "files_uploaded", "files_unmatched", "files_in_progress",
@@ -175,7 +181,7 @@ def parse_file(path: Path) -> dict:
             "request_id": request_id,
             "model": model if isinstance(model, str) else "",
             "requested_at": record.get("timestamp") or message.get("timestamp") or "",
-            "usage": {name: usage.get(name) for name in COUNTERS} if usage else None,
+            "usage": {name: usage.get(key) for name, key in COUNTERS.items()} if usage else None,
         })
 
     segments = [{"hint": hint, "requests": {}} for hint in hints]
