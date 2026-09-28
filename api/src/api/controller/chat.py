@@ -248,6 +248,19 @@ def _is_dispatch_shaped(req: SendMessageRequest) -> bool:
     )
 
 
+def _reject_pasted_trace_prefix(prompt: str) -> None:
+    """A pasted `[trace:...]` prefix is the dispatch harness's job, not the caller's.
+
+    Rejected only on dispatch-shaped sends and wakeup registration. A plain web
+    send may quote that text.
+    """
+    if (prompt or "").lstrip().startswith("[trace:"):
+        raise HTTPException(
+            status_code=400,
+            detail="prompt must not start with a [trace: prefix; the dispatch harness adds it",
+        )
+
+
 def _resolve_skill(skill: Optional[str], topic: Optional[str]) -> Optional[str]:
     """Skill defaults to topic for non-root topics; explicit skill overrides."""
     if skill:
@@ -306,6 +319,7 @@ async def post_send_message(req: SendMessageRequest, request: Request):
         return SendMessageResponse(chat_id=chat.id, trace_id=chat.trace_id)
 
     # Dispatch-shaped: cross-skill `y chat` targeting (formerly /notify).
+    _reject_pasted_trace_prefix(req.prompt)
     skill = _resolve_skill(req.skill, req.topic)
 
     # Resolve target chat: explicit chat_id > topic+trace lookup > new.
@@ -739,6 +753,7 @@ async def post_create_chat_wakeup(req: CreateChatWakeupRequest, request: Request
     target chat as an ordinary dispatch at due_at, and treated as
     trace-liveness watchdog evidence until then."""
     user_id = _get_user_id(request)
+    _reject_pasted_trace_prefix(req.message)
     try:
         wakeup = await wakeup_service.create_wakeup(
             user_id, req.chat_id, req.message, req.due_at,
