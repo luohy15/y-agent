@@ -22,6 +22,8 @@ import RssFeedList from "./components/RssFeedList";
 import { openCalendarFocusDate } from "./utils/calendarNavigate";
 import { handleEntityOpen, openEntity } from "./utils/entityNavigate";
 import { handleEnglishOpen } from "./utils/englishNavigate";
+import { dispatchLinkOpen } from "./utils/linkNavigate";
+import { handleRssOpen } from "./utils/rssNavigate";
 import { navigateTag, type TagResultItem } from "./utils/tagNavigate";
 import {
   applyTodoDeepLink,
@@ -656,14 +658,16 @@ export default function App() {
     // Todo 3179 H1: narrow adapters for the exported TraceView module leaf.
     // chat.open / file.open already cover chat + note/file callbacks; these three
     // fill the remaining link / calendar / deep-link-back gaps without aliases.
+    // Transition rule (todo 3708 A3): the link module, once mountable, owns
+    // navigation; the legacy branch stays live until B retires it so the
+    // entity/todo trace-detail callers keep working before M publishes.
     const unregisterLinkOpen = registerHostCommand("link.open", (payload) => {
-      if (!payload || typeof payload !== "object") return;
-      const { activityId, contentKey } = payload as { activityId?: unknown; contentKey?: unknown };
-      if (typeof activityId !== "string") return;
-      setSelectedLinkId(activityId);
-      setSelectedLinkLinkId(null);
-      setSelectedLinkContentKey(typeof contentKey === "string" ? contentKey : null);
-      handleOpenFile("link.md");
+      dispatchLinkOpen(payload, uiArtifactBySlug.has("link"), handleOpenFile, (activityId, contentKey) => {
+        setSelectedLinkId(activityId);
+        setSelectedLinkLinkId(null);
+        setSelectedLinkContentKey(contentKey);
+        handleOpenFile("link.md");
+      });
     });
     const unregisterCalendarFocus = registerHostCommand("calendar.focusDate", (payload) => {
       if (!payload || typeof payload !== "object") return;
@@ -685,6 +689,10 @@ export default function App() {
     const unregisterEnglishOpen = registerHostCommand("english.open", (payload) => {
       handleEnglishOpen(payload, handleOpenFile);
     });
+    // RSS selections share the module's latched (unpersisted) intent (todo 3708 A3).
+    const unregisterRssOpen = registerHostCommand("rss.open", (payload) => {
+      handleRssOpen(payload, handleOpenFile);
+    });
     return () => {
       unregisterTodoDetail();
       unregisterChatOpen();
@@ -695,8 +703,9 @@ export default function App() {
       unregisterTraceClearRoute();
       unregisterEntityOpen();
       unregisterEnglishOpen();
+      unregisterRssOpen();
     };
-  }, [handleOpenFile, selectedChatId]);
+  }, [handleOpenFile, selectedChatId, uiArtifactBySlug]);
 
   useEffect(() => {
     if (uiArtifactsLoading) return;
