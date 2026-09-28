@@ -208,6 +208,7 @@ export default function DemoShell() {
       { slug: "reminder", label: "Reminders", icon: "bell" },
       { slug: "routine", label: "Routines", icon: "clock" },
       { slug: "email", label: "Email", icon: "mail" },
+      { slug: "dev", label: "Dev", icon: "git-branch" },
     ];
     for (const extra of extras) {
       if (base.some((m) => m.slug === extra.slug)) continue;

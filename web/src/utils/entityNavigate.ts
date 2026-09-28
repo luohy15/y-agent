@@ -1,8 +1,6 @@
 // Host-side navigation into the Entity module (todo 3708 A2).
 // One live authority: a latched `{ kind: "entity", entityId, nonce }` intent.
-// Both module surfaces consume it; `selectedEntityId` stays the reload fallback
-// the current built-in panel already persists. Built-in callers keep opening
-// `entity.md` until host B retires them.
+// Both module surfaces consume it; `selectedEntityId` stays the reload fallback.
 import { artifactTabKey } from "../host/artifacts";
 import { setArtifactIntent } from "../host/intents";
 

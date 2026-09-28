@@ -29,7 +29,7 @@ export const DEMO_LEFT_UNAVAILABLE = [
   "artifact:email",
   "english",
   "rss",
-  "dev",
+  "artifact:dev",
 ] as const;
 
 /** Right-drawer live keys. */

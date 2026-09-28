@@ -34,8 +34,7 @@ interface EnglishListProps {
   isLoggedIn: boolean;
   selectedCorrectionId?: string | null;
   onSelectCorrection?: (correctionId: string) => void;
-  // See EntityList's `hideRefreshButton` (todo 3680): hidden when the host
-  // sidebar row above this panel already offers refresh.
+  // Hidden when the host sidebar row above this panel already offers refresh.
   hideRefreshButton?: boolean;
 }
 

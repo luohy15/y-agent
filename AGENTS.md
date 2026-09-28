@@ -90,8 +90,9 @@ entity + controller + service + CLI slices, and most have a web panel.
   `code/y-module/note/README.md`. File rename refuses a path while any live
   note's `content_key` still points at it (via the backend contract's
   `note_list_at_path`); `content_key` is never auto-fixed.
-- **Entity (knowledge graph)** — `entity` + `entity_note_relation` + `entity_rss_relation`.
-  Web sidebar exposes entities as a first-class panel.
+- **Entity (knowledge graph)** — host owns `entity`, `entity_note_relation`,
+  `entity_rss_relation`, API routes and `y entity`; the UI-only `entity` module
+  supplies the Entities panel and detail (`code/y-module/entity/README.md`).
 - **English correction** — offline hourly loop over the user's own English chat prose.
   A disabled-by-default routine fires the `english-correction` skill, which reads
   eligible messages from `y english pending`, writes minimal corrections via
@@ -194,7 +195,8 @@ entity + controller + service + CLI slices, and most have a web panel.
   non-environment assets (credentials, `node_modules`, `migration`, datasets); they
   must not link `.venv`. Existing worktrees created before this behavior need a
   one-time local repair (`rm .venv && uv sync --locked` in the worktree) or
-  recreation.
+  recreation. The UI-only `dev` module reads host worktree history in its detail
+  view (`code/y-module/dev/README.md`); worktree/release APIs and CLI remain host-owned.
 - **Publication ownership** — `dev_release` holds one persistent publication slot per
   canonical project (`host/owner/repository`, normalized from the checkout's GitHub
   `origin` by `storage/project_key.py`; never per worktree, branch, environment or
@@ -368,7 +370,7 @@ Grouped by feature area:
   logged-out shares
 - `host/commands.ts`, runtime-loaded `todo` artifact; `TraceView` stays bundled for
   unauthenticated shares
-- `LinkList.tsx`, `EntityList.tsx`, `RssFeedList.tsx`, `DiffViewer.tsx`,
+- `LinkList.tsx`, `RssFeedList.tsx`, `DiffViewer.tsx`,
   `GitPanel.tsx`, `CommandPalette.tsx`, `EnglishList.tsx`, `VocabularyTab.tsx`,
   `api.ts`, `hooks/useAuth.ts`
 

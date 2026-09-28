@@ -38,8 +38,7 @@ interface RssFeedListProps {
   isLoggedIn: boolean;
   onSelectFeed?: (feedId: string, label: string) => void;
   selectedFeedId?: string | null;
-  // See EntityList's `hideRefreshButton` (todo 3680): hidden when the host
-  // sidebar row above this panel already offers refresh.
+  // Hidden when the host sidebar row above this panel already offers refresh.
   hideRefreshButton?: boolean;
 }
 

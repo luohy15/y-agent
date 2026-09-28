@@ -9,9 +9,7 @@ import UserMenu from "./UserMenu";
 export type BuiltInSidebarPanel =
   | "links"
   | "rss"
-  | "entity"
-  | "english"
-  | "dev";
+  | "english";
 
 export type SidebarPanel = BuiltInSidebarPanel | `artifact:${string}`;
 
@@ -80,19 +78,9 @@ export const BUILT_IN_PANEL_ITEMS: PanelItem<SidebarPanel>[] = [
       <path d="M4 11a9 9 0 0 1 9 9" /><path d="M4 4a16 16 0 0 1 16 16" /><circle cx="5" cy="19" r="1" />
     </svg>
   )},
-  { key: "entity", label: "Entities", icon: (
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M20 7h-9" /><path d="M14 17H5" /><circle cx="17" cy="17" r="3" /><circle cx="7" cy="7" r="3" />
-    </svg>
-  )},
   { key: "english", label: "English", icon: (
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-    </svg>
-  )},
-  { key: "dev", label: "Dev", icon: (
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" />
     </svg>
   )},
 ];
@@ -113,7 +101,9 @@ const APP_TO_PANEL: Record<string, SidebarPanel | null> = {
   "finance.bean": "artifact:finance",
   "email": "artifact:email",
   "emails.md": "artifact:email",
-  "dev.md": "dev",
+  "dev.md": "artifact:dev",
+  dev: "artifact:dev",
+  entity: "artifact:entity",
   chats: "artifact:chat",
   // C1: fixed left module-backed entries become artifact panel keys.
   notes: "artifact:note",
@@ -179,7 +169,7 @@ function migrateUnifiedV1(raw: string, defaults: SidebarPanel[]): SidebarPanel[]
       const key = (item as { key?: unknown }).key;
       if (typeof key !== "string") continue;
       if (group === "panel") {
-        migrated.push(key as SidebarPanel);
+        migrated.push(migrateActivityPanelKey(key));
         sawOld = true;
       } else if (group === "app") {
         const mapped = APP_TO_PANEL[key];
@@ -205,7 +195,7 @@ function migrateLegacySplit(defaults: SidebarPanel[]): SidebarPanel[] | null {
     try {
       const arr = JSON.parse(raw);
       if (Array.isArray(arr)) {
-        for (const k of arr) if (typeof k === "string") migrated.push(k as SidebarPanel);
+        for (const k of arr) if (typeof k === "string") migrated.push(migrateActivityPanelKey(k));
       }
     } catch { /* ignore */ }
   };
@@ -236,11 +226,12 @@ function loadOrder(defaults: SidebarPanel[]): SidebarPanel[] {
       try {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed) && parsed.every(x => typeof x === "string")) {
-          const migrated = parsed.map((key) => migrateActivityPanelKey(key));
+          const renamed = parsed.map((key) => migrateActivityPanelKey(key));
+          const migrated = [...new Set(renamed)];
           // Persist the renamed list itself, not the merge: before the module
           // catalog loads, defaults are built-ins only and merging would drop
           // every artifact key's saved position (todo 3708 P2).
-          if (migrated.some((key, index) => key !== parsed[index])) saveOrder(migrated);
+          if (migrated.length !== parsed.length || renamed.some((key, index) => key !== parsed[index])) saveOrder(migrated);
           return mergeWithDefaults(migrated, defaults);
         }
       } catch { /* ignore */ }

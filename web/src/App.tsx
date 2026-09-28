@@ -19,9 +19,8 @@ import CommandPalette, { CommandAction } from "./components/CommandPalette";
 import TerminalView from "./components/TerminalView";
 import LinkList from "./components/LinkList";
 import RssFeedList from "./components/RssFeedList";
-import EntityList from "./components/EntityList";
 import { openCalendarFocusDate } from "./utils/calendarNavigate";
-import { handleEntityOpen } from "./utils/entityNavigate";
+import { handleEntityOpen, openEntity } from "./utils/entityNavigate";
 import { navigateTag, type TagResultItem } from "./utils/tagNavigate";
 import {
   applyTodoDeepLink,
@@ -114,14 +113,13 @@ interface BotConfigItem {
 // `trace.md` is the authenticated host special retired by todo 3179 H3
 // (selection now lives in the Todo module detail). Public `/t/:shareId`
 // keeps its own permanent tab and is not in this set.
-const RETIRED_TABS = new Set(["bot.md", "calendar.md", "todo.md", "trace.md", "email.md"]);
+const RETIRED_TABS = new Set(["bot.md", "calendar.md", "todo.md", "trace.md", "email.md", "entity.md", "dev.md"]);
 
 // Built-in sidebar panels with no "Open ... full view" action of their own
 // (todo 3680): the host refresh row shows this label instead.
 const BUILT_IN_SIDEBAR_PANEL_LABELS: Partial<Record<SidebarPanel, string>> = {
   links: "Links",
   rss: "RSS",
-  entity: "Entities",
   english: "English",
 };
 
@@ -276,7 +274,6 @@ export default function App() {
   const [selectedLinkContentKey, setSelectedLinkContentKey] = useState<string | null>(() => localStorage.getItem("selectedLinkContentKey") || null);
   const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null);
   const [pendingLinkStatus, setPendingLinkStatus] = useState<string | null>(null);
-  const [selectedEntityId, setSelectedEntityId] = useState<string | null>(() => localStorage.getItem("selectedEntityId") || null);
   const [selectedCorrectionId, setSelectedCorrectionId] = useState<string | null>(() => localStorage.getItem("selectedCorrectionId") || null);
   const [selectedFeedId, setSelectedFeedId] = useState<string | null>(null);
   const [selectedFeedLabel, setSelectedFeedLabel] = useState<string | null>(null);
@@ -362,7 +359,6 @@ export default function App() {
   useEffect(() => { if (selectedLinkId) localStorage.setItem("selectedLinkId", selectedLinkId); else localStorage.removeItem("selectedLinkId"); }, [selectedLinkId]);
   useEffect(() => { if (selectedLinkLinkId) localStorage.setItem("selectedLinkLinkId", selectedLinkLinkId); else localStorage.removeItem("selectedLinkLinkId"); }, [selectedLinkLinkId]);
   useEffect(() => { if (selectedLinkContentKey) localStorage.setItem("selectedLinkContentKey", selectedLinkContentKey); else localStorage.removeItem("selectedLinkContentKey"); }, [selectedLinkContentKey]);
-  useEffect(() => { if (selectedEntityId) localStorage.setItem("selectedEntityId", selectedEntityId); else localStorage.removeItem("selectedEntityId"); }, [selectedEntityId]);
   useEffect(() => { if (selectedCorrectionId) localStorage.setItem("selectedCorrectionId", selectedCorrectionId); else localStorage.removeItem("selectedCorrectionId"); }, [selectedCorrectionId]);
 
   const openFilesRef = useRef(openFiles);
@@ -683,8 +679,7 @@ export default function App() {
       window.history.replaceState(null, "", "/");
       window.dispatchEvent(new PopStateEvent("popstate"));
     });
-    // Todo 3708 A2: entity module row clicks open ui:entity. Built-in callers
-    // stay on entity.md until host B.
+    // Entity selections share the module's persisted, latched intent.
     const unregisterEntityOpen = registerHostCommand("entity.open", (payload) => {
       handleEntityOpen(payload, handleOpenFile);
     });
@@ -1131,14 +1126,11 @@ export default function App() {
     });
   }, [urlTraceId, handleOpenFile]);
 
-  // URL ?entity_id=... → open entity.md
+  // URL ?entity_id=... → open the Entity module detail.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const eid = params.get("entity_id");
-    if (eid) {
-      setSelectedEntityId(eid);
-      handleOpenFile("entity.md");
-    }
+    if (eid) openEntity(eid, handleOpenFile);
   }, [handleOpenFile]);
 
   const chatHideRef = useRef(chatHide);
@@ -1415,7 +1407,6 @@ export default function App() {
       handleOpenFile,
       handlePreviewFile,
       defaultWorkDir,
-      setSelectedEntityId,
       setSelectedLinkId,
       setSelectedLinkLinkId,
       setSelectedLinkContentKey,
@@ -1734,14 +1725,9 @@ export default function App() {
           {(() => {
             const artifactSlug = artifactSlugFromPanel(sidebarPanel);
             const sidebarArtifact = artifactSlug ? uiArtifactBySlug.get(artifactSlug) : undefined;
-            const panelFileMap: Partial<Record<SidebarPanel, { path: string; label: string }>> = {
-              dev: { path: "dev.md", label: "Open dev.md" },
-            };
-            const panelFile = sidebarArtifact
-              ? (uiArtifactHasDetail[sidebarArtifact.slug]
-                  ? { path: artifactTabKey(sidebarArtifact.slug), label: `Open ${artifactLabel(sidebarArtifact)} full view` }
-                  : undefined)
-              : panelFileMap[sidebarPanel];
+            const panelFile = sidebarArtifact && uiArtifactHasDetail[sidebarArtifact.slug]
+              ? { path: artifactTabKey(sidebarArtifact.slug), label: `Open ${artifactLabel(sidebarArtifact)} full view` }
+              : undefined;
             // Host refresh row label for a built-in panel with no "Open ...
             // full view" action of its own (todo 3680).
             const builtInRefreshLabel = sidebarArtifact ? undefined : BUILT_IN_SIDEBAR_PANEL_LABELS[sidebarPanel];
@@ -1774,8 +1760,6 @@ export default function App() {
                 <LinkList isLoggedIn={auth.isLoggedIn} onPreview={(link) => { setSelectedLinkId(link.activity_id); setSelectedLinkLinkId(null); setSelectedLinkContentKey(link.content_key || null); handleOpenFile("link.md"); }} hideRefreshButton />
               ) : sidebarPanel === "rss" ? (
                 <RssFeedList isLoggedIn={auth.isLoggedIn} onSelectFeed={handleSelectFeed} selectedFeedId={selectedFeedId} hideRefreshButton />
-              ) : sidebarPanel === "entity" ? (
-                <EntityList isLoggedIn={auth.isLoggedIn} selectedEntityId={selectedEntityId} onSelectEntity={(id) => { setSelectedEntityId(id); handleOpenFile("entity.md"); }} hideRefreshButton />
               ) : sidebarPanel === "english" ? (
                 <EnglishList
                   isLoggedIn={auth.isLoggedIn}
@@ -1866,7 +1850,7 @@ export default function App() {
               {/* FileViewer (shown when chat hidden) */}
               <div className={`absolute inset-0 ${chatHide ? "" : "hidden"}`}>
                 <ErrorBoundary label="Panel">
-                  <FileViewer openFiles={workspaceVisible ? openFiles : []} activeFile={workspaceVisible ? activeFile : null} onSelectFile={handleSelectFile} onCloseFile={handleCloseFile} onReorderFiles={handleReorderFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} fileTabs={workspaceVisible ? fileTabs : {}} fileDirty={fileDirty} fileFocus={fileFocus} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} isLoggedIn={auth.isLoggedIn} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedEntityId={selectedEntityId} selectedCorrectionId={selectedCorrectionId} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={workspaceVisible ? previewFile : null} onPinFile={handlePinFile} onPreviewFile={handlePreviewFile} fileHistory={fileHistory} onFileBack={handleFileBack} onFileForward={handleFileForward} />
+                  <FileViewer openFiles={workspaceVisible ? openFiles : []} activeFile={workspaceVisible ? activeFile : null} onSelectFile={handleSelectFile} onCloseFile={handleCloseFile} onReorderFiles={handleReorderFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} fileTabs={workspaceVisible ? fileTabs : {}} fileDirty={fileDirty} fileFocus={fileFocus} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} isLoggedIn={auth.isLoggedIn} selectedLinkId={selectedLinkId} selectedLinkLinkId={selectedLinkLinkId} selectedLinkContentKey={selectedLinkContentKey} selectedCorrectionId={selectedCorrectionId} selectedFeedId={selectedFeedId} selectedFeedLabel={selectedFeedLabel} onClearFeed={handleClearFeed} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} onPreviewLink={(activityId) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(null); handleOpenFile("link.md"); }} onPreviewLinkFull={(activityId, contentKey) => { setSelectedLinkId(activityId); setSelectedLinkLinkId(null); setSelectedLinkContentKey(contentKey); handleOpenFile("link.md"); }} onExternalLinkClick={handleExternalLinkClick} previewFile={workspaceVisible ? previewFile : null} onPinFile={handlePinFile} fileHistory={fileHistory} onFileBack={handleFileBack} onFileForward={handleFileForward} />
                 </ErrorBoundary>
               </div>
               {/* Chat stays mounted while hidden. The shell module owns the live

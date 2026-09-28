@@ -1,9 +1,8 @@
-import { useEffect, useState, useRef, useMemo, useCallback, Fragment } from "react";
+import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import { useSWRConfig } from "swr";
 import { API, authFetch } from "../api";
 import hljs from "highlight.js";
 import "highlight.js/styles/base16/solarized-dark.min.css";
-import DevViewer from "./DevViewer";
 import DiffViewer from "./DiffViewer";
 import TraceView, { type TraceChatsResponse, type TraceNote } from "./TraceView";
 import LinkList from "./LinkList";
@@ -41,7 +40,6 @@ interface FileViewerProps {
   selectedLinkId?: string | null;
   selectedLinkLinkId?: string | null;
   selectedLinkContentKey?: string | null;
-  selectedEntityId?: string | null;
   selectedCorrectionId?: string | null;
   selectedFeedId?: string | null;
   selectedFeedLabel?: string | null;
@@ -52,7 +50,6 @@ interface FileViewerProps {
   onExternalLinkClick?: (url: string) => void;
   previewFile?: string | null;
   onPinFile?: (path: string) => void;
-  onPreviewFile?: (path: string, line?: number) => void;
   // Per-tab back/forward navigation history (todo 3288). Shown only when the
   // active tab is an ordinary file tab.
   fileHistory?: TabHistoryMap;
@@ -313,205 +310,6 @@ function LinksMdView({ isLoggedIn, feedId, feedLabel, onClearFeed, onPreview }: 
   );
 }
 
-interface EntityDetail {
-  entity_id: string;
-  name: string;
-  type: string;
-  front_matter?: Record<string, unknown> | null;
-}
-
-interface EntityNote {
-  note_id: string;
-  content_key: string;
-  front_matter?: Record<string, unknown> | null;
-}
-
-interface EntityFeed {
-  rss_feed_id: string;
-  url: string;
-  title?: string | null;
-}
-
-interface EntityLink {
-  activity_id: string;
-  url: string;
-  base_url: string;
-  title?: string | null;
-  content_key?: string | null;
-}
-
-function entityLinkDomain(url: string): string {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return url;
-  }
-}
-
-function EntityView({ entityId, vmQuery, defaultWorkDir, onOpenFile, onPreviewLink }: { entityId: string; vmQuery: string; defaultWorkDir?: string; onOpenFile?: (path: string) => void; onPreviewLink?: (activityId: string, contentKey: string | null) => void }) {
-  const [entity, setEntity] = useState<EntityDetail | null>(null);
-  const [notes, setNotes] = useState<EntityNote[]>([]);
-  const [feeds, setFeeds] = useState<EntityFeed[]>([]);
-  const [links, setLinks] = useState<EntityLink[]>([]);
-  const [content, setContent] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!entityId) return;
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setContent(null);
-    (async () => {
-      try {
-        const eRes = await authFetch(`${API}/api/entity/detail?entity_id=${encodeURIComponent(entityId)}`);
-        if (!eRes.ok) throw new Error("Failed to load entity");
-        const entityData: EntityDetail = await eRes.json();
-        if (cancelled) return;
-        setEntity(entityData);
-
-        const noteIdsRes = await authFetch(`${API}/api/entity-note/by-entity?entity_id=${encodeURIComponent(entityId)}`);
-        const noteIds: string[] = noteIdsRes.ok ? await noteIdsRes.json() : [];
-        const noteDetails = await Promise.all(noteIds.map(async (nid) => {
-          const r = await authFetch(`${API}/api/module/note/detail?note_id=${encodeURIComponent(nid)}`);
-          return r.ok ? (await r.json()) as EntityNote : null;
-        }));
-        if (cancelled) return;
-        const validNotes = noteDetails.filter((n): n is EntityNote => !!n);
-        setNotes(validNotes);
-
-        const firstKey = validNotes[0]?.content_key;
-        if (firstKey) {
-          const fullPath = defaultWorkDir ? `${defaultWorkDir}/${firstKey}` : firstKey;
-          const cRes = await authFetch(`${API}/api/module/file/read?path=${encodeURIComponent(fullPath)}${vmQuery}`);
-          if (cRes.ok) {
-            const cData = await cRes.json();
-            if (!cancelled) setContent(cData.content ?? "");
-          }
-        }
-
-        const feedIdsRes = await authFetch(`${API}/api/entity-rss/by-entity?entity_id=${encodeURIComponent(entityId)}`);
-        const feedIds: string[] = feedIdsRes.ok ? await feedIdsRes.json() : [];
-        if (feedIds.length > 0) {
-          const allFeedsRes = await authFetch(`${API}/api/rss-feed/list`);
-          const allFeeds: EntityFeed[] = allFeedsRes.ok ? await allFeedsRes.json() : [];
-          const feedSet = new Set(feedIds);
-          if (!cancelled) setFeeds(allFeeds.filter((f) => feedSet.has(f.rss_feed_id)));
-        } else {
-          if (!cancelled) setFeeds([]);
-        }
-
-        const linksRes = await authFetch(`${API}/api/link/list?entity_id=${encodeURIComponent(entityId)}&limit=200`);
-        const entityLinks: EntityLink[] = linksRes.ok ? await linksRes.json() : [];
-        if (!cancelled) setLinks(entityLinks);
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [entityId, vmQuery, defaultWorkDir]);
-
-  if (!entityId) return <p className="text-sol-base01 italic text-sm p-3">No entity selected. Set `selectedEntityId` in localStorage.</p>;
-  if (loading && !entity) return <p className="text-sol-base01 italic text-sm p-3">Loading...</p>;
-  if (error) return <p className="text-sol-red text-sm p-3">{error}</p>;
-  if (!entity) return null;
-
-  const frontMatterEntries = entity.front_matter ? Object.entries(entity.front_matter) : [];
-
-  return (
-    <div className="flex flex-col h-full">
-      <div className="px-4 pt-3 pb-2 border-b border-sol-base02 shrink-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sol-base1 font-semibold text-base break-words">{entity.name}</span>
-          <span className="inline-flex items-center px-1.5 py-0.5 rounded font-mono text-[0.65rem] bg-sol-base02 text-sol-base01">{entity.type}</span>
-          <span className="text-sol-base01 text-[0.65rem] font-mono">{entity.entity_id}</span>
-        </div>
-        {frontMatterEntries.length > 0 && (
-          <div className="mt-2 grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5 text-xs">
-            {frontMatterEntries.map(([k, v]) => (
-              <Fragment key={k}>
-                <div className="text-sol-base01">{k}</div>
-                <div className="text-sol-base0 break-words">{typeof v === "string" ? v : JSON.stringify(v)}</div>
-              </Fragment>
-            ))}
-          </div>
-        )}
-      </div>
-      <div className="flex-1 min-h-0 overflow-auto">
-        {content !== null ? (
-          <MarkdownPreview content={content} />
-        ) : notes.length === 0 ? (
-          <p className="text-sol-base01 italic text-sm p-3">No note linked. Link via `y assoc entity {entity.entity_id} --note &lt;note_id&gt;`.</p>
-        ) : (
-          <p className="text-sol-base01 italic text-sm p-3">Loading linked note content...</p>
-        )}
-      </div>
-      {(notes.length > 0 || feeds.length > 0 || links.length > 0) && (
-        <div className="border-t border-sol-base02 p-3 shrink-0 text-xs space-y-2">
-          {notes.length > 0 && (
-            <div>
-              <div className="text-sol-base01 uppercase text-[0.6rem] mb-1">Notes ({notes.length})</div>
-              <ul className="space-y-0.5">
-                {notes.map((n) => {
-                  const fullPath = defaultWorkDir ? `${defaultWorkDir}/${n.content_key}` : n.content_key;
-                  return (
-                    <li key={n.note_id}>
-                      <button
-                        onClick={() => onOpenFile?.(fullPath)}
-                        className="text-sol-blue hover:text-sol-cyan cursor-pointer truncate block text-left max-w-full"
-                        title={n.content_key}
-                      >
-                        {n.content_key}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          )}
-          {feeds.length > 0 && (
-            <div>
-              <div className="text-sol-base01 uppercase text-[0.6rem] mb-1">RSS Feeds ({feeds.length})</div>
-              <ul className="space-y-0.5">
-                {feeds.map((f) => (
-                  <li key={f.rss_feed_id} className="flex gap-2 items-baseline">
-                    <span className="text-sol-base0 truncate">{f.title || f.url}</span>
-                    <a href={f.url} target="_blank" rel="noreferrer" className="text-sol-blue hover:text-sol-cyan text-[0.6rem] truncate">{f.url}</a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {links.length > 0 && (
-            <div>
-              <div className="text-sol-base01 uppercase text-[0.6rem] mb-1">Links ({links.length})</div>
-              <ul className="space-y-0.5">
-                {links.map((l) => {
-                  const label = l.title || entityLinkDomain(l.base_url);
-                  return (
-                    <li key={l.activity_id}>
-                      <button
-                        onClick={() => onPreviewLink?.(l.activity_id, l.content_key ?? null)}
-                        className="text-sol-blue hover:text-sol-cyan cursor-pointer truncate block text-left max-w-full"
-                        title={l.url}
-                      >
-                        {label}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 interface PublicNoteCache {
   content?: string;
   loading: boolean;
@@ -613,9 +411,8 @@ function PublicFileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, on
   );
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, fileTabs = {}, fileDirty = {}, fileFocus = {}, uiArtifacts = [], uiArtifactsLoaded = true, onUiArtifactRolledBack, isLoggedIn, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedEntityId, selectedCorrectionId, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, onPreviewFile, fileHistory = {}, onFileBack, onFileForward, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, fileTabs = {}, fileDirty = {}, fileFocus = {}, uiArtifacts = [], uiArtifactsLoaded = true, onUiArtifactRolledBack, isLoggedIn, selectedLinkId, selectedLinkLinkId, selectedLinkContentKey, selectedCorrectionId, selectedFeedId, selectedFeedLabel, onClearFeed, onSelectChat, onPreviewLink, onPreviewLinkFull, onExternalLinkClick, previewFile, onPinFile, fileHistory = {}, onFileBack, onFileForward, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
   const { mutate } = useSWRConfig();
-  const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [cache, setCache] = useState<Record<string, FileCache>>({});
   const [mdPreview, setMdPreview] = useState<Record<string, boolean>>({});
   // One refresh registry, remount nonce, and spin flag per open module tab
@@ -630,9 +427,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const isUiArtifact = !!activeFile?.startsWith("ui:");
   const isLinkPreview = !isDiff && activeFileName === "link.md";
   const isLinksMd = !isDiff && activeFileName === "links.md";
-  const isEntityPreview = !isDiff && activeFileName === "entity.md";
   const isEnglishPreview = !isDiff && activeFileName === "english.md";
-  const isDev = !isDiff && activeFileName.endsWith("dev.md");
   // C1: host FileViewer no longer fetches ordinary files; only special tabs remain.
 
   // Clean up blob URLs and cache for closed files (link previews still use cache).
@@ -676,19 +471,11 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       mutate((key) => typeof key === "string" && key.includes("/api/link/list"));
       return;
     }
-    if (isEntityPreview) {
-      mutate((key) => typeof key === "string" && (key.includes("/api/entity/") || key.includes("/api/entity-note/") || key.includes("/api/entity-rss/")));
-      return;
-    }
     if (isEnglishPreview) {
       mutate((key) => typeof key === "string" && key.includes("/api/english/"));
       return;
     }
-    if (isDev) {
-      mutate((key) => typeof key === "string" && key.includes("/api/dev-worktree/"));
-      return;
-    }
-  }, [activeFile, isLinkPreview, isLinksMd, isEntityPreview, isEnglishPreview, isDev, mutate, selectedLinkId, selectedLinkLinkId]);
+  }, [activeFile, isLinkPreview, isLinksMd, isEnglishPreview, mutate, selectedLinkId, selectedLinkLinkId]);
 
   const hostRefreshable = !!activeFile && !isArtifact && !isUiArtifact && !fileTabs[activeFile];
   const showRefresh = tabRefreshVisible(hostRefreshable, isUiArtifact);
@@ -887,14 +674,12 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
           const fileName = filePath.replace(/^\.\//, "").replace(/^diff:/, "");
           const fileLinkPreview = !fileDiff && !ordinaryTab && fileName === "link.md";
           const fileLinksMd = !fileDiff && !ordinaryTab && fileName === "links.md";
-          const fileEntityPreview = !fileDiff && !ordinaryTab && fileName === "entity.md";
           const fileEnglishPreview = !fileDiff && !ordinaryTab && fileName === "english.md";
-          const fileDev = !fileDiff && !ordinaryTab && fileName.endsWith("dev.md");
           const isActive = filePath === activeFile;
           return (
             <div
               key={filePath}
-              className={`absolute inset-0 ${ordinaryTab || fileArtifact || fileUiArtifactSlug || fileDev || fileDiff || fileLinksMd || fileEntityPreview || fileEnglishPreview ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
+              className={`absolute inset-0 ${ordinaryTab || fileArtifact || fileUiArtifactSlug || fileDiff || fileLinksMd || fileEnglishPreview ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
             >
               {ordinaryTab && fileModule ? (
                 <div className="h-full overflow-hidden" data-ui-artifact-route="file" data-file-tab={ordinaryTab.id}>
@@ -957,21 +742,8 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                     else if (onPreviewLink) onPreviewLink(activityId);
                   }}
                 />
-              ) : fileEntityPreview ? (
-                <EntityView
-                  entityId={selectedEntityId || ""}
-                  vmQuery={vmQuery}
-                  defaultWorkDir={defaultWorkDir}
-                  onOpenFile={onPreviewFile}
-                  onPreviewLink={(activityId, contentKey) => {
-                    if (onPreviewLinkFull) onPreviewLinkFull(activityId, contentKey);
-                    else if (onPreviewLink) onPreviewLink(activityId);
-                  }}
-                />
               ) : fileEnglishPreview ? (
                 <EnglishView correctionId={selectedCorrectionId || ""} />
-              ) : fileDev ? (
-                <DevViewer />
               ) : (
                 <p className="text-sol-base01 italic text-sm p-3">Unknown tab.</p>
               )}

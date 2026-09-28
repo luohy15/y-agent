@@ -5,6 +5,7 @@ import type { SidebarPanel } from "../components/ActivityBar";
 import { artifactPanelKey } from "../host/artifacts";
 import { openCalendarFocusDate } from "./calendarNavigate";
 import { openEmailThread } from "./emailNavigate";
+import { openEntity } from "./entityNavigate";
 import { openTodoDetail } from "./todoDetailNavigate";
 
 export interface TagResultItem {
@@ -52,7 +53,6 @@ export function openTodo(todoId: string, deps: OpenTodoDeps): void {
 export interface TagNavigateDeps extends OpenTodoDeps {
   handlePreviewFile: (path: string) => void;
   defaultWorkDir?: string | null;
-  setSelectedEntityId: (id: string | null) => void;
   setSelectedLinkId: (id: string | null) => void;
   setSelectedLinkLinkId: (id: string | null) => void;
   setSelectedLinkContentKey: (key: string | null) => void;
@@ -78,8 +78,7 @@ export function navigateTag(entityType: string, item: TagResultItem, deps: TagNa
       deps.setChatHide(false);
       break;
     case "entity":
-      deps.setSelectedEntityId(item.id);
-      deps.handleOpenFile("entity.md");
+      openEntity(item.id, deps.handleOpenFile);
       break;
     case "link":
       deps.setSelectedLinkId(item.id);

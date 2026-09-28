@@ -255,8 +255,8 @@ interface LinkListProps {
   // Injected-data path (public trace projection): when `items` is supplied the list
   // renders presentationally with no self-fetch; clicking a row link-outs to the URL.
   items?: Link[];
-  // See EntityList's `hideRefreshButton` (todo 3680): hidden only for the
-  // sidebar mount, which the host's own refresh row now covers. The centre
+  // Hidden only for the sidebar mount, which the host's own refresh row
+  // now covers. The centre
   // "links.md" tab and other mounts keep their own button.
   hideRefreshButton?: boolean;
 }
