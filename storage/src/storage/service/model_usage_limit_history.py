@@ -7,11 +7,14 @@ or is one of the three expected backends and is simply absent. Nothing is
 zero-filled and nothing is taken from the merged snapshot fallback: only
 the incoming normalized envelope is recorded.
 
-Freshness describes the source at collection time
-(`attempted_at - observed_at`). It is derived on read and never stored, and
-it is not "how fresh is this row right now". A null or unparseable source
-time is `unknown`; a source time after collection is `future`; only an
-`available` row can be `fresh` or `stale`.
+Freshness describes the source against the attempt stamp, at read time,
+and is never stored. It is not "how fresh is this row right now".
+`attempted_at` is the attempt's start. A source time up to
+ATTEMPT_WINDOW_SECONDS after that stamp is labelled as inside the
+allowance, not as proof the attempt was still running. A null or
+unparseable source time is `unknown`; a source time past the allowance is
+`future`; only an `available` row can be `fresh` or `stale`. A slow manual
+retry reads `future`, never falsely `fresh`.
 
 Reset identity is the exact reset_at value. A null reset is its own group
 and is never merged with a known reset or inferred from the window length.
@@ -86,20 +89,30 @@ def _local_bucket(attempted_at: datetime) -> tuple[date, int]:
     return local.date(), local.hour
 
 
+# Allowance, not a measured completion and not a bound on a manual retry.
+# The sweep abandons a user at 45s, so a scheduled row exists only inside
+# that cap. The manual path has no whole-attempt cap: the VM lookup, the EC2
+# probe, and the SSH connect run outside the 30s CLI timeout. 60s sits above
+# those two numbers. A source time past it is future, which is the
+# conservative result for a slow manual attempt. Not imported from the worker.
+ATTEMPT_WINDOW_SECONDS = 60
+
+
 def _freshness(state: str, observed_at: datetime | None, attempted_at: datetime) -> str:
-    """Source freshness at collection, not current freshness.
+    """Source freshness against the attempt, not current freshness.
 
     Non-available states are `unavailable` even when a source time exists.
-    A missing or unparseable source time is `unknown`. A source time later
-    than collection is `future` and is never called fresh.
+    A missing or unparseable source time is `unknown`. A source time past
+    the allowance is `future` and is never called fresh. That label is
+    conservative: a slow manual attempt does not read as fresh.
     """
     if state != "available":
         return "unavailable"
     if observed_at is None:
         return "unknown"
-    age = (attempted_at - observed_at).total_seconds()
-    if age < 0:
+    if observed_at > attempted_at + timedelta(seconds=ATTEMPT_WINDOW_SECONDS):
         return "future"
+    age = max(0.0, (attempted_at - observed_at).total_seconds())
     if age <= DEFAULT_TTL_SECONDS:
         return "fresh"
     return "stale"

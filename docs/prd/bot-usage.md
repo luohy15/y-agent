@@ -914,11 +914,17 @@ expired-login card tells the user to run.
   backend absent from the envelope gets `state=missing`, with its error taken
   from `errors[]` by origin. NaN, bool, and non-numeric percents are stored
   NULL. `attempted_at` (collection) and `observed_at` (source) are never
-  substituted. Freshness is derived at read from `attempted_at - observed_at`:
-  null source time is `unknown`, a negative age is `future`, within 300
-  seconds is `fresh` (so the 240-second Claude on-VM cache counts as fresh),
-  otherwise `stale`, and any state other than `available` is `unavailable`.
-  This describes the source at collection, not how fresh the row is now.
+  substituted. Freshness is derived at read. `attempted_at` is the attempt's
+  start. 60 seconds is an allowance chosen above the sweep's 45-second
+  per-user cap and the 30-second CLI timeout. It is not a measured completion
+  time and not a bound on a manual retry, whose probe and SSH connect run
+  outside the CLI timeout. A source time past the allowance is labelled
+  `future`. A slow manual attempt therefore reads `future`, never falsely
+  `fresh`. A null source time is `unknown`, an age within 300 seconds is
+  `fresh` (so the 240-second Claude on-VM cache counts as fresh), otherwise
+  `stale`, and any state other than `available` is `unavailable`. This
+  describes the source against the attempt stamp, not how fresh the row is
+  now.
   `attempt_id` is a full uuid minted once per attempt (a 6-character id
   collides often enough, across all users, that a real attempt would be
   dropped as a replay). The attempt plus its observations commit in one
@@ -1680,7 +1686,7 @@ expired-login card tells the user to run.
 | 3566 | Over-time `H` granularity replaces the daily contribution card with a seven-day by 24-hour grid built from the hourly rows `H` already fetches: seven local calendar dates (oldest first, today last) x 24 columns, all 168 slots generated from the resolved window, summed across every model, driven by the existing metric selector and the shared absolute-threshold color scale applied per hourly cell. Recorded zero, missing row, future slot and server `partial` are four distinct states readable without color; a successful empty response still renders the window instead of hiding the view. Dates, hour columns and the zone label follow the shipped todo 3346 browser-timezone contract. D / W / M, the model filter's chart-only scope, the history table, the API and the schema are unchanged | - | `pages/plan-3566-bot-hourly-grid.md` | this PRD; `pages/plan-3346-date-range-timezone-audit.md` (D7) | `pages/review-3566-bot-hourly-grid.md` (4 rounds) | shipped `38df195`, bot v41 enabled; UI `f765f176398b...`, API `59318933a0b4...` unchanged; 237 checks passed, build passed, 183 unchanged typecheck diagnostics; canonical build reproduces published digest, worktree difference is source-path comments only; ready for user verification |
 | 3569 | Explain why equal tier route weights do not imply equal tokens or spend, add distinct y-agent Sessions and answered Turns per model, and surface relay Requests per attributed Turn as `Avg requests` in the Live usage table; bot v43 preserves the historical `Avg turns/chat` iteration, while the current reviewed contract uses compact headers, no header asterisks, and only conditional activity status copy | - | `pages/plan-3569-bot-usage-sessions.md` | this PRD; `pages/handoff-3569-bot-module-ui.md` | `pages/review-3569-chat-model-activity-host.md`; `pages/review-3569-bot-module-live-columns.md` (round 3 current metric/header contract) | reviewed; current module iteration unpublished |
 | 3580 | Display-only resolved-date labels beside the Usage filter and heatmap. Host `GET /api/usage/range` returns `describe_time_range`; browser contract v14 exports the shared formatter. Query timezone stays the browser zone (todo 3346). Module labels land in a later publish | - | `pages/plan-3580-resolved-date-range-display.md` | `pages/feature-y-agent-resolved-date-range-display.md`; `pages/decision-3580-host-sdk-backend-contract.md` | - | host implemented; module labels pending |
-| 3717 | Hourly subscription limit-window history for Claude, Codex and Grok, recorded from the existing 30-minute refresh plus manual retries, with a bounded per-hour read aligned to provider tokens and cost. No UI, no estimation, no cadence change | - | `pages/plan-3717-subscription-quota-history.md` | this PRD; `pages/impl-3717-subscription-quota-history.md` | `pages/review-3717-subscription-quota-history.md` (round 3) | reviewed; publication pending, migration unapplied |
+| 3717 | Hourly subscription limit-window history for Claude, Codex and Grok, recorded from the existing 30-minute refresh plus manual retries, with a bounded per-hour read aligned to provider tokens and cost. No UI, no estimation, no cadence change | - | `pages/plan-3717-subscription-quota-history.md` | this PRD; `pages/impl-3717-subscription-quota-history.md` | `pages/review-3717-subscription-quota-history.md` (round 5) | initial history shipped `4bb5cd6`, migration applied, Deploy 36380537751 success; real scheduled collection verified; `pages/deploy-3717-subscription-quota-history.md`; read-time freshness correction reviewed, publication pending |
 
 ## Out of Scope
 
