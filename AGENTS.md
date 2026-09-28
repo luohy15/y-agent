@@ -285,6 +285,10 @@ exceptions noted):
 - **Link / RSS**: `link`, `link_todo_relation`, `rss_feed`, `pipeline_lock` (RSS scrape
   coordination, no service)
 - **English learning**: `english_correction`, `english_word`
+- **Per-request transcript usage** (todo 3729): `chat_request_usage`. One row
+  per attributed Claude Code request, uploaded from the VM transcript and keyed
+  by `(user_id, request_id)`. Read per trace; the latest scan record stays in
+  `user_preference` and is not one of these tables.
 - **Subscription limit history** (todo 3717): `model_usage_limit_attempt`,
   `model_usage_limit_observation`. One attempt per refresh that actually ran,
   one observation per window (or a provider-level miss). The latest snapshot
@@ -313,15 +317,18 @@ Grouped by feature area:
   registered-wakeup routes `POST/GET /api/chat/wakeup` + `POST
   /api/chat/wakeup/cancel` (todo 3655); browse
   `list` / `content` and share *creation* are module-owned), `trace.py`
-  (listing, share, lookup by chat_id), `git.py` (status/diff/discard, VM
+  (listing, share, lookup by chat_id, and `GET /api/trace/usage`, the per-trace
+  token/request aggregate, todo 3729), `git.py` (status/diff/discard, VM
   execution via `agent.vm_command`), `terminal.py` (shell exec)
 - **Tasks / notes**: `todo.py`, `reminder.py`, `calendar_event.py`, `note.py`
   (five host share routes and sharing helpers only), `entity.py`,
   `entity_note_relation.py`, `entity_rss_relation.py`
 - **Content pipelines**: `link.py`, `link_todo_relation.py`, `rss_feed.py`, `email.py`,
   `english_correction.py`, `english_word.py` (`/english/vocab`),
-  `model_usage.py` (spend rows, the latest limit snapshot, and
-  `GET /api/usage/limit-history`, the bounded hourly limit-window history)
+  `model_usage.py` (spend rows, the latest limit snapshot,
+  `GET /api/usage/limit-history`, the bounded hourly limit-window history, and
+  the transcript ingest routes `POST /api/usage/requests/resolve`,
+  `POST /api/usage/requests`, `POST /api/usage/requests/ingest-run`, todo 3729)
 - **Modules**: `module.py` (list / versions / publish / activate / rollback / enable /
   disable / delete / bundle); module-owned domain routes are dispatched under
   `/api/module/<slug>/*` by `api/module_runtime/` (not a built-in controller per

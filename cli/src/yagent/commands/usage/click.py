@@ -8,6 +8,7 @@ from .limit_history import limit_history
 from .limits import limits
 from .rate import rate
 from .sync import sync
+from .transcripts import ingest_transcripts
 
 
 @click.group("usage")
@@ -25,3 +26,4 @@ usage_group.add_command(crs_creds)
 usage_group.add_command(limits)
 usage_group.add_command(limit_history)
 usage_group.add_command(rate)
+usage_group.add_command(ingest_transcripts)

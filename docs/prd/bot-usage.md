@@ -486,6 +486,26 @@ expired-login card tells the user to run.
     from a calendar-day mean. Today-excluded and partial-dates-excluded copy
     appear only when those exclusions actually happened.
 
+### Per-trace usage (todo 3729)
+
+75. As a user, I want `y todo usage <todo_id>` to show every chat that ran on
+    that todo's trace, with its skill, bot and tier, so that I can see which
+    sessions a piece of work actually took.
+76. As a user, I want each chat and the trace as a whole to show turns, inbound
+    messages, observed requests and the four token counters, so that I can tell
+    a long conversation apart from one that spent heavily.
+77. As a user, I want a counter that the transcript did not record to be shown
+    as missing rather than as zero, so that an absent number is never mistaken
+    for no usage.
+78. As a user, I want the report to say when usage was last scanned and what
+    that scan could not attribute, so that I can judge how current the numbers
+    are.
+79. As a user, I want cost shown as unavailable, so that I am not given a dollar
+    figure the transcript never recorded.
+80. As a user, I want historical completeness reported as unknown, so that a
+    scan of the transcripts present at one moment is not read as a complete
+    history.
+
 ## Implementation Decisions
 
 ### Storage
@@ -1495,6 +1515,57 @@ expired-login card tells the user to run.
   The migration and historical backfill are maintainer-run actions, never
   automatic deployment mutations.
 
+### Per-request transcript usage (todo 3729)
+
+- **What a trace counts.** `sessions` is the number of chats on the trace.
+  `transcripts` is the number of distinct Claude Code session ids among the
+  uploaded rows. `requests` counts those rows. `turns` comes from
+  `chat_model_activity` and `inbound` counts user-role messages in the chat
+  body. The two are different facts: a turn is an answered prompt group, an
+  inbound message is one user message.
+- **Attribution and privacy.** The source is the transcript JSONL on the VM.
+  A request is uploaded only when the server can positively attribute it to one
+  of the owner's `claude_code` chats: a dispatch prefix whose chat and trace
+  match, or, for requests before the first prefix, the owner's chat whose
+  `external_id` is that session. Everything else stays on the VM. The resolve
+  call sends ids only, and the upload sends ids and counters, never message
+  text or file paths. Personal interactive sessions therefore never leave the
+  machine. Subagent transcripts are not uploaded; they are counted as
+  unsupported.
+- **The cost gap.** No per-request price is recorded anywhere in the
+  transcript, so v1 returns cost as unavailable with the reason
+  `no_recorded_per_request_cost`. There is no price table and no estimate.
+- **Relay divergence.** These rows count Claude Code requests observed in a
+  transcript. The relay's `model_usage_*` totals are global, billed, and
+  include traffic with no y-agent chat. The two are expected to differ and are
+  not reconciled here.
+- **Completeness is unknown.** A scan covers only the transcript files present
+  on the VM at that moment. `historical_completeness` is always `unknown`; the
+  report shows scan freshness and the counts of what the scan could not
+  attribute instead of inferring coverage.
+- **What a scan record discloses.** `y usage ingest-transcripts` keeps a
+  per-file checkpoint (size, mtime, what the file still owes) under
+  `~/.y-agent/usage-transcripts/`, keyed by API base and owner. Any change in
+  size or mtime reopens a settled file. The disclosure counters in a run record
+  are the sum over every transcript still on disk, scanned in that run or
+  skipped because it is settled or backing off, so a quiet run never turns an
+  earlier loss into a clean zero. A file with no validated segment is
+  `files_unmatched`, not unattributed requests. The 24h cutoff after mtime
+  settles only unmatched or partly unattributed files; a file with rejected
+  rows or identity conflicts is retried with backoff and stays disclosed.
+  Backoff is 1h doubling (capped at 32h) and counts only consecutive unsettled
+  attempts on the same file version, so clean scans of a growing transcript
+  never lengthen the first retry. A failed resolve or upload keeps every fact
+  it could not remeasure (earlier rejections and conflicts, and on a failed
+  resolve the unmatched / unattributed counts); a later successful scan
+  replaces them.
+  `--dry-run` resolves ids, uploads nothing and writes no checkpoint.
+- **Read surface.** `GET /api/trace/usage?trace_id=` returns the totals, per
+  model, per chat, the collection state and the cost gap. `y todo usage`
+  renders it. Per chat it shows the chat's current skill, bot and tier, which
+  describe the chat's configuration now, alongside the historical request and
+  token facts.
+
 ## Testing Decisions
 
 - **Idempotency is the storage contract to test:** upserting the same
@@ -1657,6 +1728,7 @@ expired-login card tells the user to run.
 
 | Todo | Outcome | Design | Plan | Decisions | Review | Status |
 |------|---------|--------|------|-----------|--------|--------|
+| 3729 | Per-trace CLI/API usage, attributed transcript ingestion, explicit unavailable cost and unknown history | - | `pages/plan-3729-trace-usage.md` | `pages/usage-3729-trace-3708.md`; `pages/impl-3729-trace-usage-evidence.md` | `pages/review-3729-trace-usage.md` | reviewed (round 3); 58 focused tests passed; publication and maintainer migration pending |
 | 3695 | Search-defined model set on the Over-time chart. Iteration 1 shipped a single-model Combobox (y-design 0.3.0 at 5b7b589, host c1fceb6, bot v53 from 8d8eb6a, UI 43828e03f36e, API 8fa2814fd22f; no y-module Git push). Iteration 3 replaces that with a persisted substring query (`botUsageOverTimeModelQuery`, stories 66a-66d) on `@y/design` Combobox 0.4.0 `freeText`. Iteration 2 (persisting the single selection) will not ship | - | `pages/plan-3695-bot-usage-model-filter.md` | this PRD; `pages/impl-3695-y-agent-design-pin.md`; `pages/impl-3695-bot-t5-model-filter.md` | `pages/review-3695-y-design-combobox.md`, `pages/review-3695-y-agent-design-pin.md`, `pages/review-3695-bot-model-filter.md` | Iteration 1 shipped: host c1fceb6 deployed (Deploy 36311820539, Deploy Web 36311820524), bot v53 enabled. Iteration 3 y-design 0.4.0 published at f24d54d; host pin reviewed and approved (round 2), not integrated; bot consumption pending |
 | 3584 | Removed the usage averages methodology caption from the over-time views | - | - | - | `pages/review-3584-methodology-caption.md` | shipped: bot v45 active from `0e61114`, UI `8a7a12adfd44...`, API `59318933a0b4...` unchanged; source digest `51090cb4...` matches the reviewed worktree; charts, averages tiles, labels and `usageAverages` semantics unchanged; no module Git push; ready for user verification |
 | 3569 | Explain equal-weight usage disparity and add model Sessions, Turns and Avg turns/chat | - | `pages/plan-3569-bot-usage-sessions.md`; `pages/plan-3569-module-publication-path.md` | `pages/handoff-3569-bot-module-ui.md`; `pages/release-3569-bot-usage.md` | `pages/review-3569-chat-model-activity-host.md`; `pages/review-3569-bot-module-live-columns.md` | shipped: host `80101ce`, SQL applied, bot v43 active from `446da28`; no historical backfill or module Git push; ready for user verification |

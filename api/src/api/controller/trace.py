@@ -55,6 +55,19 @@ async def list_traces(request: Request, trace_id: str = Query(None), offset: int
     return traces
 
 
+@router.get("/usage")
+async def get_trace_usage(request: Request, trace_id: str = Query(...)):
+    """Per-trace usage: chats, turns, requests and token counters (todo 3729).
+
+    Cost is reported unavailable and historical completeness is always unknown.
+    A trace with no chats returns zeros rather than 404, so a fresh todo and a
+    todo with no recorded usage read the same way.
+    """
+    from storage.service import chat_request_usage as request_usage_service
+
+    return request_usage_service.aggregate_for_trace(_get_user_id(request), trace_id)
+
+
 @router.get("/latest_chat")
 async def get_latest_chat(request: Request, trace_id: str = Query(...)):
     """Get the latest chat_id for a trace.

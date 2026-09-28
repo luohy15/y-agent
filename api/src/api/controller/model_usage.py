@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from agent import usage_limits as limits_service
+from storage.service import chat_request_usage as request_usage_service
 from storage.service import chat_model_activity as activity_service
 from storage.service import model_usage_daily as usage_service
 from storage.service import model_usage_hourly as hourly_service
@@ -258,3 +259,93 @@ async def limits(request: Request, refresh: bool = False):
         **status,
         "timezone": os.getenv("Y_AGENT_TIMEZONE") or "Asia/Shanghai",
     }
+
+
+# Per-request transcript usage (todo 3729). The scanner on the VM resolves
+# which chats it may attribute to, uploads only those requests, and records
+# the run. All three are owner-scoped and return no integer ids.
+
+_MAX_REQUEST_ROWS = 500
+_MAX_REQUEST_BYTES = 512 * 1024
+
+
+async def _body(request: Request) -> tuple[bytes, dict]:
+    """Read the JSON body, refusing anything over the byte cap before parsing."""
+    raw = await request.body()
+    if len(raw) > _MAX_REQUEST_BYTES:
+        raise HTTPException(status_code=413, detail="request body exceeds 512KB")
+    if not raw:
+        return raw, {}
+    try:
+        import json
+        parsed = json.loads(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="invalid JSON") from exc
+    if not isinstance(parsed, dict):
+        raise HTTPException(status_code=422, detail="body must be an object")
+    return raw, parsed
+
+
+def _public_user_id(request: Request) -> str:
+    from storage.service import user as user_service
+
+    public = user_service.get_live_public_user_id(request.state.user_id)
+    if not public:
+        raise HTTPException(status_code=401, detail="unknown user")
+    return public
+
+
+@router.post("/requests/resolve")
+async def resolve_requests(request: Request):
+    """Validate attribution hints for the caller's own chats.
+
+    Sends ids only and writes nothing. Also returns the caller's public
+    user_id, which the scanner uses to place its state file. An empty session
+    list is valid: the scanner calls this first on every run.
+    """
+    _raw, body = await _body(request)
+    sessions = body.get("sessions")
+    if sessions is None:
+        sessions = []
+    if not isinstance(sessions, list):
+        raise HTTPException(status_code=422, detail="sessions must be a list")
+    if len(sessions) > _MAX_REQUEST_ROWS:
+        raise HTTPException(status_code=413, detail="too many sessions")
+    try:
+        resolved = request_usage_service.resolve_sessions(request.state.user_id, sessions)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"user_id": _public_user_id(request), **resolved}
+
+
+@router.post("/requests")
+async def upload_requests(request: Request):
+    """Store attributed request rows. Invalid rows are rejected per row.
+
+    A row whose chat the caller does not own, or that resolve would not
+    attribute to that session, is rejected with the others still accepted.
+    Over 500 rows or 512KB is 413.
+    """
+    _raw, body = await _body(request)
+    rows = body.get("rows")
+    if not isinstance(rows, list):
+        raise HTTPException(status_code=422, detail="rows must be a list")
+    if len(rows) > _MAX_REQUEST_ROWS:
+        raise HTTPException(status_code=413, detail="too many rows")
+    result = request_usage_service.store_rows(request.state.user_id, rows)
+    return {
+        "accepted": result["accepted"],
+        "rejected": result["rejected"],
+        "conflicts": result["conflicts"],
+    }
+
+
+@router.post("/requests/ingest-run")
+async def record_ingest_run(request: Request):
+    """Record one scanner run as this user's latest run for its host."""
+    _raw, body = await _body(request)
+    try:
+        recorded = request_usage_service.record_run(request.state.user_id, body)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"outcome": recorded["outcome"]}
