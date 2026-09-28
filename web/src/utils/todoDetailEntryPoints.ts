@@ -17,6 +17,10 @@ export interface TodoDetailEntryPointDeps {
   setChatListTraceId: (id: string | null) => void;
   setSelectedChatId: (id: string | null) => void;
   setChatHide: (hide: boolean) => void;
+  /** todo.open only (todo 3715): reload the latest chat when it is already
+   * selected. Tag navigation does not pass these. */
+  getSelectedChatId?: () => string | null;
+  requestChatRefresh?: () => void;
   /** Mobile drawer close after todo.open; optional so unit tests can omit it. */
   onAfterTodoOpen?: () => void;
   setSidebarPanel?: (panel: "artifact:todo") => void;
@@ -33,6 +37,8 @@ export function registerTodoDetailEntryPoints(deps: TodoDetailEntryPointDeps): (
     setSelectedChatId: deps.setSelectedChatId,
     setChatHide: deps.setChatHide,
     handleOpenFile: deps.handleOpenFile,
+    getSelectedChatId: deps.getSelectedChatId,
+    requestChatRefresh: deps.requestChatRefresh,
   };
   const unregisterOpen = registerHostCommand("todo.open", (payload) => {
     const todoId = todoIdFromPayload(payload);

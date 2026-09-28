@@ -132,7 +132,12 @@ mode (`-i`) serves a human at a terminal.
    messages and context with the same effect as the shell header's Refresh
    chat and context button (todo 3715). Switching to a different chat still
    loads once through the ordinary path, and a bot or trace-filter change is
-   not itself a reload.
+   not itself a reload. Clicking a Todo sidebar row body whose latest chat is
+   already the selected chat reloads it the same way (todo 3715); a different
+   latest chat is an ordinary switch, a todo with no chat still opens Todo
+   Detail, and only the most recent todo open may act. The Todo ID badge
+   (Todo Detail) is unchanged. This needs the matching host build, so a
+   browser running an older cached host must reload once.
 10. As a web user, I want the list to refresh when a chat I am watching
     completes, and a manual refresh button, so that statuses stay current.
 

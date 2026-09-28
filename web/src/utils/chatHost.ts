@@ -38,12 +38,17 @@ export function setChatTraceFilter(
  * right chat panel can consume the host's `chatListTraceId` through this same
  * retained channel). `refreshKey` is the host's same-chat re-selection
  * counter (todo 3715): it is omitted unless the caller passes a number, so a
- * bot or trace-filter republish is not itself a reload request. */
+ * bot or trace-filter republish is not itself a reload request.
+ * `todoOpenRefreshKey` is a separate counter bumped only when a Todo row-body
+ * open (`todo.open`) resolves to the chat already selected; the chat shell
+ * reloads on a change of this field alone, so it never doubles with the chat
+ * module's own list-row reselect signal. Same omission rule. */
 export function publishSelectedChatIntent(
   chatId: string | null,
   botName: string | null = null,
   traceId: string | null = null,
   refreshKey?: number,
+  todoOpenRefreshKey?: number,
 ): void {
   setArtifactIntent("chat", {
     kind: "selected",
@@ -51,22 +56,24 @@ export function publishSelectedChatIntent(
     botName,
     traceId,
     ...(typeof refreshKey === "number" ? { refreshKey } : {}),
+    ...(typeof todoOpenRefreshKey === "number" ? { todoOpenRefreshKey } : {}),
     nonce: Date.now(),
   });
 }
 
 /** Publish the selected-chat intent on every selectedChatId/botName/traceId/
- * refreshKey change (including null). `refreshKey` is optional and only
- * included in the payload when it is a number. */
+ * refreshKey/todoOpenRefreshKey change (including null). Both counters are
+ * optional and only included in the payload when they are numbers. */
 export function usePublishSelectedChatIntent(
   selectedChatId: string | null,
   botName: string | null = null,
   traceId: string | null = null,
   refreshKey?: number,
+  todoOpenRefreshKey?: number,
 ): void {
   useEffect(() => {
-    publishSelectedChatIntent(selectedChatId, botName, traceId, refreshKey);
-  }, [selectedChatId, botName, traceId, refreshKey]);
+    publishSelectedChatIntent(selectedChatId, botName, traceId, refreshKey, todoOpenRefreshKey);
+  }, [selectedChatId, botName, traceId, refreshKey, todoOpenRefreshKey]);
 }
 
 /** Parse `{ chatId }` from a host-command payload; undefined means malformed. */

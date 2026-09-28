@@ -17,17 +17,33 @@ export interface OpenTodoDeps {
   setSelectedChatId: (id: string | null) => void;
   setChatHide: (hide: boolean) => void;
   handleOpenFile: (path: string) => void;
+  /** Todo row-body re-open (todo 3715): the chat selected when the lookup
+   * resolves, and the reload request used when it resolved to that same chat.
+   * Both optional; without them a same-chat resolve is a plain no-op select. */
+  getSelectedChatId?: () => string | null;
+  requestChatRefresh?: () => void;
 }
+
+// Only the most recent openTodo lookup may act, so a late answer for todo A
+// cannot navigate (or reload) after todo B was opened (todo 3715).
+let openTodoSeq = 0;
 
 // Shared by the Todo artifact's host command and tag-module navigation: filter
 // the chat list by the todo, then either land on its latest chat or open the
-// Todo module's in-place detail (`ui:todo`).
+// Todo module's in-place detail (`ui:todo`). When the latest chat is already
+// the selected one, a caller-supplied `requestChatRefresh` reloads it instead.
 export function openTodo(todoId: string, deps: OpenTodoDeps): void {
+  const seq = ++openTodoSeq;
   deps.setChatListTraceId(todoId);
   authFetch(`${API}/api/trace/latest_chat?trace_id=${encodeURIComponent(todoId)}`)
     .then((r) => r.json())
     .then((d) => {
-      if (d.chat_id) { deps.setSelectedChatId(d.chat_id); deps.setChatHide(false); }
+      if (seq !== openTodoSeq) return;
+      if (d.chat_id) {
+        if (deps.requestChatRefresh && deps.getSelectedChatId?.() === d.chat_id) deps.requestChatRefresh();
+        else deps.setSelectedChatId(d.chat_id);
+        deps.setChatHide(false);
+      }
       else openTodoDetail(todoId, deps.handleOpenFile);
     })
     .catch(() => {});

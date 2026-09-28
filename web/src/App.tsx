@@ -281,6 +281,11 @@ export default function App() {
   const [selectedFeedId, setSelectedFeedId] = useState<string | null>(null);
   const [selectedFeedLabel, setSelectedFeedLabel] = useState<string | null>(null);
   const [chatRefreshKey, setChatRefreshKey] = useState(0);
+  // Todo row-body re-open of the selected chat (todo 3715); read at lookup
+  // resolution time, so the ref tracks the latest selection.
+  const [todoOpenRefreshKey, setTodoOpenRefreshKey] = useState(0);
+  const selectedChatIdRef = useRef(selectedChatId);
+  selectedChatIdRef.current = selectedChatId;
   const [rightPanelRefreshKey, setRightPanelRefreshKey] = useState(0);
   const [rightPanelSpinning, setRightPanelSpinning] = useState(false);
   const currentVmWorkDir = vmList.find(v => v.name === (selectedVM || "default"))?.work_dir;
@@ -619,6 +624,8 @@ export default function App() {
       setChatListTraceId,
       setSelectedChatId,
       setChatHide,
+      getSelectedChatId: () => selectedChatIdRef.current,
+      requestChatRefresh: () => setTodoOpenRefreshKey((k) => k + 1),
       onAfterTodoOpen: () => setSidebarOpen(false),
     });
     // Plan P2 (pages/plan-3042-control-plane.md): chat control-plane host
@@ -1048,7 +1055,7 @@ export default function App() {
   // to localStorage the way selectedVM is (no other fallback for the module).
   // R7 (plan-3046-right-sidebar.md): also carries the host trace filter, so
   // the right chat panel can consume it once it opts in via usePanelLocation.
-  usePublishSelectedChatIntent(selectedChatId, selectedBot, chatListTraceId, chatRefreshKey);
+  usePublishSelectedChatIntent(selectedChatId, selectedBot, chatListTraceId, chatRefreshKey, todoOpenRefreshKey);
   // Plan H2 (pages/plan-3071-note-module.md decision 7): publish the note
   // trace-scope intent and per-location VM/work-directory context.
   usePublishNoteIntent(chatListTraceId, selectedVM, defaultWorkDir ?? null, selectedVM, defaultWorkDir ?? null);
