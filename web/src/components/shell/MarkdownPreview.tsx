@@ -116,8 +116,7 @@ export interface MarkdownPreviewProps {
 }
 
 /**
- * Shared markdown renderer used by FileViewer (auth + public) and demo file tabs.
- * One definition so production and demo share the same preview path.
+ * Shared markdown renderer used by FileViewer (auth + public).
  */
 export default function MarkdownPreview({ content, currentFilePath, onOpenFile, onExternalLinkClick }: MarkdownPreviewProps) {
   const [tocOpen, setTocOpen] = useState(false);

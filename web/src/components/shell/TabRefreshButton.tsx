@@ -1,5 +1,5 @@
 /** Host-owned tab refresh control (todo 3674). One icon, one spinner,
- * used by FileViewer and the public demo shell. */
+ * used by FileViewer. */
 export default function TabRefreshButton({
   title,
   spinning,

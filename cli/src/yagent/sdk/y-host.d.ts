@@ -5,14 +5,11 @@
  * contract.json and is stamped onto each published version as min_host_version.
  *
  * MODULE SHAPE (pages/decision-2412-module-shape.md)
- * One artifact is ONE module defining up to three production surfaces plus an
- * optional public demo entrypoint (todo 3158):
+ * One artifact is ONE module defining up to three production surfaces:
  *
  *     export const panel = MyPanel;    // required — left sidebar (~280px)
  *     export const detail = MyDetail;  // optional — center / full-width view
  *     export const shell = MyShell;    // optional — persistent center column
- *     export const demo = MyDemo;      // optional in production; required for
- *                                      // public /demo delivery
  *
  * A bare `export default MyPanel` is the shorthand for a panel-only artifact.
  * The host gives one sidebar entry per artifact; `detail`, when present, opens
@@ -20,9 +17,7 @@
  * a detail view; it restores as a persisted tab like any other file tab.
  * `shell` is claimed in module.json (`"surfaces"`), not inferred from the
  * bundle, is held by at most one module at a time, and falls back to the host's
- * own view when unclaimed. `demo` is introspected from the bundle on the public
- * path only; production loading still accepts older bundles that omit it. No
- * surface receives props.
+ * own view when unclaimed. No surface receives props.
  */
 
 declare module "react" {
@@ -431,7 +426,7 @@ declare module "@y/host" {
   export function HtmlPreview(props: HtmlPreviewProps): any;
 
   // shell/MarkdownPreview.tsx (contract v21, todo 3708 A1) — host-owned markdown
-  // leaf shared by FileViewer, public notes, the demo, and the entity module.
+  // leaf shared by FileViewer, public notes, and the entity module.
   // Front matter, TOC, highlighting and local-file link handling stay in the
   // host; a module passes content and optional open/external-link callbacks.
   export interface MarkdownPreviewProps {

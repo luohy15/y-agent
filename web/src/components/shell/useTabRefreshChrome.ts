@@ -3,8 +3,7 @@ import { createTabRefreshRegistry, type TabRefreshRegistry } from "../../host/ta
 import { runTabRefresh, scopedTabRefresh } from "./tabRefreshState";
 
 /** Per-key refresh chrome state, shared by every host-owned refresh control
- * (todo 3674 centre tabs, todo 3680 sidebar panels, and the demo shell's
- * single detail slot). One registry + remount nonce + spin flag per key, with
+ * (todo 3674 centre tabs, todo 3680 sidebar panels). One registry + remount nonce + spin flag per key, with
  * one timer/in-flight authority per key so a second click inside the same
  * refresh is a no-op rather than a second concurrent run. Registries and
  * nonces for a key that drops out of `activeKeys` are dropped on the next

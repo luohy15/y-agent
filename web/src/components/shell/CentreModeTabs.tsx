@@ -1,5 +1,3 @@
-import type { ReactNode } from "react";
-
 export type CentreMode = "files" | "chat";
 
 export interface CentreModeTabsProps {
@@ -9,8 +7,6 @@ export interface CentreModeTabsProps {
   onNew?: () => void;
   newDisabled?: boolean;
   newTitle?: string;
-  /** Extra controls rendered after the built-in buttons (demo chip, etc.). */
-  trailing?: ReactNode;
   className?: string;
 }
 
@@ -19,7 +15,7 @@ const btnClass = (active: boolean) =>
 
 /**
  * Centre column mode switcher: files | chat | optional new + trailing slot.
- * Presentational only — production and demo both consume this.
+ * Presentational only.
  */
 export default function CentreModeTabs({
   mode,
@@ -27,7 +23,6 @@ export default function CentreModeTabs({
   onNew,
   newDisabled = false,
   newTitle = "New chat",
-  trailing,
   className = "",
 }: CentreModeTabsProps) {
   return (
@@ -50,7 +45,7 @@ export default function CentreModeTabs({
           <path d="M2 2a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2.586l1.707 1.707a1 1 0 0 0 1.414 0L9.414 14H14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H2zm2 3h8v1H4V5zm0 3h6v1H4V8z"/>
         </svg>
       </button>
-      {(onNew || trailing) && <div className="w-px h-4 bg-sol-base02 mx-0.5" />}
+      {onNew && <div className="w-px h-4 bg-sol-base02 mx-0.5" />}
       {onNew && (
         <button
           onClick={onNew}
@@ -64,7 +59,6 @@ export default function CentreModeTabs({
           </svg>
         </button>
       )}
-      {trailing}
     </div>
   );
 }

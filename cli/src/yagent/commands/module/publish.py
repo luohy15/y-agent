@@ -83,11 +83,6 @@ def module_publish(slug, no_activate, label, icon, desc, trace_id):
             f"got {dispatch_scope!r}"
         )
     ui_surfaces = _validate_surfaces(meta.get("surfaces", ["panel"]))
-    ui_public = meta.get("ui_public", False)
-    if not isinstance(ui_public, bool):
-        raise click.ClickException(
-            f"module.json ui_public must be a boolean, got {ui_public!r}"
-        )
     contract = load_contract()
     valid_icons = contract["icons"]
     if icon not in valid_icons:
@@ -164,7 +159,6 @@ def module_publish(slug, no_activate, label, icon, desc, trace_id):
             min_backend_version=min_backend_version,
             dispatch_scope=dispatch_scope,
             ui_surfaces=ui_surfaces,
-            ui_public=ui_public,
         )
     except httpx.HTTPStatusError as exc:
         detail = _http_detail(exc)

@@ -9,9 +9,6 @@
  * React context resolving inside the blob module).
  *
  * Call `installHostRegistry()` once, before the app renders (see main.tsx).
- * The public demo page installs the same externals with a restricted
- * `@y/host` instead (todo 3158 H3, web/src/demo/runtime.ts), which is why the
- * SDK object is a parameter rather than a hardwired import.
  */
 import * as React from "react";
 import * as ReactDOM from "react-dom";
@@ -49,9 +46,8 @@ function asModule(ns: Record<string, unknown>): Record<string, unknown> {
   return { ...ns, __esModule: true, default: ns.default ?? ns };
 }
 
-// Every external except `@y/host`: rendering libraries are identical in both
-// environments (a demo must render through the same React instance as any
-// other mount), so only the host SDK differs.
+// Every external except `@y/host`: modules render through the same React
+// instance as the host.
 const renderingExternals: Record<string, unknown> = {
   react: asModule(React as unknown as Record<string, unknown>),
   "react-dom": asModule(ReactDOM as unknown as Record<string, unknown>),
@@ -66,8 +62,7 @@ const renderingExternals: Record<string, unknown> = {
 };
 
 /** Publish the externals into `globalThis.__Y_HOST__`. `sdk` is what an
- * artifact receives as `@y/host`: the full authenticated surface in the app,
- * the restricted demo surface on the `/demo` page. */
+ * artifact receives as `@y/host`. */
 export function installHostRegistry(sdk: object = hostSdk): void {
   const modules: Record<string, unknown> = {
     ...renderingExternals,

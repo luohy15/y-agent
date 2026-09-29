@@ -17,7 +17,7 @@ export interface DesktopHeaderBarProps {
 
 /**
  * Desktop-only header chrome: centred meta slot + layout toggles.
- * Presentational only — production and demo both consume this.
+ * Presentational only.
  */
 export default function DesktopHeaderBar({
   meta,

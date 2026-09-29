@@ -14,7 +14,6 @@ import { abortMiddleware } from "./utils/swrAbort";
 import { localStorageProvider } from "./utils/swrPersistedCache";
 import { applyPrefs, loadPrefs } from "./utils/theme";
 import { API } from "./api";
-import { isDemoPath } from "./demo/routes";
 import { installHostRegistry } from "./host/registry";
 // Global highlight.js theme for every `.hljs` block (ArtifactView raw specs
 // and module code views). Loaded here so it no longer depends on which host
@@ -39,42 +38,27 @@ function ThemeRouteSync() {
 
 const rootEl = document.getElementById("root")!;
 
-if (window.location.pathname.startsWith("/demo/") || window.location.pathname === "/demo/") {
-  // Legacy and unknown demo paths must normalize before any application
-  // bootstrap. Entering the normal app first would expose its persisted cache
-  // and unrestricted host registry before the isolated demo runtime replaces
-  // them.
-  window.location.replace(`/demo${window.location.search}${window.location.hash}`);
-} else if (isDemoPath(window.location.pathname)) {
-  // Public demo pages (todo 3158) are a separate application root, chosen
-  // before anything else runs: they get the restricted `@y/host`, a
-  // memory-only cache, and denied network/storage globals, and they never
-  // instantiate the authenticated app, its persisted SWR provider, or the
-  // warm-up ping. See web/src/demo/runtime.ts.
-  import("./demo/bootstrap").then(({ mountPublicDemo }) => mountPublicDemo(rootEl));
-} else {
-  // Fire-and-forget warm-up ping to trigger Lambda init while the user reads
-  // the UI. No auth, ignore the result; swallow errors so it never logs.
-  fetch(`${API}/api/health`).catch(() => {});
-  installHostRegistry();
-  updateFavicon();
-  createRoot(rootEl).render(
-    <SWRConfig value={{ use: [abortMiddleware], provider: localStorageProvider }}>
-      <BrowserRouter>
-        <ThemeRouteSync />
-        <Routes>
-          <Route path="/" element={<RootGate />} />
-          <Route path="/docs" element={<DocsView />} />
-          <Route path="/docs/:slug" element={<DocsView />} />
-          <Route path="/s/:shareId" element={<ShareView />} />
-          <Route path="/share/:shareId" element={<ShareView />} />
-          <Route path="/t/:shareId" element={<PublicTraceApp />} />
-          <Route path="/n/:shareId" element={<ShareNoteView />} />
-          <Route path="/trace/:traceId" element={<App />} />
-          <Route path="/ui/*" element={<Navigate to="/" replace />} />
-          <Route path="/*" element={<App />} />
-        </Routes>
-      </BrowserRouter>
-    </SWRConfig>
-  );
-}
+// Fire-and-forget warm-up ping to trigger Lambda init while the user reads
+// the UI. No auth, ignore the result; swallow errors so it never logs.
+fetch(`${API}/api/health`).catch(() => {});
+installHostRegistry();
+updateFavicon();
+createRoot(rootEl).render(
+  <SWRConfig value={{ use: [abortMiddleware], provider: localStorageProvider }}>
+    <BrowserRouter>
+      <ThemeRouteSync />
+      <Routes>
+        <Route path="/" element={<RootGate />} />
+        <Route path="/docs" element={<DocsView />} />
+        <Route path="/docs/:slug" element={<DocsView />} />
+        <Route path="/s/:shareId" element={<ShareView />} />
+        <Route path="/share/:shareId" element={<ShareView />} />
+        <Route path="/t/:shareId" element={<PublicTraceApp />} />
+        <Route path="/n/:shareId" element={<ShareNoteView />} />
+        <Route path="/trace/:traceId" element={<App />} />
+        <Route path="/ui/*" element={<Navigate to="/" replace />} />
+        <Route path="/*" element={<App />} />
+      </Routes>
+    </BrowserRouter>
+  </SWRConfig>
+);

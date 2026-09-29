@@ -6,8 +6,7 @@ import { API, HOST_CONTRACT_VERSION, ListLoading } from "@y/host";
  *   y module publish <slug>
  * The host supplies react / @y/host / swr / recharts via the runtime registry.
  *
- * One artifact is one module with up to three production surfaces plus an
- * optional public demo entrypoint:
+ * One artifact is one module with up to three production surfaces:
  *   `panel`  (required) renders in the ~280px left sidebar
  *   `detail` (optional) renders full-width in the center surface, opened from
  *            the panel header (no dedicated URL; it restores as a persisted
@@ -16,8 +15,6 @@ import { API, HOST_CONTRACT_VERSION, ListLoading } from "@y/host";
  *            area). Unlike the other two it must be claimed in module.json
  *            (`"surfaces": ["panel", "shell"]`), only one module may hold it,
  *            and the host renders its own fallback when nobody does.
- *   `demo`   (optional in production; required for public /demo delivery)
- *            mounts the same production views over deterministic fixture data.
  * Delete the `detail` export for a sidebar-only artifact.
  *
  * Outgrowing one file? Keep `ui/index.tsx` as the thin entry and put sibling

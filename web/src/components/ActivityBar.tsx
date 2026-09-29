@@ -23,37 +23,6 @@ interface ActivityBarProps {
   artifacts?: Module[];
   artifactsLoaded?: boolean;
   /**
-   * Keys rendered dimmed, inert, and grouped after a divider (design-3158).
-   * Default empty: authenticated app keeps its existing ordering/selection.
-   * When set, these keys are excluded from the live reorderable group and
-   * rendered after a divider with `data-unavailable`.
-   */
-  unavailableKeys?: readonly string[];
-  /** Optional title override for an unavailable key (defaults to label + " — not part of the demo"). */
-  unavailableTitles?: Partial<Record<string, string>>;
-  /** Optional click handler for unavailable items (e.g. demo toast). Default: no-op. */
-  onUnavailableSelect?: (key: string) => void;
-  /**
-   * Optional explicit ordering for the live (available) group. When omitted,
-   * the authenticated reorderable order is used. Demo passes a fixed order.
-   */
-  availableOrder?: readonly string[];
-  /**
-   * When true, render the GitHub + sign-in footer even if `isLoggedIn` is true
-   * (public demo shell: design-3158 shows sign-in, not a user menu). Default
-   * false preserves authenticated behavior.
-   */
-  forceSignInFooter?: boolean;
-  /**
-   * Presentation-only rail (public demo, todo 3158 H6 round 1). Keeps the
-   * signed-in rail shape (`isLoggedIn` icons/groups) while disabling every
-   * durable path: no `/api/user-preference`, no localStorage read/migrate/write,
-   * no drag-reorder persistence. Default false preserves authenticated behavior.
-   * Also ignores `hiddenSlugs`: a public rail must not apply an authenticated
-   * visibility preference.
-   */
-  presentationOnly?: boolean;
-  /**
    * Module slugs whose left-rail icon is hidden (todo 3676). Applied only at
    * render, after full-catalog ordering, so unhiding restores the previous
    * position. Does not change `order`, localStorage, or `activityBarOrder`.
@@ -256,9 +225,9 @@ function saveOrder(order: SidebarPanel[]) {
 interface DragState { key: SidebarPanel }
 interface DropTargetState { key: SidebarPanel; pos: "before" | "after" }
 
-export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, activePanel, onSelectPanel, mobile, email, gsiReady, onLogout, artifacts = [], artifactsLoaded = true, unavailableKeys = [], unavailableTitles, onUnavailableSelect, availableOrder, forceSignInFooter = false, presentationOnly = false, hiddenSlugs = [], onOpenModules, modulesAvailable = false }: ActivityBarProps) {
+export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, activePanel, onSelectPanel, mobile, email, gsiReady, onLogout, artifacts = [], artifactsLoaded = true, hiddenSlugs = [], onOpenModules, modulesAvailable = false }: ActivityBarProps) {
   const signinRef: RefCallback<HTMLDivElement> = useCallback((node) => {
-    if (!node || isLoggedIn || !gsiReady || presentationOnly) return;
+    if (!node || isLoggedIn || !gsiReady) return;
     if (!isPreview && (window as any).google?.accounts?.id) {
       (window as any).google.accounts.id.renderButton(node, {
         theme: "filled_black",
@@ -266,33 +235,22 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
         shape: "pill",
       });
     }
-  }, [isLoggedIn, gsiReady, presentationOnly]);
+  }, [isLoggedIn, gsiReady]);
 
   const panelItems = useMemo(() => buildActivityPanelItems(artifacts), [artifacts]);
   const defaultOrder = useMemo<SidebarPanel[]>(() => panelItems.map(p => p.key), [panelItems]);
 
-  // Presentation-only: never touch localStorage (no load/migrate/write). Memory
-  // order is just the catalog defaults so availableOrder can filter over it.
   const [order, setOrder] = useState<SidebarPanel[]>(() =>
-    presentationOnly
-      ? BUILT_IN_PANEL_ITEMS.map((panel) => panel.key)
-      : loadOrder(BUILT_IN_PANEL_ITEMS.map((panel) => panel.key)),
+    loadOrder(BUILT_IN_PANEL_ITEMS.map((panel) => panel.key)),
   );
 
   const pref = useUserPreference<SidebarPanel[]>("activityBarOrder", {
-    enabled: isLoggedIn && !presentationOnly,
+    enabled: isLoggedIn,
   });
   useEffect(() => {
-    if (presentationOnly) {
-      // Stay in memory only: adopt catalog defaults when artifacts load, never
-      // read or migrate a visitor's production rail order.
-      if (!artifactsLoaded) return;
-      setOrder(defaultOrder);
-      return;
-    }
     if (!artifactsLoaded) return;
     setOrder(loadOrder(defaultOrder));
-  }, [artifactsLoaded, defaultOrder, presentationOnly]);
+  }, [artifactsLoaded, defaultOrder]);
 
   // True after the user has reordered locally; suppresses one-shot server overwrite
   // so a slow GET doesn't snap their fresh change back to an older value.
@@ -302,14 +260,13 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
   const reconciledRef = useRef(false);
 
   useEffect(() => {
-    if (!isLoggedIn || presentationOnly) {
+    if (!isLoggedIn) {
       userTouchedRef.current = false;
       reconciledRef.current = false;
     }
-  }, [isLoggedIn, presentationOnly]);
+  }, [isLoggedIn]);
 
   useEffect(() => {
-    if (presentationOnly) return;
     if (!isLoggedIn || !artifactsLoaded || !pref.loaded || reconciledRef.current) return;
     reconciledRef.current = true;
     if (pref.serverValue && Array.isArray(pref.serverValue)) {
@@ -419,7 +376,6 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
   };
 
   function applyReorder(fromKey: SidebarPanel, toKey: SidebarPanel, pos: "before" | "after") {
-    if (presentationOnly) return;
     if (fromKey === toKey) return;
     const current = order.slice();
     const fromIdx = current.indexOf(fromKey);
@@ -513,37 +469,17 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
     );
   };
 
-  const unavailableSet = useMemo(() => new Set(unavailableKeys), [unavailableKeys]);
-  const liveOrder = useMemo(() => {
-    const source = availableOrder && availableOrder.length > 0
-      ? availableOrder.filter((key) => panelByKey.has(key as SidebarPanel) && !unavailableSet.has(key))
-      : order.filter((key) => !unavailableSet.has(key));
-    // Hide is a render projection only. presentationOnly never applies it.
-    if (presentationOnly || hiddenSlugs.length === 0) return source as SidebarPanel[];
-    return projectActivityBarOrder(source, hiddenSlugs) as SidebarPanel[];
-  }, [availableOrder, hiddenSlugs, order, panelByKey, presentationOnly, unavailableSet]);
-  const unavailableOrdered = useMemo(() => {
-    if (unavailableKeys.length === 0) return [] as SidebarPanel[];
-    // Preserve caller order; fall back to any remaining unavailable keys present in the catalog.
-    const seen = new Set<string>();
-    const result: SidebarPanel[] = [];
-    for (const key of unavailableKeys) {
-      if (seen.has(key)) continue;
-      if (!panelByKey.has(key as SidebarPanel)) continue;
-      seen.add(key);
-      result.push(key as SidebarPanel);
-    }
-    return result;
-  }, [unavailableKeys, panelByKey]);
+  const liveOrder = useMemo(
+    () => projectActivityBarOrder(order, hiddenSlugs) as SidebarPanel[],
+    [hiddenSlugs, order],
+  );
 
   const panelButtons = liveOrder.map((key) => {
     const p = panelByKey.get(key);
     if (!p) return null;
     const isDragged = !!(drag && drag.key === p.key);
     const active = sidebarOpen && activePanel === p.key;
-    // Drag reorder stays signed-in-only; presentationOnly / fixed availableOrder
-    // disable drag so demo never rewrites rail order.
-    const canDrag = dragEnabled && !availableOrder && !presentationOnly;
+    const canDrag = dragEnabled;
     return (
       <div
         key={`panel:${p.key}`}
@@ -569,42 +505,10 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
     );
   });
 
-  const unavailableButtons = unavailableOrdered.map((key) => {
-    const p = panelByKey.get(key);
-    if (!p) return null;
-    const title = unavailableTitles?.[key] ?? `${p.label} — not part of the demo`;
-    const base = mobile
-      ? "w-full h-9 flex items-center gap-3 px-3 rounded text-sm text-sol-base01/40 cursor-not-allowed"
-      : "w-8 h-8 flex items-center justify-center rounded text-sol-base01/40 cursor-not-allowed";
-    return (
-      <div key={`unavailable:${p.key}`} className={wrapperClass()}>
-        <button
-          type="button"
-          data-sidebar-panel={p.key}
-          data-unavailable={p.label}
-          disabled={!onUnavailableSelect}
-          onClick={() => onUnavailableSelect?.(p.key)}
-          className={base}
-          title={title}
-          aria-disabled="true"
-        >
-          {p.icon}
-          {mobile && <span>{p.label}</span>}
-        </button>
-      </div>
-    );
-  });
-
   return (
     <div className={mobile ? "flex shrink-0 bg-sol-base03 flex-col items-start p-3 gap-1 w-full h-full" : "hidden md:flex shrink-0 w-10 bg-sol-base03 border-r border-sol-base02 flex-col items-center pt-2"}>
       <div className={mobile ? "flex-1 flex flex-col items-start gap-1 w-full min-h-0 overflow-y-auto" : "flex-1 flex flex-col items-center gap-1 w-full min-h-0 overflow-y-auto pb-1"}>
         {panelButtons}
-        {unavailableButtons.length > 0 && (
-          <>
-            <div className={mobile ? "w-full h-px bg-sol-base02 my-1" : "w-5 h-px bg-sol-base02 my-1"} data-unavailable-divider />
-            {unavailableButtons}
-          </>
-        )}
       </div>
       {/* Bottom: GitHub + Auth */}
       <a
@@ -620,7 +524,7 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
         {mobile && <span>GitHub</span>}
       </a>
-      {isLoggedIn && !forceSignInFooter ? (
+      {isLoggedIn ? (
         <UserMenu
           email={email ?? null}
           isLoggedIn={isLoggedIn}
@@ -629,30 +533,7 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
           onOpenModules={modulesAvailable ? onOpenModules : undefined}
         />
       ) : mobile ? (
-        forceSignInFooter ? (
-          <a
-            href="/"
-            className="w-full h-9 flex items-center gap-3 px-3 rounded text-sm text-sol-base01 hover:text-sol-base1 hover:bg-sol-base02"
-            title="Sign in"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" /><polyline points="10 17 15 12 10 7" /><line x1="15" y1="12" x2="3" y2="12" />
-            </svg>
-            <span>Sign in</span>
-          </a>
-        ) : (
-          <div ref={signinRef} className="px-3 py-1" />
-        )
-      ) : forceSignInFooter ? (
-        <a
-          href="/"
-          className="w-8 h-8 mb-2 flex items-center justify-center rounded cursor-pointer text-sol-base01 hover:text-sol-base1 hover:bg-sol-base02"
-          title="Sign in"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" /><polyline points="10 17 15 12 10 7" /><line x1="15" y1="12" x2="3" y2="12" />
-          </svg>
-        </a>
+        <div ref={signinRef} className="px-3 py-1" />
       ) : (
         <button
           onClick={() => {
@@ -668,7 +549,7 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
           </svg>
         </button>
       )}
-      {!forceSignInFooter && <SyncStatusPill variant={pill} status={pref.status} />}
+      <SyncStatusPill variant={pill} status={pref.status} />
     </div>
   );
 }

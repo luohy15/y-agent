@@ -1642,7 +1642,6 @@ export default function App() {
                   />
                 ) : !auth.isLoggedIn ? (
                   <div className="flex-1 flex flex-col items-center justify-center gap-4">
-                    <a href="/demo" className="px-4 py-2 bg-sol-cyan text-sol-base03 rounded text-sm font-semibold cursor-pointer">Demo Trace</a>
                     <GoogleSignInButton gsiReady={auth.gsiReady} />
                   </div>
                 ) : (

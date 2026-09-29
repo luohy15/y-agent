@@ -155,7 +155,7 @@ export const hostSdk = {
 
   // shell/MarkdownPreview.tsx (contract v21, todo 3708 A1) — host-owned markdown
   // leaf (front matter, TOC, highlighting, local-file links). Entity detail
-  // mounts the same physical renderer as link, public-note and demo consumers
+  // mounts the same physical renderer as link and public-note consumers
   // instead of bundling a copy.
   MarkdownPreview,
 

@@ -55,9 +55,8 @@ async function waitForArtifacts(root: HTMLElement, timeoutMs = 4000): Promise<vo
 
 // Decode the encoder's `data:` URL into a Blob without a network primitive.
 // `fetch(dataUrl)` used to do this, which made local PNG export depend on the
-// global fetch — and therefore fail outright in the public demo runtime, where
-// every global fetch is denied (todo 3158 H3). A data URL carries its own
-// bytes, so no request was ever needed.
+// global fetch. A data URL carries its own bytes, so no request was ever
+// needed.
 export function dataUrlToBlob(dataUrl: string): Blob {
   const header = /^data:([^;,]*)((?:;[^,]*)*),/.exec(dataUrl);
   if (!header) throw new Error("Expected a data: URL from the PNG encoder.");
