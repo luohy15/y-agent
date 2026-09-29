@@ -1,86 +1,64 @@
 # y-agent
 
-A personal AI agent system built on top of coding agents.
+## One Entry Point, a Cloud Workspace
 
-> Renamed from [y-cli](https://luohy15.com/y-cli-introduction). y-cli wrapped model APIs; y-agent wraps coding agents.
+Hand over a task from your phone, tablet, or desktop. Let the agent work in the same cloud workspace, and come back when there's a decision to make or work to check.
 
-## Demo
+![Web and Telegram connect to y-agent; Claude Code works with EC2 files and RDS data, while a self-hosted relay connects to Claude, GPT, and Grok.](https://cdn.luohy15.com/blog/images/my-ai-dev-setup.png)
 
-![y-agent TraceView](https://cdn.luohy15.com/y-agent-demo-4.png)
+I keep the workspace on EC2 and use y-agent as one entry point. Telegram is another way into the same system, not a separate mobile agent. Code, notes, task records, and results stay in my own workspace rather than belonging to a particular chat window. Switching devices doesn't mean introducing the project all over again.
 
-A real trace: https://yovy.app/t/6fc5c4
+Read the full story: [My AI Dev Setup: One Entry Point, a Cloud Workspace](https://luohy15.com/2026/09/27/my-ai-dev-setup).
 
-Web chat renders inline artifacts from assistant messages: Mermaid diagrams, Vega-Lite charts, and sanitized `artifact-svg` blocks.
+## How it fits together
 
----
+These are the layers of my deployment, not five services in a linear pipeline:
 
-Coding agents like Claude Code / Codex are great for code, but code is only part of my daily life. I also have ledgers, calendars, todos, notes, emails. I want the agent to handle those too.
+| Layer | Role | My setup |
+| --- | --- | --- |
+| Client | Hand over tasks and read results | y-agent web UI, with Telegram as a chat input interface |
+| Memory | Keep project context and task state | Files on EC2; structured records in PostgreSQL on RDS |
+| Runtime | Read code, edit files, run commands | Claude Code on EC2 |
+| Gateway | Connect and forward model requests | A self-hosted relay: my fork of [claude-relay-service](https://github.com/luohy15/claude-relay-service) |
+| Models | Supply model capabilities | Claude / GPT / Grok |
 
-Three things came up while extending a coding agent into a personal agent system:
+Files and database records are read and written as work needs them. They aren't a stop every model request passes through. The runtime and model source are separate choices: **Claude Code is the only agentic CLI backend in this repository.** Other model sources depend on the configured gateway, interface compatibility, and provider subscription terms; a subscription isn't a general-purpose API entitlement. The relay is a separate service, not bundled with y-agent. Model context still leaves the workspace for inference.
 
-1. How to give the agent context
-2. How to keep the agent always-on
-3. How to orchestrate multiple agents
+Under the hood, a React web UI and Telegram feed a FastAPI API. The API queues work through SQS to a worker, which starts Claude Code over SSH in EC2 `tmux` sessions and streams results back into chat records. API, worker, and admin jobs deploy with AWS SAM/Lambda; PostgreSQL holds structured state. Local development uses Celery with a filesystem broker instead of SQS.
 
-### Context
+## What it does
 
-Same data for me and for the agent. Files go through `read` / `write` / `edit`. Anything I'd reach for a GUI to do, the agent reaches for a CLI — it's already happy in Bash. Rule: whatever I can do in the GUI, the agent can do via CLI. The underlying file or DB row is the same.
+- **One workspace beyond code.** Work with todos, notes, links, calendars, email, and domain modules through the web and `y` CLI. The agent uses the same files and records, rather than a separate copy of your context.
+- **Task-linked context.** A todo connects discussions, plans, progress, and reviews. A new session reads that material instead of needing the entire previous conversation in its prompt.
+- **Orchestration outside the runtime.** One session can finish a small task; larger tasks can split into planning, implementation, and review sessions, each loading the skill it needs. A shared `trace_id` connects the tree, and sub-task chats remain visible and steerable.
+- **An inbox for your turn.** `awaiting` marks work needing a decision, authorization, or acceptance check. Publication approval is a separate boundary from implementation and review.
+- **Extensible surfaces.** Hot-loadable modules can add UI, API, CLI, and data. Chat can render Mermaid diagrams, Vega-Lite charts, and sanitized SVG artifacts. See the [module contract](docs/prd/module-system.md).
 
-### Always-on
+See a [real task trace](https://yovy.app/t/6fc5c4) or browse the [capability reference](docs/capabilities.md).
 
-I don't want to carry a laptop or open a terminal to use it. Coding agents run on a remote VM (EC2) inside `tmux`; a tail process parses their output into the database, so the web UI can chat with them directly. A Telegram bot covers mobile input. EC2 auto-hibernates when idle, so cost is near zero when nothing is running.
+## Get started
 
-### Orchestration
+### Use an existing instance
 
-One session usually can't handle the whole thing — requests have to be routed to the right session. Claude Code ships sub-agents, but I wanted that layer outside, so sub-agent chats stay in my own DB and I can steer them mid-run.
+Open its web UI and sign in. For terminal access, install [uv](https://docs.astral.sh/uv/) and Python 3.11+, then:
 
-```
-   user        ┌──────────────────┐
-   input ────► │  skill: manager  │   dispatch only,
-        │     └────────┬──────────┘   no execution
-        │              │   y chat --skill dev -m "..."
-        │              ▼
-        │     ┌──────────────────┐
-        ├───► │  skill: dev      │   coordinator,
-        │     │                  │   runs lower-level skill sessions
-        │     └──┬──────┬──────┬─┘
-        │        │      │      │   y chat --skill {plan,impl,review}
-        │        ▼      ▼      ▼
-        │     ┌──────┐ ┌──────┐ ┌────────┐
-        └───► │ plan │ │ impl │ │ review │   anonymous, ephemeral;
-              └──────┘ └──────┘ └────────┘   skill loaded per dispatch
+```bash
+git clone https://github.com/luohy15/y-agent.git
+cd y-agent
+uv tool install --force -e ./cli
+y login
 ```
 
-A `trace_id` (= `todo_id` when the task is tracked) threads the whole tree, so [TraceView](https://yovy.app/t/6fc5c4) renders the chain as a waterfall.
+The CLI defaults to `https://yovy.app`. Set `Y_AGENT_WEB_URL` to use another instance. Signing in is not a self-hosted installation; you don't need a local API or worker to use an existing server. See the [web guide](docs/getting-started.md) and [CLI guide](docs/cli.md).
 
-## Docs
+### Run your own
 
-Two paths, split by whether you run the server or just use one. Each page opens with a `client` or `server` tag so you always know which side you're on.
+This is a personal, self-hosted system, not a one-command appliance. You'll need Python 3.11+, uv, Node.js 20+, PostgreSQL, and a configured execution VM with Claude Code, SSH, and tmux. AWS deployment adds the Lambda/SQS infrastructure and related services; model access and the optional relay are configured separately.
 
-**Client — use a hosted instance** (`y login` against `yovy.app` and go; no infra needed):
+Follow the [self-hosting guide](docs/self-host.md) for configuration, local API/web/worker commands, and AWS deployment. Domain modules live in a separate y-module repository; their source and published bundles are not included in this checkout. Backups, permissions, provider access, and infrastructure maintenance remain yours to manage.
 
-- [docs/getting-started.md](docs/getting-started.md) — the web GUI after sign-in, built around the four showcased capabilities (chat, todo & trace, note, link).
-- [docs/cli.md](docs/cli.md) — install the CLI, sign in, every command group.
-- [docs/capabilities.md](docs/capabilities.md) — client + server reference: what a running deployment ships.
+## More
 
-**Server — self-host** (you run the API + worker yourself):
-
-- [docs/self-host.md](docs/self-host.md) — prerequisites, install, run, deploy, config keys.
-- [docs/provider-status.md](docs/provider-status.md) — manually configure the Anthropic Statuspage webhook without storing credentials or failure-notification email in source.
-
-## Hot-loadable modules
-
-A module is a user-owned, versioned domain at the fixed `code/y-module/<slug>/`
-(standalone repo `/Users/roy/luohy15/code/y-module`). It can hold local CLI, a
-lazy-loaded API half, a published React UI half, and module-owned data/migrations.
-`y module publish` ships API+UI atomically; `y module rollback` repoints code only;
-`y module schema-sql` prints DDL and never runs it. UI claims `panel` / `detail` /
-`shell` slots. Publish and backend dispatch require
-`Y_AGENT_MODULE_MAINTAINER_USER_ID` (fail-closed); a version may opt into
-`authenticated` dispatch.
-
-## Blog Post
-
-Longer write-up, design rationale, and comparisons: [full blog post](https://luohy15.com/y-agent-introduction).
-
-[CHANGELOG](CHANGELOG.md) tracks weekly updates.
+- [CHANGELOG](CHANGELOG.md): release history.
+- [Earlier y-agent introduction](https://luohy15.com/y-agent-introduction): background and design rationale.
+- Formerly [y-cli](https://luohy15.com/y-cli-introduction): y-cli wrapped model APIs; y-agent wraps coding agents.
