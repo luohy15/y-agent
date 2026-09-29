@@ -10,47 +10,17 @@ export interface FileLocationContext {
   workDir: string | null;
 }
 
-/** Module -> host `file.open` request payload. Host v8 (todo 3084) opens a
- * typed ordinary host tab from this; the retained intent action remains for
- * the aggregate file v10 module during staged rollout. Optional `line` is
- * end-to-end line focus. */
-export interface FileOpenAction {
-  kind: "open";
-  path: string;
-  line?: number;
-  vmName: string | null;
-  workDir: string | null;
-  nonce: number;
-}
-
-/** Module -> host `file.search` request payload. Host v8 owns the search
- * dialog; this action remains published only for aggregate-module
- * compatibility during staged rollout. */
-export interface FileSearchAction {
-  kind: "search";
-  vmName: string | null;
-  workDir: string | null;
-  nonce: number;
-}
-
-export type FileAction = FileOpenAction | FileSearchAction;
-
 /** Host -> file artifact retained state, published under the single `"file"`
- * slug (review-3068-file-browser-seam.md finding 1: a `left`/`right` context
- * write and an `open`/`search` action write must not clobber each other,
- * since `useArtifactIntent` keeps only the latest value per slug). `left`
- * and `right` are always both present — right mirrors `selectedVM` +
- * `effectiveWorkDir`, left mirrors the default VM + `currentVmWorkDir`.
- * A panel mount picks its own half via `usePanelLocation()`. `action` is the
- * most recent open/search request, or `null` before the first one; the detail
- * surface reacts to `action.nonce` changes. Top-level `nonce` is the shell
- * refresh signal (modules/note convention): the host republishes with a fresh
- * value when the right activity rail wants a list refresh. Every publish
- * below reads and re-sends the halves it isn't updating. */
+ * slug. `left` and `right` are always both present — right mirrors
+ * `selectedVM` + `effectiveWorkDir`, left mirrors the default VM +
+ * `currentVmWorkDir`. A panel mount picks its own half via
+ * `usePanelLocation()`. Top-level `nonce` is the shell refresh signal
+ * (modules/note convention): the host republishes with a fresh value when the
+ * right activity rail wants a list refresh. Every publish below reads and
+ * re-sends the halves it isn't updating. */
 export interface FileArtifactIntent {
   left: FileLocationContext;
   right: FileLocationContext;
-  action: FileAction | null;
   nonce?: number;
 }
 
@@ -60,14 +30,12 @@ const EMPTY_LOCATION: FileLocationContext = { vmName: null, workDir: null };
 // can merge in the half it isn't updating.
 let lastLeft: FileLocationContext = EMPTY_LOCATION;
 let lastRight: FileLocationContext = EMPTY_LOCATION;
-let lastAction: FileAction | null = null;
 let lastNonce = 0;
 
 function publish(): void {
   setArtifactIntent("file", {
     left: lastLeft,
     right: lastRight,
-    action: lastAction,
     nonce: lastNonce,
   } satisfies FileArtifactIntent);
 }
@@ -96,30 +64,8 @@ export function usePublishFileContext(
   }, [leftVmName, leftWorkDir, rightVmName, rightWorkDir]);
 }
 
-export function publishFileOpenAction(
-  path: string,
-  vmName: string | null,
-  workDir: string | null,
-  line?: number,
-): void {
-  lastAction = {
-    kind: "open",
-    path,
-    vmName,
-    workDir,
-    nonce: Date.now(),
-    ...(typeof line === "number" && Number.isFinite(line) ? { line } : {}),
-  };
-  publish();
-}
-
-export function publishFileSearchAction(vmName: string | null, workDir: string | null): void {
-  lastAction = { kind: "search", vmName, workDir, nonce: Date.now() };
-  publish();
-}
-
 /** Host -> file artifact list-refresh signal. Bumps the top-level `nonce`
- * without touching left/right/action, so the right activity rail refresh
+ * without touching left/right, so the right activity rail refresh
  * button keeps working after the C1 cut. */
 export function publishFileRefresh(): void {
   lastNonce = Date.now();

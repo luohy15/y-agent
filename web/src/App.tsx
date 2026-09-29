@@ -39,9 +39,7 @@ import {
   fileSearchPayload,
   isHostWorkspaceTab,
   isOrdinaryFilePath,
-  publishFileOpenAction,
   publishFileRefresh,
-  publishFileSearchAction,
   usePublishFileContext,
 } from "./utils/fileHost";
 import {
@@ -51,8 +49,6 @@ import {
   fileRemapPayload,
   fileRemovePayload,
   FILE_AGGREGATE_TAB,
-  HOST_FILE_TABS_COLLAPSED_KEY,
-  HOST_FILE_TABS_MIGRATION_KEY,
   makeFileTab,
   openOrdinaryWorkspaceTabWithHistory,
   persistHostWorkspace,
@@ -63,13 +59,11 @@ import {
   remapOrdinaryTabs,
   removeOrdinaryTabs,
   restoreHostWorkspace,
-  restoreHostWorkspaceWithoutMigration,
   stepTabHistory,
   type FocusRequest,
   type OrdinaryFileTab,
   type TabHistoryMap,
 } from "./utils/fileWorkspace";
-import { resolveFileWorkspaceModeTransition } from "./utils/fileWorkspaceMode";
 import { closeTabShortcutLabel, isApplePlatform } from "./utils/platform";
 import FileSearchDialog from "./components/FileSearchDialog";
 import { usePublishNoteIntent } from "./utils/noteHost";
@@ -81,7 +75,6 @@ import {
   artifactLabel,
   artifactSlugFromPanel,
   artifactTabKey,
-  isContextualFileModule,
   isPersistableTab,
   modulesFromPayload,
   mountableUiArtifacts,
@@ -149,14 +142,6 @@ export default function App() {
     () => new Map(mountedUiArtifacts.map((artifact) => [artifact.slug, artifact])),
     [mountedUiArtifacts],
   );
-  // Aggregate file modules (min_host_version < 8) ignore detailContext, so the
-  // host keeps the single ui:file path until a contextual file version is active.
-  const contextualFileTabs = useMemo(
-    () => !uiArtifactsLoading && isContextualFileModule(uiArtifactBySlug.get("file")),
-    [uiArtifactsLoading, uiArtifactBySlug],
-  );
-  const contextualFileTabsRef = useRef(contextualFileTabs);
-  contextualFileTabsRef.current = contextualFileTabs;
   const rightPanelItems = useMemo<PanelItem<RightPanel>[]>(
     () => [
       ...buildChatPanelItem(uiArtifacts),
@@ -187,9 +172,7 @@ export default function App() {
     return saved ? parseInt(saved, 10) : 280;
   });
   const resizingRef = useRef(false);
-  // Todo 3084 H1: restore host workspace. One-way migration from
-  // file.workspace.v2 is deferred until a contextual file module (min_host_version
-  // >= 8) is active, so aggregate file v7/v10 still mounts once at ui:file.
+  // Todo 3084 H1: restore host workspace (ordinary file tabs + specials).
   const initialWorkspace = useMemo(() => {
     let hostOpenTabs: string[] = [];
     try {
@@ -200,17 +183,13 @@ export default function App() {
     const hostActive = localStorage.getItem("activeFile");
     const hostPreview = localStorage.getItem("previewFile");
     const hostFiles = readStoredDescriptors(localStorage);
-    const migrationDone = localStorage.getItem(HOST_FILE_TABS_MIGRATION_KEY) === "true";
-    const collapsed = localStorage.getItem(HOST_FILE_TABS_COLLAPSED_KEY) === "true";
-    return restoreHostWorkspaceWithoutMigration(
+    return restoreHostWorkspace(
       hostOpenTabs,
       hostActive,
       hostPreview,
       hostFiles,
       (path) => isHostWorkspaceTab(path) && !RETIRED_TABS.has(path),
       isPersistableTab,
-      migrationDone,
-      collapsed,
     );
   }, []);
   const [openFiles, setOpenFiles] = useState<string[]>(() => initialWorkspace.openTabs);
@@ -294,46 +273,25 @@ export default function App() {
   const [botDropdownOpen, setBotDropdownOpen] = useState(false);
   const botDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Keep ui:file while collapsed, even if the active file version already looks
-  // contextual. Persistence runs before the remigrate effect and must not erase
-  // the aggregate slot that remigrate uses for ordering (round-12).
   useEffect(() => {
-    const collapsed = localStorage.getItem(HOST_FILE_TABS_COLLAPSED_KEY) === "true";
-    const dropAggregate = contextualFileTabs && !collapsed;
-    const persistable = openFiles
-      .filter((key) => isPersistableTab(key) || !!fileTabs[key])
-      .filter((key) => (dropAggregate ? key !== FILE_AGGREGATE_TAB : true));
+    const persistable = openFiles.filter((key) => isPersistableTab(key) || !!fileTabs[key]);
     localStorage.setItem("openFiles", JSON.stringify(persistable));
-  }, [openFiles, fileTabs, contextualFileTabs]);
+  }, [openFiles, fileTabs]);
   useEffect(() => {
-    const collapsed = localStorage.getItem(HOST_FILE_TABS_COLLAPSED_KEY) === "true";
-    const dropAggregate = contextualFileTabs && !collapsed;
-    if (
-      activeFile
-      && (dropAggregate ? activeFile !== FILE_AGGREGATE_TAB : true)
-      && (isPersistableTab(activeFile) || fileTabs[activeFile])
-    ) {
+    if (activeFile && (isPersistableTab(activeFile) || fileTabs[activeFile])) {
       localStorage.setItem("activeFile", activeFile);
     } else {
       localStorage.removeItem("activeFile");
     }
-  }, [activeFile, fileTabs, contextualFileTabs]);
+  }, [activeFile, fileTabs]);
   useEffect(() => {
-    const collapsed = localStorage.getItem(HOST_FILE_TABS_COLLAPSED_KEY) === "true";
-    const dropAggregate = contextualFileTabs && !collapsed;
-    if (
-      previewFile
-      && (dropAggregate ? previewFile !== FILE_AGGREGATE_TAB : true)
-      && (isPersistableTab(previewFile) || fileTabs[previewFile])
-    ) {
+    if (previewFile && (isPersistableTab(previewFile) || fileTabs[previewFile])) {
       localStorage.setItem("previewFile", previewFile);
     } else {
       localStorage.removeItem("previewFile");
     }
-  }, [previewFile, fileTabs, contextualFileTabs]);
+  }, [previewFile, fileTabs]);
   useEffect(() => {
-    // Never clobber retained descriptors with an empty live map while collapsed.
-    if (localStorage.getItem(HOST_FILE_TABS_COLLAPSED_KEY) === "true" && Object.keys(fileTabs).length === 0) return;
     try {
       localStorage.setItem("host.fileDescriptors.v1", JSON.stringify(Object.values(fileTabs)));
     } catch { /* quota — leave prior descriptors */ }
@@ -350,14 +308,6 @@ export default function App() {
   const workspaceTouchedRef = useRef(false);
   const workspaceReconciledRef = useRef(false);
   const [workspaceVisible, setWorkspaceVisible] = useState(!auth.isLoggedIn);
-  const workspaceModeKeyRef = useRef<string | null>(null);
-  const workspaceModeSettledRef = useRef(false);
-  const [workspaceModeSettled, setWorkspaceModeSettled] = useState(false);
-  const workspaceModeKey = `${uiArtifactsLoading}:${contextualFileTabs}`;
-  if (workspaceModeKeyRef.current !== workspaceModeKey) {
-    workspaceModeKeyRef.current = workspaceModeKey;
-    workspaceModeSettledRef.current = false;
-  }
   const lastWorkspacePayloadRef = useRef<string | null>(null);
   const touchWorkspace = useCallback(() => {
     workspaceTouchedRef.current = true;
@@ -369,7 +319,6 @@ export default function App() {
       workspaceTouchedRef.current = false;
       workspaceReconciledRef.current = false;
       setWorkspaceVisible(true);
-      setWorkspaceModeSettled(false);
       lastWorkspacePayloadRef.current = null;
     } else {
       setWorkspaceVisible(false);
@@ -386,7 +335,7 @@ export default function App() {
   // Reconcile only after the authenticated preference GET and file-module mode
   // are known. A local action during the GET wins over its stale response.
   useEffect(() => {
-    if (!auth.isLoggedIn || uiArtifactsLoading || !workspaceModeSettledRef.current || !workspaceModeSettled || !fileWorkspacePref.loaded || workspaceReconciledRef.current) return;
+    if (!auth.isLoggedIn || uiArtifactsLoading || !fileWorkspacePref.loaded || workspaceReconciledRef.current) return;
     const result = reconcileFileWorkspace(
       {
         openTabs: openFilesRef.current,
@@ -407,7 +356,7 @@ export default function App() {
     );
     lastWorkspacePayloadRef.current = JSON.stringify(payload);
     if (result.source === "server") {
-      persistHostWorkspace(localStorage, result.snapshot, false);
+      persistHostWorkspace(localStorage, result.snapshot);
       setOpenFiles(result.snapshot.openTabs);
       setActiveFile(result.snapshot.active);
       setPreviewFile(result.snapshot.preview);
@@ -416,7 +365,7 @@ export default function App() {
       fileWorkspacePref.setValue(payload);
     }
     setWorkspaceVisible(true);
-  }, [auth.isLoggedIn, fileWorkspacePref.loaded, fileWorkspacePref.serverValue, fileWorkspacePref.setValue, uiArtifactsLoading, workspaceModeSettled]);
+  }, [auth.isLoggedIn, fileWorkspacePref.loaded, fileWorkspacePref.serverValue, fileWorkspacePref.setValue, uiArtifactsLoading]);
 
   // Persist complete normalized snapshots after bootstrap. This deliberately has
   // last-successful-write-wins behavior, matching activity-bar preferences.
@@ -442,8 +391,8 @@ export default function App() {
   const openHostWorkspaceTab = useCallback((path: string) => {
     touchWorkspace();
     const p = path.replace(/^\.\//, "");
-    // Aggregate file mode still needs ui:file; contextual mode never reopens it.
-    if (p === FILE_AGGREGATE_TAB && contextualFileTabsRef.current) return;
+    // Ordinary files are host tabs; the aggregate ui:file tab is never opened.
+    if (p === FILE_AGGREGATE_TAB) return;
     setOpenFiles((files) => files.includes(p) ? files : [...files, p]);
     setActiveFile(p);
     // Pin preview if this file is the current preview (opened via non-preview action)
@@ -460,13 +409,6 @@ export default function App() {
     line?: number,
   ) => {
     touchWorkspace();
-    if (!contextualFileTabsRef.current) {
-      openHostWorkspaceTab(FILE_AGGREGATE_TAB);
-      // Single publish for the aggregate module; callers must not re-publish.
-      publishFileOpenAction(path, vmName, workDir, line);
-      if (window.innerWidth < 768) setChatListOpen(false);
-      return;
-    }
     const tab = makeFileTab(path, vmName, workDir);
     const { snapshot: next, history: nextHistory } = openOrdinaryWorkspaceTabWithHistory(
       {
@@ -492,7 +434,7 @@ export default function App() {
       setSidebarOpen(false);
       setChatListOpen(false);
     }
-  }, [openHostWorkspaceTab, touchWorkspace]);
+  }, [touchWorkspace]);
 
   const openOrdinaryFile = useCallback((
     path: string,
@@ -502,88 +444,18 @@ export default function App() {
     workDir: string | null = effectiveWorkDir ?? null,
   ) => {
     const p = path.replace(/^\.\//, "");
-    // applyOrdinaryOpen publishes once in aggregate mode; contextual mode has no
-    // retained open action consumer.
     applyOrdinaryOpen(p, vmName, workDir, preview, line);
   }, [applyOrdinaryOpen, selectedVM, effectiveWorkDir]);
 
   const handleOpenFile = useCallback((path: string, line?: number) => {
     const p = path.replace(/^\.\//, "");
     if (isOrdinaryFilePath(p)) {
-      // Explicit non-preview open pins (contextual) or opens aggregate ui:file.
+      // Explicit non-preview open pins the tab.
       openOrdinaryFile(p, line, false);
       return;
     }
     openHostWorkspaceTab(p);
   }, [openHostWorkspaceTab, openOrdinaryFile]);
-
-  // Staged rollout: migrate once a contextual file module is active; collapse
-  // back to one ui:file when rolled back to aggregate file v7/v10; remigrate
-  // from retained sources when contextual mode returns. Leaves file.workspace.v2
-  // untouched as the module's rollback source.
-  useEffect(() => {
-    if (uiArtifactsLoading) return;
-    setWorkspaceModeSettled(false);
-    // Prefer the live strip (still holds ui:file while collapsed). Stored openFiles
-    // may already have been rewritten by the earlier persistence effect on the same
-    // render when contextualFileTabs flipped true (round-12).
-    const liveOpenTabs = openFilesRef.current;
-    let hostOpenTabs = liveOpenTabs;
-    if (!liveOpenTabs.includes(FILE_AGGREGATE_TAB)) {
-      try {
-        const stored = (JSON.parse(localStorage.getItem("openFiles") || "[]") as string[])
-          .filter((p) => isPersistableTab(p) || p.startsWith("["))
-          .filter((p) => !RETIRED_TABS.has(p));
-        if (stored.length) hostOpenTabs = stored;
-      } catch { /* keep live openFiles */ }
-    }
-    const transition = resolveFileWorkspaceModeTransition({
-      contextual: contextualFileTabs,
-      modulesKnown: true,
-      storage: localStorage,
-      openTabs: hostOpenTabs,
-      active: activeFileRef.current ?? localStorage.getItem("activeFile"),
-      preview: previewFileRef.current ?? localStorage.getItem("previewFile"),
-      // Live ordinary descriptors only. Retained storage is read inside remigrate.
-      files: fileTabsRef.current,
-      isHostSpecialTab: (path) => isHostWorkspaceTab(path) && !RETIRED_TABS.has(path),
-      isPersistable: isPersistableTab,
-    });
-    if (transition.type === "none") {
-      workspaceModeSettledRef.current = true;
-      setWorkspaceModeSettled(true);
-      return;
-    }
-    if (transition.type === "migrate" || transition.type === "remigrate") {
-      if (!persistHostWorkspace(localStorage, transition.snapshot, true)) {
-        workspaceModeSettledRef.current = true;
-        setWorkspaceModeSettled(true);
-        return;
-      }
-      try { localStorage.removeItem(HOST_FILE_TABS_COLLAPSED_KEY); } catch { /* ignore */ }
-    } else if (transition.type === "collapse") {
-      // Rewrite live host tabs only. Keep migration marker + descriptors +
-      // file.workspace.v2; set the collapsed flag so reload preserves ui:file.
-      try {
-        localStorage.setItem("openFiles", JSON.stringify(transition.snapshot.openTabs));
-        if (transition.snapshot.active) localStorage.setItem("activeFile", transition.snapshot.active);
-        else localStorage.removeItem("activeFile");
-        localStorage.removeItem("previewFile");
-        localStorage.setItem(HOST_FILE_TABS_COLLAPSED_KEY, "true");
-      } catch { /* quota — still apply in-memory collapse */ }
-    }
-    setOpenFiles(transition.snapshot.openTabs);
-    setActiveFile(transition.snapshot.active);
-    setPreviewFile(transition.snapshot.preview);
-    setFileTabs(transition.snapshot.files);
-    if (transition.type === "collapse") {
-      setFileDirty({});
-      setFileFocus({});
-      setFileSearchOpen(false);
-    }
-    workspaceModeSettledRef.current = true;
-    setWorkspaceModeSettled(true);
-  }, [contextualFileTabs, uiArtifactsLoading]);
 
   // Contract v3 (plan sub-task S0, pages/plan-2979-calendar-dynamic-ui.md
   // Part D): give any artifact's `openArtifactDetail(slug)` call the same
@@ -963,15 +835,13 @@ export default function App() {
   // selectedVM + effectiveWorkDir.
   usePublishFileContext(null, currentVmWorkDir ?? null, selectedVM, effectiveWorkDir ?? null);
 
-  // Plan 3084 H3/H4: ordinary file.open opens a host tab when contextual; search
-  // opens the host dialog with the caller's VM/work-dir context; remap/remove/
-  // dirty are context-scoped host commands. Aggregate ui:file remains until a
-  // contextual file module is active.
+  // Plan 3084 H3/H4: ordinary file.open opens a host tab; search opens the host
+  // dialog with the caller's VM/work-dir context; remap/remove/dirty are
+  // context-scoped host commands.
   useEffect(() => {
     const unregisterFileOpen = registerHostCommand("file.open", (payload) => {
       const parsed = fileOpenPayload(payload);
       if (!parsed) return;
-      // applyOrdinaryOpen publishes once in aggregate mode; no second publish.
       applyOrdinaryOpen(parsed.path, parsed.vmName, parsed.workDir, true, parsed.line);
     });
     const unregisterFileClose = registerHostCommand("file.close", (payload) => {
@@ -979,18 +849,9 @@ export default function App() {
         handleCloseFile((payload as { tabId: string }).tabId);
         return;
       }
-      // Compatibility: close aggregate tab if still present mid-rollout.
-      if (openFilesRef.current.includes(FILE_AGGREGATE_TAB)) handleCloseFile(FILE_AGGREGATE_TAB);
     });
     const unregisterFileSearch = registerHostCommand("file.search", (payload) => {
       const { vmName, workDir } = fileSearchPayload(payload);
-      // Aggregate mode: only the module dialog. Contextual mode: only the host dialog.
-      if (!contextualFileTabsRef.current) {
-        setFileSearchOpen(false);
-        openHostWorkspaceTab(FILE_AGGREGATE_TAB);
-        publishFileSearchAction(vmName, workDir);
-        return;
-      }
       setFileSearchContext({ vmName, workDir });
       setFileSearchOpen(true);
     });
@@ -1026,7 +887,7 @@ export default function App() {
       unregisterFileRemap();
       unregisterFileRemove();
     };
-  }, [applyOrdinaryOpen, handleCloseFile, handleRemapOrdinaryFiles, handleRemoveOrdinaryFiles, openHostWorkspaceTab]);
+  }, [applyOrdinaryOpen, handleCloseFile, handleRemapOrdinaryFiles, handleRemoveOrdinaryFiles]);
 
   useEffect(() => { localStorage.setItem("chatHide", String(chatHide)); }, [chatHide]);
   useEffect(() => { if (selectedChatId) localStorage.setItem("selectedChatId", selectedChatId); else localStorage.removeItem("selectedChatId"); }, [selectedChatId]);
@@ -1122,15 +983,9 @@ export default function App() {
   chatHideRef.current = chatHide;
 
   const openFileSearch = useCallback(() => {
-    if (!contextualFileTabsRef.current) {
-      setFileSearchOpen(false);
-      openHostWorkspaceTab(FILE_AGGREGATE_TAB);
-      publishFileSearchAction(selectedVM, effectiveWorkDir ?? null);
-      return;
-    }
     setFileSearchContext({ vmName: selectedVM, workDir: effectiveWorkDir ?? null });
     setFileSearchOpen(true);
-  }, [openHostWorkspaceTab, selectedVM, effectiveWorkDir]);
+  }, [selectedVM, effectiveWorkDir]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
