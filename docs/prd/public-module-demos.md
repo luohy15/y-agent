@@ -3,10 +3,12 @@ title: Public Module Demos
 type: prd
 project: y-agent
 feature: public-module-demos
-status: active
+status: retired
 ---
 
 # Public Module Demos
+
+> **Retired (todo 3739).** The `/demo` application, the anonymous `public-demo` / `public-bundle` routes, the `demo` module export and the `ui_public` write path were removed. `/demo` now falls through to the normal app. The `module_version.ui_public` column remains inert. This document is kept as history only.
 
 ## Problem Statement
 

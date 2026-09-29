@@ -285,9 +285,8 @@ remains so. No mailbox mutation, no scope change, no new Gmail surface.
 
 ### No public demo surface
 
-Email is personal correspondence. The module does not publish `ui_public` and
-adds no `/demo` surface, so no fictional mailbox has to be maintained and no
-anonymous path can reach the domain.
+Email is personal correspondence. The module adds no public demo surface, and
+no anonymous path can reach the domain.
 
 ### Staged sequencing
 

@@ -154,7 +154,7 @@ entity + controller + service + CLI slices, and most have a web panel.
   records claims; only `shell` is enforced from the column. Publish is gated on
   `Y_AGENT_MODULE_MAINTAINER_USER_ID` (fail-closed when unset). Per-version
   `dispatch_scope` defaults to `maintainer`; `authenticated` serves any logged-in
-  user. `ui_public` is published but inert (no anonymous backend dispatch). Module
+  user. `ui_public` is retired and inert (no longer written; no anonymous delivery or dispatch). Module
   owns entities/repos/SQL/hand-applied migrations; host owns auth, sessions,
   dependencies, VM execution. `y module schema-sql` prints DDL only; migrations
   stay expand-only while older versions are rollback-reachable. Kernel tables may
@@ -298,7 +298,7 @@ exceptions noted):
 - **Provider status**: `provider_status_source`, `provider_status_component`,
   `provider_status_incident`, `provider_status_incident_update`, `provider_status_event`
 - **Modules**: `module`, `module_version` (identity + immutable API/UI version rows;
-  a version also carries its own `dispatch_scope`, `ui_surfaces`, and `ui_public`, so
+  a version also carries its own `dispatch_scope` and `ui_surfaces` (legacy inert `ui_public` column retained), so
   exposure and claimed host slots roll back with the code)
 - **Configuration**: `bot_config`, `bot_route_state`, `vm_config` (legacy physical
   column `vm_config.finance_config` is intentionally retained for a later contract).

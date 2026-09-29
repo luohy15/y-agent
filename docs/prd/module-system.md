@@ -441,7 +441,7 @@ code was written for and a republish must re-state it:
 |---|---|---|
 | `dispatch_scope` | `maintainer` (default) / `authenticated` | Who may reach `/api/module/<slug>/*` and see the module in `GET /api/module/list`. |
 | `ui_surfaces` | comma list drawn from `panel` / `detail` / `shell` (default `panel`) | Which host slots this version **claims**. |
-| `ui_public` | boolean (default `false`) | Opt-in for anonymous delivery of UI bytes (public demo lookup and public bundle). Never opens backend dispatch. |
+| `ui_public` | boolean (default `false`) | Retired and inert (todo 3739): no longer written, never read. The column stays to avoid a migration. |
 
 **`dispatch_scope` widens the caller, never the owner.** The dispatcher still
 resolves and loads the *maintainer's* active version — one owner, one code
@@ -506,11 +506,10 @@ failed write restores the last confirmed set; Retry resends the same intended
 value. The stored set is last-successful-write-wins. A second device sees it on
 load or refocus, not by push. Slugs are not pruned when discovery omits them.
 
-**`ui_public` gates anonymous UI-byte delivery.** It is the version-level opt-in
-for public demo lookup and public bundle routes (Option B of
-`pages/decision-3042-public-dispatch-scope.md`: anonymous *UI bytes only*, never
-anonymous backend dispatch). Host public-demo routes consume it; *Unauthenticated
-module routes* (backend dispatch) remain out of scope.
+**`ui_public` is retired and inert (todo 3739).** It once gated anonymous
+UI-byte delivery for the public demo routes; those routes and the publish flag
+were removed, and the column is kept only to avoid a migration. There is no
+anonymous module delivery and no anonymous backend dispatch.
 
 ### The host surface: a kernel, not a data layer
 
@@ -936,7 +935,7 @@ module_version
   icon
   min_host_version     browser contract floor
   ui_surfaces          claimed host slots: comma list of panel/detail/shell
-  ui_public            opt-in: anonymous UI-byte delivery (public demo/bundle; never backend dispatch)
+  ui_public            retired, inert (todo 3739); column kept, no longer written
   -- API part (nullable: a UI-only module has none)
   api_sha256
   api_storage_key
@@ -1137,7 +1136,7 @@ surface asks the host to confirm before a refresh discards an unsaved draft;
 cancelling leaves both stages unstarted, because a revalidation whose fresh
 payload no longer contains the edited record destroys the draft just as a
 remount does. It is a guard, not a capability gate. Both hooks are pure state with no network
-access, so both are on the public demo's allowlist; a module published at v18
+access; a module published at v18
 refuses to mount on an older host. Requirements and which per-module buttons
 move live in [web-refresh-policy](web-refresh-policy.md). Browser contract
 **v18 → v19** (todo 3680) extends the same registry/middleware wrapping to
@@ -1243,8 +1242,7 @@ than copying the presentation into y-module or keeping a second path behind the
 reserved `trace.md` tab. Narrow host-command adapters cover the callbacks the
 exported view needs (`link.open`, `calendar.focusDate`, `trace.clearRoute`;
 `chat.open` / `file.open` are reused). Public `/t/:shareId` keeps injecting the
-same leaf read-only; the public demo's fictional module-local trace remains an
-explicit exception. Host deploy A must land before any Todo module publish that
+same leaf read-only. Host deploy A must land before any Todo module publish that
 depends on v10, because `build.mjs` stamps `min_host_version` from
 `contract.json`.
 
@@ -1410,9 +1408,8 @@ hook, both of which cost more than the single-user failure mode justifies.
   model must be revisited.
 - **Sharing modules between users, or a module marketplace.**
 - **Unauthenticated module routes.** The public-route allowlist stays host-owned.
-  `module_version.ui_public` is the live opt-in for anonymous *UI-bytes* delivery
-  (public demo lookup and public bundle); anonymous backend dispatch is not on
-  the table (`pages/decision-3042-public-dispatch-scope.md`).
+  `module_version.ui_public` is retired and inert (todo 3739); anonymous backend
+  dispatch is not on the table (`pages/decision-3042-public-dispatch-scope.md`).
 - **Automatic rollback on failure.** Failure surfaces an explicit error; it does
   not silently change what is live.
 - **Migrating domains other than finance.** Existing UI-only artifacts are

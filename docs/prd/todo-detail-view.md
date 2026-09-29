@@ -272,11 +272,6 @@ Test observable behavior at the surface boundary, not the internal state shape:
   and the host History section stay.
 - **New todo actions or permission changes.** Existing actions carry over with
   identical permissions; nothing is added, widened, or narrowed.
-- **The public demo's fictional trace view.** The Todo module's demo keeps its
-  module-local fictional trace presentation by the explicit todo 3158 scope
-  exception; it is not the authority for authenticated traces and is not the
-  duplicate this feature removes. Boundary with
-  [public-module-demos](public-module-demos.md).
 - **Changing the public trace share page's own contract.** Its token-scoped,
   read-only projection and share/password rules stay owned by their existing
   feature.
