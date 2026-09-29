@@ -7,16 +7,6 @@ from fastapi import APIRouter, HTTPException, Query, Request
 router = APIRouter(prefix="/terminal")
 
 
-async def _run_cmd(vm_config, cmd: list[str], timeout: float = 300) -> str:
-    from agent.tools.local_exec import local_exec
-    from agent.tools.ssh_exec import ssh_exec
-
-    work_dir = vm_config.work_dir if vm_config else None
-    if not vm_config or not vm_config.api_token:
-        return await local_exec(cmd, None, timeout, cwd=work_dir)
-    return await ssh_exec(vm_config, cmd, None, dir=work_dir or None, timeout=timeout)
-
-
 @router.post("/run")
 async def run_command(request: Request, vm_name: str = Query(None), work_dir: str = Query(None)):
     user_id = request.state.user_id
@@ -26,12 +16,13 @@ async def run_command(request: Request, vm_name: str = Query(None), work_dir: st
         raise HTTPException(status_code=400, detail="Empty command")
 
     from agent.config import resolve_vm_config
+    from agent.vm_command import execute_vm_command
     vm_config = resolve_vm_config(user_id, vm_name)
     if work_dir:
         vm_config = dataclasses.replace(vm_config, work_dir=work_dir)
 
     try:
-        result = await _run_cmd(vm_config, ["bash", "-c", cmd])
+        result = await execute_vm_command(vm_config, ["bash", "-c", cmd], timeout=300)
         return {"output": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

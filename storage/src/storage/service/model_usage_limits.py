@@ -14,7 +14,7 @@ under key `usage_limits_latest` (see "persisted snapshot" below), so ordinary
 `refresh=False`) are a plain preference lookup here and never touch the VM.
 The live provider read itself still happens in the `y` CLI on the user's VM
 and is still SSH'd into from the `agent` package (which needs `agent.config` /
-`agent.tool_base`, and `storage` must not depend on `agent`, the reverse of
+`agent.vm_command`, and `storage` must not depend on `agent`, the reverse of
 the existing dependency direction) — but only from
 `agent.usage_limits.refresh_and_persist_snapshot`, called by the 30-minute
 worker sweep and by the explicit `?refresh=true` retry, not from every poll.

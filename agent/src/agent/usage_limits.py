@@ -2,7 +2,7 @@
 that backs the persisted snapshot: resolve the user's VM, SSH-exec
 `y usage limits --json` (mirroring worker/downloaders/ssh.py), and normalize
 the result via storage.service.model_usage_limits. Lives in `agent` (not
-`storage`) because it needs agent.tool_base / agent.ec2_wake, and storage
+`storage`) because it needs agent.vm_command / agent.ec2_wake, and storage
 must not depend on agent (agent already depends on storage).
 
 todo 3226: ordinary `GET /api/usage/limits` reads no longer land here at all
@@ -36,7 +36,7 @@ from concurrent.futures import ThreadPoolExecutor
 from loguru import logger
 
 from agent.ec2_wake import is_vm_asleep
-from agent.tool_base import Tool
+from agent.vm_command import execute_vm_command
 from storage.database.base import statement_timeout
 from storage.service import model_usage_limit_history as limit_history
 from storage.service import model_usage_limits as limits
@@ -166,15 +166,6 @@ def _lock_name(user_id: int) -> str:
     return f"refresh_usage_limits:{user_id}"
 
 
-class _CmdRunner(Tool):
-    name = "_cmd_runner"
-    description = ""
-    parameters = {}
-
-    async def execute(self, arguments):
-        pass
-
-
 async def _run_usage_limits_cli(vm_config, refresh: bool = False) -> str:
     """Run `y usage limits --json` on the user's VM and return raw stdout.
     `refresh` appends `--refresh`, telling the CLI to bypass its own on-VM
@@ -182,8 +173,7 @@ async def _run_usage_limits_cli(vm_config, refresh: bool = False) -> str:
     cmd = ["y", "usage", "limits", "--json"]
     if refresh:
         cmd.append("--refresh")
-    runner = _CmdRunner(vm_config)
-    return await runner.run_cmd(cmd, timeout=_CLI_TIMEOUT_SECONDS)
+    return await execute_vm_command(vm_config, cmd, timeout=_CLI_TIMEOUT_SECONDS)
 
 
 def _error_code(e: Exception) -> str:

@@ -76,7 +76,7 @@ Allowlist (pure functions, no DB, no entity, no repository):
     (get_utc_iso8601_timestamp, get_unix_timestamp, local_today)
 
 Explicit non-list (modules must not reach for these):
-  - agent.tool_base.Tool or any Tool subclass
+  - agent.vm_command / agent.tools executors
   - paramiko / boto3 objects or credentials
   - raw SQLAlchemy Engine / SessionLocal
   - any host repository or service other than the allowlist above
