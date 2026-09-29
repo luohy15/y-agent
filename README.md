@@ -38,24 +38,11 @@ See a [real task trace](https://yovy.app/t/6fc5c4) or browse the [capability ref
 
 ## Get started
 
-### Use an existing instance
+This is my personal system, not a hosted service or a supported product. It is not supported for public use or third-party deployment.
 
-Open its web UI and sign in. For terminal access, install [uv](https://docs.astral.sh/uv/) and Python 3.11+, then:
+If you're an advanced user who wants to deploy your own, use this project and the [self-hosting documentation](docs/self-host.md) as a reference, not a turnkey installation guide. Expect to adapt the code and infrastructure to your environment and maintain them yourself.
 
-```bash
-git clone https://github.com/luohy15/y-agent.git
-cd y-agent
-uv tool install --force -e ./cli
-y login
-```
-
-The CLI defaults to `https://yovy.app`. Set `Y_AGENT_WEB_URL` to use another instance. Signing in is not a self-hosted installation; you don't need a local API or worker to use an existing server. See the [web guide](docs/getting-started.md) and [CLI guide](docs/cli.md).
-
-### Run your own
-
-This is a personal, self-hosted system, not a one-command appliance. You'll need Python 3.11+, uv, Node.js 20+, PostgreSQL, and a configured execution VM with Claude Code, SSH, and tmux. AWS deployment adds the Lambda/SQS infrastructure and related services; model access and the optional relay are configured separately.
-
-Follow the [self-hosting guide](docs/self-host.md) for configuration, local API/web/worker commands, and AWS deployment. Domain modules live in a separate y-module repository; their source and published bundles are not included in this checkout. Backups, permissions, provider access, and infrastructure maintenance remain yours to manage.
+Domain modules live in a separate y-module repository; their source and published bundles are not included in this checkout. Backups, permissions, provider access, and infrastructure maintenance remain yours to manage.
 
 ## More
 
