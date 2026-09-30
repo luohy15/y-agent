@@ -105,10 +105,13 @@ class McpError(Exception):
         "provider_unavailable": 503, "auth_failed": 502,
     }
 
-    def __init__(self, code: str, message: str):
+    def __init__(self, code: str, message: str, *, reason: Optional[str] = None):
         super().__init__(message)
         self.code = code if code in self.STATUS else "provider_error"
         self.message = message
+        # Finer closed cause within a code (e.g. which `conflict`), for callers
+        # such as the backend host contract that must tell them apart.
+        self.reason = reason
 
     @property
     def status(self) -> int:
@@ -366,7 +369,7 @@ def _load(session, user_id: int, connector_id: Any, *, lock: bool = True) -> Mcp
 
 def _check_revision(row: McpConnectorEntity, expected: Any) -> None:
     if not isinstance(expected, int) or isinstance(expected, bool) or expected != row.config_revision:
-        raise McpError("conflict", "connector changed; reload and retry")
+        raise McpError("conflict", "connector changed; reload and retry", reason="stale_revision")
 
 
 def _bump(row: McpConnectorEntity) -> None:
@@ -602,7 +605,8 @@ def set_approved_tools(user_id: int, connector_id: str, *, expected_revision: An
         row = _load(session, user_id, connector_id)
         _check_revision(row, expected_revision)
         if discovery_revision != row.discovery_revision:
-            raise McpError("conflict", "tool discovery changed; review the current tool list")
+            raise McpError("conflict", "tool discovery changed; review the current tool list",
+                           reason="stale_discovery")
         if row.validated_identity_generation != row.identity_generation:
             raise McpError("not_ready", "discover tools before approving them")
         catalog_names = [tool["name"] for tool in _json_list(row.catalog)]
@@ -1249,6 +1253,29 @@ def launch_status(user_id: int, chat_id: Optional[str] = None) -> dict[str, Any]
                        "run_seq": launch.run_seq, "status": launch.status,
                        "created_at": launch.created_at, "connectors": items}
         return {"desired": desired, "applied": applied}
+
+
+def connector_launch_status(user_id: int, connector_id: Optional[str] = None,
+                            *, limit: int = 20) -> dict[str, Any]:
+    """Per connector: desired revision versus the snapshots held by live
+    launches (active and not idle-expired), newest first, at most `limit`."""
+    now = _now()
+    with get_db() as session:
+        if connector_id is None:
+            rows = repo.list_live_connectors(session, user_id)
+        else:
+            rows = [_load(session, user_id, connector_id, lock=False)]
+        out = []
+        for row in rows:
+            applied = [{"launch_id": launch.launch_id, "chat_id": launch.chat_id,
+                        "applied_config_revision": snap.config_revision,
+                        "identity_generation": snap.identity_generation,
+                        "status": snap.status, "error_code": snap.error_code}
+                       for snap, launch in repo.live_launch_snapshots(session, row.id, now, limit)]
+            out.append({"connector_id": row.connector_id, "name": row.name,
+                        "desired_enabled": bool(row.desired_enabled),
+                        "desired_config_revision": row.config_revision, "applied": applied})
+        return {"connectors": out}
 
 
 def cleanup_expired_state(now: Optional[int] = None) -> dict[str, int]:

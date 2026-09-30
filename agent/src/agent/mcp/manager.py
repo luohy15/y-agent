@@ -1,6 +1,6 @@
 """Host MCP operations that combine credential custody with network I/O.
 
-The backend host contract (v19 `mcp_*` capabilities) and the runtime gateway
+The backend host contract (v21 `mcp_*` capabilities) and the runtime gateway
 call these; they take the internal owner id and public connector ids, and
 return the same sanitized projections as `storage.service.mcp`. Database
 transactions never span network I/O: OAuth state is consumed and refresh

@@ -5,7 +5,7 @@ Session-level row access only; ownership, CAS and state transitions live in
 id of another owner behaves exactly like a missing one.
 """
 
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from storage.entity.mcp import (
     McpConnectorEntity, McpCredentialEntity, McpLaunchConnectorEntity, McpLaunchEntity,
@@ -118,3 +118,13 @@ def latest_launch_for_chat(session, user_id: int, chat_id: str) -> Optional[McpL
     return (session.query(McpLaunchEntity)
             .filter_by(user_id=user_id, chat_id=chat_id)
             .order_by(McpLaunchEntity.id.desc()).first())
+
+
+def live_launch_snapshots(session, connector_pk: int, now: int, limit: int
+                          ) -> List[Tuple[McpLaunchConnectorEntity, McpLaunchEntity]]:
+    return (session.query(McpLaunchConnectorEntity, McpLaunchEntity)
+            .join(McpLaunchEntity, McpLaunchConnectorEntity.launch_pk == McpLaunchEntity.id)
+            .filter(McpLaunchConnectorEntity.connector_pk == connector_pk,
+                    McpLaunchEntity.status == "active",
+                    McpLaunchEntity.expires_at_unix > now)
+            .order_by(McpLaunchEntity.id.desc()).limit(limit).all())

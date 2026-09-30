@@ -785,6 +785,22 @@ hydrated `_resolve_notes` batch lookup, not a new function or SQL fetch. The
 tag module raises its floor to 15 when it renders the field and sorts notes by
 it.
 
+Todo 3796 bumps the backend contract from 20 to **21** (v19 and v20 are todos
+3777 and 3781) with fourteen `mcp_*` connector capabilities (`mcp_list`,
+`mcp_get`, `mcp_create`, `mcp_update`, `mcp_set_enabled`,
+`mcp_set_static_headers`, `mcp_set_oauth_client`, `mcp_connect`,
+`mcp_oauth_status`, `mcp_discover_tools`, `mcp_set_approved_tools`,
+`mcp_disconnect`, `mcp_delete`, `mcp_launch_status`) and `MCP_ERROR_CODES`.
+Each is bound to the request owner *and* the configured maintainer, so a
+version published with `dispatch_scope: authenticated` still cannot reach
+connectors. A closed failure raises `ValueError` carrying only one of
+`not_found` / `stale_revision` / `stale_discovery` / `not_ready` /
+`unsupported` / `conflict` / `invalid`; no function returns a token, secret,
+header value or launch grant. The mcp module requires v21; deploy the host and
+apply its manual DDL before publishing it, and roll the module back before the
+host. Shapes: `code/y-module/mcp/README.md`; requirements:
+`docs/prd/mcp-connectors.md`.
+
 **v1 has shipped and been
 superseded**, so the versioning rule going forward is the plain one stated
 above: every later addition to the host surface is a version bump, and a module

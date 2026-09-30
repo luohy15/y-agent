@@ -60,6 +60,16 @@ The v15 surface enriches the existing `tag_get` note row shape with a nullable
 `created_at` ISO timestamp (the note row's own creation time), the same
 addition as v14 but for the note carrier instead of the todo carrier.
 
+The v21 surface adds owner-bound, configured-maintainer-only MCP connector
+management (todo 3796):
+  - mcp_list / mcp_get / mcp_create / mcp_update / mcp_set_enabled /
+    mcp_set_static_headers / mcp_set_oauth_client / mcp_connect /
+    mcp_oauth_status / mcp_discover_tools / mcp_set_approved_tools /
+    mcp_disconnect / mcp_delete / mcp_launch_status
+  - MCP_ERROR_CODES, the closed ValueError codes those functions raise
+Credentials are write-only through this surface: no function returns a token,
+secret, header value or launch grant.
+
 Every request-bound capability is bound to the authenticated request owner, like
 run_vm_command, so a module cannot read or overwrite another user's state. These
 capabilities are API-request-scoped only: the module CLI half has `cli_user_id()`
@@ -141,6 +151,11 @@ Todo 3781 adds optional closed `sort_by` / `sort_dir` parameters to
 `api_latency_routes` (rank all routes by the chosen field before the limit;
 default p95 desc is unchanged), bumping it from 19 to 20. Monitor requires v20;
 deploy the host before publishing Monitor, and roll Monitor back before the host.
+Todo 3796 adds the fourteen owner-bound, configured-maintainer-only `mcp_*`
+connector capabilities and `MCP_ERROR_CODES`, bumping 20 to 21 (v19 and v20
+are todos 3777 and 3781). The mcp module requires v21; deploy the host (and
+apply its manual DDL) before publishing it, and roll the module back or
+disable it before rolling the host below v21.
 Modules declare the minimum version they use and an
 older host rejects their bundle. Every later addition to the surface above
 bumps the version and, for modules that need it, `min_backend_version`.
@@ -160,7 +175,7 @@ from sqlalchemy.orm import Session
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-BACKEND_CONTRACT_VERSION = 20
+BACKEND_CONTRACT_VERSION = 21
 
 # Wall-clock budget for the wake="nowait" readiness check (todo 3777).
 NOWAIT_BUDGET_SECONDS = 1.0
@@ -1156,3 +1171,290 @@ def tag_delete_vocabulary(user_id: int, tag: str) -> dict[str, Any]:
     from storage.service import tag as tag_service
 
     return tag_service.delete_vocabulary(user_id, tag)
+
+
+# ---------------------------------------------------------------------------
+# v21 MCP connector capability (todo 3796)
+#
+# The host owns connector state, credential custody, OAuth, discovery and
+# launch enforcement. The mcp module receives only these owner-bound and
+# configured-maintainer-bound adapters, so a misconfigured module dispatch
+# scope still cannot reach another owner's connectors. Inputs are public ids
+# and closed typed values; outputs are sanitized dicts that never carry a
+# token, secret, header value, grant or provider error text.
+#
+# Failures: a request owner / maintainer mismatch raises ModuleHostAuthError.
+# A closed failure raises ValueError whose only argument is one of
+# MCP_ERROR_CODES; the host's own message is never passed through.
+# ---------------------------------------------------------------------------
+
+MCP_ERROR_CODES = (
+    "not_found", "stale_revision", "stale_discovery", "not_ready", "unsupported",
+    "conflict", "invalid",
+)
+_MCP_INVALID = frozenset({"invalid_input", "oauth_state_invalid", "oauth_state_expired"})
+_MCP_UNSUPPORTED = frozenset({"unsupported_oauth", "network_blocked"})
+
+
+def _require_mcp_owner(user_id: int) -> None:
+    owner = _request_owner.get()
+    if owner is None or owner != user_id:
+        raise ModuleHostAuthError(
+            f"MCP operation for user_id={user_id} does not match the authenticated "
+            f"request owner (bound={owner}); MCP connectors are request-bound"
+        )
+    from storage.service.user import get_module_maintainer_user_id
+
+    maintainer_id = get_module_maintainer_user_id()
+    if maintainer_id is None or owner != maintainer_id:
+        raise ModuleHostAuthError(
+            "MCP connectors are restricted to the configured module maintainer"
+        )
+
+
+def _mcp_code(err) -> str:
+    if err.code == "not_found":
+        return "not_found"
+    if err.code == "conflict":
+        return err.reason if err.reason in ("stale_revision", "stale_discovery") else "conflict"
+    if err.code in _MCP_INVALID:
+        return "invalid"
+    if err.code in _MCP_UNSUPPORTED:
+        return "unsupported"
+    # Authorization, key and provider-side failures: the connector cannot do
+    # this now; the recorded last-test / auth state carries the closed reason.
+    return "not_ready"
+
+
+def _mcp_call(user_id: int, fn, *args, **kwargs):
+    _require_mcp_owner(user_id)
+    from storage.service.mcp import McpError
+
+    try:
+        return fn(*args, **kwargs)
+    except McpError as err:
+        if err.code == "forbidden":
+            raise ModuleHostAuthError(
+                "MCP connectors are restricted to the configured module maintainer"
+            ) from None
+        raise ValueError(_mcp_code(err)) from None
+
+
+def _mcp_connector(raw: dict[str, Any]) -> dict[str, Any]:
+    """Host connector projection in the v21 capability shape."""
+    out = dict(raw)
+    last = out.pop("last_test", None) or {}
+    out["last_test_status"] = last.get("status")
+    out["last_test_error_code"] = last.get("error_code")
+    out["last_test_at_unix"] = last.get("at_unix")
+    out["catalog"] = out.pop("tools", [])
+    # A string token, and only while the catalog belongs to the current identity.
+    out["discovery_revision"] = str(raw["discovery_revision"]) if raw.get("validated") else None
+    out["has_static_headers"] = raw.get("auth_mode") == "static" and bool(raw.get("auth_ready"))
+    out["has_oauth_client"] = (raw.get("oauth") or {}).get("client_mode") == "manual"
+    return out
+
+
+def _mcp_discovery_revision(value: Any) -> int:
+    if isinstance(value, str) and value.isascii() and value.isdigit() and len(value) <= 18:
+        return int(value)
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    raise ValueError("invalid")
+
+
+def mcp_list(user_id: int) -> dict[str, Any]:
+    """{"connectors": [...]}: every live connector of the owner."""
+    from storage.service import mcp as svc
+
+    rows = _mcp_call(user_id, svc.list_connectors, user_id)
+    return {"connectors": [_mcp_connector(row) for row in rows]}
+
+
+def mcp_get(user_id: int, connector_id: str) -> dict[str, Any]:
+    from storage.service import mcp as svc
+
+    return _mcp_connector(_mcp_call(user_id, svc.get_connector, user_id, connector_id))
+
+
+def mcp_create(
+    user_id: int,
+    *,
+    name: str,
+    endpoint: Optional[str],
+    auth_mode: Optional[str],
+    preset: Optional[str],
+) -> dict[str, Any]:
+    """Create a disabled connector. preset "alphavantage" forces its endpoint."""
+    from storage.service import mcp as svc
+
+    return _mcp_connector(_mcp_call(
+        user_id, svc.create_connector, user_id,
+        name=name, endpoint=endpoint, auth_mode=auth_mode, preset=preset,
+    ))
+
+
+def mcp_update(
+    user_id: int,
+    connector_id: str,
+    *,
+    expected_config_revision: int,
+    name: Optional[str] = None,
+    endpoint: Optional[str] = None,
+    auth_mode: Optional[str] = None,
+) -> dict[str, Any]:
+    """Rename, or change endpoint / auth mode (an identity change clears
+    validation, approval, enablement and credentials)."""
+    from storage.service import mcp as svc
+
+    return _mcp_connector(_mcp_call(
+        user_id, svc.update_connector, user_id, connector_id,
+        expected_revision=expected_config_revision,
+        name=name, endpoint=endpoint, auth_mode=auth_mode,
+    ))
+
+
+def mcp_set_enabled(
+    user_id: int, connector_id: str, *, enabled: bool, expected_config_revision: int
+) -> dict[str, Any]:
+    """Desired state only; applies at the next process launch."""
+    from storage.service import mcp as svc
+
+    return _mcp_connector(_mcp_call(
+        user_id, svc.set_enabled, user_id, connector_id,
+        expected_revision=expected_config_revision, enabled=enabled,
+    ))
+
+
+def mcp_set_static_headers(
+    user_id: int,
+    connector_id: str,
+    *,
+    expected_config_revision: int,
+    headers: Optional[dict[str, str]],
+    clear: bool,
+) -> dict[str, Any]:
+    """Replace (headers, clear=False) or clear (headers=None, clear=True) the
+    write-only static header credential."""
+    _require_mcp_owner(user_id)
+    if not isinstance(clear, bool) or clear != (headers is None):
+        raise ValueError("invalid")
+    from storage.service import mcp as svc
+
+    return _mcp_connector(_mcp_call(
+        user_id, svc.set_static_headers, user_id, connector_id,
+        expected_revision=expected_config_revision, headers=headers,
+    ))
+
+
+def mcp_set_oauth_client(
+    user_id: int,
+    connector_id: str,
+    *,
+    expected_config_revision: int,
+    client_id: Optional[str],
+    client_secret: Optional[str],
+    clear: bool,
+) -> dict[str, Any]:
+    """Store a manually registered OAuth client, or clear it (clear=True, both
+    None) to use dynamic client registration. Either replaces the identity."""
+    _require_mcp_owner(user_id)
+    if not isinstance(clear, bool):
+        raise ValueError("invalid")
+    if clear and (client_id is not None or client_secret is not None):
+        raise ValueError("invalid")
+    if not clear and client_id is None:
+        raise ValueError("invalid")
+    from storage.service import mcp as svc
+
+    return _mcp_connector(_mcp_call(
+        user_id, svc.set_oauth_client, user_id, connector_id,
+        expected_revision=expected_config_revision,
+        client_id=client_id, client_secret=client_secret,
+    ))
+
+
+def mcp_connect(user_id: int, connector_id: str) -> dict[str, Any]:
+    """Start an OAuth authorization on the host's fixed callback.
+
+    Returns {"authorization_url", "transaction_id", "expires_at_unix"}; never
+    a token. Performs provider metadata discovery / registration over the
+    network, so it blocks for up to the host egress deadline.
+    """
+    from agent.mcp import manager
+
+    return dict(_mcp_call(user_id, manager.connect, user_id, connector_id))
+
+
+def mcp_oauth_status(user_id: int, connector_id: str, transaction_id: str) -> dict[str, Any]:
+    """{"transaction_id", "connector_id", "status", "error_code",
+    "expires_at_unix"}; status is pending / exchanging / succeeded / denied /
+    failed / expired / superseded."""
+    from storage.service import mcp as svc
+
+    status = _mcp_call(user_id, svc.get_oauth_status, user_id, transaction_id)
+    if status.get("connector_id") != connector_id:
+        raise ValueError("not_found")
+    return status
+
+
+def mcp_discover_tools(user_id: int, connector_id: str) -> dict[str, Any]:
+    """Authenticated tools/list only (never a tool call); records the catalog
+    and last test, and returns the connector. Blocks on the network."""
+    from agent.mcp import manager
+
+    return _mcp_connector(_mcp_call(user_id, manager.discover_tools, user_id, connector_id))
+
+
+def mcp_set_approved_tools(
+    user_id: int,
+    connector_id: str,
+    *,
+    expected_config_revision: int,
+    discovery_revision: str,
+    tool_names: List[str],
+) -> dict[str, Any]:
+    """Approve an explicit (possibly empty) list against the discovery
+    snapshot the caller saw. There is no wildcard."""
+    _require_mcp_owner(user_id)
+    if not isinstance(tool_names, list):
+        raise ValueError("invalid")
+    revision = _mcp_discovery_revision(discovery_revision)
+    from storage.service import mcp as svc
+
+    return _mcp_connector(_mcp_call(
+        user_id, svc.set_approved_tools, user_id, connector_id,
+        expected_revision=expected_config_revision, discovery_revision=revision,
+        tools=list(tool_names),
+    ))
+
+
+def mcp_disconnect(user_id: int, connector_id: str, *, expected_config_revision: int) -> dict[str, Any]:
+    """Destroy every reusable credential locally, then revoke at the provider
+    best effort; `revocation` reports that outcome honestly."""
+    from agent.mcp import manager
+
+    raw = _mcp_call(user_id, manager.disconnect, user_id, connector_id,
+                    expected_revision=expected_config_revision)
+    revocation = raw.pop("revocation", None)
+    out = _mcp_connector(raw)
+    out["revocation"] = revocation
+    return out
+
+
+def mcp_delete(user_id: int, connector_id: str, *, expected_config_revision: int) -> dict[str, Any]:
+    """{"connector_id", "deleted": True, "revocation"}."""
+    from agent.mcp import manager
+
+    return dict(_mcp_call(user_id, manager.delete, user_id, connector_id,
+                          expected_revision=expected_config_revision))
+
+
+def mcp_launch_status(user_id: int, connector_id: Optional[str] = None) -> dict[str, Any]:
+    """{"connectors": [{"connector_id", "name", "desired_enabled",
+    "desired_config_revision", "applied": [{"launch_id", "chat_id",
+    "applied_config_revision", "identity_generation", "status",
+    "error_code"}]}]}; applied rows are live launches, newest first."""
+    from storage.service import mcp as svc
+
+    return _mcp_call(user_id, svc.connector_launch_status, user_id, connector_id)
