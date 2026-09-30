@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from loguru import logger
 from sqlalchemy import func, or_, text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import defer
+from sqlalchemy.orm import load_only
 
 from storage.entity.chat import ChatEntity
 from storage.entity.user import UserEntity  # noqa: F401 - needed for ChatEntity FK resolution
@@ -155,9 +155,31 @@ async def list_chats(
 ) -> List[ChatSummary]:
     sort_by, sort_order = resolve_chat_list_order(sort_by, sort_order)
     with get_db() as session:
-        q = (session.query(ChatEntity)
-             .filter_by(user_id=user_id)
-             .options(defer(ChatEntity.json_content)))
+        q = (
+            session.query(ChatEntity)
+            .filter_by(user_id=user_id)
+            .options(
+                load_only(
+                    ChatEntity.id,
+                    ChatEntity.chat_id,
+                    ChatEntity.title,
+                    ChatEntity.created_at,
+                    ChatEntity.updated_at,
+                    ChatEntity.created_at_unix,
+                    ChatEntity.updated_at_unix,
+                    ChatEntity.topic,
+                    ChatEntity.skill,
+                    ChatEntity.trace_id,
+                    ChatEntity.routine_id,
+                    ChatEntity.backend,
+                    ChatEntity.bot_name,
+                    ChatEntity.tier,
+                    ChatEntity.status,
+                    ChatEntity.unread,
+                    ChatEntity.needs_attention,
+                )
+            )
+        )
         if query:
             q = q.filter(or_(
                 ChatEntity.title.ilike(f"%{query}%"),
@@ -180,20 +202,17 @@ async def list_chats(
             q = q.filter(ChatEntity.tier == tier)
         if bot_name:
             q = q.filter(ChatEntity.bot_name == bot_name)
-        # Routine name<->id is resolved here: chats only store routine_id, but the UI
-        # filters/displays by the friendlier routine name. Build a per-user id->name
-        # map once, used both to filter (name -> ids) and to annotate each row.
+        # Chats store routine_id. A name filter is a subquery, and the display
+        # name is looked up only for the ids on the returned page.
         from storage.entity.routine import RoutineEntity
-        routine_name_by_id = {
-            r_id: r_name
-            for r_id, r_name in session.query(RoutineEntity.routine_id, RoutineEntity.name)
-            .filter_by(user_id=user_id).all()
-        }
         if routine_id:
             q = q.filter(ChatEntity.routine_id == routine_id)
         if routine_name:
-            matching_ids = [rid for rid, rname in routine_name_by_id.items() if rname == routine_name]
-            q = q.filter(ChatEntity.routine_id.in_(matching_ids or [""]))
+            named_ids = session.query(RoutineEntity.routine_id).filter(
+                RoutineEntity.user_id == user_id,
+                RoutineEntity.name == routine_name,
+            )
+            q = q.filter(ChatEntity.routine_id.in_(named_ids))
         if routine_only:
             q = q.filter(ChatEntity.routine_id.isnot(None), ChatEntity.routine_id != "")
         if status:
@@ -228,6 +247,18 @@ async def list_chats(
                  .offset(offset)
                  .limit(limit)
                  .all())
+        page_routine_ids = [row.routine_id for row in rows if row.routine_id]
+        routine_name_by_id = {}
+        if page_routine_ids:
+            routine_name_by_id = {
+                r_id: r_name
+                for r_id, r_name in session.query(
+                    RoutineEntity.routine_id, RoutineEntity.name
+                ).filter(
+                    RoutineEntity.user_id == user_id,
+                    RoutineEntity.routine_id.in_(page_routine_ids),
+                ).all()
+            }
         return [
             ChatSummary(
                 chat_id=row.chat_id,

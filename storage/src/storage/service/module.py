@@ -8,7 +8,7 @@ Versions are never mutated after insert.
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from storage.dto.module import Module
 from storage.dto.module_version import ModuleVersion
 from storage.repository import module as module_repo
@@ -58,6 +58,12 @@ def get_module(user_id: int, module_id: str) -> Optional[Module]:
 
 def get_module_by_slug(user_id: int, slug: str) -> Optional[Module]:
     return module_repo.get_module_by_slug(user_id, slug)
+
+
+def get_active_version_by_slug(
+    user_id: int, slug: str
+) -> Tuple[Optional[Module], Optional[ModuleVersion]]:
+    return module_repo.get_active_version_by_slug(user_id, slug)
 
 
 def list_modules(user_id: int, enabled_only: bool = False) -> List[Module]:

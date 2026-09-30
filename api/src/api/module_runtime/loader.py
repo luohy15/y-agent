@@ -150,7 +150,7 @@ def load_from_bytes(
 
 def resolve_active_version(user_id: int, slug: str) -> ModuleVersion:
     """Resolve and validate an owner's active API version without importing it."""
-    module = module_service.get_module_by_slug(user_id, slug)
+    module, version = module_service.get_active_version_by_slug(user_id, slug)
     if not module:
         raise ModuleNotFoundError(slug, f"module {slug!r} not found")
     if not module.enabled:
@@ -158,7 +158,6 @@ def resolve_active_version(user_id: int, slug: str) -> ModuleVersion:
     if not module.active_version_id:
         raise ModuleNoApiError(slug, f"module {slug!r} has no active version")
 
-    version = module_service.get_version(user_id, module.active_version_id)
     if not version:
         raise ModuleNotFoundError(
             slug,

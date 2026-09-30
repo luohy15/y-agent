@@ -1,9 +1,12 @@
 """Function-based module repository."""
 
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from storage.entity.module import ModuleEntity
+from storage.entity.module_version import ModuleVersionEntity
 from storage.dto.module import Module
+from storage.dto.module_version import ModuleVersion
 from storage.database.base import get_db
+from storage.repository.module_version import _entity_to_dto as _version_to_dto
 
 
 def _entity_to_dto(entity: ModuleEntity) -> Module:
@@ -46,6 +49,33 @@ def get_module_by_slug(user_id: int, slug: str) -> Optional[Module]:
         if not entity:
             return None
         return _entity_to_dto(entity)
+
+
+def get_active_version_by_slug(
+    user_id: int, slug: str
+) -> Tuple[Optional[Module], Optional[ModuleVersion]]:
+    """Module row plus its active version, or (None, None) when the slug is absent.
+
+    One outer join: a module with no matching version still returns the module
+    and a None version so the caller can tell "no such module" from "pointer
+    does not resolve".
+    """
+    with get_db() as session:
+        row = (
+            session.query(ModuleEntity, ModuleVersionEntity)
+            .outerjoin(
+                ModuleVersionEntity,
+                (ModuleVersionEntity.user_id == ModuleEntity.user_id)
+                & (ModuleVersionEntity.version_id == ModuleEntity.active_version_id),
+            )
+            .filter(ModuleEntity.user_id == user_id, ModuleEntity.slug == slug)
+            .first()
+        )
+        if row is None:
+            return None, None
+        module_entity, version_entity = row
+        version = _version_to_dto(version_entity) if version_entity is not None else None
+        return _entity_to_dto(module_entity), version
 
 
 def list_modules(user_id: int, enabled_only: bool = False) -> List[Module]:

@@ -6,6 +6,7 @@ from storage.global_config import load_global_config
 
 load_dotenv()
 load_global_config()
+from contextlib import asynccontextmanager
 from typing import Any
 from fastapi import APIRouter, FastAPI
 from fastapi.responses import JSONResponse
@@ -53,7 +54,22 @@ from api.middleware.api_latency import ApiLatencyMiddleware
 from api.middleware.provider_status_access_log import install_provider_status_access_log_filter
 
 install_provider_status_access_log_filter()
-app = FastAPI(title="y-agent API", default_response_class=UnicodeJSONResponse)
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    # Before LWA readiness. Bounded and fail-open; see module_runtime/prewarm.py.
+    from api.module_runtime.prewarm import prewarm
+
+    prewarm()
+    yield
+
+
+app = FastAPI(
+    title="y-agent API",
+    default_response_class=UnicodeJSONResponse,
+    lifespan=_lifespan,
+)
 
 app.add_middleware(
     CORSMiddleware,
