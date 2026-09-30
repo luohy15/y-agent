@@ -15,7 +15,7 @@ def update_dashboard():
     home = _agent_home()
 
     # Fetch all non-deleted todos
-    resp = api_request("GET", "/api/todo/list", params={"limit": 500})
+    resp = api_request("GET", "/api/todo/list", params={"limit": 500, "include_history": "true"})
     all_todos = resp.json()
 
     # Active task (current)
@@ -39,7 +39,7 @@ def update_dashboard():
     important = [t for t in all_todos if t.get("priority") == "high" and t["status"] in ("pending", "active", "awaiting")]
 
     # Recent operations: collect from history across all todos (including completed)
-    resp_completed = api_request("GET", "/api/todo/list", params={"status": "completed", "limit": 100})
+    resp_completed = api_request("GET", "/api/todo/list", params={"status": "completed", "limit": 100, "include_history": "true"})
     completed = resp_completed.json()
     all_with_completed = list(all_todos)
     all_with_completed.extend(completed)

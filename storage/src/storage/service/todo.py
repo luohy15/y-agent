@@ -34,6 +34,7 @@ def list_todos(
     updated_to: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
+    include_history: bool = True,
 ) -> List[Todo]:
     return todo_repo.list_todos(
         user_id,
@@ -53,6 +54,7 @@ def list_todos(
         updated_to=updated_to,
         limit=limit,
         offset=offset,
+        include_history=include_history,
     )
 
 

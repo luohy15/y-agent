@@ -55,6 +55,7 @@ async def list_todos(
     limit: int = Query(50),
     offset: int = Query(0),
     awaiting: Optional[str] = Query(None),
+    include_history: bool = Query(False),
 ):
     if awaiting is not None:
         raise HTTPException(
@@ -74,6 +75,7 @@ async def list_todos(
         updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
         limit=limit,
         offset=offset,
+        include_history=include_history,
     )
     result = [t.to_dict() for t in todos]
 

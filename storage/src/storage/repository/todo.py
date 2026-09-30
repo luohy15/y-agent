@@ -3,6 +3,7 @@
 from datetime import date, timedelta
 from typing import Dict, List, Optional
 from sqlalchemy import case, func
+from sqlalchemy.orm import defer
 from storage.entity.todo import TodoEntity
 from storage.entity.chat import ChatEntity
 from storage.entity.entity_tag import EntityTagEntity
@@ -19,8 +20,13 @@ _PRIORITY_ORDER = case(
 )
 
 
-def _entity_to_dto(entity: TodoEntity) -> Todo:
-    history = entity.history or []
+def _entity_to_dto(entity: TodoEntity, *, include_history: bool = True) -> Todo:
+    # A summary caller must not touch the deferred column: reading it would
+    # lazy-load the JSON this projection exists to skip.
+    if include_history:
+        history = [TodoHistoryEntry.from_dict(h) for h in (entity.history or [])]
+    else:
+        history = None
     return Todo(
         todo_id=entity.todo_id,
         name=entity.name,
@@ -33,7 +39,7 @@ def _entity_to_dto(entity: TodoEntity) -> Todo:
         awaiting_chat=entity.awaiting_chat,
         progress=entity.progress,
         completed_at=entity.completed_at,
-        history=[TodoHistoryEntry.from_dict(h) for h in history],
+        history=history,
         created_at=entity.created_at if entity.created_at else None,
         updated_at=entity.updated_at if entity.updated_at else None,
         created_at_unix=entity.created_at_unix if entity.created_at_unix else None,
@@ -59,6 +65,7 @@ def list_todos(
     updated_to: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
+    include_history: bool = True,
 ) -> List[Todo]:
     with get_db() as session:
         # Per-trace max chat activity: chat.trace_id == todo.todo_id by convention.
@@ -78,6 +85,8 @@ def list_todos(
         q = (session.query(TodoEntity)
              .outerjoin(chat_max, chat_max.c.tid == TodoEntity.todo_id)
              .filter(TodoEntity.user_id == user_id))
+        if not include_history:
+            q = q.options(defer(TodoEntity.history, raiseload=True))
         if status:
             q = q.filter(TodoEntity.status == status)
         if priority:
@@ -130,7 +139,7 @@ def list_todos(
             # awaiting, completed, deleted, or no filter: effective_updated desc
             q = q.order_by(TodoEntity.pinned.desc(), effective_updated.desc())
         q = q.offset(offset).limit(limit)
-        return [_entity_to_dto(row) for row in q.all()]
+        return [_entity_to_dto(row, include_history=include_history) for row in q.all()]
 
 
 def list_todo_ids(
