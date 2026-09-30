@@ -7,6 +7,7 @@ from loguru import logger
 from storage.entity.dto import Todo, TodoHistoryEntry
 from storage.entity.tag_vocabulary import TagVocabularyEntity
 from storage.database.base import get_db
+from storage.repository import chat_wakeup as wakeup_repo
 from storage.repository import todo as todo_repo
 from storage.repository import entity_tag as tag_repo
 from storage.repository.entity_tag import normalize_tags
@@ -60,6 +61,19 @@ def list_todos(
 
 def get_todo(user_id: int, todo_id: str) -> Optional[Todo]:
     return todo_repo.get_todo(user_id, todo_id)
+
+
+def attach_next_wakeup(user_id: int, todos: List[Todo]) -> None:
+    """Set `next_wakeup_at_unix` for display. Active rows get the earliest
+    outstanding same-owner receipt; every other status gets None.
+
+    This does not write the todo. A running chat does not hide the receipt,
+    and the value is not proof that the trace is only waiting.
+    """
+    active_ids = [todo.todo_id for todo in todos if todo.status == "active" and todo.todo_id]
+    due = wakeup_repo.next_wakeup_at_by_trace(user_id, active_ids) if active_ids else {}
+    for todo in todos:
+        todo.next_wakeup_at_unix = due.get(todo.todo_id) if todo.status == "active" else None
 
 
 def _require_known_tags(session, user_id: int, tags: Optional[List[str]], existing: Optional[List[str]] = None) -> Optional[List[str]]:

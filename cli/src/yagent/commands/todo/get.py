@@ -1,5 +1,6 @@
 import click
 from yagent.api_client import api_request
+from yagent.commands.todo.wakeup_text import wakeup_label
 
 
 @click.command('get')
@@ -14,6 +15,9 @@ def todo_get(todo_id):
     click.echo(f"Status:    {todo['status']}")
     click.echo(f"Priority:  {todo.get('priority') or '-'}")
     click.echo(f"Due:       {todo.get('due_date') or '-'}")
+    label = wakeup_label(todo)
+    if label:
+        click.echo(f"Wakeup:    {label}")
     click.echo(f"Tags:      {', '.join(todo['tags']) if todo.get('tags') else '-'}")
     if todo.get('awaiting_chat'):
         click.echo(f"Reply in:  {todo['awaiting_chat']}")

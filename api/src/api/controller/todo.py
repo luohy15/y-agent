@@ -77,6 +77,7 @@ async def list_todos(
         offset=offset,
         include_history=include_history,
     )
+    todo_service.attach_next_wakeup(user_id, todos)
     result = [t.to_dict() for t in todos]
 
     # Batch-lookup chat status for all todo_ids (trace_id == todo_id)
@@ -98,6 +99,7 @@ async def get_todo(request: Request, todo_id: str = Query(...)):
     todo = todo_service.get_todo(user_id, todo_id)
     if not todo:
         raise HTTPException(status_code=404, detail="Todo not found")
+    todo_service.attach_next_wakeup(user_id, [todo])
     result = todo.to_dict()
 
     dev_claim = todo_service.get_latest_marker(todo, "[dev-claim]")

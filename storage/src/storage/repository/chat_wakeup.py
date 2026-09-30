@@ -4,7 +4,9 @@ Cancellation and dispatch acceptance share the receipt row lock.
 """
 
 from contextlib import contextmanager
-from typing import List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
+
+from sqlalchemy import func
 
 from storage.database.base import get_db
 from storage.dto.chat_wakeup import ChatWakeup
@@ -170,3 +172,29 @@ def pending_wakeup_traces(session, user_ids, trace_ids, now_ms: int) -> Set[Tupl
                     ChatWakeupEntity.due_at_unix > cutoff_ms)
             .distinct().all())
     return {(r[0], r[1]) for r in rows}
+
+
+def next_wakeup_at_by_trace(user_id: int, trace_ids: List[str]) -> Dict[str, int]:
+    """Earliest due time of pending or accepted receipts, keyed by trace id.
+
+    Read-only display metadata (todo 3793). Unlike `has_pending_wakeup`, this
+    does not apply the watchdog grace cutoff: an overdue receipt stays visible
+    until it is delivered or cancelled. Message and error text are not loaded.
+    """
+    if not trace_ids:
+        return {}
+    with get_db() as session:
+        rows = (
+            session.query(
+                ChatWakeupEntity.trace_id,
+                func.min(ChatWakeupEntity.due_at_unix),
+            )
+            .filter(
+                ChatWakeupEntity.user_id == user_id,
+                ChatWakeupEntity.trace_id.in_(set(trace_ids)),
+                ChatWakeupEntity.status.in_(("pending", "accepted")),
+            )
+            .group_by(ChatWakeupEntity.trace_id)
+            .all()
+        )
+        return {trace_id: int(due) for trace_id, due in rows if due is not None}

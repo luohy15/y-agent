@@ -32,6 +32,8 @@ export interface TodoInfo {
   progress?: string;
   completed_at?: string;
   awaiting_chat?: string | null;
+  /** Read-only. Earliest outstanding wakeup, milliseconds. Not part of a save. */
+  next_wakeup_at_unix?: number | null;
   created_at?: string;
   updated_at?: string;
   history?: TodoHistoryEntry[];
@@ -65,6 +67,20 @@ interface TraceTodoDetailProps {
   onOpenNote?: (note: TodoNoteInfo) => void;
   /** Authenticated navigation to the optional awaiting reply chat. */
   onSelectChat?: (chatId: string) => void;
+}
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+/** Same wording as the todo module: overdue only once the receipt is past due. */
+export function wakeupLabel(todo: TodoInfo, nowMs: number = Date.now()): string | null {
+  if (todo.status !== "active") return null;
+  const ms = todo.next_wakeup_at_unix;
+  if (typeof ms !== "number" || !Number.isFinite(ms)) return null;
+  const when = new Date(ms);
+  const stamp = `${when.getFullYear()}-${pad2(when.getMonth() + 1)}-${pad2(when.getDate())} ${pad2(when.getHours())}:${pad2(when.getMinutes())}`;
+  return ms < nowMs ? `Wakeup overdue · ${stamp}` : `Wakeup scheduled · ${stamp}`;
 }
 
 const STATUS_OPTIONS = ["pending", "active", "awaiting", "completed", "deleted"] as const;
@@ -153,6 +169,7 @@ export default function TraceTodoDetail({
   const tagsValue: string[] = patch.tags !== undefined ? (patch.tags ?? []) : (todoInfo.tags ?? []);
   const progressValue = patch.progress !== undefined ? (patch.progress ?? "") : (todoInfo.progress ?? "");
   const sharedNotes = (todoInfo.notes ?? []).filter((note) => note.share_id);
+  const wakeupText = editable ? wakeupLabel(todoInfo) : null;
 
   // Auto-grow the textareas to fit their content. Recompute on content change, todo
   // switch, and panel open (the textarea only mounts when open).
@@ -259,6 +276,13 @@ export default function TraceTodoDetail({
                     <option key={s} value={s}>{s}</option>
                   ))}
                 </select>
+
+                {wakeupText && (
+                  <>
+                    <span className="text-sol-base01 pt-1">Wakeup</span>
+                    <span className="text-sol-base0">{wakeupText}</span>
+                  </>
+                )}
 
                 <span className="text-sol-base01 pt-1">Desc</span>
                 <textarea

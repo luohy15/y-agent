@@ -112,6 +112,8 @@ async def get_trace_chats(request: Request, trace_id: str = Query(...)):
     todo_map = find_todos_by_ids(user_id, [trace_id])
     todo = todo_map.get(trace_id)
     if todo:
+        from storage.service.todo import attach_next_wakeup
+        attach_next_wakeup(user_id, [todo])
         todo_info = {
             "todo_id": todo.todo_id,
             "name": todo.name,
@@ -122,6 +124,7 @@ async def get_trace_chats(request: Request, trace_id: str = Query(...)):
             "due_date": todo.due_date,
             "progress": todo.progress,
             "awaiting_chat": todo.awaiting_chat,
+            "next_wakeup_at_unix": todo.next_wakeup_at_unix,
             "completed_at": todo.completed_at,
             "created_at": todo.created_at,
             "updated_at": todo.updated_at,
