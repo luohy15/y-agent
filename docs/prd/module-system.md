@@ -734,10 +734,13 @@ versions remain compatible but restore waking for History.
 Todo 3777 bumps the backend contract from 18 to **19** with
 `run_vm_command(..., wake="nowait")` and `ModuleVmWakingError(retry_after)`,
 a `ModuleVmAsleepError` subclass. When `last_up` is stale the host never waits
-on a wake: a non-running EC2 instance gets one synchronous `start_instances`
-call (`IncorrectInstanceState` is swallowed), a running one gets a single 3s SSH
-probe, and an in-flight blocking prelude is never joined. Any not-ready outcome
-raises `ModuleVmWakingError` (default `retry_after` 5s); a ready probe touches
+on a wake and answers within a 1s wall-clock budget: a recently confirmed VM
+skips the check, a non-running EC2 instance gets one synchronous
+`start_instances` call (`IncorrectInstanceState` is swallowed), a running one
+gets a single 0.7s-per-stage SSH probe, and an in-flight blocking prelude is
+never joined. The EC2 calls use one attempt with 1s timeouts. Any not-ready
+outcome, including an EC2 error or exceeding the budget, raises
+`ModuleVmWakingError` (default `retry_after` 2s); a ready probe touches
 `last_up` and executes with the prelude skipped. `wake=True` / `False` are
 unchanged. File requires backend v19 to return 503 `vm_waking` from `/read` and
 `/list`; deploy the host before publishing File.

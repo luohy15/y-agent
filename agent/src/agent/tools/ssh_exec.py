@@ -66,7 +66,7 @@ async def ssh_exec(
     dir: str | None = None,
     timeout: float = 30,
     check: bool = False,
-    wake: bool = True,
+    wake: bool | str = True,
 ) -> str:
     # Off the loop: this prelude can do a boto3 describe/start, an SSH-ready
     # poll, and a DB write, and running it inline blocked the caller's event

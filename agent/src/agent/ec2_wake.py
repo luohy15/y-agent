@@ -8,7 +8,7 @@ import time
 import boto3
 import paramiko
 from botocore.config import Config as BotoConfig
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 from loguru import logger
 
 from storage.entity.dto import VmConfig
@@ -36,8 +36,19 @@ _EC2_CLIENT_CONFIG = BotoConfig(
 _SSH_READY_CONNECT_TIMEOUT_SECONDS = 5
 
 
-def _ec2_client(region: str):
-    return boto3.client("ec2", region_name=region, config=_EC2_CLIENT_CONFIG)
+def _ec2_client(region: str, config: BotoConfig = _EC2_CLIENT_CONFIG):
+    return boto3.client("ec2", region_name=region, config=config)
+
+
+# wake="nowait" (todo 3777): one attempt, 1s per stage, so a slow EC2 API reads
+# as "waking" instead of holding the caller.
+_NOWAIT_EC2_CLIENT_CONFIG = BotoConfig(
+    connect_timeout=1,
+    read_timeout=1,
+    retries={"max_attempts": 1, "mode": "standard"},
+)
+# Per-stage SSH probe bound for nowait; connect, banner and auth each get this.
+_NOWAIT_PROBE_TIMEOUT_SECONDS = 0.7
 
 
 def _is_stale(last_up: int | None) -> bool:
@@ -47,10 +58,10 @@ def _is_stale(last_up: int | None) -> bool:
     return (int(time.time()) - last_up) > IDLE_THRESHOLD_SECONDS
 
 
-def get_instance_state(instance_id: str, region: str) -> str:
+def get_instance_state(instance_id: str, region: str, ec2=None) -> str:
     """Read-only EC2 instance state ('running', 'stopped', ...). Never starts
     the instance, unlike _start_and_wait / ensure_vm_running."""
-    ec2 = _ec2_client(region)
+    ec2 = ec2 or _ec2_client(region)
     resp = ec2.describe_instance_status(
         InstanceIds=[instance_id],
         IncludeAllInstances=True,
@@ -197,7 +208,9 @@ def _probe_ssh(vm_config: VmConfig, timeout: float) -> bool:
             client.close()
 
 
-def request_wake_or_probe(vm_config: VmConfig, probe_timeout: float = 3) -> bool:
+def request_wake_or_probe(
+    vm_config: VmConfig, probe_timeout: float = _NOWAIT_PROBE_TIMEOUT_SECONDS
+) -> bool:
     """Non-blocking counterpart of ensure_and_touch_vm (todo 3777).
 
     Returns True when the VM is SSH-ready (last_up touched, or already fresh).
@@ -215,17 +228,24 @@ def request_wake_or_probe(vm_config: VmConfig, probe_timeout: float = 3) -> bool
 
     key = _vm_key(vm_config)
     with _FLIGHTS_GUARD:
+        confirmed = _CONFIRMED_UP.get(key)
+        if confirmed and not _is_stale(confirmed):
+            vm_config.last_up = confirmed
+            return True
         if key in _FLIGHTS:
             return False
 
-    state = get_instance_state(vm_config.ec2_instance_id, vm_config.ec2_region)
+    ec2 = _ec2_client(vm_config.ec2_region, _NOWAIT_EC2_CLIENT_CONFIG)
+    try:
+        state = get_instance_state(vm_config.ec2_instance_id, vm_config.ec2_region, ec2)
+    except (ClientError, BotoCoreError) as exc:
+        logger.info("ec2_wake: nowait describe failed, treating as waking: {}", exc)
+        return False
     if state != "running":
         logger.info("ec2_wake: {} is {}, starting (nowait)", vm_config.ec2_instance_id, state)
         try:
-            _ec2_client(vm_config.ec2_region).start_instances(
-                InstanceIds=[vm_config.ec2_instance_id]
-            )
-        except ClientError as exc:
+            ec2.start_instances(InstanceIds=[vm_config.ec2_instance_id])
+        except (ClientError, BotoCoreError) as exc:
             # e.g. IncorrectInstanceState while stopping: still waking/retry.
             logger.info("ec2_wake: nowait start_instances refused: {}", exc)
         return False
