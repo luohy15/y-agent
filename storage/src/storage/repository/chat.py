@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from loguru import logger
 from sqlalchemy import func, or_, text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import load_only
+from sqlalchemy.orm import defer, load_only
 
 from storage.entity.chat import ChatEntity
 from storage.entity.user import UserEntity  # noqa: F401 - needed for ChatEntity FK resolution
