@@ -5,6 +5,27 @@ const GOOGLE_CLIENT_ID = (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID || "";
 const MAIN_DOMAIN = (import.meta as any).env?.VITE_MAIN_DOMAIN || "yovy.app";
 const isPreview = window.location.hostname !== MAIN_DOMAIN && window.location.hostname !== "localhost";
 
+function redirectToLocalCallback(target: string, token: string, email: string) {
+  try {
+    // Reject forms URL would silently repair or normalize into a local host.
+    if (/[\s\\\u0000-\u001f\u007f]/.test(target) || /%(?![\da-f]{2})/i.test(target)) return;
+    const authority = /^http:\/\/([^/?#]+)(?:[/?#]|$)/i.exec(target)?.[1];
+    if (!authority || !/^[a-z\d.-]+(?::\d+)?$/i.test(authority)) return;
+    const url = new URL(target);
+    if (
+      url.protocol !== "http:" ||
+      (url.hostname !== "localhost" && url.hostname !== "127.0.0.1") ||
+      authority.split(":")[0].toLowerCase() !== url.hostname ||
+      url.username || url.password || url.port === "0"
+    ) return;
+    url.searchParams.set("auth_token", token);
+    url.searchParams.set("auth_email", email);
+    window.location.href = url.toString();
+  } catch {
+    // Invalid callbacks must leave the user on the app without sending tokens.
+  }
+}
+
 export function useAuth() {
   const [email, setEmail] = useState<string | null>(getStoredEmail());
   const [isLoggedIn, setIsLoggedIn] = useState(!!getToken());
@@ -27,7 +48,7 @@ export function useAuth() {
       setEmail(data.email);
       setIsLoggedIn(true);
 
-      // If we came from a preview auth redirect, send token back
+      // Only local login callbacks may receive a token.
       const params = new URLSearchParams(window.location.search);
       const authRedirect = params.get("auth_redirect");
       if (authRedirect === "manual") {
@@ -40,10 +61,7 @@ export function useAuth() {
           <p>Email: <strong>${data.email}</strong></p>
         </div>`;
       } else if (authRedirect) {
-        const url = new URL(authRedirect);
-        url.searchParams.set("auth_token", data.token);
-        url.searchParams.set("auth_email", data.email);
-        window.location.href = url.toString();
+        redirectToLocalCallback(authRedirect, data.token, data.email);
       }
     } catch (err) {
       console.error("Auth error:", err);
@@ -91,10 +109,7 @@ export function useAuth() {
           <p>Email: <strong>${getStoredEmail()}</strong></p>
         </div>`;
       } else {
-        const url = new URL(authRedirect);
-        url.searchParams.set("auth_token", getToken()!);
-        url.searchParams.set("auth_email", getStoredEmail()!);
-        window.location.href = url.toString();
+        redirectToLocalCallback(authRedirect, getToken()!, getStoredEmail()!);
       }
     }
   }, []);
