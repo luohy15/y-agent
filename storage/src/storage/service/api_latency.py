@@ -28,6 +28,7 @@ METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OTHER"})
 STATUS_CLASSES = frozenset({"2xx", "3xx", "4xx", "5xx", "unk"})
 COMPLETIONS = frozenset({"normal", "disconnect", "cancelled", "internal_failure"})
 ORDERINGS = frozenset({"recent", "slowest"})
+ROUTE_SORT_FIELDS = frozenset({"route", "request_count", "p50_ms", "p95_ms", "p99_ms", "error_rate"})
 MODULE_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 MAX_ROUTE_LENGTH = 512
 RAW_RETENTION = timedelta(days=14)
@@ -462,8 +463,14 @@ def routes(
     status_class: str | None = None,
     completion: str | None = None,
     module_slug: str | None = None,
+    sort_by: str = "p95_ms",
+    sort_dir: str = "desc",
     now: datetime | None = None,
 ) -> dict:
+    if sort_by not in ROUTE_SORT_FIELDS:
+        raise ValueError("unsupported route sort field")
+    if sort_dir not in ("asc", "desc"):
+        raise ValueError("sort_dir must be asc or desc")
     if not 1 <= min_samples <= 10_000:
         raise ValueError("min_samples must be between 1 and 10000")
     if not 1 <= limit <= 100:
@@ -481,16 +488,25 @@ def routes(
     ranked = [{"route": route, **_metrics(group, source)} for route, group in grouped.items()]
     for item in ranked:
         item["meets_min_samples"] = item["request_count"] >= min_samples
-    ranked.sort(key=lambda item: (
-        not item["meets_min_samples"],
-        -(item["p95_ms"] or 0),
-        item["route"],
-    ))
+    # Stable passes: route asc is the tie-break, then the chosen field (nulls
+    # last in either direction), then the sub-floor partition trails.
+    descending = sort_dir == "desc"
+    ranked.sort(key=lambda item: item["route"])
+    if sort_by == "route":
+        ranked.sort(key=lambda item: item["route"], reverse=descending)
+    else:
+        present = [item for item in ranked if item[sort_by] is not None]
+        missing = [item for item in ranked if item[sort_by] is None]
+        present.sort(key=lambda item: item[sort_by], reverse=descending)
+        ranked = present + missing
+    ranked.sort(key=lambda item: not item["meets_min_samples"])
     return {
         "range": range_name,
         "source": source,
         "approximate_percentiles": source != "raw",
         "min_samples": min_samples,
+        "sort_by": sort_by,
+        "sort_dir": sort_dir,
         "routes": ranked[:limit],
     }
 

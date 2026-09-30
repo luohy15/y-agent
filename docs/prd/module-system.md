@@ -745,6 +745,17 @@ outcome, including an EC2 error or exceeding the budget, raises
 unchanged. File requires backend v19 to return 503 `vm_waking` from `/read` and
 `/list`; deploy the host before publishing File.
 
+Todo 3781 bumps the backend contract from 19 to **20**. `api_latency_routes`
+gains closed keyword parameters `sort_by` (`route`, `request_count`, `p50_ms`,
+`p95_ms`, `p99_ms`, `error_rate`; default `p95_ms`) and `sort_dir` (`asc` /
+`desc`; default `desc`). The host ranks every route in the window by that field
+before applying `limit`; the default call keeps today's order. The below-floor
+(`min_samples`) partition always trails the qualified routes, ties break by
+route ascending, and null values sort last in either direction. An unsupported
+field or direction raises `ValueError` (422 at the module HTTP layer), and the
+response echoes `sort_by` / `sort_dir`. Monitor requires backend v20; deploy the
+host before publishing Monitor, and roll Monitor back before the host.
+
 Todo 3612 bumps the browser contract from 14 to **15** by exporting
 `ChatImageScope`, `ChatImage`, and `ChatMessageImages` (visibility-gated chat
 image loading). Chat-module publish that consumes those leaves waits on this
@@ -1290,7 +1301,9 @@ maintenance builds hourly/daily histograms and enforces bounded retention. Monit
 that state only through the four configured-maintainer-only backend contract v10
 `api_latency_*` queries. Matching the request caller is insufficient because the
 telemetry is global; the capability itself also resolves and enforces the configured
-module maintainer. Disabling or rolling back Monitor removes the views,
+module maintainer. Route ranking is host-side: `api_latency_routes` takes closed
+`sort_by` / `sort_dir` (backend contract v20, todo 3781) and sorts all routes before
+the row limit, so a table column click reorders the whole window. Disabling or rolling back Monitor removes the views,
 not collection or retention. Instance inventory: `code/y-module/monitor/README.md`.
 
 ### Note: a control-plane module over shared kernel state

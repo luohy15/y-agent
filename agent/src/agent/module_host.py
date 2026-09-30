@@ -137,6 +137,10 @@ Todo 3777 adds `run_vm_command(wake="nowait")` and typed
 `ModuleVmWakingError(retry_after, default 2s)` (a `ModuleVmAsleepError` subclass): a stale
 VM is started or probed without waiting and the call raises instead of
 blocking. This bumps 18 to 19; File requires v19 for `/read` and `/list`.
+Todo 3781 adds optional closed `sort_by` / `sort_dir` parameters to
+`api_latency_routes` (rank all routes by the chosen field before the limit;
+default p95 desc is unchanged), bumping it from 19 to 20. Monitor requires v20;
+deploy the host before publishing Monitor, and roll Monitor back before the host.
 Modules declare the minimum version they use and an
 older host rejects their bundle. Every later addition to the surface above
 bumps the version and, for modules that need it, `min_backend_version`.
@@ -156,7 +160,7 @@ from sqlalchemy.orm import Session
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-BACKEND_CONTRACT_VERSION = 19
+BACKEND_CONTRACT_VERSION = 20
 
 # Wall-clock budget for the wake="nowait" readiness check (todo 3777).
 NOWAIT_BUDGET_SECONDS = 1.0
@@ -1013,6 +1017,8 @@ def api_latency_routes(
     status_class: Optional[str] = None,
     completion: Optional[str] = None,
     module_slug: Optional[str] = None,
+    sort_by: str = "p95_ms",
+    sort_dir: str = "desc",
 ) -> dict[str, Any]:
     """Bounded route ranking for one closed range and allowlisted filters."""
     return _api_latency_service(user_id).routes(
@@ -1023,6 +1029,8 @@ def api_latency_routes(
         status_class=status_class,
         completion=completion,
         module_slug=module_slug,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
     )
 
 
