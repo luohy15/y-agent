@@ -48,8 +48,9 @@ class Todo:
     updated_at: Optional[str] = None
     created_at_unix: Optional[int] = None
     updated_at_unix: Optional[int] = None
-    # Read-only display metadata (todo 3793). Not stored on the todo row.
+    # Read-only display metadata (todo 3793 / 3797). Not stored on the todo row.
     next_wakeup_at_unix: Optional[int] = None
+    has_pending_release_waiter: bool = False
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'Todo':
@@ -83,6 +84,7 @@ class Todo:
             'status': self.status,
             'awaiting_chat': self.awaiting_chat,
             'next_wakeup_at_unix': self.next_wakeup_at_unix,
+            'has_pending_release_waiter': self.has_pending_release_waiter,
         }
         if self.desc is not None:
             result['desc'] = self.desc

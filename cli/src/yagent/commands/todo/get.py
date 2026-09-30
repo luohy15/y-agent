@@ -1,6 +1,6 @@
 import click
 from yagent.api_client import api_request
-from yagent.commands.todo.wakeup_text import wakeup_label
+from yagent.commands.todo.wakeup_text import release_slot_label, wakeup_label
 
 
 @click.command('get')
@@ -18,6 +18,9 @@ def todo_get(todo_id):
     label = wakeup_label(todo)
     if label:
         click.echo(f"Wakeup:    {label}")
+    release = release_slot_label(todo)
+    if release:
+        click.echo(f"Release:   {release}")
     click.echo(f"Tags:      {', '.join(todo['tags']) if todo.get('tags') else '-'}")
     if todo.get('awaiting_chat'):
         click.echo(f"Reply in:  {todo['awaiting_chat']}")

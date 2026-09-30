@@ -679,6 +679,29 @@ def has_pending_waiter(session, user_id: int, trace_id: str) -> bool:
         user_id=user_id, trace_id=trace_id, status="pending").first() is not None
 
 
+def pending_release_traces(user_id: int, trace_ids: List[str]) -> set:
+    """Trace ids with a same-owner pending publication waiter (todo 3797).
+
+    Read-only display metadata. Granted, cancelled and rejected receipts do
+    not qualify, and neither does a trace id that only appears in `todo_ids`.
+    Only `trace_id` is loaded.
+    """
+    if not trace_ids:
+        return set()
+    with get_db() as session:
+        rows = (
+            session.query(DevReleaseWaiterEntity.trace_id)
+            .filter(
+                DevReleaseWaiterEntity.user_id == user_id,
+                DevReleaseWaiterEntity.trace_id.in_(set(trace_ids)),
+                DevReleaseWaiterEntity.status == "pending",
+            )
+            .distinct()
+            .all()
+        )
+        return {trace_id for (trace_id,) in rows if trace_id}
+
+
 def list_waiters(user_id: int, *, project_key: Optional[str] = None,
                  limit: int = 50) -> List[DevReleaseWaiter]:
     """This account's own receipts. Never another account's."""

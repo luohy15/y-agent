@@ -8,6 +8,7 @@ from storage.entity.dto import Todo, TodoHistoryEntry
 from storage.entity.tag_vocabulary import TagVocabularyEntity
 from storage.database.base import get_db
 from storage.repository import chat_wakeup as wakeup_repo
+from storage.repository import dev_release as release_repo
 from storage.repository import todo as todo_repo
 from storage.repository import entity_tag as tag_repo
 from storage.repository.entity_tag import normalize_tags
@@ -74,6 +75,22 @@ def attach_next_wakeup(user_id: int, todos: List[Todo]) -> None:
     due = wakeup_repo.next_wakeup_at_by_trace(user_id, active_ids) if active_ids else {}
     for todo in todos:
         todo.next_wakeup_at_unix = due.get(todo.todo_id) if todo.status == "active" else None
+
+
+def attach_pending_release_waiter(user_id: int, todos: List[Todo]) -> None:
+    """Set `has_pending_release_waiter` for display.
+
+    Active rows are true when this owner has a pending publication waiter on
+    that trace. Every other status is false. This does not write the todo or
+    the receipt. A running chat does not hide the waiter, and the flag is not
+    proof that the trace is only waiting or that publication is authorized.
+    """
+    active_ids = [todo.todo_id for todo in todos if todo.status == "active" and todo.todo_id]
+    pending = release_repo.pending_release_traces(user_id, active_ids) if active_ids else set()
+    for todo in todos:
+        todo.has_pending_release_waiter = (
+            todo.todo_id in pending if todo.status == "active" else False
+        )
 
 
 def _require_known_tags(session, user_id: int, tags: Optional[List[str]], existing: Optional[List[str]] = None) -> Optional[List[str]]:

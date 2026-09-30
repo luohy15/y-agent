@@ -34,6 +34,8 @@ export interface TodoInfo {
   awaiting_chat?: string | null;
   /** Read-only. Earliest outstanding wakeup, milliseconds. Not part of a save. */
   next_wakeup_at_unix?: number | null;
+  /** Read-only. Same-owner pending publication waiter. Not part of a save. */
+  has_pending_release_waiter?: boolean | null;
   created_at?: string;
   updated_at?: string;
   history?: TodoHistoryEntry[];
@@ -81,6 +83,13 @@ export function wakeupLabel(todo: TodoInfo, nowMs: number = Date.now()): string 
   const when = new Date(ms);
   const stamp = `${when.getFullYear()}-${pad2(when.getMonth() + 1)}-${pad2(when.getDate())} ${pad2(when.getHours())}:${pad2(when.getMinutes())}`;
   return ms < nowMs ? `Wakeup overdue · ${stamp}` : `Wakeup scheduled · ${stamp}`;
+}
+
+/** Same strictness as the CLI: only an active todo and a real boolean true. */
+export function releaseSlotLabel(todo: TodoInfo): string | null {
+  if (todo.status !== "active") return null;
+  if (todo.has_pending_release_waiter !== true) return null;
+  return "Waiting for release slot";
 }
 
 const STATUS_OPTIONS = ["pending", "active", "awaiting", "completed", "deleted"] as const;
@@ -170,6 +179,7 @@ export default function TraceTodoDetail({
   const progressValue = patch.progress !== undefined ? (patch.progress ?? "") : (todoInfo.progress ?? "");
   const sharedNotes = (todoInfo.notes ?? []).filter((note) => note.share_id);
   const wakeupText = editable ? wakeupLabel(todoInfo) : null;
+  const releaseText = editable ? releaseSlotLabel(todoInfo) : null;
 
   // Auto-grow the textareas to fit their content. Recompute on content change, todo
   // switch, and panel open (the textarea only mounts when open).
@@ -281,6 +291,13 @@ export default function TraceTodoDetail({
                   <>
                     <span className="text-sol-base01 pt-1">Wakeup</span>
                     <span className="text-sol-base0">{wakeupText}</span>
+                  </>
+                )}
+
+                {releaseText && (
+                  <>
+                    <span className="text-sol-base01 pt-1">Release</span>
+                    <span className="text-sol-base0">{releaseText}</span>
                   </>
                 )}
 

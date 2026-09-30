@@ -1,7 +1,7 @@
 import click
 from tabulate import tabulate
 from yagent.api_client import api_request
-from yagent.commands.todo.wakeup_text import wakeup_label
+from yagent.commands.todo.wakeup_text import release_slot_label, wakeup_label
 from yagent.time_filter import collect_time_params, time_filter_options
 
 
@@ -44,6 +44,7 @@ def todo_list(status, priority, tag, on, from_, to, created_on, created_from, cr
             t.get("priority") or "-",
             t.get("due_date") or "-",
             wakeup_label(t) or "-",
+            release_slot_label(t) or "-",
             ",".join(t["tags"]) if t.get("tags") else "-",
         ])
-    click.echo(tabulate(table, headers=["ID", "Name", "Status", "Chat", "Priority", "Due", "Wakeup", "Tags"], tablefmt="simple"))
+    click.echo(tabulate(table, headers=["ID", "Name", "Status", "Chat", "Priority", "Due", "Wakeup", "Release", "Tags"], tablefmt="simple"))

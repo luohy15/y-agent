@@ -490,6 +490,33 @@ todo module sidebar, table, and kanban; host trace detail; `y todo list` and
 `y todo get`. Not the public share, tag-result previews, or `y todo dashboard`.
 The indicator is informational. Status stays active. The watchdog is unchanged.
 
+### Release slot waiting
+
+An active todo whose trace has a same-owner pending publication waiter
+(`dev_release_waiter.status = pending`) is still `active`. It is not awaiting,
+and it is not a new status. Readers that list active todos also show
+`Waiting for release slot`, so a queued publication is not indistinguishable
+from work that is actually running.
+
+The read is `has_pending_release_waiter`, a boolean derived at read time. It
+is true only when status is active and at least one same-owner receipt for
+that trace id is `pending`. Granted, cancelled and rejected receipts do not
+qualify. A pending receipt on two projects is still one boolean. A trace id
+that appears only in the receipt's `todo_ids` list does not match. No receipt,
+and every status other than active, is false. The field is not stored, not
+writable, and `Todo.from_dict` ignores a client copy of it. Public trace
+shares omit it. A running chat does not hide it. The value names one
+outstanding dependency: it does not say the trace is only waiting, and it is
+not publication authorization.
+
+Surfaces: the authenticated todo list, todo detail, and authenticated trace
+todo projection; host trace detail; `y todo list` (Release column) and
+`y todo get` (Release line); the todo module sidebar, table, and kanban.
+Wakeup and release-slot lines show independently when both exist. There is no
+project, queue position, holder, count, link, filter, or action. The indicator
+updates on the next existing refetch or manual refresh. There is no migration,
+no polling, and no worker change. Status stays active. The watchdog is unchanged.
+
 ### Agent notice and fault-notice wording
 
 Agent notice is compact: a fixed one-line heading plus optional bounded
@@ -1023,3 +1050,4 @@ Tests are local-only and untracked per repo convention.
 | 3655 | Registered scheduled chat wakeups (`chat_wakeup` kernel table) replace tmux sleep timers for pure time waits: `y chat --chat-id <id> -m "..." --at <+Ns/m/h/d \| ISO8601>` registers a durable wakeup (owner-scoped, no manager root, target chat must carry a trace_id, 7-day max horizon), `y chat wakeup list\|cancel` manage it, a new per-minute `deliver_chat_wakeups` worker schedule delivers it as an ordinary machine dispatch (never auto-resumes awaiting) reusing the todo 3493 outbox pattern, and `check_trace_liveness` folds a pending/accepted wakeup within `due_at + grace` into its liveness evidence (batched `pending_wakeup_traces` plus the under-lock `has_pending_wakeup` recheck), so a registered wait suppresses the watchdog the same way a pending publication-queue receipt already does | - | `pages/plan-3655-scheduled-chat-wakeup.md` | - | `pages/review-3655-scheduled-chat-wakeup.md` | reviewed (round 2 approve) and frozen as a candidate, not yet published. Worktree `/Users/roy/luohy15/code/y-agent-scheduled-wakeup-3655` (branch `candidate-scheduled-wakeup-3655`, rooted at origin/main `4747cd8`). Migration `migration/3655_chat_wakeup.sql` (expand-only, idempotent, verified twice against a scratch cluster) is maintainer-applied SQL, not yet run; both `CheckTraceLivenessSchedule` (now reads `chat_wakeup`) and the new `DeliverChatWakeupsSchedule` (enabled by default, `rate(1 minute)`) require it applied before this candidate deploys. Storage/worker/API/CLI tests: 32 storage (scratch PostgreSQL, `CHAT_WAKEUP_PG_3655=1`), 4 watchdog-evidence integration (same cluster), 6 worker-step mocked, 10 API mocked, 15 CLI all green; pre-existing baseline drift noted, not touched: two stale hardcoded-grace assertions and a cwd-relative handler-path load in `worker/tests/test_check_trace_liveness.py` (unrelated to this candidate, same class of issue already logged against this file under todo 3645's row). Round 1 requested changes on one blocking finding (cancellation and delivery shared no atomic state authority, so a cancelled receipt could still be delivered from a stale batch snapshot, an accepted retry could be re-cancelled after its message was appended, and the API raised instead of returning 409 when a cancel lost the race); round 2 approved the repair, which locks the owner-scoped receipt for both transitions and commits append, run reservation, attention clear, accepted state and the enqueue obligation in one transaction, keeping `accepted` monotonic across retries (`pages/impl-3655-wakeup-r1.md`). Optional caller-owned session plumbing in `storage/repository/chat.py` and `storage/service/chat.py` exists to make that acceptance atomic; normal callers keep their own transactions and the existing todo-before-chat lock order is preserved. Both round-1 non-blocking suggestions are addressed: the 300-second grace is asserted equal across storage and worker, and the fixed future fixture dates are now clock-relative. Round 2 verification: 73/73 focused tests plus 4 ordinary delivery tests, zero unexpected database connections, race coverage for stale-snapshot cancellation, cancellation blocking behind in-flight acceptance, rollback on injected append failure and accepted-retry cancellation rejection. Not yet done: publication authorization, production migration, integration, deploy |
 | 3677 | Watchdog claims an `active` trace that already has chats on evidence alone: delete `IDLE_GRACE_SECONDS` and last-activity from `classify`, keep the five-minute scan cadence, all four suppressors, the under-lock recheck, and the 24-hour zero-chat backstop. `chat_wakeup.EVIDENCE_GRACE_SECONDS` stays 300 as its own late-delivery tolerance. Crash detection stays bounded by the 15-minute orphan sweep. Idle fault sentence is `No running session.` with the same chat suffix and redacted excerpt. Tracked `AGENTS.md` wakeup sentence now says delivery leaves the chat SQL-running rather than restarting an idle clock | - | `pages/plan-3677-watchdog-evidence-only.md` | `pages/root-cause-3677-trace-3672-awaiting.md` | `pages/review-3677-watchdog-evidence-only.md` | reviewed locally (round 2 approve), not published. Global `AGENTS.md` "机器等待与看门狗" still says a five-minute idle wait; correcting that one runtime sentence is a reported follow-up, not part of this candidate |
 | 3793 | Read-only `next_wakeup_at_unix` on active todos with an outstanding registered wakeup. Status stays active. The watchdog is unchanged | - | `pages/plan-3793-todo-wakeup-indicator.md` | - | - | implemented in worktree, not published |
+| 3797 | Read-only `has_pending_release_waiter` on active todos with a same-owner pending publication waiter. Status stays active. The watchdog is unchanged | - | `pages/plan-3797-release-slot-indicator.md` | - | - | implemented in worktree, not published |

@@ -23,3 +23,16 @@ def wakeup_label(todo: dict, now_ms: Optional[int] = None) -> Optional[str]:
     if ms < now_ms:
         return f"Wakeup overdue · {stamp}"
     return f"Wakeup scheduled · {stamp}"
+
+
+def release_slot_label(todo: dict) -> Optional[str]:
+    """Exact label for an active todo queued on a publication slot (todo 3797).
+
+    Only the boolean True counts. Missing, null, and any other value hide the
+    line. It does not change status and does not hide a wakeup.
+    """
+    if todo.get("status") != "active":
+        return None
+    if todo.get("has_pending_release_waiter") is not True:
+        return None
+    return "Waiting for release slot"
