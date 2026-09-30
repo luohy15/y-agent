@@ -731,6 +731,17 @@ requires backend v18 for History's null-on-asleep behavior; deploy the host
 before publishing File. `/read` keeps its blocking wake behavior. Older File
 versions remain compatible but restore waking for History.
 
+Todo 3777 bumps the backend contract from 18 to **19** with
+`run_vm_command(..., wake="nowait")` and `ModuleVmWakingError(retry_after)`,
+a `ModuleVmAsleepError` subclass. When `last_up` is stale the host never waits
+on a wake: a non-running EC2 instance gets one synchronous `start_instances`
+call (`IncorrectInstanceState` is swallowed), a running one gets a single 3s SSH
+probe, and an in-flight blocking prelude is never joined. Any not-ready outcome
+raises `ModuleVmWakingError` (default `retry_after` 5s); a ready probe touches
+`last_up` and executes with the prelude skipped. `wake=True` / `False` are
+unchanged. File requires backend v19 to return 503 `vm_waking` from `/read` and
+`/list`; deploy the host before publishing File.
+
 Todo 3612 bumps the browser contract from 14 to **15** by exporting
 `ChatImageScope`, `ChatImage`, and `ChatMessageImages` (visibility-gated chat
 image loading). Chat-module publish that consumes those leaves waits on this

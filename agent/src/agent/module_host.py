@@ -133,6 +133,10 @@ that module. `parse_time_range` stays byte-identical.
 Todo 3627 adds `run_vm_command(wake=False)` with an owner-bound read-only
 EC2 sleep probe, typed `ModuleVmAsleepError`, and no wake prelude. This bumps
 17 to 18; File requires v18 and must be published after the host deployment.
+Todo 3777 adds `run_vm_command(wake="nowait")` and typed
+`ModuleVmWakingError(retry_after)` (a `ModuleVmAsleepError` subclass): a stale
+VM is started or probed without waiting and the call raises instead of
+blocking. This bumps 18 to 19; File requires v19 for `/read` and `/list`.
 Modules declare the minimum version they use and an
 older host rejects their bundle. Every later addition to the surface above
 bumps the version and, for modules that need it, `min_backend_version`.
@@ -151,7 +155,7 @@ from sqlalchemy.orm import Session
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-BACKEND_CONTRACT_VERSION = 18
+BACKEND_CONTRACT_VERSION = 19
 
 # Table.info key marking a table a module *references* but does not own — the
 # host kernel tables its foreign keys point at (D4 allows `user_id -> user.id`).
@@ -197,6 +201,14 @@ class ModuleHostAuthError(ModuleHostError):
 
 class ModuleVmAsleepError(ModuleHostError):
     """A no-wake command refused an EC2 VM that is not running."""
+
+
+class ModuleVmWakingError(ModuleVmAsleepError):
+    """A nowait command found the EC2 VM not yet SSH-ready; wake was requested."""
+
+    def __init__(self, message: str = "the selected EC2 VM is waking up", retry_after: int = 5):
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 class ModuleVmNotConfiguredError(ModuleHostError):
@@ -254,7 +266,7 @@ async def run_vm_command(
     timeout: float = 30,
     work_dir: Optional[str] = None,
     stdin: Optional[str] = None,
-    wake: bool = True,
+    wake: bool | str = True,
 ) -> str:
     """Run argv on the authenticated owner's VM (local when no api_token, SSH otherwise).
 
@@ -270,7 +282,10 @@ async def run_vm_command(
     off-loop when last_up is stale and raises ModuleVmAsleepError unless running,
     then skips the wake prelude. Fresh last_up skips the probe, like the wake
     path. Non-EC2 VMs execute normally. A stop after confirmation still fails
-    through the command timeout; it never falls back to waking.
+    through the command timeout; it never falls back to waking. `wake="nowait"`
+never blocks on a wake: a stale EC2 VM that is stopped is started once, one that
+is running gets a single 3s SSH probe, and either not-ready outcome raises
+ModuleVmWakingError (retry_after seconds) instead of waiting.
     """
     if not argv:
         raise ValueError("argv must be a non-empty list")
@@ -295,7 +310,13 @@ async def run_vm_command(
 
     from agent.vm_command import execute_vm_command
 
-    if not wake:
+    if wake == "nowait":
+        from agent.ec2_wake import request_wake_or_probe
+        from agent.tools.ssh_exec import _offload
+
+        if not await _offload(request_wake_or_probe, vm_config):
+            raise ModuleVmWakingError()
+    elif not wake:
         from agent.ec2_wake import _is_stale, is_vm_asleep
         from agent.tools.ssh_exec import _offload
 

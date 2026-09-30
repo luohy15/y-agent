@@ -176,6 +176,66 @@ def ensure_vm_running(vm_config: VmConfig, user_id: int | None = None) -> bool:
     return True
 
 
+def _probe_ssh(vm_config: VmConfig, timeout: float) -> bool:
+    """One SSH connect attempt bounded by `timeout` on every stage."""
+    user, host, port = _parse_ssh_target(vm_config.vm_name)
+    client = None
+    try:
+        key = paramiko.Ed25519Key.from_private_key(io.StringIO(vm_config.api_token))
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(
+            host, port=port, username=user, pkey=key,
+            timeout=timeout, banner_timeout=timeout, auth_timeout=timeout,
+        )
+        return True
+    except (paramiko.SSHException, socket.error, OSError) as e:
+        logger.info("ec2_wake: nowait SSH probe failed: {}", e)
+        return False
+    finally:
+        if client is not None:
+            client.close()
+
+
+def request_wake_or_probe(vm_config: VmConfig, probe_timeout: float = 3) -> bool:
+    """Non-blocking counterpart of ensure_and_touch_vm (todo 3777).
+
+    Returns True when the VM is SSH-ready (last_up touched, or already fresh).
+    Returns False when it is waking: a stopped VM gets one synchronous
+    start_instances call (no background thread, Lambda freezes after the
+    response), a running VM that fails one bounded SSH probe is left to boot,
+    and an in-flight blocking prelude is never joined. Never sleeps or waits.
+    """
+    if not (vm_config.vm_name and vm_config.vm_name.startswith("ssh:")):
+        return True
+    if not vm_config.ec2_instance_id or not vm_config.ec2_region:
+        return True
+    if not _is_stale(vm_config.last_up):
+        return True
+
+    key = _vm_key(vm_config)
+    with _FLIGHTS_GUARD:
+        if key in _FLIGHTS:
+            return False
+
+    state = get_instance_state(vm_config.ec2_instance_id, vm_config.ec2_region)
+    if state != "running":
+        logger.info("ec2_wake: {} is {}, starting (nowait)", vm_config.ec2_instance_id, state)
+        try:
+            _ec2_client(vm_config.ec2_region).start_instances(
+                InstanceIds=[vm_config.ec2_instance_id]
+            )
+        except ClientError as exc:
+            # e.g. IncorrectInstanceState while stopping: still waking/retry.
+            logger.info("ec2_wake: nowait start_instances refused: {}", exc)
+        return False
+
+    if vm_config.api_token and not _probe_ssh(vm_config, probe_timeout):
+        return False
+    touch_last_up(vm_config)
+    return True
+
+
 def touch_last_up(vm_config: VmConfig) -> None:
     """Update last_up timestamp in the database."""
     if not vm_config.ec2_instance_id or not vm_config.id:

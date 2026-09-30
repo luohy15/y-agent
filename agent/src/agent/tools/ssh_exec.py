@@ -74,7 +74,7 @@ async def ssh_exec(
     # (todo 3226: the usage-limit sweep bounds each user that way). Its own
     # wall clock is bounded in agent.ec2_wake, not here: a cancelled caller
     # abandons this thread and only the operation itself can end it.
-    if wake:
+    if wake and wake != "nowait":
         await _offload(ensure_and_touch_vm, vm_config)
     user, host, port = _parse_ssh_target(vm_config.vm_name)
     key = paramiko.Ed25519Key.from_private_key(io.StringIO(vm_config.api_token))
