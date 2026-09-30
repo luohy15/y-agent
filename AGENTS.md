@@ -247,7 +247,7 @@ The repo no longer contains an in-process agent loop — the worker shells out.
   removed in todo 2930; `_start_detached` now rejects any backend other than `claude_code`
   with a launch error instead of falling through. The non-agentic inline backends stay:
   `perplexity` (`agent/src/agent/perplexity.py`, the `px` web fact-check), `openai`
-  (`agent/src/agent/openai_chat.py`, `POST /api/inline` and `POST /api/link/tldr`), and
+  (`agent/src/agent/openai_chat.py`, `POST /api/inline` and `POST /api/link/tldr`, both using the `inline` bot), and
   the xAI search pair `xai_web` / `xai_x` (`agent/src/agent/xai_search.py`, the
   `grok-web` / `grok-x` bots) which call xAI's native Responses API with the server-side
   `web_search` / `x_search` tool and return `url_citation` sources as `Message.links`.

@@ -16,6 +16,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Reminder and routine module host support (3708)**: browser contract v20 adds `bell` and `clock` icon keys and the `chat.setRoutineFilter` command. The built-in Reminders and Routines panels are retired; persisted `reminder` and `routine` sidebar keys move to `artifact:reminder` and `artifact:routine`.
 
 ### Changed
+- **Link TLDR uses the inline bot (3789)**: `POST /api/link/tldr` reads the `inline` bot config (same bot as `POST /api/inline` and English refine) instead of a separate `tldr` bot. Prompt, timeout, and token cap stay on the endpoint.
 - **Host and SDK design package 0.4.0 (3695)**: vendored `@y/design` moves from 0.2.0 through 0.3.0 (Combobox) to 0.4.0 (`freeText` Combobox). The host Tailwind scan includes `dist/combobox.js`.
 
 ### Fixed

@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from agent.vm_command import run_vm_command as _exec
+from api.controller.inline import INLINE_BOT_NAME
 from storage.service import bot_config as bot_service
 from storage.service import link as link_service
 
@@ -64,7 +65,6 @@ class ActivityIdRequest(BaseModel):
     activity_id: str
 
 
-TLDR_BOT_NAME = "tldr"
 TLDR_MAX_TOKENS = 2000
 TLDR_TIMEOUT = 60.0
 TLDR_SYSTEM_PROMPT = (
@@ -330,11 +330,11 @@ async def resolve_url(request: Request, url: str = Query(...)):
 
 
 async def _call_tldr_bot(user_id: int, content: str, title: Optional[str], url: Optional[str]) -> str:
-    bot_config = bot_service.get_config(user_id, TLDR_BOT_NAME)
+    bot_config = bot_service.get_config(user_id, INLINE_BOT_NAME)
     if not bot_config or not bot_config.api_key or not bot_config.model:
         raise HTTPException(
             status_code=502,
-            detail=f"Bot {TLDR_BOT_NAME!r} is not configured for this user (api_key and model required)",
+            detail=f"Bot {INLINE_BOT_NAME!r} is not configured for this user (api_key and model required)",
         )
 
     user_content = "\n".join([
