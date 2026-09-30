@@ -21,7 +21,7 @@ from storage.service import mcp as svc
 from storage.service.mcp import McpError, validate_https_url
 from agent.mcp import oauth
 from agent.mcp.client import McpHttpClient
-from agent.mcp.egress import Egress
+from agent.mcp.egress import Egress, remaining
 
 REFRESH_SKEW_MS = 60 * 1000
 REFRESH_WAIT_ATTEMPTS = 3
@@ -175,7 +175,7 @@ def _refresh(view: svc.CredentialView, egress: Egress, sleep: Callable[[float], 
         if claim is None:
             # Another caller holds the slot or already refreshed: re-read.
             if attempt:
-                sleep(REFRESH_WAIT_S)
+                sleep(remaining(REFRESH_WAIT_S))
             view = svc.load_credential(view.connector_pk, view.identity_generation)
             if view.credential_revision != start_revision:
                 return _bearer(view)

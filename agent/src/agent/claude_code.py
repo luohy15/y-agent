@@ -708,11 +708,13 @@ def _kill_session_marking_self_killed(client, chat_id: str) -> None:
     the caller only proceeds once the remote command has actually
     completed.
     """
+    from agent.mcp.staging import cleanup_command
     session_name = f"cc-{chat_id}"
     cmd = (
         f"touch /tmp/cc-{chat_id}.killed && "
         f"tmux kill-session -t {_shell_quote(session_name)} 2>/dev/null; "
-        f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null"
+        f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null; "
+        + cleanup_command(chat_id)
     )
     try:
         _ssh_exec(client, cmd)
@@ -873,15 +875,36 @@ def _claude_parse_initial(obj: Dict) -> Optional[str]:
     return None
 
 
-def _claude_spec(input_uuid: Optional[str] = None) -> "DetachBackendSpec":
+def _claude_spec(input_uuid: Optional[str] = None, mcp_material=None) -> "DetachBackendSpec":
     from agent.detach import DetachBackendSpec
 
     def setup(client, chat_id, prompt, images):
         _claude_write_stdin(client, chat_id, prompt, images, input_uuid=input_uuid)
+        if mcp_material is not None:
+            from agent.mcp.staging import stage_remote
+            try:
+                mcp_material.remote_dir = stage_remote(client, {**mcp_material.summary, "chat_id": chat_id}, mcp_material.context)
+            except Exception:
+                from agent.mcp.launch import end
+                end(mcp_material)
+                mcp_material.warning = "MCP private staging failed. Built-in tools remain available; retry the session."
+
+    def build_exec(cmd, chat_id, prompt, images):
+        cmd = list(cmd)
+        if "--strict-mcp-config" not in cmd:
+            cmd.append("--strict-mcp-config")
+        root = mcp_material.remote_dir if mcp_material else None
+        cmd.extend(["--mcp-config", f"{root}/config.json" if root else '{"mcpServers":{}}'])
+        return _claude_build_exec(cmd, chat_id, prompt, images)
+
+    def cleanup():
+        root = mcp_material.remote_dir if mcp_material else None
+        return f"rm -rf -- {_shell_quote(root)}" if root else ":"
 
     return DetachBackendSpec(
         setup=setup,
-        build_exec=_claude_build_exec,
+        build_exec=build_exec,
+        cleanup=cleanup,
         parse_initial=_claude_parse_initial,
         upload_images=False,
     )
@@ -897,6 +920,7 @@ async def start_detached_ssh(
     images: Optional[List[str]] = None,
     ssh_client=None,
     input_uuid: Optional[str] = None,
+    mcp_material=None,
 ) -> Optional[str]:
     """Start `claude -p` in a detached tmux session on remote host.
 
@@ -914,7 +938,7 @@ async def start_detached_ssh(
         cwd=cwd,
         chat_id=chat_id,
         vm_config=vm_config,
-        spec=_claude_spec(input_uuid),
+        spec=_claude_spec(input_uuid, mcp_material),
         env=env,
         images=images,
         ssh_client=ssh_client,

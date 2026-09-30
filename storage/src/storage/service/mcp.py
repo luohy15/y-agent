@@ -25,7 +25,8 @@ import os
 import re
 import secrets
 import uuid
-from dataclasses import dataclass
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass
 from typing import Any, Iterable, Optional
 from urllib.parse import urlsplit, urlunsplit
 
@@ -1086,6 +1087,10 @@ def authorize_launch_call(launch_id: str, token: str, connector_id: str) -> Laun
             row = repo.get_connector_by_pk(session, snap.connector_pk)
             if row is None or row.connector_id != connector_id:
                 continue
+            if snap.status == "excluded":
+                # Left out of the staged config (startup probe failed or timed
+                # out): the grant never gains that connector later.
+                raise McpError("forbidden", "connector is not part of this launch")
             if row.deleted_at_unix is not None or row.identity_generation != snap.identity_generation:
                 raise McpError("not_connected", "connector authorization was replaced or removed")
             return LaunchGrant(launch.launch_id, launch.user_id, row.id, row.connector_id,
@@ -1093,6 +1098,76 @@ def authorize_launch_call(launch_id: str, token: str, connector_id: str) -> Laun
                                tuple(_json_list(snap.approved_tools)),
                                tuple(_json_list(snap.tool_snapshot)))
         raise McpError("forbidden", "connector is not part of this launch")
+
+
+class LaunchSession:
+    """Decrypted upstream session state for one launch connector. Sealing
+    happens only when the state changed; `checkpoint()` seals early so a
+    side-effecting call never runs before its session can be stored."""
+
+    def __init__(self, context: dict, stored: Optional[str]):
+        self._context = context
+        self.stored = stored
+        try:
+            self.state = (crypto.open_envelope(crypto.Envelope(**json.loads(stored)), context)
+                          if stored else {})
+        except (crypto.McpKeyUnavailable, crypto.McpCiphertextInvalid):
+            raise McpError("key_unavailable", "connector encryption key is unavailable") from None
+        self._saved = dict(self.state)
+
+    def checkpoint(self) -> None:
+        if self.state == self._saved:
+            return
+        try:
+            self.stored = json.dumps(asdict(crypto.seal(self.state, self._context)))
+        except (crypto.McpKeyUnavailable, crypto.McpCiphertextInvalid):
+            raise McpError("key_unavailable", "connector encryption key is unavailable") from None
+        self._saved = dict(self.state)
+
+
+@contextmanager
+def launch_session(launch_id: str, token: str, connector_id: str):
+    """Serialize one connector's upstream session across API instances.
+
+    Only the snapshot row is locked during the bounded operation, with a
+    bounded lock wait. Disconnect and stop do not wait on this lock. Session
+    material is encrypted and bound to this launch, never returned in
+    management projections.
+    """
+    from sqlalchemy import text
+    from sqlalchemy.exc import OperationalError
+
+    with get_db() as session:
+        try:
+            session.execute(text("SET LOCAL lock_timeout = '1000ms'"))
+            launch = _verify_launch(session, launch_id, token, _now())
+            snap = (session.query(McpLaunchConnectorEntity)
+                    .join(McpConnectorEntity, McpConnectorEntity.id == McpLaunchConnectorEntity.connector_pk)
+                    .filter(McpLaunchConnectorEntity.launch_pk == launch.id,
+                            McpConnectorEntity.connector_id == connector_id)
+                    .with_for_update(of=McpLaunchConnectorEntity).one_or_none())
+        except OperationalError:
+            err = McpError("provider_unavailable", "connector is busy; retry")
+            err.busy = True
+            raise err from None
+        if snap is None or snap.status == "excluded":
+            raise McpError("forbidden", "connector is not part of this launch")
+        slot = LaunchSession(crypto.crypto_context(repo.public_user_id(session, launch.user_id),
+                                                   connector_id, snap.identity_generation,
+                                                   f"runtime:{launch_id}"),
+                             snap.upstream_session_id)
+        yield slot
+        slot.checkpoint()
+        snap.upstream_session_id = slot.stored
+
+
+def end_chat_launches(user_id: int, chat_id: str) -> None:
+    """A replacement process invalidates all prior grants, not just the latest."""
+    with get_db() as session:
+        (session.query(McpLaunchEntity)
+         .filter(McpLaunchEntity.user_id == user_id, McpLaunchEntity.chat_id == chat_id,
+                 McpLaunchEntity.status == "active")
+         .update({"status": "ended", "ended_at_unix": _now()}, synchronize_session=False))
 
 
 def renew_launch(launch_id: str, token: str) -> int:
@@ -1114,16 +1189,41 @@ def end_launch(launch_id: str, *, status: str = "ended") -> None:
 
 def record_launch_connector_status(launch_id: str, connector_id: str, *, status: str,
                                    error_code: Optional[str] = None) -> None:
+    """Best-effort applied status; never waits long on a busy snapshot row."""
+    from sqlalchemy import text
+    from sqlalchemy.exc import OperationalError
+
+    try:
+        with get_db() as session:
+            session.execute(text("SET LOCAL lock_timeout = '1000ms'"))
+            _set_launch_connector_status(session, launch_id, connector_id, status, error_code)
+    except OperationalError:
+        pass
+
+
+def exclude_launch_connector(launch_id: str, connector_id: str, *, error_code: str) -> None:
+    """Terminally drop a connector from a launch's authority. Waits out any
+    in-flight gateway operation (each is bounded well below this lock wait);
+    raises if it cannot be recorded so the caller fails closed."""
+    from sqlalchemy import text
+
     with get_db() as session:
-        launch = repo.get_launch(session, launch_id)
-        if launch is None:
+        session.execute(text("SET LOCAL lock_timeout = '12s'"))
+        _set_launch_connector_status(session, launch_id, connector_id, "excluded", error_code)
+
+
+def _set_launch_connector_status(session, launch_id, connector_id, status, error_code) -> None:
+    launch = repo.get_launch(session, launch_id)
+    if launch is None:
+        return
+    for snap in repo.launch_connectors(session, launch.id):
+        row = repo.get_connector_by_pk(session, snap.connector_pk)
+        if row is not None and row.connector_id == connector_id:
+            if snap.status == "excluded":
+                return  # terminal: a late in-flight result cannot revive it
+            snap.status = status[:32]
+            snap.error_code = error_code if error_code in McpError.STATUS else None
             return
-        for snap in repo.launch_connectors(session, launch.id):
-            row = repo.get_connector_by_pk(session, snap.connector_pk)
-            if row is not None and row.connector_id == connector_id:
-                snap.status = status[:32]
-                snap.error_code = error_code if error_code in McpError.STATUS else None
-                return
 
 
 def launch_status(user_id: int, chat_id: Optional[str] = None) -> dict[str, Any]:

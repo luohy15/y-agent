@@ -85,6 +85,7 @@ class DetachBackendSpec:
     parse_initial: Callable[[Dict], Optional[str]]
     setup: Optional[Callable[[object, str, str, Optional[List[str]]], None]] = None
     upload_images: bool = True
+    cleanup: Optional[Callable[[], str]] = None
 
 
 def _upload_images(client, chat_id: str, images: Optional[List[str]]) -> Optional[List[str]]:
@@ -171,11 +172,13 @@ async def _start_detached_tmux(
         exit_file = f"/tmp/cc-{chat_id}.exit"
 
         # 1. Stale cleanup
+        from agent.mcp.staging import cleanup_command
         _ssh_exec(
             client,
             f"tmux kill-session -t {_shell_quote(session_name)} 2>/dev/null; "
             f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit /tmp/cc-{chat_id}.killed 2>/dev/null; "
-            f"rm -rf /tmp/cc-{chat_id}-images 2>/dev/null",
+            f"rm -rf /tmp/cc-{chat_id}-images 2>/dev/null; "
+            + cleanup_command(chat_id),
         )
 
         exec_images = _upload_images(client, chat_id, images) if spec.upload_images else images
@@ -198,6 +201,8 @@ async def _start_detached_tmux(
                     f"printf '%s\\n' {_shell_quote(json.dumps(error_obj))} > {_shell_quote(stdout_file)}; "
                     f"echo 1 > {_shell_quote(exit_file)}",
                 )
+                if spec.cleanup:
+                    _ssh_exec(client, spec.cleanup())
                 return None
 
         # 3. Assemble tmux inner command
@@ -206,6 +211,8 @@ async def _start_detached_tmux(
             "( while :; do date +%s > /tmp/ec2-ssh-last-seen; sleep 60; done ) &",
             "HEARTBEAT_PID=$!;",
         ]
+        if spec.cleanup:
+            inner_parts.append(f"trap {_shell_quote(spec.cleanup())} EXIT HUP INT TERM;")
         if env:
             for k, v in env.items():
                 inner_parts.append(f"export {k}={_shell_quote(v)};")
@@ -228,7 +235,12 @@ async def _start_detached_tmux(
         )
 
         # 4. Start tmux session
-        _ssh_exec(client, tmux_cmd)
+        try:
+            _ssh_exec(client, tmux_cmd)
+        except Exception:
+            if spec.cleanup:
+                _ssh_exec(client, spec.cleanup())
+            raise
 
         # 5. Sniff initial stdout for session/thread id
         await asyncio.sleep(2)

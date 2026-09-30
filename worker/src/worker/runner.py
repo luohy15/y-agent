@@ -1,5 +1,6 @@
 """Run a single chat through the agent loop, writing messages to DB."""
 
+import asyncio
 import os
 import re
 import threading
@@ -806,16 +807,33 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
 
     input_ids = params["input_ids"]
     launch_uuid = native_input_uuid(chat_id, f"launch:{input_ids[-1] if input_ids else 'none'}")
-    session_id = await start_detached_ssh(
-        cmd=params["cmd"],
-        prompt=params["prompt"],
-        cwd=cwd,
-        chat_id=chat_id,
-        vm_config=params["vm_config"],
-        env=params["env"],
-        images=params.get("images"),
-        input_uuid=launch_uuid,
-    )
+    from agent.mcp import launch as mcp_launch
+    mcp_material = await asyncio.to_thread(mcp_launch.prepare, user_id, chat_id, chat.run_seq)
+    try:
+        session_id = await start_detached_ssh(
+            cmd=params["cmd"],
+            prompt=params["prompt"],
+            cwd=cwd,
+            chat_id=chat_id,
+            vm_config=params["vm_config"],
+            env=params["env"],
+            images=params.get("images"),
+            input_uuid=launch_uuid,
+            mcp_material=mcp_material,
+        )
+    except Exception:
+        mcp_launch.end(mcp_material)
+        raise
+    if mcp_material.warning:
+        from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
+        from storage.repository import chat as chat_repo
+        def warn_mcp(current):
+            if current.running and current.run_seq == chat.run_seq:
+                current.messages.append(Message(
+                    id=generate_message_id(), role="assistant", content=mcp_material.warning,
+                    timestamp=get_utc_iso8601_timestamp(), unix_timestamp=get_unix_timestamp(),
+                ))
+        chat_repo.mutate_chat_locked(chat_id, warn_mcp, user_id=user_id)
 
     logger.info("_start_detached: tmux started chat_id={} session_id={}", chat_id, session_id)
 
@@ -834,8 +852,10 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
             scope_first_id=input_ids[0] if input_ids else None,
             initial_message_ids=[m.id for m in chat.messages if m.id],
             run_seq=chat.run_seq,
+            mcp_launch_id=mcp_material.launch_id,
         )
     except Exception as e:
+        mcp_launch.end(mcp_material)
         logger.exception("register_process failed for chat {} (session_id={}): {}", chat_id, session_id, e)
         from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
         from storage.repository import chat as chat_repo

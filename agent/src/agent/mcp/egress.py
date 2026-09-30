@@ -10,13 +10,20 @@ one after a redirect) is checked again.
 
 Environment proxies are ignored (`trust_env=False`), redirects are never
 followed implicitly, and response bodies are capped.
+
+`deadline(seconds)` scopes one wall-clock budget over everything inside it:
+DNS resolution, each dial, every socket read/write (so a slow-drip body cannot
+outlive it) and streamed body iteration. Nested scopes only ever shorten it.
 """
 
 from __future__ import annotations
 
+import contextvars
 import ipaddress
 import json
 import socket
+import threading
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Callable, Iterator, Optional
@@ -43,6 +50,58 @@ _EMBEDDING_V6_NETWORKS = tuple(ipaddress.ip_network(n) for n in (
 ))
 
 Resolver = Callable[[str, int], list]
+
+_DEADLINE: contextvars.ContextVar[Optional[float]] = contextvars.ContextVar("mcp_deadline", default=None)
+
+
+@contextmanager
+def deadline(seconds: float) -> Iterator[None]:
+    """Bound all egress inside this scope to `seconds` of wall-clock time."""
+    end = time.monotonic() + seconds
+    outer = _DEADLINE.get()
+    token = _DEADLINE.set(end if outer is None else min(outer, end))
+    try:
+        yield
+    finally:
+        _DEADLINE.reset(token)
+
+
+def remaining(default: Optional[float] = None) -> Optional[float]:
+    """Seconds left in the current scope (capped by `default`); raises once spent."""
+    end = _DEADLINE.get()
+    if end is None:
+        return default
+    left = end - time.monotonic()
+    if left <= 0:
+        out = McpError("timeout", "connector operation timed out")
+        out.uncertain = True
+        raise out
+    return left if default is None else min(default, left)
+
+
+def _bounded_resolve(resolver: "Resolver", host: str, port: int) -> list:
+    """Run the resolver under the scope deadline; a stuck lookup is abandoned."""
+    budget = remaining()
+    if budget is None:
+        return resolver(host, port)
+    box: dict = {}
+
+    def run():
+        try:
+            box["value"] = resolver(host, port)
+        except BaseException as err:  # re-raised in the caller's thread
+            box["error"] = err
+
+    thread = threading.Thread(target=run, daemon=True, name="mcp-resolve")
+    thread.start()
+    thread.join(min(budget, CONNECT_TIMEOUT_S))
+    if thread.is_alive():
+        err = McpError("timeout", "provider host resolution timed out")
+        err.uncertain = False
+        raise err
+    if "error" in box:
+        raise box["error"]
+    return box["value"]
 
 
 def is_public_address(address: str) -> bool:
@@ -78,7 +137,7 @@ def resolve_public(host: str, port: int, resolver: Resolver) -> str:
         addresses = [host]
     except ValueError:
         try:
-            addresses = list(resolver(host, port))
+            addresses = list(_bounded_resolve(resolver, host, port))
         except (OSError, UnicodeError):
             raise McpError("provider_unavailable", "provider host could not be resolved") from None
     if not addresses:
@@ -86,6 +145,36 @@ def resolve_public(host: str, port: int, resolver: Resolver) -> str:
     if not all(isinstance(a, str) and is_public_address(a) for a in addresses):
         raise McpError("network_blocked", "provider host resolves to a non-public address")
     return addresses[0]
+
+
+class DeadlineStream(httpcore.NetworkStream):
+    """Caps every blocking socket operation by the scope deadline."""
+
+    def __init__(self, inner: httpcore.NetworkStream):
+        self._inner = inner
+
+    @staticmethod
+    def _timeout(timeout):
+        try:
+            return remaining(timeout)
+        except McpError:
+            raise httpcore.ReadTimeout("connector operation deadline reached") from None
+
+    def read(self, max_bytes, timeout=None):
+        return self._inner.read(max_bytes, self._timeout(timeout))
+
+    def write(self, buffer, timeout=None):
+        self._inner.write(buffer, self._timeout(timeout))
+
+    def close(self):
+        self._inner.close()
+
+    def start_tls(self, ssl_context, server_hostname=None, timeout=None):
+        return DeadlineStream(self._inner.start_tls(ssl_context, server_hostname,
+                                                    self._timeout(timeout)))
+
+    def get_extra_info(self, info):
+        return self._inner.get_extra_info(info)
 
 
 class PinnedBackend(httpcore.NetworkBackend):
@@ -97,8 +186,13 @@ class PinnedBackend(httpcore.NetworkBackend):
 
     def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
         address = resolve_public(host, port, self._resolver)
-        return self._inner.connect_tcp(address, port, timeout=timeout, local_address=local_address,
-                                       socket_options=socket_options)
+        try:
+            timeout = remaining(timeout)
+        except McpError:
+            raise httpcore.ConnectTimeout("connector operation deadline reached") from None
+        return DeadlineStream(self._inner.connect_tcp(address, port, timeout=timeout,
+                                                      local_address=local_address,
+                                                      socket_options=socket_options))
 
     def connect_unix_socket(self, path, timeout=None, socket_options=None):
         raise McpError("network_blocked", "unix sockets are not permitted")
@@ -174,6 +268,7 @@ class Egress:
                timeout: float = OPERATION_TIMEOUT_S, allow_query: bool = True
                ) -> Iterator[httpx.Response]:
         validate_https_url(url, allow_query=allow_query)
+        timeout = remaining(timeout)
         request_headers = {"User-Agent": USER_AGENT}
         request_headers.update(headers or {})
         client = httpx.Client(transport=self._transport, trust_env=False, follow_redirects=False,
@@ -199,6 +294,7 @@ class Egress:
                 body.extend(chunk)
                 if len(body) > self.max_response_bytes:
                     raise McpError("response_too_large", "provider response is too large")
+                remaining()
         except httpx.HTTPError as err:
             raise _mapped(err) from None
         return bytes(body)

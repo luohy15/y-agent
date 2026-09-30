@@ -469,7 +469,7 @@ async def post_attach_image(req: AttachImageRequest, request: Request):
 
 
 @router.post("/stop")
-async def post_stop_chat(req: StopChatRequest):
+async def post_stop_chat(req: StopChatRequest, request: Request):
     chat = await chat_service.get_chat_by_id(req.chat_id)
     if chat is None:
         raise HTTPException(status_code=404, detail="chat not found")
@@ -478,6 +478,13 @@ async def post_stop_chat(req: StopChatRequest):
 
     from storage.repository import chat as chat_repo
     await chat_repo.save_chat_by_id(chat)
+    # Stop revokes MCP launch grants now, not when the monitor notices the
+    # exit; a process that outlives the stop cannot reach connectors.
+    try:
+        from storage.service.mcp import end_chat_launches
+        await asyncio.to_thread(end_chat_launches, _get_user_id(request), req.chat_id)
+    except Exception as exc:
+        logger.warning("stop: MCP launch revocation failed chat_id={}: {}", req.chat_id, type(exc).__name__)
     return {"ok": True}
 
 

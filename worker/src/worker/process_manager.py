@@ -5,6 +5,7 @@ import os
 import time
 
 import boto3
+from loguru import logger
 
 TABLE_NAME = os.environ.get("DYNAMODB_TABLE", "y-agent-jobs")
 
@@ -52,7 +53,8 @@ def register_process(chat_id: str, user_id: int, vm_name: str,
                      delivery_states: dict = None,
                      scope_first_id: str = None,
                      initial_message_ids: list = None,
-                     run_seq: int = None) -> None:
+                     run_seq: int = None,
+                     mcp_launch_id: str = None) -> None:
     """Register a running tmux process in DynamoDB. status=running, offset=0."""
     now = int(time.time())
     item = {
@@ -100,6 +102,8 @@ def register_process(chat_id: str, user_id: int, vm_name: str,
         item["initial_message_ids"] = {"S": json.dumps(initial_message_ids)}
     if run_seq:
         item["run_seq"] = {"N": str(run_seq)}
+    if mcp_launch_id:
+        item["mcp_launch_id"] = {"S": mcp_launch_id}
 
     _get_dynamodb().put_item(TableName=TABLE_NAME, Item=item)
 
@@ -306,7 +310,21 @@ def begin_closeout(chat_id: str, proc: dict, result: dict) -> bool:
         raise
 
 
+def _end_mcp_launch(proc: dict) -> None:
+    """Revoke the process's launch grant. Best effort: a failure must not block
+    completion; idle expiry is the backstop."""
+    launch_id = (proc or {}).get("mcp_launch_id")
+    if not launch_id:
+        return
+    try:
+        from storage.service.mcp import end_launch
+        end_launch(launch_id)
+    except Exception as exc:
+        logger.warning("MCP launch revocation failed launch_id={}: {}", launch_id, type(exc).__name__)
+
+
 def complete_current_process(chat_id: str, proc: dict, status: str) -> bool:
+    _end_mcp_launch(proc)
     try:
         _get_dynamodb().update_item(
             TableName=TABLE_NAME, Key={"id": {"S": f"proc-{chat_id}"}},
@@ -327,6 +345,10 @@ def complete_current_process(chat_id: str, proc: dict, status: str) -> bool:
 
 def complete_process(chat_id: str, status: str = "completed") -> None:
     """Mark process as completed/error/interrupted. Clear monitor owner."""
+    try:
+        _end_mcp_launch(get_process(chat_id))
+    except Exception as exc:
+        logger.warning("MCP launch lookup failed chat_id={}: {}", chat_id, type(exc).__name__)
     _get_dynamodb().update_item(
         TableName=TABLE_NAME,
         Key={"id": {"S": f"proc-{chat_id}"}},

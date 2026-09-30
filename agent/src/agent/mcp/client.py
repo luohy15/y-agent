@@ -16,7 +16,7 @@ from typing import Any, Iterator, Optional
 import httpx
 
 from storage.service.mcp import MAX_TOOLS, McpError
-from agent.mcp.egress import OPERATION_TIMEOUT_S, TOOL_CALL_TIMEOUT_S, Egress
+from agent.mcp.egress import OPERATION_TIMEOUT_S, TOOL_CALL_TIMEOUT_S, Egress, remaining
 
 SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26")
 MAX_PAGES = 100
@@ -61,6 +61,13 @@ def iter_sse_messages(lines: Iterator[str], max_bytes: int) -> Iterator[Any]:
             raise McpError("protocol_error", "provider sent a malformed event") from None
 
 
+def _until_deadline(lines: Iterator[str]) -> Iterator[str]:
+    """Keep-alive comments alone must not hold a stream past the scope deadline."""
+    for line in lines:
+        remaining()
+        yield line
+
+
 class McpHttpClient:
     def __init__(self, endpoint: str, auth_headers: dict, egress: Egress, *,
                  session_id: Optional[str] = None, protocol_version: Optional[str] = None):
@@ -100,7 +107,17 @@ class McpHttpClient:
         expect = "id" in message
         with self._egress.stream("POST", self.endpoint, headers=self._headers(), allow_query=False,
                                  content=json.dumps(message).encode(), timeout=timeout) as response:
-            self._check_status(response)
+            try:
+                self._check_status(response)
+            except McpError as err:
+                if response.status_code == 404 and self.session_id:
+                    # The server ended our session and did not process this
+                    # request. Drop it so only a future safe operation
+                    # reinitializes; the caller never replays a call.
+                    err.session_lost = True
+                    self.session_id = None
+                    self.protocol_version = None
+                raise
             if capture_session:
                 self.session_id = _session_id(response.headers.get("mcp-session-id"))
             if not expect:
@@ -114,12 +131,15 @@ class McpHttpClient:
                 return self._match(payload, message["id"])
             if ctype == "text/event-stream":
                 try:
-                    for payload in iter_sse_messages(response.iter_lines(), self._egress.max_response_bytes):
+                    for payload in iter_sse_messages(_until_deadline(response.iter_lines()),
+                                                     self._egress.max_response_bytes):
                         matched = self._match(payload, message["id"], allow_other=True)
                         if matched is not None:
                             return matched
-                except httpx.HTTPError:
-                    err = McpError("provider_unavailable", "provider stream failed")
+                except httpx.HTTPError as cause:
+                    err = (McpError("timeout", "provider request timed out")
+                           if isinstance(cause, httpx.TimeoutException)
+                           else McpError("provider_unavailable", "provider stream failed"))
                     err.uncertain = True
                     raise err from None
                 err = McpError("protocol_error", "provider stream ended without a response")
@@ -181,6 +201,15 @@ class McpHttpClient:
         self._request("ping", None)
 
     def list_tools(self) -> list[dict]:
+        """Listing is safe to repeat once on a fresh session after a lost one."""
+        try:
+            return self._list_tools()
+        except McpError as err:
+            if not getattr(err, "session_lost", False):
+                raise
+        return self._list_tools()
+
+    def _list_tools(self) -> list[dict]:
         if self.protocol_version is None:
             self.initialize()
         if "tools" not in self.capabilities:

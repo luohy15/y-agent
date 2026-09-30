@@ -1,4 +1,5 @@
 import os
+import re
 
 import jwt
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -31,6 +32,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # redirect (todo 3796). Exact GET path only; every other MCP route
         # stays authenticated.
         if request.method == "GET" and path == MCP_OAUTH_CALLBACK_PATH:
+            return await call_next(request)
+
+        # This exact route authenticates an opaque, launch-scoped grant, not JWT.
+        if request.method == "POST" and re.fullmatch(
+                r"/api/mcp/runtime/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", path):
             return await call_next(request)
 
         # Allow public routes
