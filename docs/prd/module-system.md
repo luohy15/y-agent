@@ -934,7 +934,13 @@ reuses a loaded module and a rollback to an already-loaded version is free.
 
 Cold-start cost, fetch plus verify plus import on the first request to a module
 route, is accepted. It is bounded, it is paid once per container per module, and
-it applies only to modules actually called.
+it applies only to modules actually called, with one exception. Before the API
+process accepts traffic, its lifespan synchronously loads the maintainer's
+active `chat` module through the same loader (todo 3780), so that module is
+warm even when no request has called it yet. The step is fail-open. Once 1.5s
+has elapsed, later warmup steps are skipped, and a step already running is not
+cancelled. No other slug is prewarmed. A request still resolves the active
+version itself; the prewarm only moves the first load off the request path.
 
 ### Atomic joint versioning
 
