@@ -47,13 +47,16 @@ from api.controller.cookies import router as cookies_router
 from api.controller.inline import router as inline_router
 from api.controller.health import router as health_router
 from api.controller.provider_status import router as provider_status_router
+from api.controller.mcp import router as mcp_router
 from api.controller.module import router as module_router
 from api.controller.upload import router as upload_router
 from api.middleware.auth import AuthMiddleware
 from api.middleware.api_latency import ApiLatencyMiddleware
 from api.middleware.provider_status_access_log import install_provider_status_access_log_filter
+from api.middleware.mcp_access_log import install_mcp_access_log_filter
 
 install_provider_status_access_log_filter()
+install_mcp_access_log_filter()
 
 
 @asynccontextmanager
@@ -110,6 +113,7 @@ api_router.include_router(cookies_router)
 api_router.include_router(inline_router)
 api_router.include_router(health_router)
 api_router.include_router(provider_status_router)
+api_router.include_router(mcp_router)
 api_router.include_router(module_router)
 api_router.include_router(upload_router)
 app.include_router(api_router)

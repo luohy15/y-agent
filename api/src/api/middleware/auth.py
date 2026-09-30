@@ -5,6 +5,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from api.middleware.mcp_access_log import MCP_OAUTH_CALLBACK_PATH
 from api.middleware.provider_status_access_log import PROVIDER_STATUS_WEBHOOK_PREFIX
 
 JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
@@ -24,6 +25,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # The opaque path credential is validated by the dedicated receiver. This
         # is deliberately not a broad public /api/provider-status prefix.
         if request.method == "POST" and path.startswith(PROVIDER_STATUS_WEBHOOK_PREFIX):
+            return await call_next(request)
+
+        # The single-use OAuth state is the credential for the provider
+        # redirect (todo 3796). Exact GET path only; every other MCP route
+        # stays authenticated.
+        if request.method == "GET" and path == MCP_OAUTH_CALLBACK_PATH:
             return await call_next(request)
 
         # Allow public routes

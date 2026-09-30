@@ -18,6 +18,7 @@ dependencies = [
     "icalendar>=5.0.0",
     "croniter>=2.0",
     "fava>=1.30.12",
+    "cryptography>=46.0.0",
 ]
 
 [tool.hatch.build.targets.wheel]
