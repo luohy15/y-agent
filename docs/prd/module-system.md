@@ -743,7 +743,8 @@ outcome, including an EC2 error or exceeding the budget, raises
 `ModuleVmWakingError` (default `retry_after` 2s); a ready probe touches
 `last_up` and executes with the prelude skipped. `wake=True` / `False` are
 unchanged. File requires backend v19 to return 503 `vm_waking` from `/read` and
-`/list`; deploy the host before publishing File.
+`/list`; deploy the host before publishing File. How a module turns that error,
+or a usable-but-stale 200, into a client retry is *Retry-later*.
 
 Todo 3781 bumps the backend contract from 19 to **20**. `api_latency_routes`
 gains closed keyword parameters `sort_by` (`route`, `request_count`, `p50_ms`,
@@ -1261,6 +1262,48 @@ about to cut must be retargeted first. Backend contract v4 added
 exported host `CodeEditor` after direct CodeMirror bundling breached the module
 size ceiling (`pages/decision-3068-codemirror-bundle-measurement.md`). Instance
 inventory and hazards: `code/y-module/file/README.md`.
+
+### Retry-later
+
+Some module routes cannot finish on the first request: the dependency is slower
+than the answer the UI should show (an EC2 boot, a live quote provider). The
+contract (todo 3794) is to answer within about 1s, then let the client fetch the
+real result without a reload. This is not a backend-contract bump and not a host
+async-invoke capability. A Lambda stops when it sends the response, so the slow
+work either keeps running somewhere that outlives that response, or it runs
+inside a later request the client makes on purpose.
+
+Two shapes, and clients must accept either:
+
+- **not-ready.** HTTP 503, a `Retry-After` header, and a JSON `detail` of
+  `{code, message, retry_after}`. `code` is only a reason label (`vm_waking` is
+  File's). Clients key off the status and `retry_after`, not the label. The host
+  side of the EC2 case is `run_vm_command(..., wake="nowait")` raising
+  `ModuleVmWakingError` (backend contract v19, above). That kick is host-side:
+  `start_instances` continues after the 503. File maps the error to this body
+  itself.
+- **stale.** HTTP 200 with a usable body plus a module-specific staleness flag.
+  Finance's flag is `realtime_source: "partial"`. The client runs one refresh
+  action and revalidates. The refresh is an ordinary module route, not host
+  work. Finance's is `POST /api/module/finance/realtime-quotes/refresh`; the
+  route inventory stays in `code/y-module/finance/README.md`. Nothing on the host
+  keeps fetching after the 200.
+
+Shared client code is y-module `shared/ui/retry-later.ts`. That directory is
+compile-time source: `build.mjs` inlines it into each module bundle, and there
+is no separately published shared UI runtime and no `@y/host` export. Host
+`jsonFetcher` is unchanged. It throws the body text and drops status and
+headers, so it cannot see a 503 `Retry-After`. The helper is `parseRetryLater`
+(any `code` is accepted; missing header and body fall back to 2s; a non-503 is
+not a retry), `nextRetryDelay` (stop once elapsed time reaches the 120s cap),
+`RetryLaterError`, and `retryLaterFetcher` (an SWR fetcher that keeps status and
+`Retry-After`). File imports it, or keeps a thin re-export, and its 3777 wake
+behavior stays the same.
+
+There is no shared server helper. File is the only 503 emitter. A second module
+that needs the same 503 is the point to map `ModuleVmWakingError` once in the
+host dispatcher, as a later contract bump, instead of copying File's mapping.
+Until then each emitter owns its response.
 
 ### Todo: an in-place detail over the host TraceView leaf
 
