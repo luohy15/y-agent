@@ -162,8 +162,9 @@ entity + controller + service + CLI slices, and most have a web panel.
   conventional `common` (vendored at publish). Rollback/activate change code only;
   delete removes deployed metadata/bytes, not source/tables. No worker half:
   deterministic work is `routine` `vm_command`; judgment stays chat dispatch.
-  Backend host contract (`agent.module_host`) is **v18** (todo 3627 adds
-  owner-bound no-wake VM execution; File requires host v18 before publication). The tag module owns
+  Backend host contract (`agent.module_host`) is **v21** (todo 3627's v18 adds
+  owner-bound no-wake VM execution; v19 / v20 are todos 3777 / 3781; v21 adds the
+  maintainer-bound `mcp_*` connector capabilities of todo 3796). The tag module owns
   `/api/module/tag/*`, the lazy `y tag` CLI, and the `artifact:tag` panel; the
   host retains the `entity_tag` projection, normalization, carrier sync and
   cleanup, resolver hydration (todo rows carry `updated_at_unix` for client
@@ -230,6 +231,24 @@ entity + controller + service + CLI slices, and most have a web panel.
   is retried by the `recover_release_grants` worker action (wired, deployed disabled).
   Delivery is at-least-once, a stale grant is suppressed rather than reported as live, and
   a failed wakeup never expires or reassigns the claim.
+- **MCP connectors (todo 3796)**: owner-scoped remote HTTPS (Streamable HTTP) MCP
+  servers for Claude Code-backed sessions, Alpha Vantage as the first preset. Host
+  owns connector state, KMS-envelope-encrypted credentials (static headers, OAuth
+  client, OAuth tokens with single-winner refresh), standards-based OAuth with a fixed
+  JWT-exempt callback `GET /api/mcp/oauth/callback`, public-only egress, and the
+  runtime: the worker (`agent/mcp/launch.py`) mints a per-launch grant plus snapshot of
+  enabled, validated, explicitly approved tools, stages a stdlib stdio adapter and
+  `--strict-mcp-config` into protected per-launch files, and the adapter talks only to
+  the launch-scoped tools-only gateway `POST /api/mcp/runtime/<launch_id>`. Policy
+  edits apply at the next process launch (fresh or resume), never to a running
+  process; stop / end revokes the grant. Management and every launch are gated on
+  the configured maintainer (`Y_AGENT_MODULE_MAINTAINER_USER_ID`, needed on API
+  and worker); connectors of any other owner are skipped as `maintainer_required`.
+  Connector failures are isolated and surface as sanitized closed codes
+  (`last_test_error_code`, launch status). The maintainer-only `mcp` module is the
+  web/CLI management surface over v21 `mcp_*` host capabilities
+  (`code/y-module/mcp/README.md`). Requirements: `docs/prd/mcp-connectors.md`;
+  deployment order (manual DDL before host) and env: `docs/mcp-connectors.md`.
 - **Email / Calendar** — multi-account Gmail sync: per-account IMAP app passwords live
   in the `email_account` table (`y email account add/list/rm`), `y email sync-gmail`
   fans out over all registered accounts, and `email.account` tags each row with its
@@ -297,6 +316,10 @@ exceptions noted):
 - **API telemetry**: `api_latency_event`, `api_latency_rollup`
 - **Provider status**: `provider_status_source`, `provider_status_component`,
   `provider_status_incident`, `provider_status_incident_update`, `provider_status_event`
+- **MCP connectors** (todo 3796): `mcp_connector`, `mcp_credential`,
+  `mcp_oauth_transaction`, `mcp_launch`, `mcp_launch_connector` (all in
+  `entity/mcp.py`; one service `service/mcp.py`, envelope crypto in
+  `service/mcp_crypto.py`)
 - **Modules**: `module`, `module_version` (identity + immutable API/UI version rows;
   a version also carries its own `dispatch_scope` and `ui_surfaces` (legacy inert `ui_public` column retained), so
   exposure and claimed host slots roll back with the code)
@@ -334,7 +357,9 @@ Grouped by feature area:
   `/api/module/<slug>/*` by `api/module_runtime/` (not a built-in controller per
   domain). Per-module route inventories live in `code/y-module/<slug>/README.md`.
 - **Infrastructure**: `telegram.py` (private-only webhook, bind/unbind, routing),
-  `provider_status.py` (exact Anthropic Statuspage receiver), `vm_config.py`,
+  `provider_status.py` (exact Anthropic Statuspage receiver), `mcp.py` (JWT-exempt
+  OAuth callback and launch-grant-authenticated runtime gateway only; management is
+  the `mcp` module over `mcp_*` host capabilities), `vm_config.py`,
   `dev_worktree.py`, `dev_release.py` (publication slot: detail / list / claim /
   check / release / handoff / publisher / takeover, plus the waiter queue:
   enqueue / cancel-waiter / waiters)
@@ -345,15 +370,20 @@ Grouped by feature area:
 - `perplexity.py`, `openai_chat.py`, `xai_search.py` — inline single-shot (non-agentic)
   backends; `xai_search.py` serves both `xai_web` and `xai_x`
 - `config.py` — provider factory, bot/vm config resolution
-- `module_host.py` — backend host contract for modules (`BACKEND_CONTRACT_VERSION = 18`:
+- `module_host.py` — backend host contract for modules (`BACKEND_CONTRACT_VERSION = 21`:
   `session`, `run_vm_command` with work_dir/stdin, `cli_user_id`, external-table
   protocol, plus request-scoped `bot_config_*`, `chat_*` with optional
   `sort_by`/`sort_order`, `note_list_at_path`, owner-bound `note_*`, `tag_*`
   (including `tag_create_vocabulary`, `tag_delete_vocabulary`,
   `tag_rename_plan` / `tag_rename_apply`),
-  fixed `api_latency_*`, and configured-maintainer-only `provider_status_*`
-  capabilities; `tag_get` todo rows include `updated_at_unix`; time-range
+  fixed `api_latency_*`, and configured-maintainer-only `provider_status_*` and
+  `mcp_*` capabilities; `tag_get` todo rows include `updated_at_unix`; time-range
   allowlist includes `describe_time_range`)
+- `mcp/`: host MCP connector runtime (todo 3796): `egress.py` (public-only HTTPS),
+  `oauth.py`, `client.py` (tools-only Streamable HTTP client), `manager.py`
+  (connect / callback / refresh / discovery), `gateway.py` (launch-scoped runtime
+  boundary), `launch.py` + `staging.py` (per-launch grant and protected staging),
+  `adapter.py` (stdlib stdio adapter staged with each launch). Modules never import it.
 - `vm_command.py` — the local/SSH VM execution primitive; `module_host.run_vm_command`
   delegates to it after owner validation, and host `note.py` / `git.py` / `link.py`
   import it directly
@@ -366,7 +396,8 @@ Grouped by feature area:
 ### Worker (`worker/src/worker/`)
 - `runner.py` — `run_chat()` is the main entry: loads chat, resolves config, starts
   detached subprocess, runs post-hooks (telegram reply, plan → todo note, trace
-  registration). `_start_detached` handles Lambda lease + handoff.
+  registration). `_start_detached` handles Lambda lease + handoff. Every Claude Code
+  launch runs `agent.mcp.launch.prepare` (MCP launch grant + staged strict config).
 - `tasks.py` — Celery task `process_chat()`
 - `monitor.py` — tails detached process stdout, flushes to DB
 - `steps/` — RSS feed fetch, link batch download, provider-status reconciliation,
@@ -417,7 +448,9 @@ Grouped by feature area:
 
 Google OAuth → `POST /api/auth/google` (id_token) → JWT (HS256) stored in localStorage.
 Middleware validates Bearer token on all routes except `/api/auth/*`, `/api/telegram/*`,
-and public share routes (`/api/chat/share/*`, `/api/trace/share/*`).
+public share routes (`/api/chat/share/*`, `/api/trace/share/*`), the exact MCP OAuth
+callback `/api/mcp/oauth/callback` (state-bound) and `/api/mcp/runtime/<launch_id>`
+(authenticated by the per-launch grant instead of a JWT).
 
 ## Message Flow
 
@@ -547,7 +580,11 @@ y file export-pdf <md> [-o <pdf>]
   single account that owns every module: publishing always 403s for everyone else,
   and backend dispatch 403s for everyone else unless the active version declares
   `dispatch_scope: authenticated`. Both fail closed when this is unset; required in
-  any environment that publishes or dispatches backend modules).
+  any environment that publishes or dispatches backend modules. The worker needs it
+  too: MCP connectors launch only for this account),
+  `Y_AGENT_MCP_KMS_KEY_ID` / `Y_AGENT_MCP_CRYPTO_CONTEXT` /
+  `Y_AGENT_MCP_OAUTH_REDIRECT_URI` / `Y_AGENT_MCP_WEB_RETURN_URL` (API) and
+  `Y_AGENT_MCP_GATEWAY_URL` (worker) for MCP connectors (`docs/mcp-connectors.md`).
 - DB migrations: only generate the SQL — the maintainer runs it manually via `psql`.
   Do not wire up automatic migrations. Place new SQL under `migration/` (e.g.
   `migration/<todo_id>_<short_desc>.sql`). The directory is gitignored and shared

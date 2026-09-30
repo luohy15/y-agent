@@ -23,7 +23,7 @@ parameters. Do not put provider tokens, static headers or client secrets in eith
 | `Y_AGENT_MCP_OAUTH_REDIRECT_URI` | `McpOAuthRedirectUri` | API. Exact `https://<public-api-host>/api/mcp/oauth/callback`, no query or fragment. Empty disables Connect. |
 | `Y_AGENT_MCP_WEB_RETURN_URL` | `McpWebReturnUrl` | API. Optional fixed HTTPS web URL. Leave empty to show the sanitized callback outcome page. No caller-controlled redirect. |
 | `Y_AGENT_MCP_GATEWAY_URL` | `McpGatewayUrl` | **Worker**, not just API. Exact `https://<public-api-host>/api/mcp/runtime`, no launch ID, query, fragment or trailing slash. Worker probes and VM adapters must reach it. |
-| `Y_AGENT_MODULE_MAINTAINER_USER_ID` | `ModuleMaintainerUserId` | Existing API management gate; the public string user ID also scopes the KMS policy. Verify the SAM value against the configured account before rollout. |
+| `Y_AGENT_MODULE_MAINTAINER_USER_ID` | `ModuleMaintainerUserId` | API **and Worker**. Existing API management gate; the worker re-checks it at every launch, so connectors of an owner who is not the configured maintainer are skipped (`maintainer_required`). The public string user ID also scopes the KMS policy. Verify the SAM value against the configured account before rollout. |
 
 URLs are explicitly configured, not inferred from a request Host header. Prefer
 one stable HTTPS CloudFront/custom-domain origin for callback and gateway. If the
@@ -157,7 +157,8 @@ of a provider operation already in flight.
    Claude Code launch touches MCP tables, even with no enabled connectors; deploying
    the host first causes visible connector-load warnings on ordinary chats.
 4. Deploy the reviewed host API and worker together, including AgentLayer and SAM
-   parameters/policy. Verify worker `Y_AGENT_MCP_GATEWAY_URL`, API key/context and
+   parameters/policy. Verify worker `Y_AGENT_MCP_GATEWAY_URL` and
+   `Y_AGENT_MODULE_MAINTAINER_USER_ID`, API key/context and
    callback configuration through non-secret configuration inspection. Check API
    contract v21 before publishing the module. Do not print all Lambda environment
    variables (other features contain secrets).

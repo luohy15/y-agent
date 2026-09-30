@@ -1013,7 +1013,12 @@ def mint_launch(user_id: int, chat_id: str, run_seq: Optional[int] = None) -> tu
 
     Returns (sanitized summary, plaintext grant). Only the grant digest is
     stored; the caller stages the grant in protected per-launch material.
+    An owner who is not (or no longer) the configured maintainer gets no
+    connectors, so a maintainer reassignment also stops runtime access.
     """
+    from storage.service.user import get_module_maintainer_user_id
+
+    is_maintainer = get_module_maintainer_user_id() == user_id
     now = _now()
     token = secrets.token_urlsafe(32)
     with get_db() as session:
@@ -1027,6 +1032,10 @@ def mint_launch(user_id: int, chat_id: str, run_seq: Optional[int] = None) -> tu
         included, skipped = [], []
         for row in repo.list_live_connectors(session, user_id):
             if not row.desired_enabled:
+                continue
+            if not is_maintainer:
+                skipped.append({"connector_id": row.connector_id, "name": row.name,
+                                "reason": "maintainer_required"})
                 continue
             blocking = _blocking(session, row)
             if blocking:

@@ -53,12 +53,20 @@ def redirect_uri() -> str:
 def connect(user_id: int, connector_id: str, *, egress: Optional[Egress] = None) -> dict[str, Any]:
     """Start an authorization; returns the provider URL, never tokens."""
     egress = egress or default_egress()
-    callback = redirect_uri()
     material = svc.oauth_client_material(user_id, connector_id)
-    meta = oauth.discover(egress, material["endpoint"])
-    preset = svc.PRESETS.get(material["preset"] or "") or {}
-    scope = oauth.select_scope(meta, tuple(preset.get("scopes", ())))
-    client = oauth.choose_client(egress, meta, callback, material["manual_client"], scope)
+    try:
+        callback = redirect_uri()
+        meta = oauth.discover(egress, material["endpoint"])
+        preset = svc.PRESETS.get(material["preset"] or "") or {}
+        scope = oauth.select_scope(meta, tuple(preset.get("scopes", ())))
+        client = oauth.choose_client(egress, meta, callback, material["manual_client"], scope)
+    except McpError as err:
+        # Keep the closed cause visible on the connector (last test), since
+        # the host contract collapses most connect failures to not_ready.
+        svc.record_test_failure(user_id, connector_id,
+                                identity_generation=material["identity_generation"],
+                                error_code=err.code)
+        raise
     verifier, challenge = oauth.pkce_pair()
     state = oauth.new_state()
     tx = svc.begin_oauth_transaction(

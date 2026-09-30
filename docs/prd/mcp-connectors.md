@@ -37,8 +37,9 @@ reported visibly and do not make unrelated chat work unavailable.
 This PRD synthesizes the completed requirements interview for todo 3796. Roy
 confirmed Q1–Q10, including the amendment requiring OAuth in v1, on 2026-09-30.
 Detailed protocol, storage and deployment design must satisfy these requirements
-before implementation. Requirements are settled; implementation and deployment
-are not complete.
+before implementation. Requirements are settled. Todo 3796 implemented the host
+runtime and the `mcp` module (see Delivery Records); deployment, manual DDL and
+live Alpha Vantage acceptance are not complete.
 
 ## User Stories
 
@@ -303,4 +304,4 @@ not release authorization.
 
 | Todo | Outcome | Design | Plan | Decisions | Review | Status |
 |------|---------|--------|------|-----------|--------|--------|
-| 3796 | Owner-scoped MCP connector management and Claude Code integration, Alpha Vantage first | - | - | `pages/decision-3796-mcp-interview.md` | - | Requirements settled; coordinator review pending; not implemented |
+| 3796 | Owner-scoped MCP connector management and Claude Code integration, Alpha Vantage first | - | `pages/plan-3796-mcp-connectors.md`, `pages/plan-3796-mcp-runtime.md` | `pages/decision-3796-mcp-interview.md` | `pages/review-3796-mcp-connectors.md` | Implemented (host S1-S6 + `mcp` module), S1-S5 reviewed; review nits 1-3 fixed pending re-review; runbook `code/y-agent/docs/mcp-connectors.md`; not deployed, DDL not applied, live acceptance pending |

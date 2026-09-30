@@ -484,6 +484,7 @@ Resources:
           OXYLABS_PASSWORD: !Ref OxylabsPassword
           CRAWLER_RATE_LIMIT: "10"
           Y_AGENT_MCP_GATEWAY_URL: !Ref McpGatewayUrl
+          Y_AGENT_MODULE_MAINTAINER_USER_ID: !Ref ModuleMaintainerUserId
       Layers:
         - !Ref StorageLayer
         - !Ref AgentLayer

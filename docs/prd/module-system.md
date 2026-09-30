@@ -796,7 +796,11 @@ version published with `dispatch_scope: authenticated` still cannot reach
 connectors. A closed failure raises `ValueError` carrying only one of
 `not_found` / `stale_revision` / `stale_discovery` / `not_ready` /
 `unsupported` / `conflict` / `invalid`; no function returns a token, secret,
-header value or launch grant. The mcp module requires v21; deploy the host and
+header value or launch grant. The finer closed cause of a failed discovery or
+connect stays readable as the connector's `last_test_error_code`. The
+maintainer gate is not only a capability check: every Claude Code launch
+re-checks it, so connectors of an owner who is no longer the configured
+maintainer are skipped (`maintainer_required`). The mcp module requires v21; deploy the host and
 apply its manual DDL before publishing it, and roll the module back before the
 host. Shapes: `code/y-module/mcp/README.md`; requirements:
 `docs/prd/mcp-connectors.md`.
