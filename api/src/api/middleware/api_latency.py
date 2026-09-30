@@ -104,7 +104,14 @@ def matched_route_template(scope: dict, routes: Iterable) -> str:
 
 
 class ApiLatencyMiddleware:
-    """Record one fail-open event after an eligible response finishes."""
+    """Record one fail-open event after an eligible response finishes.
+
+    Duration is sampled immediately before the terminal body frame is handed
+    to the outer send, and that sample is kept only when the handoff succeeds.
+    Time spent inside the final send (adapter backpressure, or a Lambda freeze
+    after the response is already complete) is not request latency. A failed
+    or cancelled handoff discards the candidate and measures the unwind.
+    """
 
     def __init__(self, app, routes: Callable[[], Iterable]):
         self.app = app
@@ -134,16 +141,20 @@ class ApiLatencyMiddleware:
             nonlocal disconnected, finished, status
             if message.get("type") == "http.response.start":
                 status = message.get("status")
+            terminal = (
+                message.get("type") == "http.response.body"
+                and not message.get("more_body", False)
+            )
+            # Sample before the handoff. A freeze after the outer send has the
+            # body, but before this coroutine resumes, must not extend duration.
+            candidate = time.monotonic() if terminal else None
             try:
                 await send(message)
             except OSError:
                 disconnected = True
                 raise
-            if (
-                message.get("type") == "http.response.body"
-                and not message.get("more_body", False)
-            ):
-                finished = time.monotonic()
+            if candidate is not None:
+                finished = candidate
 
         try:
             await self.app(scope, monitored_receive, monitored_send)

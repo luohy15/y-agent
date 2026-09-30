@@ -72,8 +72,11 @@ monitoring queries and UI evolution on the module publish loop.
 1. As a user, I want every eligible inbound API attempt timed at one authoritative
    server boundary, so that route comparisons use one definition of latency.
 2. As a user, I want duration to start when the server receives the request and
-   end when the response body finishes, so that the measurement reflects the
-   server-side lifecycle rather than only handler execution.
+   end when the terminal body frame is handed to the outer server, so that the
+   measurement includes streaming up to that handoff and excludes time spent
+   inside the final send itself (adapter backpressure, or a process freeze
+   after the response is already complete). A failed or cancelled handoff is
+   not a successful finish: it is measured through the unwind instead.
 3. As a user, I want streaming and long-lived responses measured through their
    final body frame, so that a stream is not reported as fast merely because its
    headers were produced quickly.
@@ -339,9 +342,17 @@ monitoring queries and UI evolution on the module publish loop.
 - One event represents one inbound attempt observed at the API boundary. Retries
   are separate events; no deduplication or client-attempt inference is performed.
 - Duration uses a monotonic clock. The persisted start is an absolute UTC instant.
-- A normal response completes on its final body frame. Streaming duration therefore
-  includes the lifetime of the stream. Disconnect, cancellation, and an exception
-  escaping the application are distinct bounded completion classes.
+- A normal response completes when its terminal body frame is handed to the
+  outer send. The sample is taken immediately before that await and kept only
+  if the handoff succeeds. Streaming duration therefore includes every body
+  frame up to the handoff, but not time spent inside the final send: adapter
+  scheduling, backpressure, or a freeze after the response is already complete
+  (the Lambda adapter can finish the response and freeze the process before
+  this coroutine resumes). A failed or cancelled terminal handoff discards the
+  candidate and measures through the unwind. Disconnect, cancellation, and an
+  exception escaping the application remain distinct bounded completion classes.
+  Historical rows already stored under the previous boundary are left as they
+  are; they age out with the 14-day raw retention.
 - Method, normalized route template, status class, and completion class are the
   core dimensions. Any additional dimension requires an enumerated value set,
   cardinality budget, privacy review, and explicit schema field. Arbitrary label

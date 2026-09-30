@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import and_, delete, func, or_
+from sqlalchemy import and_, delete, func, or_, text
 
 from storage.database.base import get_db
 from storage.entity.api_latency_event import ApiLatencyEventEntity
@@ -79,6 +79,128 @@ def _event_query(session, start: datetime, end: datetime, route: str | None, fil
         ApiLatencyEventEntity.started_at < end,
     )
     return _apply_dimension_filters(query, ApiLatencyEventEntity, route, filters)
+
+
+_EVENT_FILTERS = ("method", "status_class", "completion", "module_slug")
+_PERCENTILES = (
+    "percentile_cont(ARRAY[0.5, 0.95, 0.99]::float8[]) "
+    "WITHIN GROUP (ORDER BY duration_ms)"
+)
+
+
+def _raw_where(start: datetime, end: datetime, route: str | None, filters: dict | None):
+    unknown = set(filters or {}) - set(_EVENT_FILTERS)
+    if unknown:
+        raise ValueError("unsupported API latency filter")
+    clauses = ["started_at >= :start", "started_at < :end"]
+    params = {"start": start, "end": end}
+    if route is not None:
+        clauses.append("route = :route")
+        params["route"] = route
+    for field in _EVENT_FILTERS:
+        if filters and field in filters:
+            clauses.append(f"{field} = :{field}")
+            params[field] = filters[field]
+    return " AND ".join(clauses), params
+
+
+def _percentiles(value):
+    if not value:
+        return None, None, None
+    p50, p95, p99 = value
+    return float(p50), float(p95), float(p99)
+
+
+def _count_row(row) -> dict:
+    p50, p95, p99 = _percentiles(row.pcts)
+    return {
+        "request_count": int(row.request_count or 0),
+        "error_count": int(row.error_count or 0),
+        "p50_ms": p50,
+        "p95_ms": p95,
+        "p99_ms": p99,
+    }
+
+
+def aggregate_raw_summary(
+    start: datetime,
+    end: datetime,
+    *,
+    route: str | None = None,
+    filters: dict | None = None,
+) -> dict:
+    """Exact counts and percentiles for one raw window, without loading events.
+
+    One statement returns the whole window and each UTC hour. A row that is
+    both 5xx and internal_failure counts as one error.
+    """
+    where, params = _raw_where(start, end, route, filters)
+    statement = text(
+        f"""
+        SELECT bucket,
+               GROUPING(bucket) AS is_total,
+               COUNT(*) AS request_count,
+               COUNT(*) FILTER (
+                   WHERE status_class = '5xx' OR completion = 'internal_failure'
+               ) AS error_count,
+               {_PERCENTILES} AS pcts
+        FROM (
+            SELECT (date_trunc('hour', started_at AT TIME ZONE 'UTC')
+                    AT TIME ZONE 'UTC') AS bucket,
+                   duration_ms, status_class, completion
+            FROM {ApiLatencyEventEntity.__tablename__}
+            WHERE {where}
+        ) AS raw_window
+        GROUP BY GROUPING SETS ((), (bucket))
+        """
+    )
+    empty = {
+        "request_count": 0,
+        "error_count": 0,
+        "p50_ms": None,
+        "p95_ms": None,
+        "p99_ms": None,
+    }
+    total = dict(empty)
+    series = []
+    with get_db() as session:
+        for row in session.execute(statement, params):
+            item = _count_row(row)
+            if int(row.is_total) == 1:
+                total = item
+            else:
+                item["bucket_start"] = row.bucket
+                series.append(item)
+    series.sort(key=lambda item: item["bucket_start"])
+    return {"total": total, "series": series}
+
+
+def aggregate_raw_routes(
+    start: datetime,
+    end: datetime,
+    *,
+    filters: dict | None = None,
+) -> list[dict]:
+    """One grouped statement per route. Ordering stays in the service."""
+    where, params = _raw_where(start, end, None, filters)
+    statement = text(
+        f"""
+        SELECT route,
+               COUNT(*) AS request_count,
+               COUNT(*) FILTER (
+                   WHERE status_class = '5xx' OR completion = 'internal_failure'
+               ) AS error_count,
+               {_PERCENTILES} AS pcts
+        FROM {ApiLatencyEventEntity.__tablename__}
+        WHERE {where}
+        GROUP BY route
+        """
+    )
+    with get_db() as session:
+        return [
+            {"route": row.route, **_count_row(row)}
+            for row in session.execute(statement, params)
+        ]
 
 
 def list_events(

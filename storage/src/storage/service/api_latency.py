@@ -371,8 +371,10 @@ def _load_range(range_name: str, now: datetime | None, route: str | None, filter
     end = (now or _utc_now()).astimezone(timezone.utc)
     start = end - duration
     if source == "raw":
+        # Exact percentiles come from one aggregate statement. list_events stays
+        # the maintenance loader and is not used for summary or route ranking.
         query_start = start
-        rows = repo.list_events(query_start, end, route=route, filters=filters)
+        rows = None
     else:
         # Aggregate ranges are explicitly bucket-aligned. Returned bounds match
         # the complete leading bucket that contributes counts and histograms.
@@ -385,6 +387,19 @@ def _load_range(range_name: str, now: datetime | None, route: str | None, filter
             )
         )
     return query_start, end, source, rows
+
+
+def _count_metrics(row: dict) -> dict:
+    count = int(row["request_count"])
+    errors = int(row["error_count"])
+    return {
+        "request_count": count,
+        "error_count": errors,
+        "error_rate": errors / count if count else None,
+        "p50_ms": None if row["p50_ms"] is None else float(row["p50_ms"]),
+        "p95_ms": None if row["p95_ms"] is None else float(row["p95_ms"]),
+        "p99_ms": None if row["p99_ms"] is None else float(row["p99_ms"]),
+    }
 
 
 def _metrics(rows: list, source: str) -> dict:
@@ -441,6 +456,16 @@ def summary(
     )
     start, end, source, rows = _load_range(range_name, now, route, filters)
     partial_grain = "hour" if source in ("raw", "hour") else "day"
+    if source == "raw":
+        aggregate = repo.aggregate_raw_summary(start, end, route=route, filters=filters)
+        metrics = _count_metrics(aggregate["total"])
+        series = [
+            {"bucket_start": _iso(point["bucket_start"]), **_count_metrics(point)}
+            for point in aggregate["series"]
+        ]
+    else:
+        metrics = _metrics(rows, source)
+        series = _series(rows, source)
     return {
         "range": range_name,
         "source": source,
@@ -449,8 +474,8 @@ def summary(
         "start": _iso(start),
         "end": _iso(end),
         "partial_bucket_start": _iso(_floor(end, partial_grain)) if source != "raw" else None,
-        **_metrics(rows, source),
-        "series": _series(rows, source),
+        **metrics,
+        "series": series,
     }
 
 
@@ -481,15 +506,36 @@ def routes(
         completion=completion,
         module_slug=module_slug,
     )
-    _start, _end, source, rows = _load_range(range_name, now, None, filters)
-    grouped = defaultdict(list)
-    for row in rows:
-        grouped[row.route].append(row)
-    ranked = [{"route": route, **_metrics(group, source)} for route, group in grouped.items()]
-    for item in ranked:
-        item["meets_min_samples"] = item["request_count"] >= min_samples
+    start, end, source, rows = _load_range(range_name, now, None, filters)
+    if source == "raw":
+        ranked = [
+            {"route": item["route"], **_count_metrics(item)}
+            for item in repo.aggregate_raw_routes(start, end, filters=filters)
+        ]
+    else:
+        grouped = defaultdict(list)
+        for row in rows:
+            grouped[row.route].append(row)
+        ranked = [{"route": route, **_metrics(group, source)} for route, group in grouped.items()]
+    ranked = _ordered_routes(
+        ranked, min_samples=min_samples, sort_by=sort_by, sort_dir=sort_dir, limit=limit,
+    )
+    return {
+        "range": range_name,
+        "source": source,
+        "approximate_percentiles": source != "raw",
+        "min_samples": min_samples,
+        "sort_by": sort_by,
+        "sort_dir": sort_dir,
+        "routes": ranked,
+    }
+
+
+def _ordered_routes(ranked, *, min_samples, sort_by, sort_dir, limit):
     # Stable passes: route asc is the tie-break, then the chosen field (nulls
     # last in either direction), then the sub-floor partition trails.
+    for item in ranked:
+        item["meets_min_samples"] = item["request_count"] >= min_samples
     descending = sort_dir == "desc"
     ranked.sort(key=lambda item: item["route"])
     if sort_by == "route":
@@ -500,15 +546,7 @@ def routes(
         present.sort(key=lambda item: item[sort_by], reverse=descending)
         ranked = present + missing
     ranked.sort(key=lambda item: not item["meets_min_samples"])
-    return {
-        "range": range_name,
-        "source": source,
-        "approximate_percentiles": source != "raw",
-        "min_samples": min_samples,
-        "sort_by": sort_by,
-        "sort_dir": sort_dir,
-        "routes": ranked[:limit],
-    }
+    return ranked[:limit]
 
 
 def events(
