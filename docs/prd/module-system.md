@@ -1457,6 +1457,10 @@ hook, both of which cost more than the single-user failure mode justifies.
 
 ## Out of Scope
 
+- **MCP connector behavior and runtime authorization**: owned by
+  [mcp-connectors](mcp-connectors.md), including its management module and
+  host-owned credential/runtime boundary. This PRD owns the general module
+  packaging, host-contract and publication rules, not connector semantics.
 - **Module code running in the worker Lambda.** A module is data + API + CLI + UI.
   Scheduled work is a module CLI command triggered by a host routine, so module
   Python runs in exactly one runtime.

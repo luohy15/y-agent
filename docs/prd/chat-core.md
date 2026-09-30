@@ -779,6 +779,9 @@ mode (`-i`) serves a human at a terminal.
 
 ## Out of Scope
 
+- **MCP connector configuration, OAuth/credential custody, tool approval and
+  launch-boundary availability**: owned by [mcp-connectors](mcp-connectors.md).
+  This PRD retains the general chat execution and conversation lifecycle.
 - **Mid-turn message delivery mechanics** (claim/unclaim, native input ledger,
   result-boundary teardown, serialized continuation): owned by the chat-steer PRD.
   This PRD owns only the dispatch-side rule that a running chat gets an append
