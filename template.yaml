@@ -349,7 +349,7 @@ Resources:
       Handler: run.sh
       Runtime: python3.13
       Timeout: 900
-      MemorySize: 512
+      MemorySize: 1024
       Role: !Sub arn:aws:iam::${AWS::AccountId}:role/${LambdaRoleName}
       VpcConfig: !If
         - HasVpc
