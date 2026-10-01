@@ -180,10 +180,12 @@ async def list_chats(
                 )
             )
         )
+        query = query.strip() if query else ""
         if query:
             q = q.filter(or_(
                 ChatEntity.title.ilike(f"%{query}%"),
                 ChatEntity.search_text.ilike(f"%{query}%"),
+                ChatEntity.chat_id == query,
             ))
         if tag:
             from storage.entity.entity_tag import EntityTagEntity

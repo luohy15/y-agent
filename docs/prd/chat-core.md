@@ -584,7 +584,10 @@ mode (`-i`) serves a human at a terminal.
   `interrupted` → `idle`, computed from the chat flags at save time and
   denormalized to an indexed column for list filtering. Title (first user
   message, truncated) and search text (concatenated user + assistant text)
-  are likewise denormalized at save time.
+  are likewise denormalized at save time. Search also matches an exact chat
+  id alongside case-insensitive title/text substrings; title and search text
+  use pg_trgm GIN indexes once manual migration 3810 is applied (shorter than
+  three characters remains unoptimized).
 - **Completion predicate** (shared by the SSE done event and CLI `--wait`):
   not running, not interrupted, and the last message is an assistant message
   without tool calls. Interruption is a separate terminal signal carrying its
@@ -836,6 +839,7 @@ mode (`-i`) serves a human at a terminal.
 
 | Todo | Outcome | Design | Plan | Decisions | Review | Status |
 |------|---------|--------|------|-----------|--------|--------|
+| 3810 | Exact-id chat search alongside existing substring matches; manual pg_trgm indexes for title/search text; baseline and verification in `pages/impl-3810-chat-search-latency.md` | - | `pages/plan-3810-chat-search-latency.md` | - | - | implemented; review, production migration and after-timings pending |
 | 3496 | Prevent completed-turn monitor replay; preserve distinct tool results using `(id, tool_call_id)` replay identity | - | `pages/plan-3496-duplicate-turn-replay.md` | `pages/impl-3496-duplicate-turn-replay.md` | `pages/review-3496-duplicate-turn-replay.md` | shipped `33392a3`; GitHub Actions `34652760386` succeeded; user verification pending |
 | 3423 | Context-usage details support hover and tap/click with explicit dismissal and viewport clamping | - | `pages/plan-3423-usage-bar-tap-disclosure.md` | `pages/impl-3423-usage-bar-tap-disclosure.md` | `pages/review-3423-usage-bar-tap-disclosure.md` | shipped in chat v30 from `4f03fde`; release identity verified; user verification pending |
 | 2813 | Stream Grok reasoning, text, tool calls, and tool results live with restart-safe ordering and deduplication | - | `pages/plan-2813-grok-intermediate-stream.md` | - | `pages/review-2813-grok-intermediate-stream.md` | shipped |
