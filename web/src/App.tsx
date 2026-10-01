@@ -80,11 +80,13 @@ import {
   mountableUiArtifacts,
   resolveShellSlot,
   shellClaimant,
+  type Module,
 } from "./host/artifacts";
 import { registerHostCommand, runHostCommand } from "./host/commands";
-import { registerArtifactDetailOpener, setArtifactIntent } from "./host/intents";
+import { getArtifactIntent, registerArtifactDetailOpener, setArtifactIntent } from "./host/intents";
 import { publishActivityBarVisibility, registerActivityBarVisibilityCommands } from "./host/activityBarVisibilityBridge";
 import { useActivityBarVisibility } from "./hooks/useActivityBarVisibility";
+import { applyHostWorkspaceOpen, applyModuleOpenView, mergeModuleOpenViewIntent, resolveModuleOpenView } from "./utils/moduleOpenView";
 
 interface VmConfigItem {
   name: string;
@@ -138,6 +140,11 @@ export default function App() {
     () => new Set(modulesFromPayload(moduleListResponse).map((artifact) => artifact.slug)),
     [moduleListResponse],
   );
+  const moduleCatalogRef = useRef<{ loaded: boolean; modules: Module[] }>({ loaded: false, modules: [] });
+  moduleCatalogRef.current = {
+    loaded: Array.isArray(moduleListResponse),
+    modules: modulesFromPayload(moduleListResponse),
+  };
   const uiArtifactBySlug = useMemo(
     () => new Map(mountedUiArtifacts.map((artifact) => [artifact.slug, artifact])),
     [mountedUiArtifacts],
@@ -393,7 +400,7 @@ export default function App() {
     const p = path.replace(/^\.\//, "");
     // Ordinary files are host tabs; the aggregate ui:file tab is never opened.
     if (p === FILE_AGGREGATE_TAB) return;
-    setOpenFiles((files) => files.includes(p) ? files : [...files, p]);
+    setOpenFiles((files) => applyHostWorkspaceOpen(files, p) ?? files);
     setActiveFile(p);
     // Pin preview if this file is the current preview (opened via non-preview action)
     setPreviewFile((current) => current === p ? null : current);
@@ -551,6 +558,35 @@ export default function App() {
       unregisterRssOpen();
     };
   }, [handleOpenFile, selectedChatId]);
+
+  // Todo 3816: Modules-row activation. `openArtifactDetail` stays a direct
+  // slug opener; this command classifies the catalog row first.
+  useEffect(() => {
+    return registerHostCommand("module.openView", (payload) => {
+      const catalog = moduleCatalogRef.current;
+      const decision = resolveModuleOpenView({
+        payload,
+        modules: catalog.modules,
+        listLoaded: catalog.loaded,
+        hiddenSlugs: activityBarVisibilityRef.current.hiddenSlugs,
+      });
+      applyModuleOpenView(decision, window.innerWidth < 768 ? "mobile" : "desktop", {
+        openTab: handleOpenFile,
+        setSidebarPanel,
+        setMobileSidebarOpen: (open) => {
+          if (open) setActivityBarOpen(false);
+          setSidebarOpen(open);
+        },
+        setDesktopSidebarOpen,
+        setCentreFiles: (visible) => {
+          if (visible) setChatHide(true);
+        },
+        latchManagement: (view) => {
+          setArtifactIntent("module", mergeModuleOpenViewIntent(getArtifactIntent("module"), view));
+        },
+      });
+    });
+  }, [handleOpenFile]);
 
   useEffect(() => {
     if (uiArtifactsLoading) return;

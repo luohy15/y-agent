@@ -506,6 +506,39 @@ failed write restores the last confirmed set; Retry resends the same intended
 value. The stored set is last-successful-write-wins. A second device sees it on
 load or refocus, not by push. Slugs are not pruned when discovery omits them.
 
+### Opening a module from the Modules list
+
+Browser contract **v23 → v24** (todo 3816) adds no `@y/host` export. It registers
+the host command `module.openView` with payload `{ slug }`. A module that calls
+it sets `min_host_version: 24`. Publish that module only after this host is
+deployed: an older host leaves the name unregistered, and `runHostCommand`
+then does nothing.
+
+The command is the Modules-list row action, not a router for record rows inside
+other sidebars. It reads the caller's current `GET /api/module/list` (including
+disabled rows when the caller is the maintainer). Until that list has loaded,
+or when `slug` is missing or not in the list, it does nothing. A slug hidden
+from the activity bar stays hidden and still opens. The command never enables
+or publishes a module.
+
+| Catalog row | Result |
+|---|---|
+| Enabled, with a UI bundle, aggregate detail (includes Chat's read-only browser, and the Modules module itself) | Open `ui:<slug>` in the existing workspace tab. A second activation reuses that tab. |
+| Enabled selection-only UI (`email`, `entity`, `english`, `link`, `mcp`, `rss`) | Open `ui:<slug>` and that module's sidebar, so a record can be picked. No record is invented. |
+| Enabled panel-only UI (`note`, `reminder`, `routine`) | Open that module's sidebar. No centre tab. |
+| Enabled Files | Open the Files sidebar. Never `ui:file`. |
+| Disabled, unpublished, or no UI bundle | Open `ui:module` (version history) and latch `openView` on the `module` intent: `{ moduleId, slug, reason, explanation, nonce }`. `reason` is `disabled`, `unpublished`, or `api-only`. Other intent fields, including `activityBarVisibility`, stay. |
+
+On a narrow viewport the mobile sidebar overlay closes when the centre tab is
+the thing being opened (aggregate detail and the management fallback), and
+stays open for a sidebar destination, including selection-only rows, so the
+selector is on screen. The desktop sidebar is never closed by this command.
+
+This iteration does not add a launch URL. `/ui/*` still redirects to `/`.
+Workspace tabs are not deep links. Middle-click, open-in-new-tab, and browser
+Back/Forward do not target a module. `openArtifactDetail(slug)` is unchanged:
+it still opens `ui:<slug>` with no catalog check.
+
 **`ui_public` is retired and inert (todo 3739).** It once gated anonymous
 UI-byte delivery for the public demo routes; those routes and the publish flag
 were removed, and the column is kept only to avoid a migration. There is no

@@ -80,6 +80,10 @@ Contract v20 (todo 3708) adds the `bell` and `clock` icon keys and registers
 the host command `chat.setRoutineFilter` (`{routineName: string|null, routineOnly: boolean}`).
 No new `@y/host` export. A module that declares either icon, or that calls the
 command, sets `min_host_version: 20`.
+Contract v24 (todo 3816) adds no new export. It registers `module.openView`
+(`{ slug }`). A module that calls it sets `min_host_version: 24`, and the host
+that serves that bundle must already be on v24: an older host treats the name
+as an unregistered no-op. The command does not change the browser URL.
 See `docs/prd/module-system.md`, *The `shell`
 surface and the renderer seam*, before bundling anything heavy into a module.
 

@@ -317,7 +317,14 @@ declare module "@y/host" {
    * Ask the host to run a named command. Known names include:
    * `todo.open`, `todo.openTrace`, `chat.open`, `chat.setTraceFilter`,
    * `file.open`, `link.open` (`{ activityId, contentKey? }`),
-   * `calendar.focusDate` (`{ date }`), `trace.clearRoute` (replace `/trace/:id`).
+   * `calendar.focusDate` (`{ date }`), `trace.clearRoute` (replace `/trace/:id`),
+   * `module.openView` (`{ slug }`, contract v24). `module.openView` opens that
+   * module's full view from the caller's module list. It does not change the
+   * URL, and it is not a link: middle-click, open-in-new-tab, and browser
+   * Back/Forward are unsupported. An unknown slug is a no-op. A disabled,
+   * unpublished, or UI-less row opens `ui:module` and latches `openView` on
+   * the `module` intent (`{ moduleId, slug, reason, explanation, nonce }`)
+   * without enabling or publishing. See docs/prd/module-system.md.
    */
   export function runHostCommand(name: string, payload?: unknown): void;
 
