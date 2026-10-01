@@ -693,6 +693,13 @@ mode (`-i`) serves a human at a terminal.
   `unix_timestamp` on every read. Duplicate ids stay untruncated so the 409
   content-route branch cannot hide full output. Host share
   (`/api/chat/share`) is unchanged and still returns full messages.
+- **Snapshot timing and duplicate-args drop** (todo 3818): the snapshot sets
+  `Server-Timing: db;dur, build;dur, app;dur` (plus `cold;desc="first"` on a
+  process's first snapshot). When `tool_content_limit` is present, snapshot and
+  SSE omit a role=tool message's `arguments` if the same-chat assistant
+  `tool_calls` entry with that id carries equal parsed arguments; orphans,
+  mismatches, parse failures and duplicate ids keep them. Absent limit stays
+  byte-identical to before.
 - **Sharing** copies the chat (optionally truncated to a message path) under
   a public share id owned by the default user, deduplicated by origin chat and
   message; password protection stores only a hash and rate-limits attempts.
@@ -839,6 +846,7 @@ mode (`-i`) serves a human at a terminal.
 
 | Todo | Outcome | Design | Plan | Decisions | Review | Status |
 |------|---------|--------|------|-----------|--------|--------|
+| 3818 | Snapshot `Server-Timing` header and opt-in duplicate tool-argument drop to shrink the payload; server p95 already under 1s, remaining latency to be attributed after deploy. Brief: `pages/plan-3818-snapshot-1s.md` | - | `pages/plan-3818-snapshot-1s.md` | - | - | implemented locally; deploy pending authorization |
 | 3810 | Exact-id chat search alongside existing substring matches; manual pg_trgm indexes for title/search text; baseline and verification in `pages/impl-3810-chat-search-latency.md` | - | `pages/plan-3810-chat-search-latency.md` | - | - | implemented; review, production migration and after-timings pending |
 | 3496 | Prevent completed-turn monitor replay; preserve distinct tool results using `(id, tool_call_id)` replay identity | - | `pages/plan-3496-duplicate-turn-replay.md` | `pages/impl-3496-duplicate-turn-replay.md` | `pages/review-3496-duplicate-turn-replay.md` | shipped `33392a3`; GitHub Actions `34652760386` succeeded; user verification pending |
 | 3423 | Context-usage details support hover and tap/click with explicit dismissal and viewport clamping | - | `pages/plan-3423-usage-bar-tap-disclosure.md` | `pages/impl-3423-usage-bar-tap-disclosure.md` | `pages/review-3423-usage-bar-tap-disclosure.md` | shipped in chat v30 from `4f03fde`; release identity verified; user verification pending |

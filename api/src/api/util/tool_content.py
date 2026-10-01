@@ -4,6 +4,7 @@ Units are Python str code points. Absent `tool_content_limit` is a no-op so
 legacy snapshot/SSE payloads stay field-for-field identical.
 """
 
+import json
 from typing import Any, Iterable, Optional
 
 TOOL_CONTENT_LIMIT_MIN = 0
@@ -71,8 +72,69 @@ def truncate_tool_content(
     return truncated
 
 
+def assistant_tool_call_arguments(messages: Iterable[Any]) -> dict[str, Any]:
+    """tool_call id -> parsed `function.arguments` for ids seen exactly once.
+
+    Ids that repeat across assistant tool_calls, or whose arguments do not
+    parse, are left out so their tool messages keep `arguments`.
+    """
+    parsed: dict[str, Any] = {}
+    seen: set[str] = set()
+    bad: set[str] = set()
+    for msg in messages:
+        if isinstance(msg, dict):
+            if msg.get("role") != "assistant":
+                continue
+            calls = msg.get("tool_calls")
+        else:
+            if getattr(msg, "role", None) != "assistant":
+                continue
+            calls = getattr(msg, "tool_calls", None)
+        for call in calls or []:
+            if not isinstance(call, dict):
+                continue
+            cid = call.get("id")
+            if not cid or not isinstance(cid, str):
+                continue
+            if cid in seen:
+                bad.add(cid)
+                continue
+            seen.add(cid)
+            fn = call.get("function")
+            raw = fn.get("arguments") if isinstance(fn, dict) else None
+            try:
+                parsed[cid] = json.loads(raw)
+            except (TypeError, ValueError):
+                bad.add(cid)
+    for cid in bad:
+        parsed.pop(cid, None)
+    return parsed
+
+
+def drop_duplicate_tool_arguments(
+    data: dict,
+    call_arguments: dict[str, Any],
+    duplicate_ids: Optional[set[str]] = None,
+) -> dict:
+    """Drop role=tool `arguments` when the matching assistant tool_call carries the same value."""
+    if data.get("role") != "tool" or "arguments" not in data:
+        return data
+    tid = _tool_call_id(data)
+    if not tid or (duplicate_ids and tid in duplicate_ids):
+        return data
+    if tid not in call_arguments or call_arguments[tid] != data["arguments"]:
+        return data
+    slim = dict(data)
+    del slim["arguments"]
+    return slim
+
+
 def apply_tool_content_limit(message_dicts: list[dict], limit: Optional[int]) -> list[dict]:
     if limit is None:
         return message_dicts
     dupes = duplicate_tool_call_ids(message_dicts)
-    return [truncate_tool_content(msg, limit, dupes) for msg in message_dicts]
+    call_args = assistant_tool_call_arguments(message_dicts)
+    return [
+        drop_duplicate_tool_arguments(truncate_tool_content(msg, limit, dupes), call_args, dupes)
+        for msg in message_dicts
+    ]

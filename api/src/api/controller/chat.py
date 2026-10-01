@@ -1,8 +1,10 @@
 import asyncio
 import json
+import time
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from loguru import logger
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
@@ -20,6 +22,8 @@ from api.util.tool_content import (
     TOOL_CONTENT_LIMIT_MAX,
     TOOL_CONTENT_LIMIT_MIN,
     apply_tool_content_limit,
+    assistant_tool_call_arguments,
+    drop_duplicate_tool_arguments,
     duplicate_tool_call_ids,
     truncate_tool_content,
 )
@@ -637,14 +641,23 @@ async def get_chat_detail(chat_id: str = Query(...), request: Request = None):
     return result
 
 
+# First snapshot a process serves is flagged in Server-Timing (cold container).
+_snapshot_served = False
+
+
 @router.get("/messages/snapshot")
 async def get_chat_messages_snapshot(
     chat_id: str = Query(...),
     request: Request = None,
     tool_content_limit: Optional[int] = Query(None, ge=TOOL_CONTENT_LIMIT_MIN, le=TOOL_CONTENT_LIMIT_MAX),
 ):
+    global _snapshot_served
+    t_start = time.perf_counter()
+    cold = not _snapshot_served
+    _snapshot_served = True
     user_id = _get_user_id(request)
     chat = await chat_service.get_chat(user_id, chat_id)
+    t_db = time.perf_counter()
     if chat is None:
         raise HTTPException(status_code=404, detail="chat not found")
     limit = tool_content_limit
@@ -656,11 +669,22 @@ async def get_chat_messages_snapshot(
     payload = apply_tool_content_limit(payload, limit)
     messages = [{"index": idx, "type": "message", "data": data} for idx, data in enumerate(payload)]
 
-    return {
+    # JSONResponse directly: same bytes as FastAPI's default, minus jsonable_encoder.
+    response = JSONResponse({
         "messages": messages,
         "running": chat.running,
         "interrupted": chat.interrupted,
-    }
+    })
+    t_end = time.perf_counter()
+    timing = (
+        f"db;dur={(t_db - t_start) * 1000:.1f}, "
+        f"build;dur={(t_end - t_db) * 1000:.1f}, "
+        f"app;dur={(t_end - t_start) * 1000:.1f}"
+    )
+    if cold:
+        timing += ', cold;desc="first"'
+    response.headers["Server-Timing"] = timing
+    return response
 
 
 @router.get("/messages/content")
@@ -715,9 +739,12 @@ async def get_chat_messages(
 
             messages = chat.messages
             dupes = duplicate_tool_call_ids(messages) if limit is not None else set()
+            call_args = assistant_tool_call_arguments(messages) if limit is not None else {}
             while idx < len(messages):
                 msg = messages[idx]
                 msg_data = truncate_tool_content(msg.to_dict(), limit, dupes)
+                if limit is not None:
+                    msg_data = drop_duplicate_tool_arguments(msg_data, call_args, dupes)
                 idx_val = idx
                 idx += 1
                 yield {
