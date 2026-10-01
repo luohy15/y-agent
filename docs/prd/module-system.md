@@ -805,6 +805,15 @@ apply its manual DDL before publishing it, and roll the module back before the
 host. Shapes: `code/y-module/mcp/README.md`; requirements:
 `docs/prd/mcp-connectors.md`.
 
+Todo 3796 round 2 bumps the backend contract from 21 to **22**: `mcp_connect`
+gains a required keyword `redirect_uri` (exactly
+`http://127.0.0.1:<port>/callback`, the CLI's RFC 8252 loopback listener) and
+`mcp_oauth_complete` submits the listener's `state` / `code` / `error` / `iss`
+for a single-use, owner/connector/transaction/redirect-bound central exchange,
+returning a closed `outcome`. It changes a signature, so a v21 mcp module's
+Connect fails on a v22 host: ship the host and the v22 module together (host
+first) and roll them back together.
+
 **v1 has shipped and been
 superseded**, so the versioning rule going forward is the plain one stated
 above: every later addition to the host surface is a version bump, and a module

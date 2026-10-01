@@ -12,8 +12,9 @@ OAuth transactions and clears discovery, validation, approval and desired
 enablement. Old launches pinned to the previous generation are denied. Rename
 and approval edits do not change identity.
 
-Secret material is only ever sealed through `mcp_crypto`; projections returned
-here never contain it.
+Secret material is stored as plaintext JSON (todo 3796 round 2: no encryption
+at rest) and only read through `_load_secret`; projections returned here never
+contain it, so credentials stay write-only through every management surface.
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ import re
 import secrets
 import uuid
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Any, Iterable, Optional
 from urllib.parse import urlsplit, urlunsplit
 
@@ -36,7 +37,6 @@ from storage.entity.mcp import (
     McpOAuthTransactionEntity,
 )
 from storage.repository import mcp as repo
-from storage.service import mcp_crypto as crypto
 from storage.util import get_unix_timestamp
 
 # ---------------------------------------------------------------------------
@@ -79,6 +79,8 @@ PRESETS: dict[str, dict[str, Any]] = {
 }
 
 _TOOL_NAME_RE = re.compile(r"^[A-Za-z0-9_.\-/]{1,128}$")
+# RFC 8252 loopback redirect caught by the CLI's one-shot listener (todo 3796 round 2).
+_LOOPBACK_REDIRECT_RE = re.compile(r"^http://127\.0\.0\.1:([1-9][0-9]{3,4})/callback$")
 _HEADER_NAME_RE = re.compile(r"^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,64}$")
 _FORBIDDEN_HEADERS = frozenset({
     "host", "cookie", "set-cookie", "content-length", "transfer-encoding", "connection",
@@ -98,7 +100,7 @@ class McpError(Exception):
 
     STATUS = {
         "invalid_input": 400, "not_found": 404, "conflict": 409, "forbidden": 403,
-        "not_ready": 409, "key_unavailable": 503, "reconnect_required": 409,
+        "not_ready": 409, "reconnect_required": 409,
         "not_connected": 409, "oauth_state_invalid": 400, "oauth_state_expired": 400,
         "unsupported_oauth": 422, "network_blocked": 422, "timeout": 504,
         "response_too_large": 502, "protocol_error": 502, "provider_error": 502,
@@ -137,6 +139,15 @@ def require_maintainer(user_id: int) -> None:
 # ---------------------------------------------------------------------------
 # Input validation
 # ---------------------------------------------------------------------------
+
+def validate_loopback_redirect(uri: Any) -> str:
+    """Exactly `http://127.0.0.1:<port>/callback`, port 1024..65535. The host
+    never serves this URI; it only binds the transaction to it."""
+    match = _LOOPBACK_REDIRECT_RE.fullmatch(uri) if isinstance(uri, str) else None
+    if match is None or not 1024 <= int(match.group(1)) <= 65535:
+        raise McpError("invalid_input", "redirect URI must be http://127.0.0.1:<port>/callback")
+    return uri
+
 
 def validate_https_url(url: Any, *, allow_query: bool = False) -> str:
     """Syntactic egress rule shared by endpoints and discovered OAuth URLs.
@@ -391,19 +402,25 @@ def _identity_change(session, row: McpConnectorEntity) -> None:
     repo.supersede_pending_transactions(session, row.id)
 
 
-def _context(session, row: McpConnectorEntity, kind: str) -> dict[str, str]:
-    owner = repo.public_user_id(session, row.user_id)
-    return crypto.crypto_context(owner, row.connector_id, row.identity_generation, kind)
+def _load_secret(stored: Optional[str]) -> dict:
+    """Parse stored plaintext secret JSON. Anything that is not a JSON object
+    (including a pre-round-2 envelope) fails closed as reconnect_required."""
+    try:
+        value = json.loads(stored or "")
+    except ValueError:
+        value = None
+    if not isinstance(value, dict):
+        raise McpError("reconnect_required", "stored credential is unreadable; reconnect the connector")
+    return value
 
 
 def _put_credential(session, row: McpConnectorEntity, kind: str, secret: dict, public_meta: dict,
                     *, access_expires_at_unix: Optional[int] = None) -> McpCredentialEntity:
-    envelope = crypto.seal(secret, _context(session, row, kind))
     cred = repo.get_credential(session, row.id, kind, lock=True)
     if cred is None:
         cred = McpCredentialEntity(connector_pk=row.id, kind=kind)
         session.add(cred)
-    crypto.store_envelope(cred, envelope)
+    cred.secret_json = json.dumps(secret)
     cred.identity_generation = row.identity_generation
     cred.public_meta = json.dumps(public_meta)
     cred.access_expires_at_unix = access_expires_at_unix
@@ -417,26 +434,7 @@ def _put_credential(session, row: McpConnectorEntity, kind: str, secret: dict, p
 def _open_credential(session, row: McpConnectorEntity, cred: McpCredentialEntity) -> dict:
     if cred.identity_generation != row.identity_generation:
         raise McpError("not_connected", "credential belongs to a replaced identity")
-    context = crypto.crypto_context(repo.public_user_id(session, row.user_id), row.connector_id,
-                                    cred.identity_generation, cred.kind)
-    try:
-        return crypto.open_envelope(crypto.envelope_of(cred), context)
-    except crypto.McpKeyUnavailable:
-        raise McpError("key_unavailable", "credential key is unavailable; access denied") from None
-    except crypto.McpCiphertextInvalid:
-        raise McpError("key_unavailable", "stored credential cannot be decrypted; reconnect") from None
-
-
-def _sealing(fn):
-    """Map key-provider failures during sealing to the closed error code."""
-    def wrapper(*args, **kwargs):
-        try:
-            return fn(*args, **kwargs)
-        except crypto.McpKeyUnavailable:
-            raise McpError("key_unavailable", "credential key is unavailable") from None
-    wrapper.__name__ = fn.__name__
-    wrapper.__doc__ = fn.__doc__
-    return wrapper
+    return _load_secret(cred.secret_json)
 
 
 # ---------------------------------------------------------------------------
@@ -540,7 +538,6 @@ def set_enabled(user_id: int, connector_id: str, *, expected_revision: Any, enab
         return _connector_dict(session, row)
 
 
-@_sealing
 def set_static_headers(user_id: int, connector_id: str, *, expected_revision: Any,
                        headers: Optional[dict]) -> dict[str, Any]:
     """Replace (or clear with None) the write-only static header credential."""
@@ -560,7 +557,6 @@ def set_static_headers(user_id: int, connector_id: str, *, expected_revision: An
         return _connector_dict(session, row)
 
 
-@_sealing
 def set_oauth_client(user_id: int, connector_id: str, *, expected_revision: Any,
                      client_id: Optional[str], client_secret: Optional[str] = None,
                      token_endpoint_auth_method: Optional[str] = None) -> dict[str, Any]:
@@ -678,9 +674,9 @@ def delete_connector(user_id: int, connector_id: str, *, expected_revision: Any)
 
 
 def revocation_material(user_id: int, connector_id: str) -> Optional[dict[str, Any]]:
-    """Decrypted OAuth token + binding for best-effort provider revocation
-    before a local destroy. None when there is nothing to revoke; raises
-    `key_unavailable` rather than guessing."""
+    """OAuth token + binding for best-effort provider revocation before a
+    local destroy. None when there is nothing to revoke; raises
+    `reconnect_required` for an unreadable stored token rather than guessing."""
     with get_db() as session:
         row = _load(session, user_id, connector_id, lock=False)
         if row.auth_mode != "oauth":
@@ -719,7 +715,7 @@ class ConsumedTransaction:
 
 def oauth_client_material(user_id: int, connector_id: str) -> dict[str, Any]:
     """Connector binding needed to start an authorization: endpoint, preset,
-    identity generation and the manual client (decrypted) if one is set."""
+    identity generation and the manual client if one is set."""
     with get_db() as session:
         row = _load(session, user_id, connector_id, lock=False)
         if row.auth_mode != "oauth":
@@ -735,7 +731,6 @@ def oauth_client_material(user_id: int, connector_id: str) -> dict[str, Any]:
                 "identity_generation": row.identity_generation, "manual_client": manual}
 
 
-@_sealing
 def begin_oauth_transaction(user_id: int, connector_id: str, *, identity_generation: int,
                             state: str, secret: dict, issuer: str, resource: str,
                             redirect_uri: str, client_id: str, token_endpoint: str,
@@ -748,28 +743,30 @@ def begin_oauth_transaction(user_id: int, connector_id: str, *, identity_generat
         if row.identity_generation != identity_generation:
             raise McpError("conflict", "connector changed while preparing authorization")
         transaction_id = str(uuid.uuid4())
-        owner = repo.public_user_id(session, user_id)
-        envelope = crypto.seal(secret, crypto.crypto_context(
-            owner, row.connector_id, identity_generation, f"oauth_transaction:{transaction_id}"))
         tx = McpOAuthTransactionEntity(
             transaction_id=transaction_id, user_id=user_id, connector_pk=row.id,
             identity_generation=identity_generation, state_hash=state_digest(state),
             issuer=issuer, resource=resource, redirect_uri=redirect_uri, client_id=client_id,
             token_endpoint=token_endpoint, binding_meta=json.dumps(binding_meta),
             expires_at_unix=now + OAUTH_TRANSACTION_TTL_MS, status="pending",
+            secret_json=json.dumps(secret),
         )
-        crypto.store_envelope(tx, envelope)
         session.add(tx)
         session.flush()
         return {"transaction_id": transaction_id, "expires_at_unix": tx.expires_at_unix}
 
 
-def consume_oauth_state(state: Any) -> ConsumedTransaction:
-    """Atomically consume a callback state (single use, even on denial).
+def consume_oauth_state(state: Any, *, user_id: int, connector_id: str, transaction_id: str,
+                        redirect_uri: str) -> ConsumedTransaction:
+    """Atomically consume a loopback-delivered state (single use, even on
+    denial) for the authenticated owner.
 
-    Raises `oauth_state_invalid` for unknown/replayed/superseded state and
-    `oauth_state_expired` past the 10-minute window; the transaction is
-    marked terminal in its own committed transaction before the raise.
+    The state must belong to `user_id`; another owner's state is reported as
+    invalid and left untouched. For the owner's own state, a different
+    connector, transaction or redirect URI burns the transaction. Raises
+    `oauth_state_invalid` for unknown/replayed/superseded/mismatched state and
+    `oauth_state_expired` past the 10-minute window; the transaction is marked
+    terminal in its own committed transaction before the raise.
     """
     if not isinstance(state, str) or not state or len(state) > 512:
         raise McpError("oauth_state_invalid", "authorization state is invalid")
@@ -778,26 +775,26 @@ def consume_oauth_state(state: Any) -> ConsumedTransaction:
     result: Optional[ConsumedTransaction] = None
     with get_db() as session:
         tx = repo.get_transaction_by_state(session, state_digest(state), lock=True)
-        if tx is None or tx.status != "pending":
+        if tx is None or tx.user_id != user_id or tx.status != "pending":
             raise McpError("oauth_state_invalid", "authorization state is invalid or already used")
         tx.consumed_at_unix = now
         row = repo.get_connector_by_pk(session, tx.connector_pk)
-        if tx.expires_at_unix <= now:
+        if tx.transaction_id != transaction_id or row is None or row.connector_id != connector_id \
+                or tx.redirect_uri != redirect_uri:
+            tx.status, tx.error_code = "failed", "oauth_state_invalid"
+            failure = McpError("oauth_state_invalid", "authorization does not match this connector")
+        elif tx.expires_at_unix <= now:
             tx.status, tx.error_code = "expired", "oauth_state_expired"
             failure = McpError("oauth_state_expired", "authorization expired; connect again")
-        elif row is None or row.deleted_at_unix is not None \
-                or row.identity_generation != tx.identity_generation:
+        elif row.deleted_at_unix is not None or row.identity_generation != tx.identity_generation:
             tx.status, tx.error_code = "superseded", "oauth_state_invalid"
             failure = McpError("oauth_state_invalid", "connector changed; connect again")
         else:
-            owner = repo.public_user_id(session, tx.user_id)
             try:
-                secret = crypto.open_envelope(crypto.envelope_of(tx), crypto.crypto_context(
-                    owner, row.connector_id, tx.identity_generation,
-                    f"oauth_transaction:{tx.transaction_id}"))
-            except (crypto.McpKeyUnavailable, crypto.McpCiphertextInvalid):
-                tx.status, tx.error_code = "failed", "key_unavailable"
-                failure = McpError("key_unavailable", "credential key is unavailable")
+                secret = _load_secret(tx.secret_json)
+            except McpError as err:
+                tx.status, tx.error_code = "failed", err.code
+                failure = err
             else:
                 tx.status = "exchanging"
                 result = ConsumedTransaction(
@@ -824,7 +821,6 @@ def fail_oauth_transaction(transaction_id: str, *, status: str, error_code: str)
                 else "provider_error"
 
 
-@_sealing
 def complete_oauth_transaction(transaction_id: str, *, token: dict, public_meta: dict) -> str:
     """Store exchanged tokens only if the transaction and connector identity
     are still current; otherwise discard them. Returns `succeeded` or
@@ -949,7 +945,6 @@ def claim_refresh(connector_pk: int, *, identity_generation: int, credential_rev
         return claim
 
 
-@_sealing
 def finalize_refresh(connector_pk: int, *, claim: str, identity_generation: int,
                      credential_revision: int, token: dict) -> bool:
     """Atomically store refreshed (possibly rotated) tokens; False discards a
@@ -973,8 +968,7 @@ def finalize_refresh(connector_pk: int, *, claim: str, identity_generation: int,
         meta = _json_dict(cred.public_meta)
         if token.get("scope"):
             meta["scope"] = token["scope"]
-        envelope = crypto.seal(merged, _context(session, row, "oauth_token"))
-        crypto.store_envelope(cred, envelope)
+        cred.secret_json = json.dumps(merged)
         cred.public_meta = json.dumps(meta)
         cred.access_expires_at_unix = token.get("expires_at_unix")
         cred.credential_revision += 1
@@ -1114,27 +1108,24 @@ def authorize_launch_call(launch_id: str, token: str, connector_id: str) -> Laun
 
 
 class LaunchSession:
-    """Decrypted upstream session state for one launch connector. Sealing
-    happens only when the state changed; `checkpoint()` seals early so a
+    """Upstream session state for one launch connector, stored as plaintext
+    JSON on the launch snapshot. `checkpoint()` serializes early so a
     side-effecting call never runs before its session can be stored."""
 
-    def __init__(self, context: dict, stored: Optional[str]):
-        self._context = context
+    def __init__(self, stored: Optional[str]):
         self.stored = stored
         try:
-            self.state = (crypto.open_envelope(crypto.Envelope(**json.loads(stored)), context)
-                          if stored else {})
-        except (crypto.McpKeyUnavailable, crypto.McpCiphertextInvalid):
-            raise McpError("key_unavailable", "connector encryption key is unavailable") from None
+            state = json.loads(stored) if stored else {}
+        except ValueError:
+            state = {}
+        # Unreadable state just starts a fresh upstream session.
+        self.state = state if isinstance(state, dict) else {}
         self._saved = dict(self.state)
 
     def checkpoint(self) -> None:
         if self.state == self._saved:
             return
-        try:
-            self.stored = json.dumps(asdict(crypto.seal(self.state, self._context)))
-        except (crypto.McpKeyUnavailable, crypto.McpCiphertextInvalid):
-            raise McpError("key_unavailable", "connector encryption key is unavailable") from None
+        self.stored = json.dumps(self.state)
         self._saved = dict(self.state)
 
 
@@ -1144,7 +1135,7 @@ def launch_session(launch_id: str, token: str, connector_id: str):
 
     Only the snapshot row is locked during the bounded operation, with a
     bounded lock wait. Disconnect and stop do not wait on this lock. Session
-    material is encrypted and bound to this launch, never returned in
+    material is stored on this launch's snapshot only, never returned in
     management projections.
     """
     from sqlalchemy import text
@@ -1165,10 +1156,7 @@ def launch_session(launch_id: str, token: str, connector_id: str):
             raise err from None
         if snap is None or snap.status == "excluded":
             raise McpError("forbidden", "connector is not part of this launch")
-        slot = LaunchSession(crypto.crypto_context(repo.public_user_id(session, launch.user_id),
-                                                   connector_id, snap.identity_generation,
-                                                   f"runtime:{launch_id}"),
-                             snap.upstream_session_id)
+        slot = LaunchSession(snap.upstream_session_id)
         yield slot
         slot.checkpoint()
         snap.upstream_session_id = slot.stored
@@ -1305,32 +1293,3 @@ def cleanup_expired_state(now: Optional[int] = None) -> dict[str, int]:
                     .delete(synchronize_session=False))
         return {"launches_expired": expired, "launches_deleted": dropped,
                 "transactions_deleted": stale_tx}
-
-
-@_sealing
-def rewrap_credentials(target_key_id: str, *, limit: int = 100) -> dict[str, int]:
-    """Explicit bounded rotation step: re-seal credentials not yet under the
-    currently configured key. Each rewrapped record is read back before the
-    next; old-key decrypt permission must stay until this reports zero left."""
-    rewrapped = 0
-    with get_db() as session:
-        rows = (session.query(McpCredentialEntity)
-                .filter(McpCredentialEntity.key_id != target_key_id)
-                .order_by(McpCredentialEntity.id).limit(max(1, min(limit, 1000)))
-                .with_for_update().all())
-        for cred in rows:
-            row = repo.get_connector_by_pk(session, cred.connector_pk)
-            context = crypto.crypto_context(repo.public_user_id(session, row.user_id),
-                                            row.connector_id, cred.identity_generation, cred.kind)
-            try:
-                plain = crypto.open_envelope(crypto.envelope_of(cred), context)
-            except (crypto.McpKeyUnavailable, crypto.McpCiphertextInvalid):
-                raise McpError("key_unavailable", "an existing credential cannot be decrypted") from None
-            envelope = crypto.seal(plain, context)
-            if crypto.open_envelope(envelope, context) != plain:
-                raise McpError("key_unavailable", "rewrap verification failed")
-            crypto.store_envelope(cred, envelope)
-            rewrapped += 1
-        remaining = (session.query(McpCredentialEntity.id)
-                     .filter(McpCredentialEntity.key_id != target_key_id).count()) - rewrapped
-        return {"rewrapped": rewrapped, "remaining": max(0, remaining)}

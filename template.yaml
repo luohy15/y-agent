@@ -35,33 +35,9 @@ Parameters:
       backend dispatch fail closed (403) when this is unset
     Default: 4e3938bd4da22878a12f094f18ffa543_luohycs_at_gmail_dot_com
 
-  McpKmsKeyArn:
-    Type: String
-    Default: ""
-    AllowedPattern: '^$|^arn:[a-z0-9-]+:kms:[a-z0-9-]+:[0-9]{12}:key/[a-zA-Z0-9-]+$'
-    Description: Existing symmetric KMS key ARN for MCP envelope encryption; empty fails closed
-
-  McpCryptoContext:
-    Type: String
-    Default: y-agent
-    AllowedPattern: '^[a-zA-Z0-9._-]{1,128}$'
-    Description: Immutable deployment encryption context; changing it makes existing ciphertext unreadable
-
-  McpOAuthRedirectUri:
-    Type: String
-    Default: ""
-    AllowedPattern: '^$|^https://[a-zA-Z0-9.-]+(:[0-9]+)?/api/mcp/oauth/callback$'
-    Description: Fixed public HTTPS OAuth callback registered with providers
-
-  McpWebReturnUrl:
-    Type: String
-    Default: ""
-    AllowedPattern: '^$|^https://[a-zA-Z0-9.-]+(:[0-9]+)?(/[^\s?#]*)?$'
-    Description: Optional fixed web return URL; empty shows a safe callback outcome page
-
   McpGatewayUrl:
     Type: String
-    Default: ""
+    Default: https://yovy.app/api/mcp/runtime
     AllowedPattern: '^$|^https://[a-zA-Z0-9.-]+(:[0-9]+)?/api/mcp/runtime$'
     Description: HTTPS gateway base reachable by worker and VM, without launch id or trailing slash
 
@@ -124,7 +100,6 @@ Parameters:
 Conditions:
   HasCustomDomain: !Not [!Equals [!Ref DomainName, ""]]
   HasVpc: !Not [!Equals [!Ref LambdaSecurityGroupId, ""]]
-  HasMcpKmsKey: !Not [!Equals [!Ref McpKmsKeyArn, ""]]
 
 Globals:
   Function:
@@ -132,25 +107,6 @@ Globals:
     MemorySize: 512
 
 Resources:
-  # Existing deployment-managed key only. The execution role is shared by the
-  # three Lambdas; do not grant this policy to the VM instance role.
-  McpCredentialKeyPolicy:
-    Type: AWS::IAM::Policy
-    Condition: HasMcpKmsKey
-    Properties:
-      PolicyName: !Sub ${AWS::StackName}-mcp-credential-key
-      Roles: [!Ref LambdaRoleName]
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Action: [kms:GenerateDataKey, kms:Decrypt]
-            Resource: !Ref McpKmsKeyArn
-            Condition:
-              StringEquals:
-                kms:EncryptionContext:deployment: !Ref McpCryptoContext
-                kms:EncryptionContext:owner: !Ref ModuleMaintainerUserId
-
   # -----------------------------------------------------------------------
   # SQS — async job queue
   # -----------------------------------------------------------------------
@@ -424,10 +380,6 @@ Resources:
           JWT_SECRET_KEY: !Ref JwtSecretKey
           GOOGLE_CLIENT_ID: !Ref GoogleClientId
           Y_AGENT_MODULE_MAINTAINER_USER_ID: !Ref ModuleMaintainerUserId
-          Y_AGENT_MCP_KMS_KEY_ID: !Ref McpKmsKeyArn
-          Y_AGENT_MCP_CRYPTO_CONTEXT: !Ref McpCryptoContext
-          Y_AGENT_MCP_OAUTH_REDIRECT_URI: !Ref McpOAuthRedirectUri
-          Y_AGENT_MCP_WEB_RETURN_URL: !Ref McpWebReturnUrl
           TELEGRAM_BOT_TOKEN: !Ref TelegramBotToken
           TELEGRAM_WEBHOOK_SECRET: !Ref TelegramWebhookSecret
           Y_AGENT_WEB_URL: !If [HasCustomDomain, !Sub "https://${DomainName}", ""]

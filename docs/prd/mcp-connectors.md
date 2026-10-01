@@ -28,8 +28,10 @@ owner, including relay-backed models using that harness. Changes apply on the
 next actual process launch, including conversation resume. They do not interrupt
 or reconfigure an already-running process.
 
-OAuth is a first-class web flow, with an API-hosted callback, centrally encrypted
-tokens and automatic refresh where supported. Static secret headers and no-auth
+OAuth is first-class: the CLI catches an RFC 8252 loopback redirect, tokens are
+held centrally (plaintext at rest, write-only, redacted) and refreshed
+automatically where supported (round 2, Roy 2026-10-01: replaces the API-hosted
+callback and KMS encryption of Q4). Static secret headers and no-auth
 connections are also supported, as mutually exclusive authentication modes.
 Only explicitly approved tools are available. Connector failures are isolated,
 reported visibly and do not make unrelated chat work unavailable.
@@ -68,8 +70,8 @@ live Alpha Vantage acceptance are not complete.
 
 ### Authorization and credentials
 
-10. As the owner, I want Connect to open provider consent in my browser and
-    return to y-agent, without logging into the execution VM.
+10. As the owner, I want `y mcp connect` to open provider consent in my local
+    browser and catch the redirect itself, without logging into the execution VM.
 11. As the owner, I want the CLI to initiate that same authorization flow and
     show a URL, rather than maintain independent VM-local OAuth credentials.
 12. As the owner, I want authorization success, cancellation, expiry and failure
@@ -78,7 +80,7 @@ live Alpha Vantage acceptance are not complete.
     during long-running sessions, and Reconnect shown when renewed consent is
     required.
 14. As the owner, I want access tokens, refresh tokens and client secrets stored
-    encrypted centrally and excluded from ordinary reads, logs and artifacts.
+    centrally and excluded from ordinary reads, logs and artifacts.
 15. As the owner, I want static header credentials accepted through write-only
     web fields or CLI hidden input/stdin, with explicit replace/clear actions.
 16. As the owner, I want one explicit authentication mode per connector, so a
@@ -177,11 +179,15 @@ is not sufficient MCP authorization enforcement.
 
 ### OAuth contract
 
-Use authorization code with S256 PKCE, short-lived single-use state bound to the
-initiating owner and connector, and a fixed API-hosted HTTPS redirect URI. The
-callback is a narrowly scoped host route: provider redirects cannot be assumed
-to carry y-agent's local-storage Bearer token. Validate the transaction and issuer
-before exchanging a code. General module routes remain authenticated.
+Use authorization code with S256 PKCE and short-lived single-use state bound to
+the initiating owner, connector and redirect URI. The redirect is an RFC 8252
+loopback URI `http://127.0.0.1:<port>/callback` caught by a one-shot listener in
+`y mcp connect <id>`; the CLI submits the received state/code/error/issuer to a
+JWT-authenticated route, so there is no anonymous host callback route and no
+callback deployment configuration. The PKCE verifier stays on the host, which
+validates the transaction and issuer before exchanging the code centrally. The
+web UI does not complete Connect; it directs the owner to the CLI. Manually
+registered OAuth clients must register a loopback redirect (any port).
 
 Use standards-based MCP protected-resource/authorization-server discovery and
 advertised registration where supported. Support explicitly configured client
@@ -189,13 +195,15 @@ registration credentials when automatic registration is unavailable, without
 provider-specific login scripts. Clearly report unsupported discovery or grant
 requirements. Exact supported metadata/authentication variants are frozen in the
 plan and tested against Alpha Vantage, not inferred from an old task or advertised
-as universal OAuth compatibility. No arbitrary caller-supplied redirect targets.
+as universal OAuth compatibility. No caller-supplied redirect target other than
+the exact loopback form.
 
-Browser surfaces receive provider authorization URLs and sanitized outcomes,
-not tokens. Encrypt stored access/refresh tokens, OAuth client secrets and static
-header values with deployment-managed key material outside the database. Define
-key rotation and recovery in the plan. Serialize concurrent refresh for one
-credential, persist rotated refresh tokens atomically, and reject late exchanges
+CLI and browser surfaces receive provider authorization URLs and sanitized
+outcomes, not tokens. Access/refresh tokens, OAuth client secrets and static
+header values are stored centrally as plaintext (no encryption at rest, Roy
+2026-10-01); database access and backups are therefore secret-bearing.
+Serialize concurrent refresh for one credential, persist rotated refresh tokens
+atomically, and reject late exchanges
 or refresh writes that would resurrect disconnected/replaced authorization.
 Bound retries and distinguish transient provider errors from invalid grants
 requiring Reconnect. Never automatically replay a possibly executed tool call
@@ -252,12 +260,14 @@ for deterministic local tests. Keep tests local-only under project policy.
 - Verify owner isolation and maintainer gating across API, CLI and runtime;
   guessed connector identifiers must never expose another owner's credentials.
 - Exercise OAuth success, denial, expired/replayed state, PKCE mismatch, issuer
-  mismatch, invalid redirects and unsupported metadata. A callback without a
-  valid transaction cannot mutate authorization.
+  mismatch, invalid redirects and unsupported metadata. A completion without a
+  valid transaction, or bound to another owner, connector or redirect, cannot
+  mutate authorization.
 - Test refresh during a long-lived process, concurrent refresh, rotated tokens,
   refresh rejection, and disconnect/replace racing with callback or refresh.
 - Verify no secret appears in commands, logs, error payloads, status reads,
-  transcripts or module bundles. Verify key-unavailable failures deny access.
+  transcripts or module bundles. Verify an unreadable stored credential denies
+  access (reconnect required).
 - Test network destination validation across discovery, exchange, connection,
   redirects and DNS changes; blocked targets receive no credentials.
 - Demonstrate that unapproved and newly added tools cannot be listed or called
@@ -276,7 +286,7 @@ for deterministic local tests. Keep tests local-only under project policy.
   verify static-header behavior. Do not claim live acceptance from unit tests.
 
 Static UI checks suffice unless Roy explicitly requests browser-driven testing.
-Infrastructure provisioning, callback registration, live credential use and
+Infrastructure provisioning, provider redirect registration, live credential use and
 publication require the applicable authorization; requirement approval alone is
 not release authorization.
 
@@ -304,4 +314,4 @@ not release authorization.
 
 | Todo | Outcome | Design | Plan | Decisions | Review | Status |
 |------|---------|--------|------|-----------|--------|--------|
-| 3796 | Owner-scoped MCP connector management and Claude Code integration, Alpha Vantage first | - | `pages/plan-3796-mcp-connectors.md`, `pages/plan-3796-mcp-runtime.md` | `pages/decision-3796-mcp-interview.md` | `pages/review-3796-mcp-connectors.md` | Implemented (host S1-S6 + `mcp` module), S1-S5 reviewed; review nits 1-3 fixed pending re-review; runbook `code/y-agent/docs/mcp-connectors.md`; not deployed, DDL not applied, live acceptance pending |
+| 3796 | Owner-scoped MCP connector management and Claude Code integration, Alpha Vantage first | - | `pages/plan-3796-mcp-connectors.md`, `pages/plan-3796-mcp-runtime.md` | `pages/decision-3796-mcp-interview.md` | `pages/review-3796-mcp-connectors.md` | Implemented (host S1-S6 + `mcp` module), S1-S5 reviewed; review nits 1-3 fixed pending re-review; runbook `code/y-agent/docs/mcp-connectors.md`; not deployed, DDL not applied, live acceptance pending. Round 2 (Roy 2026-10-01): CLI loopback OAuth replaces the API-hosted callback, plaintext custody replaces KMS, contract v22; host half `pages/impl-3796-mcp-round2-host.md` |

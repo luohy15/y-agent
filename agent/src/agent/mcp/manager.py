@@ -1,6 +1,6 @@
 """Host MCP operations that combine credential custody with network I/O.
 
-The backend host contract (v21 `mcp_*` capabilities) and the runtime gateway
+The backend host contract (v22 `mcp_*` capabilities) and the runtime gateway
 call these; they take the internal owner id and public connector ids, and
 return the same sanitized projections as `storage.service.mcp`. Database
 transactions never span network I/O: OAuth state is consumed and refresh
@@ -11,14 +11,13 @@ still current.
 
 from __future__ import annotations
 
-import os
 import time
 from typing import Any, Callable, Mapping, Optional
 
 from loguru import logger
 
 from storage.service import mcp as svc
-from storage.service.mcp import McpError, validate_https_url
+from storage.service.mcp import McpError, validate_loopback_redirect
 from agent.mcp import oauth
 from agent.mcp.client import McpHttpClient
 from agent.mcp.egress import Egress, remaining
@@ -39,23 +38,18 @@ def default_egress() -> Egress:
     return _default_egress
 
 
-def redirect_uri() -> str:
-    configured = os.environ.get("Y_AGENT_MCP_OAUTH_REDIRECT_URI", "").strip()
-    if not configured:
-        raise McpError("not_ready", "OAuth callback URL is not configured for this deployment")
-    return validate_https_url(configured)
-
-
 # ---------------------------------------------------------------------------
 # Authorization
 # ---------------------------------------------------------------------------
 
-def connect(user_id: int, connector_id: str, *, egress: Optional[Egress] = None) -> dict[str, Any]:
-    """Start an authorization; returns the provider URL, never tokens."""
+def connect(user_id: int, connector_id: str, *, redirect_uri: Any,
+            egress: Optional[Egress] = None) -> dict[str, Any]:
+    """Start an authorization whose redirect is the caller's RFC 8252 loopback
+    listener; returns the provider URL, never tokens."""
+    callback = validate_loopback_redirect(redirect_uri)
     egress = egress or default_egress()
     material = svc.oauth_client_material(user_id, connector_id)
     try:
-        callback = redirect_uri()
         meta = oauth.discover(egress, material["endpoint"])
         preset = svc.PRESETS.get(material["preset"] or "") or {}
         scope = oauth.select_scope(meta, tuple(preset.get("scopes", ())))
@@ -82,7 +76,7 @@ def connect(user_id: int, connector_id: str, *, egress: Optional[Egress] = None)
     url = oauth.authorization_url(meta, client, redirect_uri=callback, state=state,
                                   challenge=challenge, scope=scope)
     return {"authorization_url": url, "transaction_id": tx["transaction_id"],
-            "expires_at_unix": tx["expires_at_unix"]}
+            "expires_at_unix": tx["expires_at_unix"], "redirect_uri": callback}
 
 
 def _param(params: Mapping[str, Any], key: str) -> Optional[str]:
@@ -94,20 +88,25 @@ def _param(params: Mapping[str, Any], key: str) -> Optional[str]:
     return value
 
 
-def handle_callback(params: Mapping[str, Any], *, egress: Optional[Egress] = None) -> dict[str, Any]:
-    """Consume the state first (single use even on denial), then validate the
-    issuer and exchange the code once. Only a closed outcome and the opaque
-    transaction id leave this function."""
+def complete(user_id: int, connector_id: str, params: Mapping[str, Any], *, transaction_id: Any,
+             redirect_uri: Any, egress: Optional[Egress] = None) -> dict[str, Any]:
+    """Finish an authorization from the query the caller's loopback listener
+    received. Consume the state first (single use even on denial) bound to the
+    owner, connector, transaction and redirect, then validate the issuer and
+    exchange the code once, centrally. Only a closed outcome and the opaque ids
+    leave this function."""
+    callback = validate_loopback_redirect(redirect_uri)
     egress = egress or default_egress()
     try:
-        tx = svc.consume_oauth_state(_param(params, "state"))
+        tx = svc.consume_oauth_state(_param(params, "state"), user_id=user_id, connector_id=connector_id,
+                                     transaction_id=transaction_id, redirect_uri=callback)
     except McpError as err:
         return {"outcome": "expired" if err.code == "oauth_state_expired" else "invalid",
-                "transaction_id": None}
+                "transaction_id": None, "connector_id": connector_id}
 
     def fail(status: str, code: str, outcome: str) -> dict[str, Any]:
         svc.fail_oauth_transaction(tx.transaction_id, status=status, error_code=code)
-        return {"outcome": outcome, "transaction_id": tx.transaction_id}
+        return {"outcome": outcome, "transaction_id": tx.transaction_id, "connector_id": connector_id}
 
     iss = _param(params, "iss")
     if iss is not None and iss != tx.issuer:
@@ -144,7 +143,7 @@ def handle_callback(params: Mapping[str, Any], *, egress: Optional[Egress] = Non
     except McpError as err:
         return fail("failed", err.code, "failed")
     return {"outcome": "connected" if result == "succeeded" else "superseded",
-            "transaction_id": tx.transaction_id}
+            "transaction_id": tx.transaction_id, "connector_id": connector_id}
 
 
 # ---------------------------------------------------------------------------
@@ -266,14 +265,12 @@ def _destroy(user_id: int, connector_id: str, action: Callable[[], dict], egress
     after it and reported honestly."""
     try:
         material = svc.revocation_material(user_id, connector_id)
-        revocation = None
     except McpError as err:
-        if err.code != "key_unavailable":
+        if err.code != "reconnect_required":
             raise
-        material, revocation = None, "skipped_key_unavailable"
+        material = None  # unreadable stored token: nothing usable to revoke
     result = action()
-    if revocation is None:
-        revocation = _revoke(material, egress or default_egress())
+    revocation = _revoke(material, egress or default_egress())
     if revocation == "failed":
         logger.warning("mcp provider revocation failed connector={}", connector_id)
     result["revocation"] = revocation

@@ -33,7 +33,7 @@ Under the hood, a React web UI and Telegram feed a FastAPI API. The API queues w
 - **Orchestration outside the runtime.** One session can finish a small task; larger tasks can split into planning, implementation, and review sessions, each loading the skill it needs. A shared `trace_id` connects the tree, and sub-task chats remain visible and steerable.
 - **An inbox for your turn.** `awaiting` marks work needing a decision, authorization, or acceptance check. Publication approval is a separate boundary from implementation and review.
 - **Extensible surfaces.** Hot-loadable modules can add UI, API, CLI, and data. Chat can render Mermaid diagrams, Vega-Lite charts, and sanitized SVG artifacts. See the [module contract](docs/prd/module-system.md).
-- **MCP connectors.** Connect remote HTTPS MCP servers (OAuth, static header, or no auth; Alpha Vantage first) once, approve tools explicitly, and every Claude Code session gets them from its next launch. Credentials stay encrypted in the API; sessions only see approved tools through a launch-scoped gateway. See the [MCP connectors PRD](docs/prd/mcp-connectors.md) and [runbook](docs/mcp-connectors.md).
+- **MCP connectors.** Connect remote HTTPS MCP servers (OAuth, static header, or no auth; Alpha Vantage first) once (OAuth via `y mcp connect` loopback login), approve tools explicitly, and every Claude Code session gets them from its next launch. Credentials stay central in the API and are never returned by any read; sessions only see approved tools through a launch-scoped gateway. See the [MCP connectors PRD](docs/prd/mcp-connectors.md) and [runbook](docs/mcp-connectors.md).
 
 See a [real task trace](https://yovy.app/t/6fc5c4) or browse the [capability reference](docs/capabilities.md).
 

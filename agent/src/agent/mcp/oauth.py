@@ -215,7 +215,9 @@ def choose_client(egress: Egress, meta: ProviderMetadata, redirect_uri: str,
     method = next((m for m in ("none", "client_secret_basic", "client_secret_post") if m in supported), None)
     if method is None:
         raise McpError("unsupported_oauth", "no supported client authentication method")
-    request = {"client_name": "y-agent", "redirect_uris": [redirect_uri],
+    # A loopback redirect makes this a native client (RFC 8252 / OIDC DCR).
+    request = {"client_name": "y-agent", "application_type": "native",
+               "redirect_uris": [redirect_uri],
                "grant_types": ["authorization_code", "refresh_token"],
                "response_types": ["code"], "token_endpoint_auth_method": method}
     if scope:

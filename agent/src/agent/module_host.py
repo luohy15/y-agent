@@ -67,6 +67,11 @@ management (todo 3796):
     mcp_oauth_status / mcp_discover_tools / mcp_set_approved_tools /
     mcp_disconnect / mcp_delete / mcp_launch_status
   - MCP_ERROR_CODES, the closed ValueError codes those functions raise
+The v22 surface replaces the API-hosted OAuth callback with an RFC 8252
+loopback redirect caught by the module CLI (todo 3796 round 2):
+  - mcp_connect gains the required keyword `redirect_uri`
+    (`http://127.0.0.1:<port>/callback`)
+  - mcp_oauth_complete submits the listener's state/code/error/iss
 Credentials are write-only through this surface: no function returns a token,
 secret, header value or launch grant.
 
@@ -156,6 +161,10 @@ connector capabilities and `MCP_ERROR_CODES`, bumping 20 to 21 (v19 and v20
 are todos 3777 and 3781). The mcp module requires v21; deploy the host (and
 apply its manual DDL) before publishing it, and roll the module back or
 disable it before rolling the host below v21.
+Todo 3796 round 2 makes `mcp_connect` take a required loopback `redirect_uri`
+and adds `mcp_oauth_complete`, bumping 21 to 22. A signature change, not just
+an addition: a v21 mcp module's Connect fails on a v22 host, so the host and
+the v22 module ship together (host first) and roll back together.
 Modules declare the minimum version they use and an
 older host rejects their bundle. Every later addition to the surface above
 bumps the version and, for modules that need it, `min_backend_version`.
@@ -175,7 +184,7 @@ from sqlalchemy.orm import Session
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-BACKEND_CONTRACT_VERSION = 21
+BACKEND_CONTRACT_VERSION = 22
 
 # Wall-clock budget for the wake="nowait" readiness check (todo 3777).
 NOWAIT_BUDGET_SECONDS = 1.0
@@ -1374,16 +1383,54 @@ def mcp_set_oauth_client(
     ))
 
 
-def mcp_connect(user_id: int, connector_id: str) -> dict[str, Any]:
-    """Start an OAuth authorization on the host's fixed callback.
+def mcp_connect(user_id: int, connector_id: str, *, redirect_uri: str) -> dict[str, Any]:
+    """Start an OAuth authorization redirecting to the caller's loopback
+    listener; `redirect_uri` must be exactly `http://127.0.0.1:<port>/callback`
+    (port 1024..65535), else ValueError("invalid") before any network call.
 
-    Returns {"authorization_url", "transaction_id", "expires_at_unix"}; never
-    a token. Performs provider metadata discovery / registration over the
-    network, so it blocks for up to the host egress deadline.
+    Returns {"authorization_url", "transaction_id", "expires_at_unix",
+    "redirect_uri"}; never a token. Performs provider metadata discovery /
+    registration over the network, so it blocks for up to the host egress
+    deadline.
     """
     from agent.mcp import manager
 
-    return dict(_mcp_call(user_id, manager.connect, user_id, connector_id))
+    return dict(_mcp_call(user_id, manager.connect, user_id, connector_id, redirect_uri=redirect_uri))
+
+
+def mcp_oauth_complete(
+    user_id: int,
+    connector_id: str,
+    *,
+    transaction_id: str,
+    redirect_uri: str,
+    state: Optional[str],
+    code: Optional[str] = None,
+    error: Optional[str] = None,
+    iss: Optional[str] = None,
+) -> dict[str, Any]:
+    """Finish an authorization with the query the loopback listener received.
+
+    Pass `state` / `code` / `error` / `iss` through unchanged (None when
+    absent); never forward error descriptions. The host consumes the state
+    (single use) bound to this owner, connector, transaction and redirect, and
+    exchanges the code centrally. Returns {"outcome", "transaction_id",
+    "connector_id"}; outcome is connected / denied / expired / invalid /
+    failed / superseded. Blocks on the token exchange.
+    """
+    _require_mcp_owner(user_id)
+    fields = {"state": state, "code": code, "error": error, "iss": iss}
+    if not isinstance(transaction_id, str) or any(
+            value is not None and not isinstance(value, str) for value in fields.values()):
+        raise ValueError("invalid")
+    from agent.mcp import manager
+    from storage.service import mcp as svc
+
+    _mcp_call(user_id, svc.validate_loopback_redirect, redirect_uri)
+    _mcp_call(user_id, svc.connector_binding, user_id, connector_id)  # not_found before the state
+    params = {key: value for key, value in fields.items() if value is not None}
+    return dict(_mcp_call(user_id, manager.complete, user_id, connector_id, params,
+                          transaction_id=transaction_id, redirect_uri=redirect_uri))
 
 
 def mcp_oauth_status(user_id: int, connector_id: str, transaction_id: str) -> dict[str, Any]:

@@ -1,8 +1,6 @@
-"""Redact the MCP OAuth callback query (code, state) from Uvicorn access records."""
+"""Redact MCP runtime gateway query strings from Uvicorn access records."""
 
 import logging
-
-MCP_OAUTH_CALLBACK_PATH = "/api/mcp/oauth/callback"
 
 
 class McpCallbackAccessLogFilter(logging.Filter):
@@ -11,8 +9,7 @@ class McpCallbackAccessLogFilter(logging.Filter):
         if not isinstance(args, tuple) or len(args) < 3 or not isinstance(args[2], str):
             return True
         route, separator, _ = args[2].partition("?")
-        if separator and (route.rstrip("/") == MCP_OAUTH_CALLBACK_PATH
-                          or route.startswith("/api/mcp/runtime/")):
+        if separator and route.startswith("/api/mcp/runtime/"):
             record.args = (*args[:2], f"{route}?[redacted]", *args[3:])
         return True
 

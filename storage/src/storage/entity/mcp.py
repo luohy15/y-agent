@@ -3,8 +3,10 @@
 Connector configuration, central credential custody, OAuth transactions and
 per-launch snapshots are runtime kernel tables: the worker and the API gateway
 read them, the `mcp` module manages them only through the host contract.
-Secret material exists only as an AES-GCM envelope (`ciphertext`, `nonce`,
-`encrypted_data_key`, `key_id`); no normal projection reads those columns.
+Secret material is plaintext JSON (todo 3796 round 2: no encryption at rest)
+in the existing `ciphertext` column, mapped as `secret_json`; no normal
+projection reads it. The envelope-era `key_id` / `encrypted_data_key` /
+`nonce` columns are unused and written as '' so no schema change is needed.
 """
 
 from sqlalchemy import (
@@ -59,7 +61,7 @@ class McpConnectorEntity(Base, BaseEntity):
 
 
 class McpCredentialEntity(Base, BaseEntity):
-    """Encrypted credential material bound to one connector identity.
+    """Write-only credential material bound to one connector identity.
 
     `kind` is `static_headers`, `oauth_client` (manually supplied client
     registration) or `oauth_token` (access/refresh tokens plus the client that
@@ -73,10 +75,10 @@ class McpCredentialEntity(Base, BaseEntity):
     connector_pk = Column(Integer, ForeignKey('mcp_connector.id', ondelete='CASCADE'), nullable=False)
     identity_generation = Column(Integer, nullable=False)
     kind = Column(String, nullable=False)
-    key_id = Column(String, nullable=False)
-    encrypted_data_key = Column(Text, nullable=False)
-    nonce = Column(Text, nullable=False)
-    ciphertext = Column(Text, nullable=False)
+    key_id = Column(String, nullable=False, default="")
+    encrypted_data_key = Column(Text, nullable=False, default="")
+    nonce = Column(Text, nullable=False, default="")
+    secret_json = Column("ciphertext", Text, nullable=False)
     public_meta = Column(Text, nullable=False, default="{}")
     access_expires_at_unix = Column(BigInteger, nullable=True)
     credential_revision = Column(Integer, nullable=False, default=1)
@@ -94,7 +96,7 @@ class McpCredentialEntity(Base, BaseEntity):
 
 class McpOAuthTransactionEntity(Base, BaseEntity):
     """One authorization-code attempt. Only the state digest is stored; the
-    PKCE verifier (and a dynamically registered client secret) are encrypted.
+    PKCE verifier (and a dynamically registered client secret) are in `secret_json`.
     Issuer, resource, redirect, client and token endpoint are immutable."""
 
     __tablename__ = "mcp_oauth_transaction"
@@ -105,10 +107,10 @@ class McpOAuthTransactionEntity(Base, BaseEntity):
     connector_pk = Column(Integer, ForeignKey('mcp_connector.id', ondelete='CASCADE'), nullable=False, index=True)
     identity_generation = Column(Integer, nullable=False)
     state_hash = Column(String, nullable=False, unique=True)
-    key_id = Column(String, nullable=False)
-    encrypted_data_key = Column(Text, nullable=False)
-    nonce = Column(Text, nullable=False)
-    ciphertext = Column(Text, nullable=False)
+    key_id = Column(String, nullable=False, default="")
+    encrypted_data_key = Column(Text, nullable=False, default="")
+    nonce = Column(Text, nullable=False, default="")
+    secret_json = Column("ciphertext", Text, nullable=False)
     issuer = Column(String, nullable=False)
     resource = Column(String, nullable=False)
     redirect_uri = Column(String, nullable=False)

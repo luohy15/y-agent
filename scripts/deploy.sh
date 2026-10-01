@@ -66,10 +66,6 @@ add_param "OxylabsUsername" "OXYLABS_USERNAME"
 add_param "OxylabsPassword" "OXYLABS_PASSWORD"
 add_param "AlphaVantageApiKey" "ALPHAVANTAGE_API_KEY"
 add_param "AnthropicStatusWebhookSecret" "ANTHROPIC_STATUS_WEBHOOK_SECRET"
-add_param "McpKmsKeyArn" "Y_AGENT_MCP_KMS_KEY_ID"
-add_param "McpCryptoContext" "Y_AGENT_MCP_CRYPTO_CONTEXT"
-add_param "McpOAuthRedirectUri" "Y_AGENT_MCP_OAUTH_REDIRECT_URI"
-add_param "McpWebReturnUrl" "Y_AGENT_MCP_WEB_RETURN_URL"
 add_param "McpGatewayUrl" "Y_AGENT_MCP_GATEWAY_URL"
 
 # ============================================================================
