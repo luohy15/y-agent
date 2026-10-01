@@ -70,6 +70,12 @@ def list_modules(user_id: int, enabled_only: bool = False) -> List[Module]:
     return module_repo.list_modules(user_id, enabled_only=enabled_only)
 
 
+def list_modules_with_active_versions(
+    user_id: int, enabled_only: bool = False
+) -> List[Tuple[Module, Optional[ModuleVersion]]]:
+    return module_repo.list_modules_with_active_versions(user_id, enabled_only=enabled_only)
+
+
 def list_versions(user_id: int, module_id: str) -> List[ModuleVersion]:
     return version_repo.list_versions(user_id, module_id)
 

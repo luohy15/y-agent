@@ -87,6 +87,36 @@ def list_modules(user_id: int, enabled_only: bool = False) -> List[Module]:
         return [_entity_to_dto(r) for r in rows]
 
 
+def list_modules_with_active_versions(
+    user_id: int, enabled_only: bool = False
+) -> List[Tuple[Module, Optional[ModuleVersion]]]:
+    """Owner modules plus the active version, one outer join.
+
+    A missing or dangling active_version_id yields None for the version.
+    The version match is (user_id, version_id), so another owner's row with
+    the same version_id cannot attach. Same filter and order as list_modules.
+    """
+    with get_db() as session:
+        query = (
+            session.query(ModuleEntity, ModuleVersionEntity)
+            .outerjoin(
+                ModuleVersionEntity,
+                (ModuleVersionEntity.user_id == ModuleEntity.user_id)
+                & (ModuleVersionEntity.version_id == ModuleEntity.active_version_id),
+            )
+            .filter(ModuleEntity.user_id == user_id)
+        )
+        if enabled_only:
+            # filter_by is ambiguous once module_version is in the query.
+            query = query.filter(ModuleEntity.enabled.is_(True))
+        rows = query.order_by(ModuleEntity.created_at_unix.asc()).all()
+        result = []
+        for module_entity, version_entity in rows:
+            version = _version_to_dto(version_entity) if version_entity is not None else None
+            result.append((_entity_to_dto(module_entity), version))
+        return result
+
+
 def set_active_version(user_id: int, module_id: str, version_id: Optional[str]) -> Optional[Module]:
     with get_db() as session:
         entity = session.query(ModuleEntity).filter_by(user_id=user_id, module_id=module_id).first()

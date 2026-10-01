@@ -265,14 +265,11 @@ async def list_modules(request: Request, enabled_only: bool = Query(False)):
         return []
 
     is_maintainer = user_id == owner_id
-    modules = module_service.list_modules(
+    modules = module_service.list_modules_with_active_versions(
         owner_id, enabled_only=enabled_only if is_maintainer else True
     )
     result = []
-    for module in modules:
-        active = None
-        if module.active_version_id:
-            active = module_service.get_version(owner_id, module.active_version_id)
+    for module, active in modules:
         if not is_maintainer and (
             active is None or active.dispatch_scope != "authenticated"
         ):
