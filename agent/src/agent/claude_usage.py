@@ -39,8 +39,9 @@ import re
 import subprocess
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 from typing import Callable, Dict, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from loguru import logger
 
@@ -480,27 +481,44 @@ _MONTH_ABBR = {
     "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
 }
 
-# "Aug 5, 9am (UTC)" / "Jun 17, 8:59am (UTC)"
+# "Aug 5, 9am (UTC)" / "Oct 7, 5pm (Asia/Shanghai)": the zone in parens is the
+# one the CLI prints in (its TZ), not always UTC.
 _RESET_DATE_TIME_RE = re.compile(
-    r"^([A-Za-z]{3,9})\s+(\d{1,2}),?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(UTC\)$", re.IGNORECASE
+    r"^([A-Za-z]{3,9})\s+(\d{1,2}),?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(([^()]+)\)$", re.IGNORECASE
 )
-# "4:59am (UTC)" / "5am (UTC)" -- no date, implying the next occurrence.
+# "4:59am (UTC)" / "10:10pm (Asia/Shanghai)" -- no date, implying the next occurrence.
 _RESET_TIME_ONLY_RE = re.compile(
-    r"^(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(UTC\)$", re.IGNORECASE
+    r"^(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(([^()]+)\)$", re.IGNORECASE
 )
+
+
+def _reset_zone(name: str) -> Optional[tzinfo]:
+    name = name.strip()
+    if name.upper() == "UTC":
+        return timezone.utc
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError, OSError):
+        return None
+
+
+def _utc_iso(dt: datetime) -> str:
+    return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def reset_at_iso(reset: Optional[str], now: Optional[datetime] = None) -> Optional[str]:
     """Parse the `/usage` overlay's localized `Resets ...` text (2515
     deferred this; the `--json` envelope needs a real `reset_at`) into an
     absolute UTC ISO8601 timestamp. Two observed shapes, both anchored to
-    "now" since the overlay never prints a year: a bare time (next
-    occurrence, rolling to tomorrow if already past today) and a month/day +
-    time (this year, rolling to next year if the resulting date is already
-    more than a day in the past -- i.e. this reset already happened and
-    Anthropic is describing next year's). Anything else is left unparsed
-    (`None`) rather than guessed -- a caller must never fabricate a reset
-    time from text this parser doesn't recognize.
+    "now" in the zone the text prints in (`(UTC)`, `(Asia/Shanghai)`, any IANA
+    name) since the overlay never prints a year: a bare time (next
+    occurrence, rolling to tomorrow if already past that local day) and a
+    month/day + time (this year, rolling to next year if the resulting date is
+    already more than a day in the past -- i.e. this reset already happened and
+    Anthropic is describing next year's). Anything else, including an
+    unrecognized zone, is left unparsed (`None`) rather than guessed -- a
+    caller must never fabricate a reset time from text this parser doesn't
+    recognize.
     """
     if not reset:
         return None
@@ -509,30 +527,36 @@ def reset_at_iso(reset: Optional[str], now: Optional[datetime] = None) -> Option
 
     m = _RESET_DATE_TIME_RE.match(text)
     if m:
-        month_name, day, hour, minute, meridiem = m.groups()
+        month_name, day, hour, minute, meridiem, zone_name = m.groups()
         month = _MONTH_ABBR.get(month_name.lower()[:3])
-        if month is None:
+        zone = _reset_zone(zone_name)
+        if month is None or zone is None:
             return None
+        local_now = now.astimezone(zone)
         try:
             candidate = datetime(
-                now.year, month, int(day), _hour_24(hour, meridiem), int(minute or 0),
-                tzinfo=timezone.utc,
+                local_now.year, month, int(day), _hour_24(hour, meridiem), int(minute or 0),
+                tzinfo=zone,
             )
+            if candidate < now - timedelta(days=1):
+                candidate = candidate.replace(year=local_now.year + 1)
         except ValueError:
             return None
-        if candidate < now - timedelta(days=1):
-            candidate = candidate.replace(year=now.year + 1)
-        return candidate.isoformat().replace("+00:00", "Z")
+        return _utc_iso(candidate)
 
     m = _RESET_TIME_ONLY_RE.match(text)
     if m:
-        hour, minute, meridiem = m.groups()
-        candidate = now.replace(
+        hour, minute, meridiem, zone_name = m.groups()
+        zone = _reset_zone(zone_name)
+        if zone is None:
+            return None
+        local_now = now.astimezone(zone)
+        candidate = local_now.replace(
             hour=_hour_24(hour, meridiem), minute=int(minute or 0), second=0, microsecond=0
         )
         if candidate <= now:
-            candidate += timedelta(days=1)
-        return candidate.isoformat().replace("+00:00", "Z")
+            candidate = (candidate.replace(tzinfo=None) + timedelta(days=1)).replace(tzinfo=zone)
+        return _utc_iso(candidate)
 
     return None
 

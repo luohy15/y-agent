@@ -1245,6 +1245,11 @@ expired-login card tells the user to run.
   isolated into a per-origin error list rather than failing the whole read.
   Responses omit internal integer ids and never fabricate a current value after
   a failed read: missing or malformed data stays null and visibly unavailable.
+- **Reset text zone (todo 3812).** The Claude `/usage` overlay prints reset
+  times in the CLI's own timezone (e.g. `Resets 10:10pm (Asia/Shanghai)`), not
+  always UTC. `reset_at_iso` parses the text in the zone it prints (any IANA
+  name; "today" and roll-forward are computed in that zone) and converts to
+  UTC. An unrecognized zone or text stays null; the scrape never forces `TZ`.
 - **Limit-window history (todo 3717).** `GET /api/usage/limit-history` and
   `y usage limit-history` return the same bounded read: every local hour in
   an inclusive range of at most 31 days, up to the current hour, including
@@ -1759,6 +1764,7 @@ expired-login card tells the user to run.
 | 3569 | Explain why equal tier route weights do not imply equal tokens or spend, add distinct y-agent Sessions and answered Turns per model, and surface relay Requests per attributed Turn as `Avg requests` in the Live usage table; bot v43 preserves the historical `Avg turns/chat` iteration, while the current reviewed contract uses compact headers, no header asterisks, and only conditional activity status copy | - | `pages/plan-3569-bot-usage-sessions.md` | this PRD; `pages/handoff-3569-bot-module-ui.md` | `pages/review-3569-chat-model-activity-host.md`; `pages/review-3569-bot-module-live-columns.md` (round 3 current metric/header contract) | reviewed; current module iteration unpublished |
 | 3580 | Display-only resolved-date labels beside the Usage filter and heatmap. Host `GET /api/usage/range` returns `describe_time_range`; browser contract v14 exports the shared formatter. Query timezone stays the browser zone (todo 3346). Module labels land in a later publish | - | `pages/plan-3580-resolved-date-range-display.md` | `pages/feature-y-agent-resolved-date-range-display.md`; `pages/decision-3580-host-sdk-backend-contract.md` | - | host implemented; module labels pending |
 | 3717 | Hourly subscription limit-window history for Claude, Codex and Grok, recorded from the existing 30-minute refresh plus manual retries, with a bounded per-hour read aligned to provider tokens and cost. No UI, no estimation, no cadence change | - | `pages/plan-3717-subscription-quota-history.md` | this PRD; `pages/impl-3717-subscription-quota-history.md` | `pages/review-3717-subscription-quota-history.md` (round 5) | initial history shipped `4bb5cd6`, migration applied, Deploy 36380537751 success; real scheduled collection verified; `pages/deploy-3717-subscription-quota-history.md`; read-time freshness correction reviewed, publication pending |
+| 3812 | Claude reset times parsed in the zone the CLI prints (was UTC-only, so non-UTC resets showed "reset unavailable"). Parser only: no UI, schema or backfill | - | `pages/plan-3812-claude-reset-tz.md` | this PRD; `pages/impl-3812-claude-reset-tz.md` | `pages/review-3812-claude-reset-tz.md` | reviewed; publication pending |
 
 ## Out of Scope
 
