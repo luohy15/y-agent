@@ -14,6 +14,7 @@ scoped to the start_* path.
 
 import asyncio
 import json
+import logging
 import os
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -30,7 +31,18 @@ from agent.claude_code import (
 from agent.ec2_wake import ensure_and_touch_vm
 
 
+logger = logging.getLogger(__name__)
+
 SSH_CONNECT_TIMEOUT_SECONDS = 30
+ORPHAN_WRAPPER_MIN_AGE_SECONDS = 120
+
+
+def _reap_orphan_wrappers_cmd(min_age_s: float = ORPHAN_WRAPPER_MIN_AGE_SECONDS, stdin_prefix: str = "/tmp/cc-") -> str:
+    """Remote command that reaps leaked session wrappers (see `agent.orphan_reaper`)."""
+    from agent import orphan_reaper
+
+    source = Path(orphan_reaper.__file__).read_text()
+    return f"python3 -c {_shell_quote(source)} {_shell_quote(str(min_age_s))} {_shell_quote(stdin_prefix)}"
 
 
 @contextmanager
@@ -180,6 +192,14 @@ async def _start_detached_tmux(
             f"rm -rf /tmp/cc-{chat_id}-images 2>/dev/null; "
             + cleanup_command(chat_id),
         )
+        # Host-wide guard: wrappers whose tmux session is gone but whose
+        # process tree survived (todo 3819). Never fails the launch.
+        try:
+            reaped = _ssh_exec(client, _reap_orphan_wrappers_cmd()).strip()
+            if reaped and reaped != "reaped=0":
+                logger.warning("reaped orphaned session wrappers on launch of %s: %s", session_name, reaped)
+        except Exception as exc:
+            logger.warning("orphaned session wrapper reap failed on launch of %s: %s", session_name, exc)
 
         exec_images = _upload_images(client, chat_id, images) if spec.upload_images else images
 
@@ -212,7 +232,7 @@ async def _start_detached_tmux(
             "HEARTBEAT_PID=$!;",
         ]
         if spec.cleanup:
-            inner_parts.append(f"trap {_shell_quote(spec.cleanup())} EXIT HUP INT TERM;")
+            inner_parts.append(f"trap {_shell_quote(spec.cleanup())} EXIT;")
         if env:
             for k, v in env.items():
                 inner_parts.append(f"export {k}={_shell_quote(v)};")
