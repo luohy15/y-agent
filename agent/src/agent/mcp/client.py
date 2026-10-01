@@ -19,6 +19,10 @@ from storage.service.mcp import MAX_TOOLS, McpError
 from agent.mcp.egress import OPERATION_TIMEOUT_S, TOOL_CALL_TIMEOUT_S, Egress, remaining
 
 SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26")
+# Accepted only as a provider's counter-offer, never offered or relayed
+# downstream: initialize, ping and tools/list+call are unchanged in it, and
+# Streamable HTTP providers such as Alpha Vantage still negotiate it.
+UPSTREAM_PROTOCOL_VERSIONS = (*SUPPORTED_PROTOCOL_VERSIONS, "2024-11-05")
 MAX_PAGES = 100
 MAX_CURSOR = 1024
 MAX_SESSION_ID = 256
@@ -190,7 +194,7 @@ class McpHttpClient:
             "protocolVersion": SUPPORTED_PROTOCOL_VERSIONS[0], "capabilities": {},
             "clientInfo": {"name": "y-agent", "version": "1.0"}}, capture_session=True)
         version = result.get("protocolVersion")
-        if version not in SUPPORTED_PROTOCOL_VERSIONS:
+        if version not in UPSTREAM_PROTOCOL_VERSIONS:
             raise McpError("protocol_error", "provider negotiated an unsupported protocol version")
         self.protocol_version = version
         self.capabilities = result.get("capabilities") if isinstance(result.get("capabilities"), dict) else {}
