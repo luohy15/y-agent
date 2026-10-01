@@ -2,8 +2,11 @@ import asyncio
 from typing import List, Optional, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from storage import todo_list_timing
 from storage.service import todo as todo_service
 
 router = APIRouter(prefix="/todo")
@@ -57,41 +60,64 @@ async def list_todos(
     awaiting: Optional[str] = Query(None),
     include_history: bool = Query(False),
 ):
-    if awaiting is not None:
-        raise HTTPException(
-            status_code=400,
-            detail="awaiting filter is removed; use status=awaiting",
+    timing = todo_list_timing.begin()
+    ok = False
+    try:
+        if awaiting is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="awaiting filter is removed; use status=awaiting",
+            )
+        user_id = _get_user_id(request)
+        todos = todo_service.list_todos(
+            user_id,
+            status=status,
+            priority=priority,
+            query=query,
+            unread=unread,
+            tag=tag,
+            on=on, from_=from_, to=to,
+            created_on=created_on, created_from=created_from, created_to=created_to,
+            updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
+            limit=limit,
+            offset=offset,
+            include_history=include_history,
         )
-    user_id = _get_user_id(request)
-    todos = todo_service.list_todos(
-        user_id,
-        status=status,
-        priority=priority,
-        query=query,
-        unread=unread,
-        tag=tag,
-        on=on, from_=from_, to=to,
-        created_on=created_on, created_from=created_from, created_to=created_to,
-        updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
-        limit=limit,
-        offset=offset,
-        include_history=include_history,
-    )
-    todo_service.attach_next_wakeup(user_id, todos)
-    todo_service.attach_pending_release_waiter(user_id, todos)
-    result = [t.to_dict() for t in todos]
+        with todo_list_timing.stage("enrich"):
+            todo_service.attach_next_wakeup(user_id, todos)
+            todo_service.attach_pending_release_waiter(user_id, todos)
+        with todo_list_timing.stage("to_dict"):
+            result = [t.to_dict() for t in todos]
 
-    # Batch-lookup chat status for all todo_ids (trace_id == todo_id)
-    todo_ids = [t.todo_id for t in todos]
-    if todo_ids:
-        from storage.repository.chat import get_trace_chat_status
-        chat_status = get_trace_chat_status(user_id, todo_ids)
-        for item in result:
-            cs = chat_status.get(item["todo_id"], {})
-            item["has_running"] = cs.get("has_running", False)
-            item["has_unread"] = cs.get("has_unread", False)
+        # Batch-lookup chat status for all todo_ids (trace_id == todo_id)
+        todo_ids = [t.todo_id for t in todos]
+        if todo_ids:
+            from storage.repository.chat import get_trace_chat_status
+            with todo_list_timing.stage("flags"):
+                chat_status = get_trace_chat_status(user_id, todo_ids)
+            for item in result:
+                cs = chat_status.get(item["todo_id"], {})
+                item["has_running"] = cs.get("has_running", False)
+                item["has_unread"] = cs.get("has_unread", False)
 
-    return result
+        if timing is None:
+            ok = True
+            return result
+        # A timed request encodes here, as FastAPI would, so the encode stage
+        # is measured inside the handler.
+        with todo_list_timing.stage("encode"):
+            response = JSONResponse(jsonable_encoder(result))
+        ok = True
+        return response
+    finally:
+        todo_list_timing.finish(
+            timing,
+            status=status,
+            limit=limit,
+            include_history=include_history,
+            count=len(todos) if ok else None,
+            ok=ok,
+        )
 
 
 @router.get("/detail")

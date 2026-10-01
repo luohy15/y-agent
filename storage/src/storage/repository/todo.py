@@ -9,6 +9,7 @@ from storage.entity.chat import ChatEntity
 from storage.entity.entity_tag import EntityTagEntity
 from storage.entity.dto import Todo, TodoHistoryEntry
 from storage.database.base import get_db
+from storage import todo_list_timing
 from storage.util import apply_time_filter
 
 # Match web UI sort: high=0, medium=1, low=2, other=3
@@ -68,6 +69,11 @@ def list_todos(
     include_history: bool = True,
 ) -> List[Todo]:
     with get_db() as session:
+        if todo_list_timing.active():
+            # Check out the connection up front so pool checkout and pre-ping
+            # are timed apart from the query. The query reuses it either way.
+            with todo_list_timing.stage("db_connect"):
+                session.connection()
         # Per-trace max chat activity: chat.trace_id == todo.todo_id by convention.
         # Falls back to todo.updated_at_unix when a todo has no associated chat.
         chat_max = (
@@ -139,7 +145,13 @@ def list_todos(
             # awaiting, completed, deleted, or no filter: effective_updated desc
             q = q.order_by(TodoEntity.pinned.desc(), effective_updated.desc())
         q = q.offset(offset).limit(limit)
-        return [_entity_to_dto(row, include_history=include_history) for row in q.all()]
+        with todo_list_timing.stage("db_query"):
+            rows = q.all()
+        with todo_list_timing.stage("dto"):
+            todos = [_entity_to_dto(row, include_history=include_history) for row in rows]
+        commit_started = todo_list_timing.mark()
+    todo_list_timing.add_since("db_commit_close", commit_started)
+    return todos
 
 
 def list_todo_ids(

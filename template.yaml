@@ -438,6 +438,8 @@ Resources:
           Y_AGENT_TIMEZONE: Asia/Shanghai
           ALPHAVANTAGE_API_KEY: !Ref AlphaVantageApiKey
           ANTHROPIC_STATUS_WEBHOOK_SECRET: !Ref AnthropicStatusWebhookSecret
+          # Temporary /api/todo/list stage timing (todo 3788 R1); remove after B3.
+          Y_AGENT_TODO_LIST_TIMING: "1"
           AWS_LAMBDA_EXEC_WRAPPER: /opt/bootstrap
           AWS_LWA_INVOKE_MODE: response_stream
           PORT: "8000"
