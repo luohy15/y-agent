@@ -35,8 +35,11 @@ def chat_prefix(chat_id):
 
 
 def cleanup_command(chat_id):
-    # Hash-only glob cannot include another chat or caller-controlled shell text.
-    return f"rm -rf -- {chat_prefix(chat_id)}*"
+    # Hash-only pattern cannot include another chat or caller-controlled shell text.
+    # find, not a shell glob: the VM login shell is zsh, where an unmatched glob
+    # is a hard error (nomatch) and would fail every first launch of a chat.
+    name = chat_prefix(chat_id).removeprefix('/tmp/')
+    return f"find /tmp/ -maxdepth 1 -name '{name}*' -exec rm -rf -- {{}} +"
 
 
 def stage_remote(client, summary, context):
