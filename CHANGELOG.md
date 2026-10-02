@@ -14,13 +14,18 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Added
 - **Reminder and routine module host support (3708)**: browser contract v20 adds `bell` and `clock` icon keys and the `chat.setRoutineFilter` command. The built-in Reminders and Routines panels are retired; persisted `reminder` and `routine` sidebar keys move to `artifact:reminder` and `artifact:routine`.
+- **Module full view command (3816)**: `module.openView` host command opens a module's full view.
+- **Exact chat id search (3810)**: chat list search matches an exact chat id; the trigram index is documented.
 
 ### Changed
 - **Usage request upload is set-based (3805)**: `POST /api/usage/requests` writes a batch in a few statements instead of three database round trips per row. Accept, conflict, and merge results are unchanged.
 - **Link TLDR uses the inline bot (3789)**: `POST /api/link/tldr` reads the `inline` bot config (same bot as `POST /api/inline` and English refine) instead of a separate `tldr` bot. Prompt, timeout, and token cap stay on the endpoint.
 - **Host and SDK design package 0.4.0 (3695)**: vendored `@y/design` moves from 0.2.0 through 0.3.0 (Combobox) to 0.4.0 (`freeText` Combobox). The host Tailwind scan includes `dist/combobox.js`.
+- **Faster list reads (3808, 3818, 3822)**: module list batches active version reads, API Server-Timing is snapshotted with duplicate tool arguments dropped, and selective todo list flags fold into the query with prewarmed shapes.
 
 ### Fixed
+- **Turn process cleanup (3819)**: agent releases turn processes and reaps orphan wrappers.
+- **Usage reset times (3812)**: Claude reset times are parsed in their printed timezone.
 
 ### Removed
 
