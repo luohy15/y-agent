@@ -43,11 +43,23 @@ def _load_modules() -> None:
         loader.load_active_module(owner_id, slug)
 
 
+def _load_todo_list() -> None:
+    from api.controller.module import default_owner_user_id
+    from storage.repository.todo import list_todos
+
+    owner_id = default_owner_user_id()
+    if owner_id is None:
+        return
+    for status in ("awaiting", "active"):
+        list_todos(owner_id, status=status, limit=1, include_history=False)
+
+
 def prewarm() -> None:
     steps = (
         ("db", _ping_db),
         ("mappers", _configure_mappers),
         ("modules", _load_modules),
+        ("todo_list", _load_todo_list),
     )
     started = time.perf_counter()
     parts = []

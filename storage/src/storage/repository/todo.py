@@ -48,6 +48,14 @@ def _entity_to_dto(entity: TodoEntity, *, include_history: bool = True) -> Todo:
     )
 
 
+class TodoList(list):
+    """List-compatible result with optional in-query trace flags, never serialized."""
+
+    def __init__(self, todos=(), *, trace_flags=None):
+        super().__init__(todos)
+        self.trace_flags = trace_flags
+
+
 def list_todos(
     user_id: int,
     status: Optional[str] = None,
@@ -76,21 +84,32 @@ def list_todos(
                 session.connection()
         # Per-trace max chat activity: chat.trace_id == todo.todo_id by convention.
         # Falls back to todo.updated_at_unix when a todo has no associated chat.
-        chat_max = (
-            session.query(
-                ChatEntity.trace_id.label("tid"),
-                func.max(ChatEntity.updated_at_unix).label("max_updated"),
+        selective = status in {"awaiting", "active"}
+        if selective:
+            trace_chats = (session.query(ChatEntity)
+                           .filter(ChatEntity.user_id == user_id,
+                                   ChatEntity.trace_id == TodoEntity.todo_id)
+                           .correlate(TodoEntity))
+            max_updated = (trace_chats.with_entities(func.max(ChatEntity.updated_at_unix))
+                           .scalar_subquery().label("max_updated"))
+            has_running = trace_chats.filter(ChatEntity.status == "running").exists().label("has_running")
+            has_unread = trace_chats.filter(ChatEntity.unread.is_(True)).exists().label("has_unread")
+            effective_updated = func.coalesce(max_updated, TodoEntity.updated_at_unix)
+            q = session.query(TodoEntity, max_updated, has_running, has_unread)
+        else:
+            chat_max = (
+                session.query(
+                    ChatEntity.trace_id.label("tid"),
+                    func.max(ChatEntity.updated_at_unix).label("max_updated"),
+                )
+                .filter(ChatEntity.user_id == user_id)
+                .filter(ChatEntity.trace_id.isnot(None))
+                .group_by(ChatEntity.trace_id)
+                .subquery()
             )
-            .filter(ChatEntity.user_id == user_id)
-            .filter(ChatEntity.trace_id.isnot(None))
-            .group_by(ChatEntity.trace_id)
-            .subquery()
-        )
-        effective_updated = func.coalesce(chat_max.c.max_updated, TodoEntity.updated_at_unix)
-
-        q = (session.query(TodoEntity)
-             .outerjoin(chat_max, chat_max.c.tid == TodoEntity.todo_id)
-             .filter(TodoEntity.user_id == user_id))
+            effective_updated = func.coalesce(chat_max.c.max_updated, TodoEntity.updated_at_unix)
+            q = session.query(TodoEntity).outerjoin(chat_max, chat_max.c.tid == TodoEntity.todo_id)
+        q = q.filter(TodoEntity.user_id == user_id)
         if not include_history:
             q = q.options(defer(TodoEntity.history, raiseload=True))
         if status:
@@ -148,7 +167,14 @@ def list_todos(
         with todo_list_timing.stage("db_query"):
             rows = q.all()
         with todo_list_timing.stage("dto"):
-            todos = [_entity_to_dto(row, include_history=include_history) for row in rows]
+            if selective:
+                todos = TodoList(
+                    [_entity_to_dto(row[0], include_history=include_history) for row in rows],
+                    trace_flags={row[0].todo_id: {"has_running": bool(row.has_running),
+                                               "has_unread": bool(row.has_unread)} for row in rows},
+                )
+            else:
+                todos = [_entity_to_dto(row, include_history=include_history) for row in rows]
         commit_started = todo_list_timing.mark()
     todo_list_timing.add_since("db_commit_close", commit_started)
     return todos

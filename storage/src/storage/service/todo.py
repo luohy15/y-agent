@@ -38,6 +38,7 @@ def list_todos(
     offset: int = 0,
     include_history: bool = True,
 ) -> List[Todo]:
+    """Preserve the repository's list result and optional internal trace flags."""
     return todo_repo.list_todos(
         user_id,
         status=status,

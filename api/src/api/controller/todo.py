@@ -92,9 +92,11 @@ async def list_todos(
         # Batch-lookup chat status for all todo_ids (trace_id == todo_id)
         todo_ids = [t.todo_id for t in todos]
         if todo_ids:
-            from storage.repository.chat import get_trace_chat_status
-            with todo_list_timing.stage("flags"):
-                chat_status = get_trace_chat_status(user_id, todo_ids)
+            chat_status = getattr(todos, "trace_flags", None)
+            if chat_status is None:
+                from storage.repository.chat import get_trace_chat_status
+                with todo_list_timing.stage("flags"):
+                    chat_status = get_trace_chat_status(user_id, todo_ids)
             for item in result:
                 cs = chat_status.get(item["todo_id"], {})
                 item["has_running"] = cs.get("has_running", False)
