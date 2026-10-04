@@ -13,6 +13,16 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.5.30] - 2026-10-04
+
+### Added
 - **Reminder and routine module host support (3708)**: browser contract v20 adds `bell` and `clock` icon keys and the `chat.setRoutineFilter` command. The built-in Reminders and Routines panels are retired; persisted `reminder` and `routine` sidebar keys move to `artifact:reminder` and `artifact:routine`.
 - **Module full view command (3816)**: `module.openView` host command opens a module's full view.
 - **Exact chat id search (3810)**: chat list search matches an exact chat id; the trigram index is documented.
