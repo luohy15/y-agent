@@ -54,6 +54,7 @@ def publish_bundle(
     min_backend_version: Optional[int] = None,
     dispatch_scope: str = "maintainer",
     ui_surfaces: str = "panel",
+    tag_carriers: str = "[]",
     description: Optional[str] = None,
     trace_id: Optional[str] = None,
 ) -> dict:
@@ -88,6 +89,7 @@ def publish_bundle(
         data["min_backend_version"] = str(min_backend_version)
     data["dispatch_scope"] = dispatch_scope
     data["ui_surfaces"] = ui_surfaces
+    data["tag_carriers"] = tag_carriers
     if description is not None:
         data["description"] = description
     if trace_id is not None:

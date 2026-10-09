@@ -118,10 +118,21 @@ def list_modules_with_active_versions(
 
 
 def set_active_version(user_id: int, module_id: str, version_id: Optional[str]) -> Optional[Module]:
+    from storage.service.module_carrier import assert_available, parse_tag_carriers
+
     with get_db() as session:
         entity = session.query(ModuleEntity).filter_by(user_id=user_id, module_id=module_id).first()
         if not entity:
             return None
+        if version_id is not None:
+            version = session.query(ModuleVersionEntity).filter_by(
+                user_id=user_id, module_id=module_id, version_id=version_id
+            ).first()
+            if version is None:
+                return None
+            assert_available(
+                session, user_id, module_id, parse_tag_carriers(version.tag_carriers or "[]")
+            )
         entity.active_version_id = version_id
         session.flush()
         return _entity_to_dto(entity)

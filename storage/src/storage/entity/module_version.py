@@ -23,6 +23,9 @@ class ModuleVersionEntity(Base, BaseEntity):
     min_backend_version = Column(Integer, nullable=True)
     dispatch_scope = Column(String(16), nullable=False, default="maintainer")
     ui_surfaces = Column(String(32), nullable=False, default="panel")
+    # JSON list of module tag-carrier types. Empty for every version published
+    # before todo 3838. Immutable with the rest of the row.
+    tag_carriers = Column(String, nullable=False, default="[]")
     ui_public = Column(Boolean, nullable=False, default=False)
     source_digest = Column(String, nullable=True)
     built_at = Column(String, nullable=True)

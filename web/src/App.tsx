@@ -22,6 +22,7 @@ import { handleEnglishOpen } from "./utils/englishNavigate";
 import { handleLinkOpen } from "./utils/linkNavigate";
 import { handleRssOpen } from "./utils/rssNavigate";
 import { navigateTag, type TagResultItem } from "./utils/tagNavigate";
+import { runModuleOpenRecord, type ModuleCatalogRow } from "./utils/moduleOpenRecord";
 import {
   applyTodoDeepLink,
   applyTodoHeaderChip,
@@ -87,6 +88,20 @@ import { getArtifactIntent, registerArtifactDetailOpener, setArtifactIntent } fr
 import { publishActivityBarVisibility, registerActivityBarVisibilityCommands } from "./host/activityBarVisibilityBridge";
 import { useActivityBarVisibility } from "./hooks/useActivityBarVisibility";
 import { applyHostWorkspaceOpen, applyModuleOpenView, mergeModuleOpenViewIntent, resolveModuleOpenView } from "./utils/moduleOpenView";
+
+function catalogFromModules(modules: readonly Module[]): ModuleCatalogRow[] {
+  return modules.map((module) => {
+    const types = module.active_version?.tag_carriers;
+    const sha = module.active_version?.ui_sha256;
+    const surfaces = module.active_version?.ui_surfaces ?? "";
+    return {
+      slug: module.slug,
+      enabled: module.enabled === true,
+      hasDetail: typeof sha === "string" && sha.length > 0 && surfaces.split(",").includes("detail"),
+      carriers: Array.isArray(types) ? types.filter((type): type is string => typeof type === "string") : [],
+    };
+  });
+}
 
 interface VmConfigItem {
   name: string;
@@ -585,6 +600,12 @@ export default function App() {
           setArtifactIntent("module", mergeModuleOpenViewIntent(getArtifactIntent("module"), view));
         },
       });
+    });
+  }, [handleOpenFile]);
+
+  useEffect(() => {
+    return registerHostCommand("module.openRecord", (payload) => {
+      runModuleOpenRecord(payload, catalogFromModules(moduleCatalogRef.current.modules), handleOpenFile);
     });
   }, [handleOpenFile]);
 
@@ -1273,6 +1294,7 @@ export default function App() {
       handlePreviewFile,
       defaultWorkDir,
       setSidebarPanel,
+      moduleCatalog: catalogFromModules(moduleCatalogRef.current.modules),
     });
     if (window.innerWidth < 768) setSidebarOpen(false);
   }, [handleOpenFile, handlePreviewFile, defaultWorkDir]);

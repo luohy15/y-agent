@@ -251,6 +251,7 @@ def _public_active_version(active: ModuleVersion) -> dict:
         "ui_sha256": active.ui_sha256,
         "min_host_version": active.min_host_version,
         "ui_surfaces": active.ui_surfaces,
+        "tag_carriers": active.to_dict()["tag_carriers"],
         "label": active.label,
         "icon": active.icon,
     }
@@ -320,6 +321,7 @@ async def publish(
     description: Optional[str] = Form(None),
     trace_id: Optional[str] = Form(None),
     activate: bool = Form(True),
+    tag_carriers: str = Form("[]"),
 ):
     """Publish one version spanning the UI half, the API half, or both.
 
@@ -363,6 +365,14 @@ async def publish(
     candidate_ui_surfaces = _validate_ui_surfaces(
         ui_surfaces if isinstance(ui_surfaces, str) else "panel"
     )
+    from storage.service.module_carrier import CarrierConflict, dump_tag_carriers, parse_tag_carriers
+
+    try:
+        candidate_tag_carriers = dump_tag_carriers(parse_tag_carriers(
+            tag_carriers if isinstance(tag_carriers, str) else "[]"
+        ))
+    except CarrierConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     # File(None) defaults are not None when the endpoint is invoked directly
     # (unit tests); only treat values that actually look like UploadFile.
@@ -462,24 +472,28 @@ async def publish(
     if api_content is not None and api_storage_key is not None:
         _write_bundle(api_storage_key, api_content, content_type="application/zip")
 
-    version = module_service.publish(
-        user_id,
-        module_id,
-        ui_sha256=ui_actual,
-        ui_storage_key=ui_storage_key,
-        api_sha256=api_actual,
-        api_storage_key=api_storage_key,
-        label=label,
-        icon=icon,
-        min_host_version=min_host_version,
-        min_backend_version=min_backend_version,
-        dispatch_scope=candidate_dispatch_scope,
-        ui_surfaces=candidate_ui_surfaces,
-        source_digest=source_digest,
-        description=description,
-        trace_id=candidate_trace_id,
-        activate=activate,
-    )
+    try:
+        version = module_service.publish(
+            user_id,
+            module_id,
+            ui_sha256=ui_actual,
+            ui_storage_key=ui_storage_key,
+            api_sha256=api_actual,
+            api_storage_key=api_storage_key,
+            label=label,
+            icon=icon,
+            min_host_version=min_host_version,
+            min_backend_version=min_backend_version,
+            dispatch_scope=candidate_dispatch_scope,
+            ui_surfaces=candidate_ui_surfaces,
+            source_digest=source_digest,
+            description=description,
+            trace_id=candidate_trace_id,
+            activate=activate,
+            tag_carriers=candidate_tag_carriers,
+        )
+    except CarrierConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not version:
         # Defence in depth; the ownership check above already covers this.
         raise HTTPException(status_code=404, detail="Module not found")
@@ -497,6 +511,11 @@ async def rollback(req: RollbackRequest, request: Request):
             status_code=409,
             detail={"reason": "stale_version", "active_version_id": exc.active_version_id},
         ) from exc
+    except Exception as exc:
+        from storage.service.module_carrier import CarrierConflict
+        if isinstance(exc, CarrierConflict):
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise
     if not updated:
         raise HTTPException(status_code=404, detail="Nothing to roll back to")
     return updated.to_dict()
@@ -506,7 +525,12 @@ async def rollback(req: RollbackRequest, request: Request):
 async def activate(req: ActivateRequest, request: Request):
     user_id = _get_user_id(request)
     module = _resolve_module(user_id, req.module_id, req.slug)
-    updated = module_service.activate(user_id, module.module_id, req.version_no)
+    from storage.service.module_carrier import CarrierConflict
+
+    try:
+        updated = module_service.activate(user_id, module.module_id, req.version_no)
+    except CarrierConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not updated:
         raise HTTPException(status_code=404, detail="Version not found")
     return updated.to_dict()

@@ -8,6 +8,7 @@ export interface Module extends Record<string, unknown> {
   active_version: (ArtifactVersionRef & {
     label?: string | null;
     icon?: string | null;
+    tag_carriers?: string[] | null;
   }) | null;
 }
 

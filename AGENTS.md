@@ -162,10 +162,11 @@ entity + controller + service + CLI slices, and most have a web panel.
   conventional `common` (vendored at publish). Rollback/activate change code only;
   delete removes deployed metadata/bytes, not source/tables. No worker half:
   deterministic work is `routine` `vm_command`; judgment stays chat dispatch.
-  Backend host contract (`agent.module_host`) is **v22** (todo 3627's v18 adds
+  Backend host contract (`agent.module_host`) is **v23** (todo 3627's v18 adds
   owner-bound no-wake VM execution; v19 / v20 are todos 3777 / 3781; v21 adds the
   maintainer-bound `mcp_*` connector capabilities of todo 3796; v22 is its round 2
-  loopback OAuth start/complete). The tag module owns
+  loopback OAuth start/complete; v23 adds the private photo object primitives,
+  `published_module_json`, and module tag-carrier helpers of todo 3838). The tag module owns
   `/api/module/tag/*`, the lazy `y tag` CLI, and the `artifact:tag` panel; the
   host retains the `entity_tag` projection, normalization, carrier sync and
   cleanup, resolver hydration (todo rows carry `updated_at_unix` for client
@@ -372,7 +373,7 @@ Grouped by feature area:
 - `perplexity.py`, `openai_chat.py`, `xai_search.py` — inline single-shot (non-agentic)
   backends; `xai_search.py` serves both `xai_web` and `xai_x`
 - `config.py` — provider factory, bot/vm config resolution
-- `module_host.py` — backend host contract for modules (`BACKEND_CONTRACT_VERSION = 22`:
+- `module_host.py` — backend host contract for modules (`BACKEND_CONTRACT_VERSION = 23`:
   `session`, `run_vm_command` with work_dir/stdin, `cli_user_id`, external-table
   protocol, plus request-scoped `bot_config_*`, `chat_*` with optional
   `sort_by`/`sort_order`, `note_list_at_path`, owner-bound `note_*`, `tag_*`

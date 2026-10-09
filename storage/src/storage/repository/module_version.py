@@ -22,6 +22,7 @@ def _entity_to_dto(entity: ModuleVersionEntity) -> ModuleVersion:
         min_backend_version=entity.min_backend_version,
         dispatch_scope=entity.dispatch_scope,
         ui_surfaces=entity.ui_surfaces,
+        tag_carriers=entity.tag_carriers or "[]",
         ui_public=entity.ui_public,
         source_digest=entity.source_digest,
         built_at=entity.built_at,
@@ -49,12 +50,17 @@ def create_version(
     min_backend_version: Optional[int] = None,
     dispatch_scope: str = "maintainer",
     ui_surfaces: str = "panel",
+    tag_carriers: str = "[]",
+    activate: bool = False,
     source_digest: Optional[str] = None,
     built_at: Optional[str] = None,
     description: Optional[str] = None,
     trace_id: Optional[str] = None,
 ) -> ModuleVersion:
+    from storage.service.module_carrier import assert_available, parse_tag_carriers
+
     with get_db() as session:
+        assert_available(session, user_id, module_id, parse_tag_carriers(tag_carriers or "[]"))
         entity = ModuleVersionEntity(
             user_id=user_id,
             version_id=version_id,
@@ -70,6 +76,7 @@ def create_version(
             min_backend_version=min_backend_version,
             dispatch_scope=dispatch_scope,
             ui_surfaces=ui_surfaces,
+            tag_carriers=tag_carriers or "[]",
             source_digest=source_digest,
             built_at=built_at,
             description=description,
@@ -77,6 +84,14 @@ def create_version(
         )
         session.add(entity)
         session.flush()
+        if activate:
+            module = session.query(ModuleEntity).filter_by(
+                user_id=user_id, module_id=module_id
+            ).first()
+            if module is None:
+                raise LookupError("module not found")
+            module.active_version_id = version_id
+            session.flush()
         return _entity_to_dto(entity)
 
 

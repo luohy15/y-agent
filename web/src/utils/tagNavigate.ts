@@ -9,6 +9,7 @@ import { openEntity } from "./entityNavigate";
 import { openLink } from "./linkNavigate";
 import { openRss } from "./rssNavigate";
 import { openTodoDetail } from "./todoDetailNavigate";
+import { latchModuleOpenRecord, resolveTagOpenRecord, type ModuleCatalogRow } from "./moduleOpenRecord";
 
 export interface TagResultItem {
   id: string;
@@ -56,6 +57,8 @@ export interface TagNavigateDeps extends OpenTodoDeps {
   handlePreviewFile: (path: string) => void;
   defaultWorkDir?: string | null;
   setSidebarPanel: (panel: SidebarPanel) => void;
+  /** Current authorized catalog. Absent means module types stay a no-op. */
+  moduleCatalog?: readonly ModuleCatalogRow[];
 }
 
 // One type-dispatch callback covering all 10 tag carriers, reusing each
@@ -110,7 +113,17 @@ export function navigateTag(entityType: string, item: TagResultItem, deps: TagNa
     case "routine":
       deps.setSidebarPanel(artifactPanelKey("routine"));
       break;
-    default:
+    default: {
+      const target = resolveTagOpenRecord({
+        entityType,
+        id: item.id,
+        title: item.title,
+        catalog: deps.moduleCatalog || [],
+      });
+      if (!target) break;
+      latchModuleOpenRecord(target);
+      deps.handleOpenFile(target.tab);
       break;
+    }
   }
 }

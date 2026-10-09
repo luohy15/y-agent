@@ -101,6 +101,7 @@ def publish(
     description: Optional[str] = None,
     trace_id: Optional[str] = None,
     activate: bool = True,
+    tag_carriers: str = "[]",
 ) -> Optional[ModuleVersion]:
     """Insert a new immutable version; move the active pointer unless activate=False.
 
@@ -129,9 +130,9 @@ def publish(
         built_at=get_utc_iso8601_timestamp(),
         description=description,
         trace_id=trace_id,
+        tag_carriers=tag_carriers,
+        activate=activate,
     )
-    if activate:
-        module_repo.set_active_version(user_id, module_id, version.version_id)
     return version
 
 

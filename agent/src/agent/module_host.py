@@ -165,6 +165,16 @@ Todo 3796 round 2 makes `mcp_connect` take a required loopback `redirect_uri`
 and adds `mcp_oauth_complete`, bumping 21 to 22. A signature change, not just
 an addition: a v21 mcp module's Connect fails on a v22 host, so the host and
 the v22 module ship together (host first) and roll back together.
+Todo 3838 adds owner-and-maintainer photo object primitives
+(`photo_authorize_upload`, `photo_authorize_derived_upload`,
+`photo_verify_and_pin`, `photo_authorize_get`, `photo_authorize_get_batch`,
+`photo_delete_objects`),
+`published_module_json` / `published_module_json_async` for owner-bound calls
+into a published module's JSON routes (policy in `agent.module_json`), tag
+helpers `tag_memberships`, `tag_ids_for_exact_tag` (cursor-paged),
+`tag_delete_memberships`, the owner-locked `module_tag_transaction` for
+carrier deletion, plus optional `require_existing` on `tag_add`.
+That bumps 22 to 23. Photo requires v23; deploy this host before publishing it.
 Modules declare the minimum version they use and an
 older host rejects their bundle. Every later addition to the surface above
 bumps the version and, for modules that need it, `min_backend_version`.
@@ -184,7 +194,7 @@ from sqlalchemy.orm import Session
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-BACKEND_CONTRACT_VERSION = 22
+BACKEND_CONTRACT_VERSION = 23
 
 # Wall-clock budget for the wake="nowait" readiness check (todo 3777).
 NOWAIT_BUDGET_SECONDS = 1.0
@@ -229,6 +239,10 @@ class ModuleHostAuthError(ModuleHostError):
     """run_vm_command was asked to act for a user other than the authenticated
     request's owner. Module code must never steer VM execution at an arbitrary
     user-chosen identity (review finding 2)."""
+
+
+class ModuleTagUnavailableError(ModuleHostError):
+    """The requested module carrier has no current authorized claim."""
 
 
 class ModuleVmAsleepError(ModuleHostError):
@@ -887,15 +901,23 @@ def tag_add(
     entity_type: str,
     entity_id: str,
     tags: List[str],
+    *,
+    require_existing: bool = False,
 ) -> dict[str, list[str]]:
-    """Add projection tags for one owner-scoped entity; email entity IDs are thread keys."""
+    """Add projection tags for one owner-scoped entity; email entity IDs are thread keys.
+
+    `require_existing` (todo 3838) refuses spellings that are not already in the
+    owner's vocabulary. It does not create vocabulary rows.
+    """
     _require_tag_owner(user_id)
     from storage.service import tag as tag_service
 
+    # Default calls keep the pre-3838 positional shape; only the opt-in is forwarded.
+    options = {"require_existing": True} if require_existing else {}
     added = [
         tag
         for tag in tags
-        if tag_service.add_tag(user_id, entity_type, entity_id, tag)
+        if tag_service.add_tag(user_id, entity_type, entity_id, tag, **options)
     ]
     return {"added": added}
 
@@ -1505,3 +1527,266 @@ def mcp_launch_status(user_id: int, connector_id: Optional[str] = None) -> dict[
     from storage.service import mcp as svc
 
     return _mcp_call(user_id, svc.connector_launch_status, user_id, connector_id)
+
+
+# ---------------------------------------------------------------------------
+# v23 photo object store, published-module JSON, tag carrier helpers (todo 3838)
+#
+# Photo bytes stay in a private host bucket. These functions take an owner and
+# an opaque id, never a bucket, key or URL. Tag helpers stay on the projection;
+# module hydration is a published JSON route, not a process-global resolver.
+# ---------------------------------------------------------------------------
+
+
+def _require_photo_owner(user_id: int) -> None:
+    _require_tag_owner(user_id)
+
+
+def photo_authorize_upload(
+    user_id: int,
+    upload_id: str,
+    *,
+    sha256_b64: str,
+    byte_count: int,
+    filename: str,
+    file_mtime: str,
+) -> dict[str, Any]:
+    """Presign a 300s POST for one original. Checksum and length are pinned."""
+    _require_photo_owner(user_id)
+    from storage.service import photo_store
+
+    return photo_store.authorize_upload(
+        user_id,
+        upload_id,
+        sha256_b64=sha256_b64,
+        byte_count=byte_count,
+        filename=filename,
+        file_mtime=file_mtime,
+    )
+
+
+def photo_authorize_derived_upload(
+    user_id: int,
+    photo_id: str,
+    *,
+    variant: str,
+    sha256_b64: str,
+    byte_count: int,
+) -> dict[str, Any]:
+    """Presign a 300s POST for thumb or display after the original is pinned."""
+    _require_photo_owner(user_id)
+    from storage.service import photo_store
+
+    return photo_store.authorize_derived_upload(
+        user_id,
+        photo_id,
+        variant=variant,
+        sha256_b64=sha256_b64,
+        byte_count=byte_count,
+    )
+
+
+def photo_verify_and_pin(
+    user_id: int,
+    object_id: str,
+    *,
+    variant: str = "original",
+    sha256_b64: str,
+    byte_count: int,
+) -> dict[str, Any]:
+    """HEAD the object and pin the matching version. A different version conflicts."""
+    _require_photo_owner(user_id)
+    from storage.service import photo_store
+
+    return photo_store.verify_and_pin(
+        user_id,
+        object_id,
+        variant=variant,
+        sha256_b64=sha256_b64,
+        byte_count=byte_count,
+    )
+
+
+def photo_authorize_get(user_id: int, photo_id: str, *, variant: str) -> dict[str, Any]:
+    """Sign a 300s GET for the pinned version only."""
+    _require_photo_owner(user_id)
+    from storage.service import photo_store
+
+    return photo_store.authorize_get(user_id, photo_id, variant=variant)
+
+
+def photo_authorize_get_batch(
+    user_id: int, photo_ids: list[str], *, variant: str
+) -> dict[str, Any]:
+    """Sign 300s GETs for up to 100 distinct ids with one bucket audit.
+
+    Returns {data: [{photo_id, variant, url, expires_in, cache_control}],
+    missing: [photo_id]} in input order; only an absent pin is missing.
+    """
+    _require_photo_owner(user_id)
+    from storage.service import photo_store
+
+    return photo_store.authorize_get_batch(user_id, photo_ids, variant=variant)
+
+
+def photo_delete_objects(user_id: int, photo_id: str) -> dict[str, Any]:
+    """Delete every version and delete marker for this id. Idempotent."""
+    _require_photo_owner(user_id)
+    from storage.service import photo_store
+
+    return photo_store.delete_all_versions(user_id, photo_id)
+
+
+def _require_json_caller(user_id: int) -> Optional[int]:
+    """Bound request owner, or the CLI identity when no request is bound."""
+    owner = _request_owner.get()
+    if owner is not None:
+        if owner != user_id:
+            raise ModuleHostAuthError(
+                f"module JSON call for user_id={user_id} does not match the "
+                f"authenticated request owner (bound={owner})"
+            )
+        return owner
+    from storage.service.user import get_cli_user_id
+
+    cli_owner = get_cli_user_id()
+    if cli_owner != user_id:
+        raise ModuleHostAuthError(
+            f"module JSON call for user_id={user_id} does not match the CLI identity"
+        )
+    return None
+
+
+def _require_json_maintainer(user_id: int) -> None:
+    from storage.service.user import get_module_maintainer_user_id
+
+    maintainer = get_module_maintainer_user_id()
+    if maintainer is None or maintainer != user_id:
+        raise ModuleHostAuthError("module JSON calls are restricted to the configured maintainer")
+
+
+def published_module_json(
+    user_id: int,
+    slug: str,
+    method: str,
+    path: str,
+    *,
+    body: Optional[dict] = None,
+    timeout: float = 5.0,
+) -> dict[str, Any]:
+    """Synchronous JSON call for sync routes, workers and the CLI.
+
+    With a bound request owner it dispatches in-process; FastAPI runs sync
+    (`def`) routes in a worker thread with the request context copied, so no
+    loop is running there. On a running event loop it refuses: await
+    `published_module_json_async` instead. Without a bound owner it uses the
+    existing `y` credentials (`Y_API_BASE`, `Y_USER_ID` + `JWT_SECRET_KEY`,
+    or stored auth.json) over bounded streaming HTTP. Identity is checked
+    before any transport; the server authenticates the token independently.
+    """
+    import asyncio
+
+    bound = _require_json_caller(user_id)
+    _require_json_maintainer(user_id)
+    from agent.module_json import validate_request
+
+    payload = validate_request(user_id, method, path, body, timeout)
+    if bound is not None:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            from api.module_runtime.json_call import call_published_module
+
+            return asyncio.run(call_published_module(
+                user_id, slug, method, path, body, timeout=timeout
+            ))
+        raise ModuleHostError(
+            "published_module_json cannot run on an event loop; await published_module_json_async"
+        )
+    try:
+        from yagent.api_client import api_request_json
+    except ImportError as exc:
+        raise ModuleHostError(
+            "published_module_json needs a bound request owner or the y CLI transport"
+        ) from exc
+    return api_request_json(method, f"/api/module/{slug}{path}", payload=payload, timeout=timeout)
+
+
+async def published_module_json_async(
+    user_id: int,
+    slug: str,
+    method: str,
+    path: str,
+    *,
+    body: Optional[dict] = None,
+    timeout: float = 5.0,
+) -> dict[str, Any]:
+    """Async JSON call for module handlers already running on the event loop."""
+    bound = _require_json_caller(user_id)
+    if bound is None:
+        raise ModuleHostError("published_module_json_async requires a bound request owner")
+    _require_json_maintainer(user_id)
+    from api.module_runtime.json_call import call_published_module
+
+    return await call_published_module(user_id, slug, method, path, body, timeout=timeout)
+
+
+def tag_memberships(user_id: int, entity_type: str, entity_ids: List[str]) -> dict[str, list[str]]:
+    """Owner-scoped tags for one declared module carrier type (at most 200 ids)."""
+    _require_tag_owner(user_id)
+    from storage.service import tag as tag_service
+
+    return tag_service.memberships_for(user_id, entity_type, entity_ids)
+
+
+def tag_ids_for_exact_tag(
+    user_id: int,
+    entity_type: str,
+    tag: str,
+    *,
+    cursor: Optional[str] = None,
+    limit: int = 200,
+) -> dict[str, Any]:
+    """One page of ids of a declared module carrier type holding this exact tag.
+
+    Returns `{"ids": [...], "next_cursor": str | None}` ordered by id; pass
+    `next_cursor` back until it is None. `limit` is 1..200.
+    """
+    _require_tag_owner(user_id)
+    from storage.service import tag as tag_service
+
+    return tag_service.ids_for_exact_tag(user_id, entity_type, tag, cursor=cursor, limit=limit)
+
+
+def tag_delete_memberships(user_id: int, entity_type: str, entity_id: str) -> dict[str, Any]:
+    """Remove every membership for one declared module carrier under the owner lock.
+
+    For a carrier deletion that must be atomic with the module's own rows,
+    use `module_tag_transaction` instead.
+    """
+    _require_tag_owner(user_id)
+    from storage.service import tag as tag_service
+
+    deleted = tag_service.delete_module_memberships(user_id, entity_type, entity_id)
+    return {"entity_type": entity_type, "entity_id": entity_id, "deleted": deleted}
+
+
+@contextmanager
+def module_tag_transaction(user_id: int, entity_type: str) -> Iterator[Any]:
+    """One owner-locked transaction for deleting a declared module carrier.
+
+    Yields a handle with `session` (the same host session contract as
+    `session()`, for the module's own rows only) and
+    `delete_memberships(entity_id) -> int`. The owner tag lock is taken
+    before anything else, so a concurrent `tag_add` either commits first
+    (and its membership is deleted here) or waits and then sees the carrier
+    gone. Commits on clean exit; any exception rolls back the module rows
+    and the memberships together. Do not open another host session for
+    these writes inside the block, and make no HTTP or module JSON call
+    while it is open.
+    """
+    _require_tag_owner(user_id)
+    from storage.service import tag as tag_service
+
+    with tag_service.module_tag_transaction(user_id, entity_type) as handle:
+        yield handle

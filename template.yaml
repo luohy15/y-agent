@@ -216,6 +216,86 @@ Resources:
               Bool:
                 aws:SecureTransport: false
 
+  # Private photo originals and derived copies (todo 3838). Not the CDN bucket
+  # and not the upload-staging bucket. No public read, no website endpoint.
+  PhotoBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${AWS::StackName}-photos-${AWS::AccountId}-${AWS::Region}
+      VersioningConfiguration:
+        Status: Enabled
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedMethods: [GET, HEAD, POST]
+            AllowedOrigins: ['https://yovy.app']
+            AllowedHeaders: ['*']
+            ExposeHeaders: ['ETag']
+            MaxAge: 300
+
+  PhotoBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref PhotoBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource:
+              - !GetAtt PhotoBucket.Arn
+              - !Sub ${PhotoBucket.Arn}/*
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+
+  PhotoObjectPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub ${AWS::StackName}-photo-objects
+      Roles:
+        - !Ref LambdaRoleName
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:GetBucketPublicAccessBlock
+              - s3:GetBucketOwnershipControls
+              - s3:GetBucketVersioning
+              - s3:GetEncryptionConfiguration
+              - s3:GetBucketPolicy
+              - s3:GetBucketCors
+            Resource: !GetAtt PhotoBucket.Arn
+          - Effect: Allow
+            Action: s3:ListBucketVersions
+            Resource: !GetAtt PhotoBucket.Arn
+            Condition:
+              StringLike:
+                s3:prefix:
+                  - photos/*
+                  - photos/
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:GetObjectVersion
+              - s3:PutObject
+              - s3:DeleteObject
+              - s3:DeleteObjectVersion
+            Resource: !Sub ${PhotoBucket.Arn}/photos/*
+
   # -----------------------------------------------------------------------
   # DynamoDB — job state / cache
   # -----------------------------------------------------------------------
@@ -387,6 +467,8 @@ Resources:
           Y_AGENT_UPLOAD_BUCKET: !Ref UploadStagingBucket
           Y_AGENT_UPLOAD_QUEUE_URL: !Ref UploadQueue
           Y_AGENT_UPLOAD_QUEUE_ARN: !GetAtt UploadQueue.Arn
+          Y_AGENT_PHOTO_BUCKET: !Ref PhotoBucket
+          Y_AGENT_PHOTO_CORS_ORIGINS: "https://yovy.app"
           Y_AGENT_TIMEZONE: Asia/Shanghai
           ALPHAVANTAGE_API_KEY: !Ref AlphaVantageApiKey
           ANTHROPIC_STATUS_WEBHOOK_SECRET: !Ref AnthropicStatusWebhookSecret
@@ -433,6 +515,8 @@ Resources:
           Y_AGENT_UPLOAD_BUCKET: !Ref UploadStagingBucket
           Y_AGENT_UPLOAD_QUEUE_URL: !Ref UploadQueue
           Y_AGENT_UPLOAD_QUEUE_ARN: !GetAtt UploadQueue.Arn
+          Y_AGENT_PHOTO_BUCKET: !Ref PhotoBucket
+          Y_AGENT_PHOTO_CORS_ORIGINS: "https://yovy.app"
           Y_AGENT_TIMEZONE: Asia/Shanghai
           OXYLABS_USERNAME: !Ref OxylabsUsername
           OXYLABS_PASSWORD: !Ref OxylabsPassword

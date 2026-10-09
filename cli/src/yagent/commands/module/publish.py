@@ -83,6 +83,12 @@ def module_publish(slug, no_activate, label, icon, desc, trace_id):
             f"got {dispatch_scope!r}"
         )
     ui_surfaces = _validate_surfaces(meta.get("surfaces", ["panel"]))
+    from storage.service.module_carrier import CarrierConflict, dump_tag_carriers, parse_tag_carriers
+
+    try:
+        tag_carriers = dump_tag_carriers(parse_tag_carriers(meta.get("tag_carriers", [])))
+    except CarrierConflict as exc:
+        raise click.ClickException(str(exc)) from exc
     contract = load_contract()
     valid_icons = contract["icons"]
     if icon not in valid_icons:
@@ -159,6 +165,7 @@ def module_publish(slug, no_activate, label, icon, desc, trace_id):
             min_backend_version=min_backend_version,
             dispatch_scope=dispatch_scope,
             ui_surfaces=ui_surfaces,
+            tag_carriers=tag_carriers,
         )
     except httpx.HTTPStatusError as exc:
         detail = _http_detail(exc)

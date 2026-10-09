@@ -28,9 +28,10 @@ import importlib
 import json
 import re
 from collections import defaultdict
+from contextlib import contextmanager
 from typing import Callable, Dict, List, Optional, Tuple
 
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.orm.attributes import flag_modified
 
 from storage.database.base import get_db
@@ -81,18 +82,151 @@ def sync_tags(user_id: int, entity_type: str, entity_id: str, tags: List[str]) -
     tag_repo.sync_tags(user_id, entity_type, entity_id, tags)
 
 
-def add_tag(user_id: int, entity_type: str, entity_id: str, tag: str) -> bool:
+# Module tag carriers (todo 3838). Writes and carrier deletion serialize on
+# the owner tag lock (advisory namespace 3397, shared with rename/merge and
+# vocabulary retirement), taken with a bounded wait before any carrier read.
+TAG_LOCK_TIMEOUT_MS = 5000
+MODULE_ID_MAX = 128
+MODULE_BATCH_MAX = 200
+
+
+def _lock_owner_bounded(session, user_id: int) -> None:
+    if session.bind.dialect.name == "postgresql":
+        session.execute(text(f"SET LOCAL lock_timeout = '{int(TAG_LOCK_TIMEOUT_MS)}ms'"))
+    vocabulary_repo.lock_owner(session, user_id)
+
+
+def _module_carrier_slug(user_id: int, entity_type: str) -> Optional[str]:
+    """Slug of the active version declaring entity_type (read-only claim lookup)."""
+    from storage.service.module_carrier import HOST_TAG_CARRIERS, find_carrier_slug
+
+    if entity_type in HOST_TAG_CARRIERS:
+        return None
+    return find_carrier_slug(user_id, entity_type)
+
+
+def _require_declared_module_type(user_id: int, entity_type: str) -> None:
+    if not isinstance(entity_type, str) or _module_carrier_slug(user_id, entity_type) is None:
+        raise ValueError("entity_type is not a declared module tag carrier")
+
+
+def _require_module_id(entity_id) -> str:
+    if not isinstance(entity_id, str) or not entity_id or len(entity_id) > MODULE_ID_MAX:
+        raise ValueError(f"module carrier ids are 1..{MODULE_ID_MAX} characters")
+    return entity_id
+
+
+def _require_module_target(user_id: int, entity_type: str, entity_id: str) -> None:
+    """Prove a declared module carrier exists before a projection write.
+
+    Called while the owner tag lock is held. The carrier module answers from
+    its own committed rows over a separate session, so a carrier deleted by a
+    transaction that held the lock first is already absent here. A disabled
+    claim, a resolve miss or an outage refuses the write.
+    """
+    slug = _module_carrier_slug(user_id, entity_type)
+    from storage.service.module_carrier import find_carrier_slug
+
+    if slug is None or find_carrier_slug(user_id, entity_type, enabled_only=True) != slug:
+        raise LookupError("carrier module is not available")
+    from agent.module_host import published_module_json
+
+    try:
+        payload = published_module_json(
+            user_id,
+            slug,
+            "POST",
+            f"/tag-carriers/{entity_type}/resolve",
+            body={"ids": [entity_id]},
+        )
+    except Exception as exc:
+        raise LookupError("carrier target was not found") from exc
+    items = payload.get("items") if isinstance(payload, dict) else None
+    if not isinstance(items, list) or not any(
+        isinstance(item, dict) and item.get("id") == entity_id
+        and isinstance(item.get("title"), str) and item["title"].strip()
+        for item in items
+    ):
+        raise LookupError("carrier target was not found")
+
+
+def add_tag(
+    user_id: int,
+    entity_type: str,
+    entity_id: str,
+    tag: str,
+    *,
+    require_existing: bool = False,
+) -> bool:
     if entity_type == "email":
         from storage.service import email as email_service
+        if require_existing:
+            raise ValueError("email tags use the email service")
         return email_service.add_tag(user_id, entity_id, tag)
-    return tag_repo.add_tag(user_id, entity_type, entity_id, tag)
+    from storage.service.module_carrier import is_known_module_carrier
+
+    if not is_known_module_carrier(entity_type) and _module_carrier_slug(user_id, entity_type) is None:
+        return tag_repo.add_tag(user_id, entity_type, entity_id, tag, require_existing=require_existing)
+    if not normalize_tag(tag):
+        return False
+    _require_module_id(entity_id)
+    with get_db() as session:
+        _lock_owner_bounded(session, user_id)
+        _require_module_target(user_id, entity_type, entity_id)
+        return tag_repo.add_tag_locked(
+            session, user_id, entity_type, entity_id, tag, require_existing=require_existing
+        )
 
 
 def remove_tag(user_id: int, entity_type: str, entity_id: str, tag: str) -> bool:
     if entity_type == "email":
         from storage.service import email as email_service
         return email_service.remove_tag(user_id, entity_id, tag)
-    return tag_repo.remove_tag(user_id, entity_type, entity_id, tag)
+    from storage.service.module_carrier import is_known_module_carrier
+
+    if not is_known_module_carrier(entity_type) and _module_carrier_slug(user_id, entity_type) is None:
+        return tag_repo.remove_tag(user_id, entity_type, entity_id, tag)
+    if not normalize_tag(tag):
+        return False
+    _require_module_id(entity_id)
+    with get_db() as session:
+        _lock_owner_bounded(session, user_id)
+        _require_module_target(user_id, entity_type, entity_id)
+        return tag_repo.remove_tag_locked(session, user_id, entity_type, entity_id, tag)
+
+
+class ModuleTagTransaction:
+    """Handle yielded by `module_tag_transaction`; the session holds the owner lock."""
+
+    def __init__(self, session, user_id: int, entity_type: str):
+        self.session = session
+        self._user_id = user_id
+        self._entity_type = entity_type
+
+    def delete_memberships(self, entity_id: str) -> int:
+        _require_module_id(entity_id)
+        return tag_repo.delete_for_entity_locked(
+            self.session, self._user_id, self._entity_type, entity_id
+        )
+
+
+@contextmanager
+def module_tag_transaction(user_id: int, entity_type: str):
+    """Owner-locked host transaction for one declared module carrier type."""
+    from storage.service.module_carrier import HOST_TAG_CARRIERS, is_known_module_carrier, find_carrier_slug
+    from agent.module_host import ModuleTagUnavailableError
+
+    if not isinstance(entity_type, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,31}", entity_type) or entity_type in HOST_TAG_CARRIERS:
+        raise ValueError("entity_type is not a declared module tag carrier")
+    known = is_known_module_carrier(entity_type)
+    slug = _module_carrier_slug(user_id, entity_type)
+    if not known and slug is None:
+        raise ValueError("entity_type is not a declared module tag carrier")
+    if slug is None or find_carrier_slug(user_id, entity_type, enabled_only=True) != slug:
+        raise ModuleTagUnavailableError("carrier module is not available")
+    with get_db() as session:
+        _lock_owner_bounded(session, user_id)
+        yield ModuleTagTransaction(session, user_id, entity_type)
 
 
 def list_tags(user_id: int, entity_type: str, entity_id: str) -> List[str]:
@@ -101,6 +235,42 @@ def list_tags(user_id: int, entity_type: str, entity_id: str) -> List[str]:
 
 def delete_for_entity(user_id: int, entity_type: str, entity_id: str) -> int:
     return tag_repo.delete_for_entity(user_id, entity_type, entity_id)
+
+
+def delete_module_memberships(user_id: int, entity_type: str, entity_id: str) -> int:
+    _require_declared_module_type(user_id, entity_type)
+    _require_module_id(entity_id)
+    with get_db() as session:
+        _lock_owner_bounded(session, user_id)
+        return tag_repo.delete_for_entity_locked(session, user_id, entity_type, entity_id)
+
+
+def memberships_for(user_id: int, entity_type: str, entity_ids: List[str]) -> Dict[str, List[str]]:
+    _require_declared_module_type(user_id, entity_type)
+    if not isinstance(entity_ids, list) or len(entity_ids) > MODULE_BATCH_MAX:
+        raise ValueError(f"at most {MODULE_BATCH_MAX} module carrier ids per call")
+    for entity_id in entity_ids:
+        _require_module_id(entity_id)
+    return tag_repo.memberships_for(user_id, entity_type, entity_ids)
+
+
+def ids_for_exact_tag(
+    user_id: int,
+    entity_type: str,
+    tag: str,
+    *,
+    cursor: Optional[str] = None,
+    limit: int = MODULE_BATCH_MAX,
+) -> Dict:
+    _require_declared_module_type(user_id, entity_type)
+    if type(limit) is not int or not 1 <= limit <= MODULE_BATCH_MAX:
+        raise ValueError(f"limit must be 1..{MODULE_BATCH_MAX}")
+    if cursor is not None:
+        _require_module_id(cursor)
+    ids = tag_repo.ids_for_exact_tag(user_id, entity_type, tag, cursor=cursor, limit=limit + 1)
+    more = len(ids) > limit
+    ids = ids[:limit]
+    return {"ids": ids, "next_cursor": ids[-1] if more and ids else None}
 
 
 def _resolve_todos(user_id: int, entity_ids: List[str]) -> Dict[str, Dict]:
@@ -137,6 +307,51 @@ _RESOLVERS: Dict[str, Resolver] = {
 }
 
 
+def _strip_carrier_items(entity_ids: List[str], payload) -> Dict[str, Dict]:
+    """Keep only requested ids and the title field. Anything else is dropped."""
+    wanted = set(entity_ids)
+    items = payload.get("items") if isinstance(payload, dict) else None
+    if not isinstance(items, list):
+        return {}
+    found: Dict[str, Dict] = {}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        entity_id = item.get("id")
+        title = item.get("title")
+        if entity_id not in wanted or entity_id in found or not isinstance(title, str):
+            continue
+        title = title.strip()
+        if not title:
+            continue
+        found[entity_id] = {"id": entity_id, "title": title[:200]}
+    return found
+
+
+def _hydrate_module_carrier(
+    user_id: int, entity_type: str, entity_ids: List[str], slug: Optional[str]
+) -> Dict[str, Dict]:
+    """One published-module call per declared type. Failure yields no rows (bare ids).
+
+    `slug` comes from the request's enabled claim map; an undeclared type is
+    never called.
+    """
+    if not slug:
+        return {}
+    try:
+        from agent.module_host import published_module_json
+        payload = published_module_json(
+            user_id,
+            slug,
+            "POST",
+            f"/tag-carriers/{entity_type}/resolve",
+            body={"ids": list(entity_ids)},
+        )
+    except Exception:
+        return {}
+    return _strip_carrier_items(entity_ids, payload)
+
+
 def register_resolver(entity_type: str, resolver: Resolver) -> None:
     """Register a batch hydration resolver for an entity_type (idempotent overwrite).
 
@@ -165,7 +380,10 @@ def get_by_tag(user_id: int, tag: str, prefix: bool = False) -> Dict[str, List[D
     registered resolver fall back to {"id": entity_id}. Output order within each
     type matches the projection query order.
     """
-    pairs = tag_repo.find_by_tag(user_id, tag, prefix=prefix)
+    from storage.service.module_carrier import carrier_map
+
+    pairs, claim_rows = tag_repo.find_by_tag_with_carriers(user_id, tag, prefix=prefix)
+    carriers = carrier_map(claim_rows)
     ids_by_type: Dict[str, List[str]] = defaultdict(list)
     for entity_type, entity_id in pairs:
         ids_by_type[entity_type].append(entity_id)
@@ -174,7 +392,9 @@ def get_by_tag(user_id: int, tag: str, prefix: bool = False) -> Dict[str, List[D
     for entity_type, entity_ids in ids_by_type.items():
         resolver = _get_resolver(entity_type)
         if resolver is None:
-            hydrated_by_type[entity_type] = {}
+            hydrated_by_type[entity_type] = _hydrate_module_carrier(
+                user_id, entity_type, entity_ids, carriers.get(entity_type)
+            )
             continue
         hydrated_by_type[entity_type] = resolver(user_id, entity_ids) or {}
 
@@ -575,6 +795,13 @@ def _build_rename_plan(session, user_id: int, source: str, target: str) -> Dict:
         for key in existing_by_carrier:
             existing_by_carrier[key] = sorted(existing_by_carrier[key])
 
+    module_types = set()
+    try:
+        from storage.service.module_carrier import declared_carriers
+        module_types = set(declared_carriers(session, user_id))
+    except Exception:
+        module_types = set()
+
     carriers = []
     blockers = []
     for entity_type, entity_id in carrier_keys:
@@ -609,7 +836,7 @@ def _build_rename_plan(session, user_id: int, source: str, target: str) -> Dict:
             if entity_type == "note":
                 entry["content_key"] = row.content_key
             carriers.append(entry)
-        elif entity_type in DIRECT_TYPES:
+        elif entity_type in DIRECT_TYPES or entity_type in module_types:
             tags_before = list(existing_by_carrier[(entity_type, entity_id)])
             tags_after, replaced, dropped = _apply_mapping(tags_before, mapping)
             carriers.append({

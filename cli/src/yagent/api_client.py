@@ -33,14 +33,12 @@ def remove_auth():
         os.remove(AUTH_FILE)
 
 
-def api_request(method: str, path: str, timeout: float = 30, **kwargs) -> httpx.Response:
-    """Make an authenticated API request.
+def resolve_api_auth() -> tuple:
+    """Base URL and bearer token from Y_API_BASE or the stored login.
 
-    Args:
-        method: HTTP method (GET, POST, etc.)
-        path: API path (e.g. /api/todo/list)
-        timeout: request timeout in seconds (default 30)
-        **kwargs: passed to httpx.request (params, json, etc.)
+    Y_API_BASE with Y_USER_ID signs a JWT from JWT_SECRET_KEY. Otherwise the
+    stored auth.json supplies web_url and token. The token is never included
+    in an error string by this helper.
     """
     api_url = os.getenv("Y_API_BASE")
     if api_url:
@@ -54,7 +52,19 @@ def api_request(method: str, path: str, timeout: float = 30, **kwargs) -> httpx.
         auth = load_auth()
         api_url = auth.get("web_url", DEFAULT_WEB_URL)
         token = auth["token"]
+    return api_url.rstrip("/"), token
 
+
+def api_request(method: str, path: str, timeout: float = 30, **kwargs) -> httpx.Response:
+    """Make an authenticated API request.
+
+    Args:
+        method: HTTP method (GET, POST, etc.)
+        path: API path (e.g. /api/todo/list)
+        timeout: request timeout in seconds (default 30)
+        **kwargs: passed to httpx.request (params, json, etc.)
+    """
+    api_url, token = resolve_api_auth()
     url = f"{api_url}{path}"
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -73,6 +83,56 @@ def api_request(method: str, path: str, timeout: float = 30, **kwargs) -> httpx.
             response=resp,
         ) from exc
     return resp
+
+
+def api_request_json(method: str, path: str, *, payload: bytes, timeout: float) -> dict:
+    """Stream one module JSON object within the shared bounds (todo 3838).
+
+    Uses the same credentials as `api_request`, keeps its 401 behavior, never
+    follows a redirect, and stops reading at the byte cap or the total
+    deadline. Errors never include the token. `payload` comes from
+    `agent.module_json.validate_request`.
+    """
+    import time
+
+    from agent.module_json import (
+        JSON_MAX_BYTES,
+        ModuleJsonError,
+        check_declared_length,
+        check_media_type,
+        check_status,
+        decode_object,
+    )
+
+    deadline = time.monotonic() + timeout
+    api_url, token = resolve_api_auth()
+    headers = {"Authorization": f"Bearer {token}"}
+    if payload:
+        headers["Content-Type"] = "application/json"
+    chunks = []
+    received = 0
+    try:
+        with httpx.Client(timeout=timeout, follow_redirects=False) as client:
+            with client.stream(method, f"{api_url}{path}", content=payload or None, headers=headers) as response:
+                if response.status_code == 401:
+                    print("Session expired. Run 'y login' to re-authenticate.", file=sys.stderr)
+                    sys.exit(1)
+                check_status(response.status_code)
+                check_media_type(response.headers.get("content-type", ""), response.status_code)
+                check_declared_length(response.headers.get("content-length"))
+                for chunk in response.iter_bytes():
+                    if time.monotonic() > deadline:
+                        raise ModuleJsonError("timeout", "module JSON call timed out")
+                    if received + len(chunk) > JSON_MAX_BYTES:
+                        raise ModuleJsonError("size", "module JSON response exceeds the size limit")
+                    received += len(chunk)
+                    chunks.append(chunk)
+                status = response.status_code
+    except httpx.TimeoutException:
+        raise ModuleJsonError("timeout", "module JSON call timed out") from None
+    except httpx.HTTPError as exc:
+        raise ModuleJsonError("transport", f"module JSON call failed: {type(exc).__name__}") from None
+    return decode_object(b"".join(chunks), status)
 
 
 def _http_error_detail(resp: httpx.Response) -> str:

@@ -113,7 +113,7 @@ def load_from_bytes(
         )
 
     cached = _cache.get(actual)
-    if cache and cached is not None:
+    if cache and cached is not None and cached.slug == slug:
         return cached
 
     root = extract_root_for(actual)

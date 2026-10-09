@@ -1,5 +1,18 @@
+import json
 from dataclasses import dataclass
 from typing import Dict, Optional
+
+
+def _tag_carriers_list(raw: str) -> list:
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [item for item in parsed if isinstance(item, str)]
 
 
 @dataclass
@@ -17,6 +30,7 @@ class ModuleVersion:
     min_backend_version: Optional[int] = None
     dispatch_scope: str = "maintainer"
     ui_surfaces: str = "panel"
+    tag_carriers: str = "[]"
     ui_public: bool = False
     source_digest: Optional[str] = None
     built_at: Optional[str] = None
@@ -43,6 +57,7 @@ class ModuleVersion:
             min_backend_version=data.get('min_backend_version'),
             dispatch_scope=data.get('dispatch_scope', 'maintainer'),
             ui_surfaces=data.get('ui_surfaces', 'panel'),
+            tag_carriers=data.get('tag_carriers', '[]'),
             ui_public=data.get('ui_public', False),
             source_digest=data.get('source_digest'),
             built_at=data.get('built_at'),
@@ -69,6 +84,7 @@ class ModuleVersion:
             'min_backend_version': self.min_backend_version,
             'dispatch_scope': self.dispatch_scope,
             'ui_surfaces': self.ui_surfaces,
+            'tag_carriers': _tag_carriers_list(self.tag_carriers),
             'ui_public': self.ui_public,
             'source_digest': self.source_digest,
             'built_at': self.built_at,

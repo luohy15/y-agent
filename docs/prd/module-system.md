@@ -847,6 +847,185 @@ returning a closed `outcome`. It changes a signature, so a v21 mcp module's
 Connect fails on a v22 host: ship the host and the v22 module together (host
 first) and roll them back together.
 
+Todo 3838 bumps the backend contract from 22 to **23** and the browser contract
+from 24 to **25**. v23 is the frozen module-facing photo/tag surface. Deploy
+this host, and apply `migration/3838_photo_host_tag_carriers.sql`, before any
+module that declares `min_backend_version: 23` or `tag_carriers`. Roll those
+modules back before rolling the host below v23. Photo processing itself stays
+in the module; the host does not decode images.
+
+Frozen signatures (`agent.module_host`):
+
+- `photo_authorize_upload(user_id, upload_id, *, sha256_b64, byte_count, filename, file_mtime) -> {upload_id, variant, post, expires_in, cache_control, filename, file_mtime, byte_count}`
+- `photo_authorize_derived_upload(user_id, photo_id, *, variant, sha256_b64, byte_count) -> {photo_id, variant, post, expires_in, cache_control, byte_count}`
+- `photo_verify_and_pin(user_id, object_id, *, variant="original", sha256_b64, byte_count) -> {id, variant, version_id, byte_count, cache_control}`
+- `photo_authorize_get(user_id, photo_id, *, variant) -> {photo_id, variant, url, expires_in, cache_control}`
+- `photo_authorize_get_batch(user_id, photo_ids, *, variant) -> {data: [{photo_id, variant, url, expires_in, cache_control}], missing: [photo_id]}`
+- `photo_delete_objects(user_id, photo_id) -> {photo_id, deleted, cache_control}`
+- `published_module_json(user_id, slug, method, path, *, body=None, timeout=5.0) -> dict`
+- `async published_module_json_async(user_id, slug, method, path, *, body=None, timeout=5.0) -> dict`
+- `tag_add(..., *, require_existing=False)`
+- `tag_memberships(user_id, entity_type, entity_ids) -> {id: [tag]}`
+- `tag_ids_for_exact_tag(user_id, entity_type, tag, *, cursor=None, limit=200) -> {ids, next_cursor}`
+- `tag_delete_memberships(user_id, entity_type, entity_id) -> {entity_type, entity_id, deleted}`
+- `module_tag_transaction(user_id, entity_type)` context manager yielding `{session, delete_memberships(entity_id) -> int}`
+
+Closed variants are `original`, `thumb`, `display`. Derived upload allows only
+`thumb` and `display`. Ids are canonical UUIDs. `byte_count` is a Python `int`
+from 0 through 200,000,000. `sha256_b64` is standard Base64 of 32 bytes.
+`file_mtime` is an untrusted transfer fact, at most 64 characters, not capture
+time. POST and GET expiry is 300 seconds. JSON and object reads are
+`cache_control: no-store`. Every call requires the request owner and the
+configured maintainer (`Y_AGENT_MODULE_MAINTAINER_USER_ID`). `PhotoStoreError.code`
+is `invalid`, `forbidden`, `unavailable`, `conflict`, or `not_found`.
+
+`photo_authorize_get_batch` takes a list of at most 100 distinct canonical
+UUIDs (a repeated id is `invalid`; callers dedupe first) and one closed
+variant, and validates the whole batch plus owner and maintainer before any
+bucket I/O. A non-empty batch audits the bucket configuration once (six
+reads) and then reads each pin, so N ids cost 6 + N reads; an empty batch
+returns `{data: [], missing: []}` without bucket I/O. `data` and `missing`
+follow input order. Only an absent pin is `missing`; an unsafe bucket, a
+transport error or a malformed pin fails the whole call. There is no audit
+cache: every call audits afresh. `photo_authorize_get` is the singleton case
+and keeps its `not_found` error for an absent pin.
+
+`published_module_json` is the synchronous call for sync (`def`) routes,
+workers and the CLI. With a bound request owner it dispatches in-process
+through the active-version ASGI dispatcher; FastAPI runs a `def` route in a
+worker thread with the request ContextVars copied, so no loop is running
+there. On a running event loop it refuses with `ModuleHostError`: an `async`
+handler awaits `published_module_json_async` instead (bound owner required).
+Without a bound owner (the CLI) it uses the existing `y` credentials
+(`Y_API_BASE`, `Y_USER_ID` + `JWT_SECRET_KEY`, or stored `auth.json`) over
+streaming HTTP and keeps the CLI's 401 behavior. Both paths check the bound
+owner or CLI identity and the configured maintainer before any transport; the
+server authenticates the token on its own. The API runtime never imports the
+CLI package. Request and response policy is shared (`agent.module_json`):
+methods GET and POST, GET without a body, local absolute paths of unreserved
+characters only (no scheme, host, `//`, dot segment, query, fragment,
+percent-encoding or backslash), JSON-object bodies and responses of at most
+1,048,576 bytes, a deadline of at most 5 seconds (finite, may be shortened,
+never enlarged), depth cap 2 and no redirects. The ASGI `send` and the CLI
+stream both count bytes and stop at the cap or the deadline, and a
+`Content-Length` over the cap is refused before reading. Failures raise
+`ModuleJsonError` with a closed `code` (`owner`, `method`, `path`, `body`,
+`timeout`, `size`, `redirect`, `forbidden`, `not_found`, `upstream`,
+`content_type`, `transport`, `recursion`) and never carry the token. A
+disabled, unpublished, or maintainer-scoped module called by someone else
+fails. The carrier hydration route a module must serve is
+`POST /tag-carriers/{type}/resolve` with `{"ids": [...]}` returning
+`{"items": [{"id", "title"}]}` for live, not-deleting records only, read from
+committed rows in its own session. The host calls it once per type, keeps only
+requested ids and a title of at most 200 characters, and falls back to bare ids
+on any failure. The resolve route must not take the tag advisory lock or fetch
+tags.
+
+Tag Module routes that call these synchronous host services are ordinary `def`
+routes. Publish that Tag revision before activating any module that declares
+`tag_carriers`; the previously published async Tag keeps working for host
+carrier types during the host deploy.
+
+Module carrier writes and deletion serialize on the owner tag lock (advisory
+namespace 3397, shared with rename/merge and vocabulary retirement, with a 5
+second `lock_timeout`). `tag_add` / `tag_remove` on a declared module carrier
+take the lock, then resolve the target through the published route (a separate
+read-only session sees only committed state), then write the membership in the
+lock-owning transaction; a missing, disabled, failing or not-live target is
+refused. `module_tag_transaction(user_id, entity_type)` takes the same lock
+first and yields the existing host session plus
+`delete_memberships(entity_id)`. A module deleting a carrier marks its row
+deleting, deletes memberships through the handle, removes its rows and writes
+its outbox in that one transaction; a clean exit commits, any exception rolls
+back both domains. If an add wins the lock, the delete removes its membership;
+if the delete wins, the add then sees the carrier absent and refuses. Do not
+open another host session for those writes inside the block and do not make an
+HTTP or module JSON call while it is open; object deletion happens after
+commit, with retry. The claim lookup is read-only and takes no 3838 lock.
+`tag_memberships`, `tag_ids_for_exact_tag`, `tag_delete_memberships` and
+`module_tag_transaction` accept only a type declared by an active module
+version (host and unknown types raise `ValueError`), ids of 1 to 128
+characters, and at most 200 ids per call; `tag_ids_for_exact_tag` pages by id
+cursor rather than truncating. Modules are trusted maintainer code: the bound is
+owner plus declared type, not isolation between modules.
+
+`module_version.tag_carriers` is an immutable JSON list, default `[]`. Names
+match `^[a-z][a-z0-9_]{0,31}$`, at most 8, no duplicates. Host types (`todo`,
+`note`, `entity`, `chat`, `calendar_event`, `reminder`, `routine`, `link`,
+`email`, `rss_feed`) are reserved. Another module's active version claims a
+type even when that module is disabled. Publish and activation take PostgreSQL
+advisory lock namespace 3838 and do not move the active pointer on conflict.
+Inactive history does not claim an active route. It does identify a reserved
+module type for writes: all immutable versions of the configured trusted
+maintainer participate in identity classification, including disabled/inactive
+versions. Known module add/remove still requires a current caller-authorized,
+enabled claim and target resolution under the owner tag lock. Historical identity
+never grants access. Never-declared legacy types retain projection writes; host
+carriers bypass module classification, including Email's separate validation.
+Missing/stale maintainer configuration or a failed history query raises
+`ModuleTagUnavailableError` before any non-host membership/vocabulary write.
+Tag maps this closed failure to sanitized 503/no-store. Removing all trusted
+version metadata removes historical identity; there is no permanent registry.
+The list is on maintainer version payloads and on the non-maintainer
+active-version projection.
+
+`module_tag_transaction` rejects malformed, host and genuinely unknown types
+with `ValueError`. Owner mismatch stays `ModuleHostAuthError`. Known historical
+but inactive/disabled/unauthorized types raise `ModuleTagUnavailableError`, which
+is not a ValueError. Classification authority failures use the same closed
+unavailable error. Valid available types proceed with the existing owner lock.
+Photo prechecks requested ownership before entering, then rechecks under lock:
+missing/foreign ids remain 404, owner refusal 403, unavailable 503, unexpected
+faults sanitized 500, all no-store. Deletion does not perform object cleanup
+unless the row/membership transaction succeeded.
+
+Browser contract v25 adds the `camera` icon and `module.openRecord`
+`{slug, type, id}`. It opens `ui:<slug>` when that slug is in the current
+authorized catalog, enabled, and has a detail UI, and `type` (at most 32
+characters) and `id` (at most 128) are non-empty. It does not require a carrier
+declaration or a title, so Food can open `meal` / `restaurant` records without
+declaring them as tag carriers. It latches in-memory `{type, id, nonce}` as
+`openRecord`; the receiving module validates its type and fetches the record
+through its own authorized API. `tag.open` is a separate adapter: it needs a
+hydrated, non-blank title, maps the declared carrier type to its owning slug in
+the current catalog, then calls the generic command. A bare id, a disabled or
+detail-less module, or an undeclared type is a no-op. Host carriers keep their
+existing paths and `module.openView` is unchanged. Signed photo responses are
+not written to the persistent SWR cache (`/api/module/photo/` and any payload
+containing `X-Amz-Signature`).
+
+Private bucket `Y_AGENT_PHOTO_BUCKET` is separate from the CDN bucket and the
+upload-staging bucket. It is versioned, encrypted, bucket-owner enforced,
+public-access blocked, TLS-only, and CORS-limited to the exact
+`Y_AGENT_PHOTO_CORS_ORIGINS` list (production default `https://yovy.app`,
+methods GET, HEAD, POST; a development origin is an explicit override, never a
+production default). IAM on the
+Lambda role is `photos/*` object verbs plus bucket reads and a prefix-limited
+`ListBucketVersions`. There is no public fallback. Keys are
+`photos/{public_user_id}/{uuid}/{variant}` plus a `{variant}.pin` marker.
+Completion HEAD must match size and checksum before the version id is pinned.
+Only recognized object absence from that HEAD maps to the existing invalid
+store error (Photo failed/not_uploaded, retryable under an unexpired grant).
+Audit/configuration failures, AccessDenied, timeouts and 5xx are not absence and
+never create a pin.
+A later version cannot replace a pin. Delete removes every version and delete
+marker under that id prefix and is safe to retry. Abandoned-version sweeping
+is a release job, not this host slice: do not add a lifecycle rule that
+expires current photo versions.
+
+Decoder dependencies for the module's later processing step are pinned in the
+CLI lock set: Pillow (locked 12.1.1) and `pillow-heif==1.8.0`. The host does
+not import them on the request path.
+
+Job operation, when the Photo module lands: durable Photo-owned rows, consumed
+by bounded `y photo process-pending` VM runs. Not API background tasks, not a
+worker-loaded module, not a browser conversion. A crash must leave the job
+leased or retryable, never a second ready original. Deletion writes a tombstone
+before object deletion and retries independently. Rollback of the first Photo
+version is disable, not an older version. Host rollback below v23 is forbidden
+while a published module still declares backend floor 23 or `tag_carriers`.
+The manual DDL is expand-only and stays applied across that rollback.
+
 **v1 has shipped and been
 superseded**, so the versioning rule going forward is the plain one stated
 above: every later addition to the host surface is a version bump, and a module
@@ -1040,6 +1219,7 @@ module_version
   built_at
   description
   trace_id             todo/trace this version was published for
+  tag_carriers         JSON list, default []; module tag-carrier claims (todo 3838)
 ```
 
 Both parts are nullable, which is what makes "a UI artifact is a module with
@@ -1049,9 +1229,10 @@ only a UI part" true in the schema rather than only in prose.
 stored on every immutable `module_version`; `y module publish` rejects unknown
 keys before building. The valid keys are `chart`, `calendar`, `list`, `bot`,
 `todo`, `file`, `file-text`, `package`, `box`, `message`, `tag`, `activity`,
-`mail`, `bell`, `clock`, `utensils`, `entity`, `git-branch`, `pencil`, `link`, and
-`rss`. `bell` and `clock` arrived with browser contract v20; `entity` and
-`git-branch` with v21; `pencil` with v22; `link` and `rss` with v23 (todo 3708). `box` is the
+`mail`, `bell`, `clock`, `utensils`, `entity`, `git-branch`, `pencil`, `link`,
+`rss`, and `camera`. `bell` and `clock` arrived with browser contract v20; `entity` and
+`git-branch` with v21; `pencil` with v22; `link` and `rss` with v23 (todo 3708);
+`camera` with v25 (todo 3838). `box` is the
 `y module create --icon` default and the host rendering fallback for unknown
 legacy persisted values. The host owns the SVG registry so every module stays
 small and existing published versions can gain a corrected glyph through an

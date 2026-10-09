@@ -324,7 +324,15 @@ declare module "@y/host" {
    * Back/Forward are unsupported. An unknown slug is a no-op. A disabled,
    * unpublished, or UI-less row opens `ui:module` and latches `openView` on
    * the `module` intent (`{ moduleId, slug, reason, explanation, nonce }`)
-   * without enabling or publishing. See docs/prd/module-system.md.
+   * without enabling or publishing.
+   * `module.openRecord` (`{ slug, type, id }`, contract v25) opens
+   * `ui:<slug>` when that slug is in the current catalog, enabled, and has a
+   * detail UI, and `type` / `id` are non-empty and bounded. It needs no tag
+   * carrier declaration and no title. It latches in-memory `openRecord`
+   * (`{ type, id, nonce }`) on that slug; the receiving module validates the
+   * type and fetches the record itself. An unknown, disabled, or
+   * detail-less slug is a no-op. `module.openView` is unchanged. See
+   * docs/prd/module-system.md.
    */
   export function runHostCommand(name: string, payload?: unknown): void;
 

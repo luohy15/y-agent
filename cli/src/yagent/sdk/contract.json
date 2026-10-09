@@ -1,5 +1,5 @@
 {
-  "version": 24,
+  "version": 25,
   "externals": [
     "react",
     "react-dom",
@@ -34,6 +34,7 @@
     "git-branch",
     "pencil",
     "link",
-    "rss"
+    "rss",
+    "camera"
   ]
 }
