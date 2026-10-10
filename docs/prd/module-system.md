@@ -999,9 +999,10 @@ upload-staging bucket. It is versioned, encrypted, bucket-owner enforced,
 public-access blocked, TLS-only, and CORS-limited to the exact
 `Y_AGENT_PHOTO_CORS_ORIGINS` list (production default `https://yovy.app`,
 methods GET, HEAD, POST; a development origin is an explicit override, never a
-production default). IAM on the
-Lambda role is `photos/*` object verbs plus bucket reads and a prefix-limited
-`ListBucketVersions`. There is no public fallback. Keys are
+production default). The stack does not manage IAM for it: the Lambda role
+reaches the bucket through its existing `AmazonS3FullAccess` (the deploy role
+cannot create `AWS::IAM::Policy`); least-privilege scoping to `photos/*` is a
+follow-up outside this stack. There is no public fallback. Keys are
 `photos/{public_user_id}/{uuid}/{variant}` plus a `{variant}.pin` marker.
 Completion HEAD must match size and checksum before the version id is pinned.
 Only recognized object absence from that HEAD maps to the existing invalid
