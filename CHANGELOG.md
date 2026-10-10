@@ -14,6 +14,8 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Added
 
+- **Private photo objects and module tag carriers (3838)**: host contract v23 adds owner-bound private photo primitives (presigned upload, version pinning, batch signed reads, cleanup), `published_module_json`, and module-declared tag carriers. The web host resolves module `openRecord` intents and carrier tag navigation.
+
 ### Changed
 
 ### Fixed
