@@ -241,7 +241,7 @@ Resources:
           - AllowedMethods: [GET, HEAD, POST]
             AllowedOrigins: ['https://yovy.app']
             AllowedHeaders: ['*']
-            ExposeHeaders: ['ETag']
+            ExposedHeaders: ['ETag']
             MaxAge: 300
 
   PhotoBucketPolicy:
