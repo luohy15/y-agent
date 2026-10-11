@@ -18,13 +18,15 @@ interface SharePopoverProps {
   buttonClassName?: string;
   buttonLabel?: string;
   align?: "left" | "right";
+  // Render the trigger as an icon button (title / aria-label carry the state text).
+  iconOnly?: boolean;
   existingShare?: ExistingShare | null;
   onRefresh?: () => Promise<unknown>;
   onDelete?: (shareId: string) => Promise<void>;
   extra?: ReactNode;
 }
 
-export default function SharePopover({ onCreate, buildUrl, buttonClassName, buttonLabel = "share", align = "right", existingShare, onRefresh, onDelete, extra }: SharePopoverProps) {
+export default function SharePopover({ onCreate, buildUrl, buttonClassName, buttonLabel = "share", align = "right", iconOnly = false, existingShare, onRefresh, onDelete, extra }: SharePopoverProps) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<ShareMode>("public");
   const [customPassword, setCustomPassword] = useState("");
@@ -124,15 +126,40 @@ export default function SharePopover({ onCreate, buildUrl, buttonClassName, butt
     status === "refreshed" ? "bg-sol-green/20 text-sol-green" :
     existingShare ? "bg-sol-green/10 text-sol-green" :
     "";
+  const iconLabel = status === "copied" ? "Copied" : status === "error" ? "Share failed" : status === "deleted" ? "Unshared" : status === "refreshed" ? "Refreshed" : existingShare ? "Shared" : "Share";
+  const iconStateCls =
+    status === "copied" || status === "refreshed" || (status === "idle" && existingShare) ? "text-sol-green" :
+    status === "error" ? "text-sol-red" :
+    "text-sol-base01 hover:text-sol-base0";
 
   return (
     <div className="relative inline-block" ref={ref}>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className={buttonClassName ? `${buttonClassName} ${stateCls}` : stateCls}
-      >
-        {label}
-      </button>
+      {iconOnly ? (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className={`${buttonClassName ?? ""} ${iconStateCls}`}
+          title={iconLabel}
+          aria-label={iconLabel}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+        >
+          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="18" cy="5" r="3" />
+            <circle cx="6" cy="12" r="3" />
+            <circle cx="18" cy="19" r="3" />
+            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+          </svg>
+        </button>
+      ) : (
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className={buttonClassName ? `${buttonClassName} ${stateCls}` : stateCls}
+        >
+          {label}
+        </button>
+      )}
       {open && (
         <div className={`absolute ${align === "left" ? "left-0" : "right-0"} top-full mt-1 z-20 w-64 bg-sol-base03 border border-sol-base02 rounded shadow-float p-2 text-xs`}>
           {existingShare ? (

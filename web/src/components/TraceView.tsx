@@ -394,7 +394,8 @@ export default function TraceView({
               {!publicMode && <SharePopover
                 onCreate={createTraceShare}
                 buildUrl={buildTraceShareUrl}
-                buttonClassName="text-[0.6rem] font-mono px-1.5 py-0.5 rounded cursor-pointer bg-sol-base02 text-sol-base01 hover:text-sol-base0"
+                buttonClassName="cursor-pointer"
+                iconOnly
                 align="right"
                 existingShare={myShare ?? null}
                 onDelete={deleteTraceShare}
