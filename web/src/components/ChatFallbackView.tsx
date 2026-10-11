@@ -4,6 +4,7 @@
 // chrome. Used when the module shell is disabled or fails to load.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { API, authFetch, getToken } from "../api";
+import { enterIsImeConfirm, usesNewlineOnEnter } from "./enter-policy";
 import HostMessageView, {
   filterTrailingEmptyAssistantMessages,
   parseChatMessages,
@@ -28,6 +29,8 @@ export default function ChatFallbackView({
   const [completed, setCompleted] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
+  const composingRef = useRef(false);
   const esRef = useRef<EventSource | null>(null);
   const idxRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -139,7 +142,8 @@ export default function ChatFallbackView({
 
   const send = useCallback(async () => {
     const text = draft.trim();
-    if (!text || sending) return;
+    if (!text || sending || sendingRef.current) return;
+    sendingRef.current = true;
     setSending(true);
     try {
       if (!chatId) {
@@ -171,7 +175,11 @@ export default function ChatFallbackView({
       });
       setDraft("");
       connectSSE(chatId, idxRef.current);
+    } catch {
+      // Leave the draft. Callers already ignore non-OK responses; a rejected
+      // fetch must release the same-tick lock without a second post.
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   }, [draft, sending, chatId, vmName, botName, onChatCreated, connectSSE]);
@@ -203,12 +211,16 @@ export default function ChatFallbackView({
           <textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
+            onCompositionStart={() => { composingRef.current = true; }}
+            onCompositionEnd={() => { composingRef.current = false; }}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              const submit = e.key === "Enter" && !e.shiftKey && !enterIsImeConfirm(e, composingRef.current) && !usesNewlineOnEnter();
+              if (submit) {
                 e.preventDefault();
                 void send();
               }
             }}
+            enterKeyHint="enter"
             rows={1}
             disabled={sending}
             placeholder={chatId ? "Send a message…" : "Start a chat…"}
@@ -216,9 +228,10 @@ export default function ChatFallbackView({
           />
           <button
             type="button"
+            aria-label="Send"
             onClick={() => void send()}
             disabled={sending || !draft.trim()}
-            className="ml-2 px-2 py-0.5 bg-sol-cyan text-sol-base03 rounded text-xs font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-default shrink-0"
+            className="ml-2 px-2 py-0.5 bg-sol-cyan text-sol-base03 rounded text-xs font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-default shrink-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sol-cyan"
           >
             {sending ? "…" : "Send"}
           </button>

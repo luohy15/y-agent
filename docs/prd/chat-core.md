@@ -199,6 +199,24 @@ mode (`-i`) serves a human at a terminal.
 25. As a web user, I want sending into a running chat to steer it rather
     than start a parallel run (delivery mechanics per the chat-steer PRD), so that
     one chat never has two concurrent workers.
+25a. As a web user on a phone or tablet, I want Return to insert a newline
+     and to confirm an in-progress Chinese (or other) IME composition instead
+     of sending, and I want one always-visible Send button, so that Return
+     cannot send by accident (todo 3860). This applies to the module
+     new-chat, follow-up, and steer composers and to the host fallback
+     composer. Desktop keeps Enter to send and Shift+Enter for a newline.
+     The newline policy is an explicit iPhone, iPad, iPod, or Android user
+     agent; a Mac-style platform with more than one touch point (iPad
+     requesting the desktop site); or a primary coarse pointer that cannot
+     hover. A known phone or tablet stays on that policy when a mouse or
+     keyboard is attached. The choice is re-read on each keydown. A desktop
+     user agent with a fine, hovering primary pointer, including a narrow
+     window or a touch laptop, keeps desktop Enter. Missing browser signals
+     stay on desktop Enter. Viewport width is not an input. This is a
+     heuristic: a Windows tablet that reports a desktop user agent and a fine
+     pointer is treated as a desktop. Send stays enabled for an image with no
+     text, stays disabled while that submission is in flight, and does not
+     drop attachments when the send fails.
 
 ### CLI: dispatch (fire-and-forget vs wait)
 
@@ -667,6 +685,22 @@ mode (`-i`) serves a human at a terminal.
   fire-and-forget semantics. Wait polls pass `tool_content_limit=4096`; only
   the interrupted branch resolves a truncated last tool message through
   `/api/chat/messages/content` before printing (todo 3515).
+- **Composer Return key** (todo 3860): module `ChatInput` (new chat,
+  follow-up, and steer) and host `ChatFallbackView` share one heuristic,
+  duplicated per bundle because the module does not import host product
+  code. On a newline-policy device, Enter is not prevented and is not
+  submitted, so the textarea keeps the browser's own newline. IME
+  confirmation (`isComposing`, the composition session, and legacy keyCode
+  229, including Safari's composition-end-before-keydown order) never
+  sends. `enterKeyHint="enter"` is set on both chat textareas. The module's
+  document-level Enter shortcut uses that same policy, ignores
+  `defaultPrevented`, and does not intercept a focused button, link,
+  select, or contenteditable. Each composer has one text-labeled Send
+  control outside the module textarea's focus-stealing wrapper. Submit
+  paths share an empty/busy guard plus a synchronous in-flight ref taken
+  before image conversion; a rejected send unlocks and keeps attachments.
+  Chat running state is not that guard. Plan:
+  `pages/plan-3860-tablet-chat-return.md`.
 - **Web streaming**: detail view loads the snapshot, then opens SSE only when
   the chat is running; the SSE stream re-polls the chat row and emits new
   messages by index, ending with a done event from the completion predicate.
@@ -783,6 +817,16 @@ mode (`-i`) serves a human at a terminal.
   authenticated `user_id` is the one threaded into the mutation call).
 - Steer delivery mechanics are tested under the chat-steer PRD; here only the
   dispatch-side contract (running chat → append without enqueue) is asserted.
+- Composer Return and Send (todo 3860) are host Vitest/jsdom tests that
+  mount the real module `ChatInput` and host fallback composer against one
+  navigator/matchMedia fixture matrix: tablet and phone identity (including
+  a mouse-equipped iPad and iPad desktop-site mode) newline, desktop and
+  fine/hover touch-laptop Enter send, absent globals stay desktop, media
+  queries are re-read, IME and keyCode 229 never send, the module document
+  shortcut cannot steal a focused control, one Send button submits new /
+  follow-up / steer once, and empty, busy, and same-tick activations cannot
+  double-post. No browser-driven verification. Real-device acceptance stays
+  manual.
 - Visibility-triggered chat images (todo 3612) are host Vitest/jsdom tests
   with a mocked IntersectionObserver, `authFetch`, and `URL.createObjectURL`:
   zero request/source before positive overlap, exact root and zero margin,
@@ -874,3 +918,4 @@ mode (`-i`) serves a human at a terminal.
 | 3780 | Cut `/api/module/chat/list` latency: list query loads only `ChatSummary` columns (no `search_text` / `share_password_hash`), routine names resolved by one `IN` query over the page's routine ids (skipped when none) and `routine_name` filter as an SQL subquery; module resolve is one joined query per request; API lifespan prewarms the `chat` module path (see module-system.md). Target p95 < 100ms is measured 24h post-deploy | - | `pages/plan-3780-chat-list-latency.md` | `pages/impl-3780-chat-list-latency.md` | `pages/review-3780-chat-list-latency.md` | reviewed and approved (round 2); publication pending authorization |
 | 3807 | Chat module shows submitted input arguments for generic/MCP tool calls (header summary plus Input/Output sections, pending and reload safe). Module-only; host fallback/share renderer and the CLI full-transcript formatter unchanged. Implementation: `pages/impl-3807-mcp-tool-input-args.md` | - | `pages/plan-3807-mcp-tool-input-args.md` | - | `pages/review-3807-mcp-tool-input-args.md` | reviewed and approved; chat module publish pending authorization |
 | 3819 | Stop leaking per-turn session processes. Root cause: the 3796 `trap <cleanup> EXIT HUP INT TERM` in the tmux wrapper made zsh defer the `tmux kill-session` hangup until its foreground `tail -f | claude` pipeline ended, which never happened, so the wrapper, heartbeat (blocking hibernation), `tail` and `claude` outlived every turn. The trap is now `EXIT` only (zsh still runs it on signal death). Guard: each launch runs `agent/orphan_reaper.py` on the VM after stale cleanup, which reaps same-UID session-leader wrappers with the exact detach argv shape that are not live tmux panes and are at least 120s old (wrapper shells KILLed first so a legacy trap never runs its cleanup or writes `.exit`, then TERM and KILL after 5s across the whole group/session/descendant tree, each signal re-checking PID start time); a tmux enumeration failure reaps nothing, and a reaper failure only logs a warning | - | `pages/plan-3819-session-process-leak.md` | - | `pages/review-3819-session-process-leak.md` | review round 1 fix implemented; re-review pending |
+| 3860 | Tablet and phone Return inserts a newline (and confirms IME) instead of sending; module composer gains one always-visible Send button and the host fallback keeps its Send button. Desktop Enter / Shift+Enter unchanged. Plan: `pages/plan-3860-tablet-chat-return.md` | - | `pages/plan-3860-tablet-chat-return.md` | - | `pages/review-3860-tablet-chat-return.md` | reviewed (approve), committed locally; publication and real-device acceptance pending |
