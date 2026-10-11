@@ -3,7 +3,7 @@ import useSWR from "swr";
 import { API, authFetch, clearToken, jsonFetcher as fetcher } from "../api";
 import { runHostCommand } from "../host/commands";
 import WaterfallChart, { type TraceChat } from "./WaterfallChart";
-import { topicBadgeClass, statusBadgeClass } from "./badges";
+import { statusBadgeClass } from "./badges";
 import SharePopover, { type ExistingShare } from "./SharePopover";
 import TraceTodoDetail, { type TodoInfo, type TodoPatch } from "./TraceTodoDetail";
 
@@ -378,65 +378,24 @@ export default function TraceView({
         <div>
           {/* Header */}
           <div className="mb-4">
-            <div className="flex items-center gap-2 mb-1 pt-1">
+            <div className="flex items-center gap-2 mb-1 pt-1 min-w-0">
               {headerBack}
-              <span className="text-sol-base1 text-sm font-medium">
+              <span className="text-[0.7rem] font-mono text-sol-base01 shrink-0">
+                #{todoInfo?.todo_id || selectedTraceId}
+              </span>
+              <span className="text-sol-base1 text-sm font-medium min-w-0 flex-1 break-words">
                 {todoName || selectedTraceId}
               </span>
               {todoStatus && (
-                <span className={`text-[0.6rem] px-1 rounded ${statusBadgeClass(todoStatus)}`}>
+                <span className={`text-[0.6rem] px-1 rounded shrink-0 ${statusBadgeClass(todoStatus)}`}>
                   {todoStatus}
                 </span>
               )}
-              {/* Skill+backend+bot_name badges */}
-              {traceChats.length > 0 && (
-                <div className="flex flex-wrap gap-0.5">
-                  {[...new Set(traceChats.map((c) => {
-                    const skill = (c.skill && c.skill.trim()) || c.topic || "";
-                    const backend = c.backend || "";
-                    const botName = c.bot_name || "";
-                    if (!skill) return "";
-                    return `${skill}:${backend}:${botName}`;
-                  }).filter(Boolean))].map((key) => {
-                    const parts = key.split(":");
-                    const skill = parts[0];
-                    const backend = parts[1] || "";
-                    const botName = parts[2] || "";
-                    const display = [botName, backend].filter(Boolean).join(" · ");
-                    return (
-                      <span key={key} className={`text-[0.6rem] ${topicBadgeClass(skill)}`}>
-                        {skill}{display && <span className="ml-0.5 opacity-70">{display}</span>}
-                      </span>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-            <div className="flex items-center gap-2 mb-1">
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(todoInfo?.todo_id || selectedTraceId || "").then(() => {
-                    if (!todoIdCopiedMountedRef.current) return;
-                    setTodoIdCopied(true);
-                    if (todoIdCopiedTimerRef.current !== null) window.clearTimeout(todoIdCopiedTimerRef.current);
-                    todoIdCopiedTimerRef.current = window.setTimeout(() => setTodoIdCopied(false), 1200);
-                  });
-                }}
-                className={`inline-flex items-center gap-0.5 text-[0.6rem] font-mono cursor-pointer ${todoIdCopied ? "text-sol-green" : "text-sol-base01 hover:text-sol-base0"}`}
-                title={todoIdCopied ? "Copied" : "Copy todo ID"}
-              >
-                {todoIdCopied && (
-                  <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                )}
-                {todoIdCopied ? "Copied" : `#${todoInfo?.todo_id || selectedTraceId}`}
-              </button>
               {!publicMode && <SharePopover
                 onCreate={createTraceShare}
                 buildUrl={buildTraceShareUrl}
                 buttonClassName="text-[0.6rem] font-mono px-1.5 py-0.5 rounded cursor-pointer bg-sol-base02 text-sol-base01 hover:text-sol-base0"
-                align="left"
+                align="right"
                 existingShare={myShare ?? null}
                 onDelete={deleteTraceShare}
                 extra={traceNotes && traceNotes.length > 0 ? (
@@ -470,6 +429,31 @@ export default function TraceView({
                   </div>
                 ) : undefined}
               />}
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(todoInfo?.todo_id || selectedTraceId || "").then(() => {
+                    if (!todoIdCopiedMountedRef.current) return;
+                    setTodoIdCopied(true);
+                    if (todoIdCopiedTimerRef.current !== null) window.clearTimeout(todoIdCopiedTimerRef.current);
+                    todoIdCopiedTimerRef.current = window.setTimeout(() => setTodoIdCopied(false), 1200);
+                  });
+                }}
+                className={`shrink-0 cursor-pointer ${todoIdCopied ? "text-sol-green" : "text-sol-base01 hover:text-sol-base0"}`}
+                title={todoIdCopied ? "Copied" : "Copy todo ID"}
+                aria-label={todoIdCopied ? "Copied" : "Copy todo ID"}
+              >
+                {todoIdCopied ? (
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                ) : (
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </svg>
+                )}
+              </button>
             </div>
 
             {/* Todo detail section */}
