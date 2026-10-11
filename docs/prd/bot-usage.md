@@ -1690,6 +1690,11 @@ as decisions.
   into it, all reading one owner-bound host API. Bot Usage session ranking
   and comparison come later and link to the same Chat Context instead of
   duplicating it. Monitor is unchanged.
+- **Footer entry (round 2).** As a user inspecting the current chat's context
+  usage, I can click or tap its footer percentage badge to open that chat's
+  Context analysis directly. Mouse hover retains the usage tooltip with
+  "Click for context analysis" guidance; click no longer pins the tooltip.
+  Without a selected chat, no badge is shown.
 - **Ownership.** Raw transcript parsing stays on the VM inside the existing
   transcript ingest path. Bounded request / category / contributor aggregates
   live in host-owned storage next to `chat_request_usage`, read through the
@@ -1708,9 +1713,14 @@ as decisions.
 - **Retention.** Detailed per-request and per-contributor rows are kept 30
   days; per-chat session totals are kept longer, with the same lifetime as
   `chat_request_usage`.
-- **Freshness.** Analysis runs post-run, opportunistically, on the existing
-  transcript ingest cadence. Ordinary reads use stored rows only and never
-  scan files, SSH or wake EC2. No during-run streaming. Backfill is an
+- **Freshness.** Each Claude Code run's normal closeout (completed or
+  interrupted), after Telegram delivery and post hooks where applicable,
+  launches a best-effort detached session-scoped ingest on the VM without
+  waking EC2. The unchanged hourly ingest is the backstop for missed triggers
+  and error/continuation paths. Scoped runs preserve other checkpoints and do
+  not advance global full-scan freshness; all scans serialize checkpoint
+  load/scan/save with a bounded file lock. Ordinary reads use stored rows only
+  and never scan files, SSH or wake EC2. No during-run streaming. Backfill is an
   explicit, bounded command over transcripts still retained on the VM;
   `historical_completeness` stays `unknown`. Native subagent transcripts and
   personal non-y-agent sessions are excluded from the MVP, as in todo 3729.

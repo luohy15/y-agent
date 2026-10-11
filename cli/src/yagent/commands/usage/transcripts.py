@@ -15,6 +15,7 @@ files on disk still owe, including the ones it skipped.
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
@@ -22,6 +23,8 @@ import re
 import socket
 import sys
 import tempfile
+import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -41,6 +44,28 @@ SETTLE_AFTER = timedelta(hours=24)
 MAX_BACKOFF_DOUBLINGS = 5
 # Settled files a --backfill-context run reanalyses at most.
 MAX_BACKFILL_FILES = 50
+LOCK_TIMEOUT_SECONDS = 120
+SESSION_RE = re.compile(r"[0-9a-fA-F-]{36}")
+
+
+@contextmanager
+def _state_lock(state_file: Path):
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    with Path(str(state_file) + ".lock").open("a") as lock:
+        deadline = time.monotonic() + LOCK_TIMEOUT_SECONDS
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise click.ClickException("transcript state lock timed out; nothing scanned")
+                time.sleep(min(0.1, remaining))
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
 
 # The trace id is one token. Either alternative stops before `]`, and the chat
 # id is read once, after `to_chat:`. A routine prefix has no trace id. The VM
@@ -275,7 +300,13 @@ class Scanner:
     """One ingest run. Transport is injected so tests never touch the network."""
 
     def __init__(self, transport, state_file: Path, now: datetime | None = None, dry_run: bool = False,
-                 backfill_context: bool = False):
+                 backfill_context: bool = False, session: str | None = None):
+        if session is not None:
+            if not SESSION_RE.fullmatch(session):
+                raise click.BadParameter("expected a 36-character hex session id", param_hint="--session")
+            if backfill_context:
+                raise click.UsageError("--session cannot be combined with --backfill-context")
+        self.session = session
         self.transport = transport
         self.state_file = state_file
         self.now = now or _now()
@@ -299,18 +330,24 @@ class Scanner:
         or written: that id decides which state file is even ours.
         """
         self.owner_user_id = owner_user_id or self.transport.resolve_owner([])
-        state = self._load_state()
-        files, subagent_files = transcript_files(root)
-        for path in subagent_files:
-            self.counts["unsupported_subagent_requests"] += _subagent_requests(path)
-        for path in files:
-            self._scan_file(path, state)
-        # A transcript Claude Code has cleaned up owes nothing any more.
-        present = {str(path) for path in files}
-        state["files"] = {key: value for key, value in state["files"].items() if key in present}
-        if not self.dry_run:
-            self._save_state(state)
-        return self._summary(state)
+        with _state_lock(self.state_file):
+            state = self._load_state()
+            if self.session is not None:
+                files = sorted(path for path in root.glob(f"*/{self.session}.jsonl") if path.is_file())
+                subagent_files = []
+            else:
+                files, subagent_files = transcript_files(root)
+            for path in subagent_files:
+                self.counts["unsupported_subagent_requests"] += _subagent_requests(path)
+            for path in files:
+                self._scan_file(path, state)
+            if self.session is None:
+                # Only a full scan knows which transcripts have disappeared.
+                present = {str(path) for path in files}
+                state["files"] = {key: value for key, value in state["files"].items() if key in present}
+            if not self.dry_run and (self.session is None or files):
+                self._save_state(state)
+            return self._summary(state)
 
     def _scan_file(self, path: Path, state: dict) -> None:
         key = str(path)
@@ -706,7 +743,7 @@ def _size(rows: list[dict]) -> int:
 
 
 def ingest(root: Path | None = None, dry_run: bool = False, transport=None,
-           backfill_context: bool = False) -> dict:
+           backfill_context: bool = False, session: str | None = None) -> dict:
     """Run one ingest. Returns the summary; a transport failure exits nonzero."""
     transport = transport or ApiTransport()
     started = _now()
@@ -720,12 +757,13 @@ def ingest(root: Path | None = None, dry_run: bool = False, transport=None,
         now=started,
         dry_run=dry_run,
         backfill_context=backfill_context,
+        session=session,
     )
     try:
         summary = scanner.run(root or PROJECTS_DIR, owner_user_id=owner)
     except TransportError as exc:
         raise click.ClickException(f"ingest aborted, no run recorded: {exc}") from exc
-    if not dry_run:
+    if not dry_run and session is None:
         try:
             transport.record_run(summary, started, _now())
         except (TransportError, ClientError) as exc:
@@ -738,9 +776,15 @@ def ingest(root: Path | None = None, dry_run: bool = False, transport=None,
 @click.option("--json", "as_json", is_flag=True, help="Print the run summary as JSON")
 @click.option("--backfill-context", is_flag=True,
               help=f"Also reanalyse up to {MAX_BACKFILL_FILES} settled transcripts for context analysis")
-def ingest_transcripts(dry_run, as_json, backfill_context):
+@click.option("--session", help="Scan only this transcript session; do not record global scan freshness")
+def ingest_transcripts(dry_run, as_json, backfill_context, session):
     """Upload attributed Claude Code transcript usage for this owner."""
-    summary = ingest(dry_run=dry_run, backfill_context=backfill_context)
+    if session is not None:
+        if not SESSION_RE.fullmatch(session):
+            raise click.BadParameter("expected a 36-character hex session id", param_hint="--session")
+        if backfill_context:
+            raise click.UsageError("--session cannot be combined with --backfill-context")
+    summary = ingest(dry_run=dry_run, backfill_context=backfill_context, session=session)
     if as_json:
         click.echo(json.dumps(summary, default=str))
         return

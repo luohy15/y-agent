@@ -7,6 +7,7 @@ worker (with deadline_at=None for local dev).
 import asyncio
 import json
 import os
+import re
 import time
 
 from loguru import logger
@@ -452,6 +453,11 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                         post_hooks = json.loads(post_hooks)
                     from worker.runner import _run_post_hooks
                     _run_post_hooks(fresh, user_id, post_hooks, trace_id=proc.get("trace_id"))
+
+            await _trigger_context_ingest(
+                vm_config, backend_type,
+                (result.get("result_data") or {}).get("session_id") or updated_session_id,
+            )
         else:
             complete_process(chat_id, status=result["status"])
 
@@ -468,6 +474,25 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             logger.info("tail_and_process error (retryable) chat_id={} offset={}", chat_id, result["offset"])
             raise TailRetryableError(f"tail error for {chat_id}, offset={result['offset']}")
         logger.info("tail_and_process paused chat_id={} offset={}", chat_id, result["offset"])
+
+
+async def _trigger_context_ingest(vm_config, backend_type: str, session_id):
+    """Launch a scoped ingest after closeout; the hourly scan remains the backstop."""
+    if (backend_type != "claude_code" or not isinstance(session_id, str)
+            or not re.fullmatch(r"[0-9a-fA-F-]{36}", session_id)):
+        return
+    try:
+        from agent.vm_command import execute_vm_command
+
+        await asyncio.wait_for(execute_vm_command(
+            vm_config,
+            ["sh", "-c", "mkdir -p ~/.y-agent/logs && "
+             f"(nohup y usage ingest-transcripts --session {session_id} "
+             "</dev/null >>~/.y-agent/logs/context-ingest.log 2>&1 &)"],
+            wake=False, timeout=10, check=True,
+        ), timeout=10)
+    except Exception as exc:
+        logger.warning("context ingest launch failed: {}", type(exc).__name__)
 
 
 def _should_resume_5xx(result: dict, proc: dict) -> bool:
