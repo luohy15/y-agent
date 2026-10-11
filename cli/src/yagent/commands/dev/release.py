@@ -54,26 +54,72 @@ def _resolve_project(project: str, project_path: str) -> str:
         raise click.ClickException(str(exc))
 
 
-def _call(method: str, path: str, as_json: bool, **kwargs) -> dict:
+def _valid_response(path: str, body) -> bool:
+    """Check the fields consumed by release commands before formatting them."""
+    def fields(value, *keys):
+        return isinstance(value, dict) and all(key in value for key in keys)
+
+    def slot(value):
+        return (fields(value, "project_key", "generation", "active")
+                and (not value["active"] or "claim_id" in value))
+
+    def waiter(value):
+        return (fields(value, "project_key", "status", "waiter_id", "trace_id", "chat_id",
+                       "candidate_sha", "baseline_sha", "todo_ids", "authorization_reference")
+                and isinstance(value["todo_ids"], list)
+                and all(isinstance(todo, str) for todo in value["todo_ids"]))
+
+    action = path.rsplit("/", 1)[-1]
+    if action == "detail":
+        return slot(body)
+    if action in ("list", "waiters"):
+        valid_item = slot if action == "list" else waiter
+        return isinstance(body, list) and all(valid_item(item) for item in body)
+    if action == "check":
+        return (fields(body, "eligible", "reason", "slot")
+                and isinstance(body["eligible"], bool) and slot(body["slot"]))
+    if action == "cancel-waiter":
+        return fields(body, "status", "waiter") and fields(body["waiter"], "waiter_id")
+    if not fields(body, "status", "slot") or not slot(body["slot"]):
+        return False
+    if action == "enqueue":
+        return ("waiter" in body and (body["status"] == "granted"
+                or fields(body["waiter"], "waiter_id", "status")))
+    return True
+
+
+def _response_error(response, body, as_json: bool):
+    detail = body.get("detail") if isinstance(body, dict) else None
+    if response.status_code == 404 and not isinstance(detail, dict):
+        _fail(
+            "this API deployment does not support dev-release; upgrade the API",
+            {"error": "unsupported", "status": 404, "detail": body}, as_json,
+        )
+    if isinstance(detail, dict) and "error" in detail and "reason" in detail:
+        _fail(_format_error(detail), detail, as_json)
+    message = json.dumps(body, ensure_ascii=False) if body is not None else response.text
+    _fail(
+        f"API response error ({response.status_code}): {message or 'empty response'}",
+        {"error": "api", "status": response.status_code, "reason": "unexpected API response",
+         "detail": body if body is not None else response.text}, as_json,
+    )
+
+
+def _call(method: str, path: str, as_json: bool, **kwargs):
     try:
-        return api_request(method, path, **kwargs).json()
+        response = api_request(method, path, **kwargs)
     except httpx.HTTPStatusError as exc:
         response = exc.response
-        try:
-            detail = response.json().get("detail")
-        except Exception:
-            detail = None
-        if response.status_code == 404 and not isinstance(detail, dict):
-            _fail(
-                "this API deployment does not support dev-release; upgrade the API",
-                {"error": "unsupported", "status": 404}, as_json,
-            )
-        if isinstance(detail, dict):
-            _fail(_format_error(detail), detail, as_json)
-        _fail(f"API error: {exc}", {"error": "api", "status": response.status_code}, as_json)
     except httpx.RequestError as exc:
         # A claim registry that cannot be reached is an error, never a free slot.
         _fail(f"API unreachable: {exc}", {"error": "unreachable"}, as_json)
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    if not response.is_success or not _valid_response(path, body):
+        _response_error(response, body, as_json)
+    return body
 
 
 def _format_slot(slot: dict) -> str:
@@ -92,7 +138,8 @@ def _format_error(detail: dict) -> str:
     lines = [f"{detail.get('error', 'error')}: {detail.get('reason')}"]
     current = detail.get("current")
     if current:
-        lines.append(_format_slot(current))
+        lines.append(_format_slot(current) if _valid_response("/detail", current)
+                     else json.dumps(current, ensure_ascii=False))
     return "\n".join(lines)
 
 
