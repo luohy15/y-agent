@@ -1,3 +1,11 @@
+---
+title: Bot Usage
+type: prd
+project: y-agent
+feature: bot-usage
+status: active
+---
+
 # Bot Usage: Spend Analytics and Subscription Limit Windows
 
 ## Problem Statement
@@ -21,6 +29,16 @@ relay: routing limit status through claude-relay-service made the numbers a
 function of a separate service staying deployed, configured, and in sync, and
 it structurally could not answer for a provider the relay had no usage concept
 for at all.
+
+Totals also do not explain *why* a session was expensive. A y-agent chat
+re-sends its whole context on every request: the system prompt, AGENTS.md /
+CLAUDE.md rules, the skill listing and any loaded skill or reference bodies,
+tool and MCP schemas, every tool result (large file reads, chat transcript
+dumps), and the growing conversation. The user can see that a trace burned many
+input tokens but not which of those contributors filled the context, when it
+grew, whether the same file was read three times, or how much of each request
+was served from the prompt cache. Without that breakdown there is nothing
+concrete to trim (todo 3844).
 
 ## Solution
 
@@ -70,6 +88,20 @@ reader drives the `claude` CLI's own `/usage` view, and that CLI owns its grant
 end to end. Re-authentication is therefore always a **vendor** action
 (`claude login` / `codex login` / `grok login`), which is exactly what the
 expired-login card tells the user to run.
+
+Session context analysis (todo 3844) explains a single chat's context
+request by request. After a run, the VM analyses that chat's attributed Claude
+Code transcript locally and uploads only bounded derived metadata: per request,
+the observed cache counters plus an approximate breakdown of what the context
+contained by category (system prompt, rules / memory, skills and references,
+tool / MCP schemas, tool results, conversation history), with sizes, owner-only
+relative source labels and content hashes, never bodies. A Context view on the
+chat detail and `y chat context <chat_id>` show per-request prompt size and
+growth, cache reuse, the largest contributors, repeated reads and compaction
+events, plus deterministic suggestions. Everything not provable from the
+transcript is shown as unknown rather than filled in. Cost stays unavailable.
+Trace views link into each chat's Context; a Bot Usage session ranking is a
+later delivery.
 
 ## User Stories
 
@@ -505,6 +537,73 @@ expired-login card tells the user to run.
 80. As a user, I want historical completeness reported as unknown, so that a
     scan of the transcripts present at one moment is not read as a complete
     history.
+
+### Session context analysis (todo 3844)
+
+81. As a user, I want to open a Context view from a chat's detail and see that
+    chat's requests in order, so that I can follow how its context grew.
+82. As a user, I want `y chat context <chat_id>` (with `--json`) to return the
+    same analysis the web view shows, so that I can inspect or script it from a
+    terminal.
+83. As a user, I want each participant row in a trace view to link to that
+    chat's Context, so that I can go from an expensive trace to the session
+    that made it expensive.
+84. As a user, I want each request to show its observed prompt size (uncached
+    input + cache creation + cache read) and its growth versus the previous
+    request, so that I can spot the turn where the context jumped.
+85. As a user, I want each request's context broken down into system prompt,
+    rules / memory, skills and references, tool / MCP schemas, tool results
+    and conversation history, so that I can see what actually fills it.
+86. As a user, I want everything the transcript cannot attribute shown as an
+    explicit unknown share, so that the breakdown never pretends to cover 100%
+    when it does not.
+87. As a user, I want every figure labelled as observed (provider counters),
+    estimated (derived sizes or token estimates) or unavailable, so that I
+    never read an approximation as a measurement.
+88. As a user, I want the session summary to show startup, peak and latest
+    prompt size separately from the cumulative input across all requests, so
+    that context occupancy and billed volume are not confused.
+89. As a user, I want the largest contributors ranked both by size when first
+    introduced and by estimated repeated exposure across later requests, so
+    that I can tell a big one-off read from a medium item that rode along for
+    fifty turns.
+90. As a user, I want contributors named by owner-only relative labels (a rules
+    file, a skill, a tool, a relative file path), so that I can recognise what
+    to trim.
+91. As a user, I want repeated identical reads of the same content flagged,
+    while genuinely separate reads stay separate occurrences, so that real
+    duplication is visible and nothing is double counted.
+92. As a user, I want compaction shown as an event that starts a new context
+    epoch, so that I do not see pre-compaction history summed into later
+    requests.
+93. As a user, I want a per-request and per-session input-only cache reuse
+    ratio (cache read over prompt size) labelled distinctly from the existing
+    Bot Usage cache-hit percentage, so that the two metrics are not mixed up.
+94. As a user, I want the ratio disabled when any counter on a request is
+    missing, and coverage disclosed on the session aggregate, so that a missing
+    counter never skews it.
+95. As a user, I want a short list of deterministic suggestions (repeated
+    identical read, very large tool result, heavy startup rules or schemas,
+    frequent prefix change), worded as correlations rather than guaranteed
+    savings, so that I get actionable hints without false promises.
+96. As a user, I want cost shown as unavailable in the Context view, so that I
+    am not given a price the analysis cannot back.
+97. As a user, I want the analysis to appear after a run without waking the VM
+    when I open it, so that looking at a chat never costs a VM boot.
+98. As a user, I want a chat with no analysis yet, an analysis in progress and
+    an analysis that failed or was unsupported to read differently, so that
+    "nothing uploaded" is not mistaken for "empty context".
+99. As a user, I want to trigger an explicit, bounded backfill over transcripts
+    still retained on the VM, so that recent past sessions can be analysed,
+    with historical completeness still reported as unknown.
+100. As a user, I want the analysis version shown and re-analysis to replace an
+     older version's rows for the same request, so that a parser improvement
+     never mixes two methods in one view.
+101. As a user, I want context detail visible only to me and never on public
+     trace or chat shares, so that labels and hashes do not leak.
+102. As a user, I want detailed per-request analysis kept for 30 days while
+     session totals live longer, so that storage stays bounded without losing
+     the session-level picture.
 
 ## Implementation Decisions
 
@@ -1535,11 +1634,14 @@ expired-login card tells the user to run.
   `external_id` is that session. Everything else stays on the VM. The resolve
   call sends ids only, and the upload sends ids and counters, never message
   text or file paths. Personal interactive sessions therefore never leave the
-  machine. Subagent transcripts are not uploaded; they are counted as
+  machine. Todo 3844 widens this, for context analysis only, to relative
+  labels, digests and sizes; see Session context analysis below. Subagent transcripts are not uploaded; they are counted as
   unsupported.
-- **The cost gap.** No per-request price is recorded anywhere in the
+- **The cost gap.** No validated per-request price is ingested from the
   transcript, so v1 returns cost as unavailable with the reason
   `no_recorded_per_request_cost`. There is no price table and no estimate.
+  (Newer CLI transcripts do carry cumulative `cost-state` estimates; they are
+  not per-request charged dollars and are not ingested. See todo 3844.)
 - **Relay divergence.** These rows count Claude Code requests observed in a
   transcript. The relay's `model_usage_*` totals are global, billed, and
   include traffic with no y-agent chat. The two are expected to differ and are
@@ -1570,6 +1672,104 @@ expired-login card tells the user to run.
   renders it. Per chat it shows the chat's current skill, bot and tier, which
   describe the chat's configuration now, alongside the historical request and
   token facts.
+
+### Session context analysis (todo 3844)
+
+Plan and audit: `pages/plan-3844-session-context.md`. Roy accepted all five
+recommendations of that plan's open set on 2026-10-11; they are recorded here
+as decisions.
+
+- **Approximate MVP, no proxy.** Source is the native transcript the existing
+  ingest already reads, not a wire proxy or relay change. The analysis
+  reconstructs context composition from transcript evidence (prompt snapshots,
+  instruction-file attachments, skill listing, tool use / result pairs,
+  deferred-tool records, parent links) and states the unknown remainder.
+  Wire-exact token attribution is not promised.
+- **Placement.** First delivery: a Context view in the chat module's chat
+  detail, `y chat context <chat_id> [--json]`, and trace participant links
+  into it, all reading one owner-bound host API. Bot Usage session ranking
+  and comparison come later and link to the same Chat Context instead of
+  duplicating it. Monitor is unchanged.
+- **Ownership.** Raw transcript parsing stays on the VM inside the existing
+  transcript ingest path. Bounded request / category / contributor aggregates
+  live in host-owned storage next to `chat_request_usage`, read through the
+  usual entity, repository, service and controller layers. Modules consume
+  them through owner-bound host reads; no module owns the tables. Migrations
+  are maintainer-applied SQL only.
+- **Privacy (explicit widening of the todo 3729 rule).** The 3729 upload sends
+  ids and counters only. This feature additionally allows, for attributed
+  y-agent chats only: owner-only relative source labels (rules file, skill,
+  reference, tool name, relative file path), local content digests, byte
+  sizes, estimated token sizes and category / event metadata. Never uploaded:
+  prompt, output, tool input or tool result bodies; credentials or secret
+  values; absolute home paths. The ingest rejects unrecognised fields rather
+  than storing them, so a field cannot smuggle raw text. Context detail is
+  owner-only and is never exposed on public trace or chat shares.
+- **Retention.** Detailed per-request and per-contributor rows are kept 30
+  days; per-chat session totals are kept longer, with the same lifetime as
+  `chat_request_usage`.
+- **Freshness.** Analysis runs post-run, opportunistically, on the existing
+  transcript ingest cadence. Ordinary reads use stored rows only and never
+  scan files, SSH or wake EC2. No during-run streaming. Backfill is an
+  explicit, bounded command over transcripts still retained on the VM;
+  `historical_completeness` stays `unknown`. Native subagent transcripts and
+  personal non-y-agent sessions are excluded from the MVP, as in todo 3729.
+- **Versioning.** Each stored request analysis carries an analysis version.
+  Re-analysis under a newer version replaces that request's analysis rows as
+  a unit; it never max-merges category estimates the way 3729 merges
+  counters. Transcript checkpoints record the analyzer version so a parser
+  upgrade can reopen settled files on an explicit backfill. Per-chat state is
+  one of `none`, `pending`, `analyzed`, `partial` or `unsupported`.
+- **Units are not interchangeable.** Provider billing tokens (U uncached
+  input, W cache creation, R cache read, O output), estimated category token
+  sizes, emitted transcript bytes, active context occupancy and session
+  cumulative input are distinct quantities with their own unit, source and
+  confidence. NULL is not zero. Prompt size is P = U + W + R only when all
+  three are known.
+- **Category contract.** Categories are mutually exclusive by precedence:
+  rules / memory, skills and references, file and other tool results, then
+  generic results. System prompt comes from the prompt snapshot active at the
+  request (unknown when no snapshot exists; today's disk files are never
+  reread as historical truth). Tool / MCP schemas count only what a snapshot
+  or verified deferred-activation record shows was included; available,
+  approved, deferred and included are different states, and the approved MCP
+  catalog is never charged to every request. Skill listing is startup
+  overhead, distinct from a loaded skill body. Tool results count the
+  returned (possibly truncated) text, not the source file's size. Tool inputs
+  are conversation history, not schema. Retained history is an age dimension
+  on spans, not a second category. Multimodal, opaque reasoning and hidden
+  formatting go to unknown overhead.
+- **Contributors.** Each span keeps origin kind, introducing request, content
+  digest, byte size, occurrence id and an optional safe label. Repeated
+  insertions of the same content block id count once; actual repeated reads
+  remain separate occurrences and feed the repeated-read suggestion.
+- **Compaction.** Reported only from an explicit boundary record whose shape
+  has been verified against fixtures. The marker is an event, the summary is
+  content, and a boundary starts a new epoch whose earlier spans are not
+  summed into later requests. Dropped spans without a marker are not
+  compaction, and a y-agent session restart or handoff is a different event.
+  Until the boundary shape is verified, post-boundary occupancy is shown as
+  unknown.
+- **Token estimates.** Category token sizes are estimates from a named,
+  versioned counting method chosen before the token-share UI ships; a plain
+  chars/4 heuristic must be labelled as such. No private text is sent to a
+  token-count API.
+- **Cache metric.** The new metric is input-only reuse R / P per request, and
+  sum(R) / sum(P) over requests with all counters known, coverage disclosed.
+  It is labelled distinctly from the existing Bot Usage cache-hit percentage,
+  whose denominator includes output (see todo 3403); the old metric is not
+  changed. Aggregate R cannot be attributed to a particular file.
+- **Cost.** Observed counters only; cost is `unavailable`, as in 3729. Newer
+  transcripts do carry cumulative CLI `cost-state` estimates, so the precise
+  reason is that no validated per-request cost is ingested, not that the
+  transcript records no cost at all. A notional price estimate would need an
+  effective-dated model / provider / cache-TTL price source and an explicit
+  notional label; relay daily cost is never allocated pro rata to chats.
+- **Suggestions.** Deterministic rules only: repeated identical read, large
+  tool result, heavy startup rules or schemas, repeated prefix change. Worded
+  as correlation, never as guaranteed savings or cache-miss causality. No
+  composite efficiency score, no model-based judgement and no automatic
+  trimming or rule editing.
 
 ## Testing Decisions
 
@@ -1719,6 +1919,21 @@ expired-login card tells the user to run.
   user only; the single-transaction idempotency is the `ON CONFLICT DO
   NOTHING` insert, which commits the attempt and its observations together
   and skips both on a replay.
+- **Session context analysis (todo 3844).** Local-only sanitized transcript
+  fixtures are written before the analyzer, covering both prompt-snapshot
+  shapes and a verified compaction boundary. Analyzer: a repeated content
+  block id counts once, an actual repeated read stays a separate occurrence,
+  branch / resume / compaction exclude discarded spans, a missing snapshot
+  yields unknown, malformed / truncated / sidechain records disclose the gap
+  instead of fabricating a reconstruction. Storage: owner and trace isolation,
+  NULL versus zero, upload replay idempotence, analysis-version replacement,
+  bounds and rejections, and an unrecognised field cannot carry raw prompt
+  text, a secret or an absolute path. API / CLI: CLI and API parity, stable
+  request pagination, no-data versus unavailable, R / P excludes output,
+  incomplete counters disable the ratio, reads never invoke the VM, public
+  share routes expose no context detail. Web: unknown and estimated states stay
+  visible, and repeated exposure is never labelled as billed savings; typecheck
+  and build gate the module.
 - **Post-deploy smoke:** trigger a sync, confirm rows appear for the current
   day, spot-check a date's totals against the relay dashboard, then call the
   deployed limits endpoint and confirm all three providers return with an empty
@@ -1733,6 +1948,7 @@ expired-login card tells the user to run.
 
 | Todo | Outcome | Design | Plan | Decisions | Review | Status |
 |------|---------|--------|------|-----------|--------|--------|
+| 3844 | Session context analysis: per-request context composition, contributors, compaction and input-only cache reuse for a chat, from VM transcript analysis with bounded derived uploads; Chat Context view, `y chat context`, trace links; cost unavailable | - | `pages/plan-3844-session-context.md` | this PRD; `pages/audit-3798-cache-hit-rate.md` | - | requirements settled (PRD amended); implementation not started |
 | 3729 | Per-trace CLI/API usage, attributed transcript ingestion, explicit unavailable cost and unknown history; native cache-counter repair | - | `pages/plan-3729-trace-usage.md` | `pages/usage-3729-trace-3708.md`; `pages/impl-3729-trace-usage-evidence.md`; `pages/impl-3729-cache-token-diagnosis.md`; `pages/deploy-3729-trace-usage.md` | `pages/review-3729-trace-usage.md` | initial release d694436 deployed, migration applied and hourly collection enabled; cache repair reviewed (round 4, 52 focused tests plus healing/dedup reconciliation), serialized recovery approved (round 5); repair publication and production recovery pending authorization |
 | 3695 | Search-defined model set on the Over-time chart. Iteration 1 shipped a single-model Combobox (y-design 0.3.0 at 5b7b589, host c1fceb6, bot v53 from 8d8eb6a, UI 43828e03f36e, API 8fa2814fd22f; no y-module Git push). Iteration 3 replaces that with a persisted substring query (`botUsageOverTimeModelQuery`, stories 66a-66d) on `@y/design` Combobox 0.4.0 `freeText`. Iteration 2 (persisting the single selection) will not ship | - | `pages/plan-3695-bot-usage-model-filter.md` | this PRD; `pages/impl-3695-y-agent-design-pin.md`; `pages/impl-3695-bot-t5-model-filter.md` | `pages/review-3695-y-design-combobox.md`, `pages/review-3695-y-agent-design-pin.md`, `pages/review-3695-bot-model-filter.md` | Iteration 1 shipped: host c1fceb6 deployed (Deploy 36311820539, Deploy Web 36311820524), bot v53 enabled. Iteration 3 y-design 0.4.0 published at f24d54d; host pin reviewed and approved (round 2), not integrated; bot consumption pending |
 | 3584 | Removed the usage averages methodology caption from the over-time views | - | - | - | `pages/review-3584-methodology-caption.md` | shipped: bot v45 active from `0e61114`, UI `8a7a12adfd44...`, API `59318933a0b4...` unchanged; source digest `51090cb4...` matches the reviewed worktree; charts, averages tiles, labels and `usageAverages` semantics unchanged; no module Git push; ready for user verification |
@@ -1830,6 +2046,16 @@ expired-login card tells the user to run.
   contract field only.
 - **A Grok rate-limit (429) badge.** The billing-period row is the better
   signal.
+
+- **Context analysis beyond the MVP (todo 3844).** A wire proxy or relay
+  change for exact attribution; during-run streaming analysis; native
+  subagent transcripts and personal non-y-agent sessions; notional cost
+  estimates; a composite efficiency score or model-based scoring; automatic
+  rule trimming, tool-output truncation changes or any other
+  auto-optimization; public sharing of context detail; sending private text to
+  a token-count API. The Bot Usage session ranking is deferred to a later
+  delivery, not rejected. MCP input rendering (todo 3807) is a separate
+  concern and not a deferred-schema telemetry source.
 
 ### Known follow-ups (recorded, not fixed here)
 
