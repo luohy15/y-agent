@@ -14,6 +14,23 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Added
 
+- **Session context analysis (3844)**: local transcript context analyzer, `chat_context_*` storage, `POST/GET /api/usage/context` ingest and read API, a run-end ingest trigger in the worker, and TraceView participants linking to chat Context.
+- **Tablet composer newline (3860)**: Return inserts a newline in the fallback chat composer on tablets.
+
+### Changed
+
+- **Todo detail header (3859)**: single-row header with id, copy, and share as an icon button.
+
+### Fixed
+
+- **`y dev release` errors (3855)**: API error bodies are surfaced instead of a `KeyError`.
+
+### Removed
+
+## [0.5.31] - 2026-10-11
+
+### Added
+
 - **Private photo objects and module tag carriers (3838)**: host contract v23 adds owner-bound private photo primitives (presigned upload, version pinning, batch signed reads, cleanup), `published_module_json`, and module-declared tag carriers. The web host resolves module `openRecord` intents and carrier tag navigation.
 
 ### Changed
