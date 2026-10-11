@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import useSWR from "swr";
 import { API, authFetch, clearToken, jsonFetcher as fetcher } from "../api";
+import { runHostCommand } from "../host/commands";
 import WaterfallChart, { type TraceChat } from "./WaterfallChart";
 import { topicBadgeClass, statusBadgeClass } from "./badges";
 import SharePopover, { type ExistingShare } from "./SharePopover";
@@ -123,6 +124,11 @@ export function normalizeTraceData(raw: unknown): TraceChatsResponse | null {
     notes: asArray<TraceNote>(obj.notes),
     calendar_events: asArray<TraceCalendarEvent>(obj.calendar_events),
   };
+}
+
+/** Authenticated trace only. Shares render through injected data and never get this. */
+function openParticipantContext(chatId: string) {
+  runHostCommand("module.openRecord", { slug: "chat", type: "context", id: chatId });
 }
 
 function getDomain(url: string): string {
@@ -492,6 +498,32 @@ export default function TraceView({
               <WaterfallChart chats={traceChats} onClickChat={onSelectChat} />
             ) : (
               <p className="text-sol-base01 italic text-xs mt-2">No chats found for this todo</p>
+            )}
+
+            {!publicMode && traceChats.length > 0 && (
+              <div className="mt-2 space-y-0.5" data-testid="trace-context-links">
+                {traceChats.map((chat) => {
+                  const skill = (chat.skill && chat.skill.trim()) || chat.topic || "";
+                  const label = chat.title || chat.chat_id;
+                  return (
+                    <div key={chat.chat_id} className="flex items-center gap-2 min-w-0">
+                      <span className="text-[0.65rem] text-sol-base1 truncate min-w-0 flex-1" title={`${label} (#${chat.chat_id})`}>
+                        {skill ? `${skill} · ` : ""}{label}
+                        <span className="text-sol-base01 font-mono"> #{chat.chat_id.slice(-6)}</span>
+                      </span>
+                      <button
+                        type="button"
+                        className="shrink-0 text-[0.6rem] font-mono px-1.5 py-0.5 rounded cursor-pointer bg-sol-base02 text-sol-base01 hover:text-sol-base0"
+                        data-testid={`trace-context-${chat.chat_id}`}
+                        data-chat-id={chat.chat_id}
+                        onClick={() => openParticipantContext(chat.chat_id)}
+                      >
+                        Context
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
             )}
 
             {/* Related Links */}
