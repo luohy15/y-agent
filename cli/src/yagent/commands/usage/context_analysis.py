@@ -556,3 +556,74 @@ def _suggestions(requests: list[dict], contributors: list[dict]) -> list[dict]:
                     "message": "Cache reads fell on these requests, which correlates with a changed "
                                "prompt prefix; it does not prove the cause."})
     return out
+
+
+MAX_UPLOAD_REQUESTS = 600
+MAX_UPLOAD_CONTRIBUTORS = 200
+# Fields the analysis computes from counters; the server recomputes them.
+_DERIVED = ("prompt_tokens", "growth", "cache_reuse", "unknown_tokens_estimate", "estimate_exceeds_observed")
+
+
+def _top_contributors(contributors: list[dict]) -> list[dict]:
+    """The largest by size and by size x exposure, half the bound each."""
+    half = MAX_UPLOAD_CONTRIBUTORS // 2
+    by_size = sorted(contributors, key=lambda c: -c["bytes"])[:half]
+    by_exposure = sorted(contributors, key=lambda c: -c["bytes"] * c["exposure_requests"])[:half]
+    kept = {c["occurrence_id"]: c for c in by_size + by_exposure}
+    return sorted(kept.values(), key=lambda c: (c["introduced_request"], c["occurrence_id"]))
+
+
+def upload_units(analysis: dict, rows: list[dict]) -> list[dict]:
+    """One upload per chat the 3729 attribution assigned requests of this file to.
+
+    `rows` are the attributed usage rows (request_id, chat_id, attribution,
+    trace_id). A chat gets only its own requests, the contributors those
+    requests introduced, and suggestions recomputed over that subset. Suggestion
+    text and the analyzer's derived values are not sent; occurrence ids are
+    hashed. The latest MAX_UPLOAD_REQUESTS requests are kept and the rest
+    counted as omitted.
+    """
+    claims: dict[str, dict] = {}
+    chat_requests: dict[str, set] = {}
+    for row in rows:
+        chat_id = row["chat_id"]
+        chat_requests.setdefault(chat_id, set()).add(row["request_id"])
+        # A hint claim is preferred; a session claim is just as valid on its own.
+        if chat_id not in claims or (row["attribution"] == "hint" and claims[chat_id]["attribution"] != "hint"):
+            claims[chat_id] = {"attribution": row["attribution"], "trace_id": row.get("trace_id")}
+
+    damaged = any(analysis["gaps"].get(name) for name in ("malformed_lines", "in_progress", "sidechain_records"))
+    units = []
+    for chat_id, ids in chat_requests.items():
+        requests = [r for r in analysis["requests"] if r["request_id"] in ids]
+        if not requests and analysis["state"] != "unsupported":
+            continue
+        omitted = max(0, len(requests) - MAX_UPLOAD_REQUESTS)
+        requests = requests[omitted:]
+        sequences = {r["sequence"] for r in requests}
+        contributors = [c for c in analysis["contributors"] if c["introduced_request"] in sequences]
+        kept = _top_contributors(contributors)
+        suggestions = [{k: v for k, v in s.items() if k != "message"} for s in _suggestions(requests, contributors)]
+        if analysis["state"] == "unsupported":
+            state = "unsupported"
+        elif damaged or omitted or any(r["state"] == "partial" for r in requests):
+            state = "partial"
+        else:
+            state = "analyzed"
+        units.append({
+            "session_id": analysis["session_id"],
+            "chat_id": chat_id,
+            **claims[chat_id],
+            "analyzer_version": analysis["analyzer_version"],
+            "token_method": analysis["token_method"],
+            "state": state,
+            "cli_versions": analysis["cli_versions"],
+            "gaps": analysis["gaps"],
+            "events": [e for e in analysis["events"] if e["before_request"] in sequences],
+            "requests": [{k: v for k, v in r.items() if k not in _DERIVED} for r in requests],
+            "contributors": [{**c, "occurrence_id": _digest(c["occurrence_id"])} for c in kept],
+            "suggestions": suggestions[:50],
+            "requests_omitted": omitted,
+            "contributors_omitted": len(contributors) - len(kept),
+        })
+    return units

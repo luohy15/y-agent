@@ -312,6 +312,11 @@ exceptions noted):
   per attributed Claude Code request, uploaded from the VM transcript and keyed
   by `(user_id, request_id)`. Read per trace; the latest scan record stays in
   `user_preference` and is not one of these tables.
+- **Session context analysis** (todo 3844): `chat_context_session`,
+  `chat_context_request`, `chat_context_contributor` (one entity file
+  `chat_context.py`). One unit per (chat, transcript session), replaced as a
+  whole on re-analysis; request / contributor detail kept 30 days, session
+  totals longer. Bounded derived metadata only, never bodies.
 - **Subscription limit history** (todo 3717): `model_usage_limit_attempt`,
   `model_usage_limit_observation`. One attempt per refresh that actually ran,
   one observation per window (or a provider-level miss). The latest snapshot
@@ -354,7 +359,9 @@ Grouped by feature area:
   `model_usage.py` (spend rows, the latest limit snapshot,
   `GET /api/usage/limit-history`, the bounded hourly limit-window history, and
   the transcript ingest routes `POST /api/usage/requests/resolve`,
-  `POST /api/usage/requests`, `POST /api/usage/requests/ingest-run`, todo 3729)
+  `POST /api/usage/requests`, `POST /api/usage/requests/ingest-run`, todo 3729;
+  context analysis upload / owner-scoped read `POST/GET /api/usage/context`,
+  todo 3844)
 - **Modules**: `module.py` (list / versions / publish / activate / rollback / enable /
   disable / delete / bundle); module-owned domain routes are dispatched under
   `/api/module/<slug>/*` by `api/module_runtime/` (not a built-in controller per

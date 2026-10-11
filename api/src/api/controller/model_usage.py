@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from agent import usage_limits as limits_service
+from storage.service import chat_context as context_service
 from storage.service import chat_request_usage as request_usage_service
 from storage.service import chat_model_activity as activity_service
 from storage.service import model_usage_daily as usage_service
@@ -269,11 +270,11 @@ _MAX_REQUEST_ROWS = 500
 _MAX_REQUEST_BYTES = 512 * 1024
 
 
-async def _body(request: Request) -> tuple[bytes, dict]:
+async def _body(request: Request, cap: int = _MAX_REQUEST_BYTES) -> tuple[bytes, dict]:
     """Read the JSON body, refusing anything over the byte cap before parsing."""
     raw = await request.body()
-    if len(raw) > _MAX_REQUEST_BYTES:
-        raise HTTPException(status_code=413, detail="request body exceeds 512KB")
+    if len(raw) > cap:
+        raise HTTPException(status_code=413, detail=f"request body exceeds {cap // 1024}KB")
     if not raw:
         return raw, {}
     try:
@@ -349,3 +350,42 @@ async def record_ingest_run(request: Request):
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"outcome": recorded["outcome"]}
+
+
+# Session context analysis (todo 3844). The VM uploads one analysed unit per
+# (chat, transcript session); the read is owner-scoped and uses stored rows
+# only. Neither route is public, and no share route returns context detail.
+
+@router.post("/context")
+async def upload_context(request: Request):
+    """Replace one chat's analysed transcript unit.
+
+    Off-schema fields are 422, lists over their bound or a body over 1MB are
+    413, an older analyzer version than stored or a request id stored under
+    another unit is 409. Nothing is written unless the whole unit is accepted.
+    """
+    _raw, body = await _body(request, cap=context_service.MAX_BODY_BYTES)
+    try:
+        return context_service.store_unit(request.state.user_id, body)
+    except context_service.ContextTooLarge as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except context_service.ContextConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/context")
+async def read_context(
+    request: Request,
+    chat_id: str,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=context_service.MAX_PAGE),
+):
+    """One chat's context analysis, requests paged. 404 when not the caller's chat."""
+    if not request_usage_service.CHAT_ID_RE.fullmatch(chat_id):
+        raise HTTPException(status_code=422, detail="chat_id")
+    body = context_service.read_chat(request.state.user_id, chat_id, offset=offset, limit=limit)
+    if body is None:
+        raise HTTPException(status_code=404, detail="chat not found")
+    return body

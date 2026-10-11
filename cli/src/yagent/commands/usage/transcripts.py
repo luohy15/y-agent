@@ -39,6 +39,8 @@ RETRY_BACKOFF = timedelta(hours=1)
 SETTLE_AFTER = timedelta(hours=24)
 # 1h doubling, capped at 2^5 = 32h: past the 24h cutoff, well inside retention.
 MAX_BACKOFF_DOUBLINGS = 5
+# Settled files a --backfill-context run reanalyses at most.
+MAX_BACKFILL_FILES = 50
 
 # The trace id is one token. Either alternative stops before `]`, and the chat
 # id is read once, after `to_chat:`. A routine prefix has no trace id. The VM
@@ -272,12 +274,18 @@ def _blank_outstanding() -> dict:
 class Scanner:
     """One ingest run. Transport is injected so tests never touch the network."""
 
-    def __init__(self, transport, state_file: Path, now: datetime | None = None, dry_run: bool = False):
+    def __init__(self, transport, state_file: Path, now: datetime | None = None, dry_run: bool = False,
+                 backfill_context: bool = False):
         self.transport = transport
         self.state_file = state_file
         self.now = now or _now()
         self.dry_run = dry_run
+        self.backfill_context = backfill_context
         self.counts = {field: 0 for field in RUN_FIELDS}
+        # Context analysis (todo 3844) is best effort beside the usage upload
+        # and is not part of the 3729 run record.
+        self.context = {"context_units_uploaded": 0, "context_units_failed": 0,
+                        "context_files_backfilled": 0}
         self.conflicts = _no_conflicts()
         self.attributable_rows = 0
         self.attributable_chats: set[str] = set()
@@ -318,6 +326,8 @@ class Scanner:
             # Settled, or waiting out its backoff. Either way it still
             # discloses what it owes.
             self._add(prior.get("outstanding") or {})
+            if prior.get("settled") and self._backfill_due(prior):
+                self._backfill(path, state, key)
             return
 
         self.counts["files_seen"] += 1
@@ -350,6 +360,7 @@ class Scanner:
             # personal session. It is disclosed as a file, not as requests.
             owed["files_unmatched"] = 1
 
+        analyzed = False
         if attributed and self.dry_run:
             self.attributable_rows += len(attributed)
             self.attributable_chats.update(row["chat_id"] for row in attributed)
@@ -377,9 +388,70 @@ class Scanner:
             owed["rows_rejected"] = result["rejected"]
             for field in owed["conflicts"]:
                 owed["conflicts"][field] = int(result["conflicts"].get(field, 0))
+            analyzed = self._upload_context(path, attributed)
 
         self._add(owed)
         state["files"][key] = self._record(prior, stat, owed, self._settles(stat, owed))
+        if analyzed:
+            state["files"][key]["analyzer_version"] = self._analyzer_version()
+
+    @staticmethod
+    def _analyzer_version() -> int:
+        from yagent.commands.usage.context_analysis import ANALYZER_VERSION
+
+        return ANALYZER_VERSION
+
+    def _upload_context(self, path: Path, rows: list[dict]) -> bool:
+        """Analyse the file and upload one unit per attributed chat.
+
+        Best effort: a failure is counted and leaves the checkpoint without
+        this analyzer version, so a later --backfill-context retries it. It
+        never fails the usage upload that already succeeded.
+        """
+        from yagent.commands.usage.context_analysis import analyze_file, upload_units
+
+        try:
+            units = upload_units(analyze_file(path), rows)
+        except Exception:
+            self.context["context_units_failed"] += 1
+            return False
+        ok = True
+        for unit in units:
+            try:
+                self.transport.upload_context(unit)
+            except Exception:
+                self.context["context_units_failed"] += 1
+                ok = False
+                continue
+            self.context["context_units_uploaded"] += 1
+        return ok
+
+    def _backfill_due(self, prior: dict) -> bool:
+        from yagent.commands.usage.context_analysis import analysis_stale
+
+        return (
+            self.backfill_context and not self.dry_run
+            and self.context["context_files_backfilled"] < MAX_BACKFILL_FILES
+            and analysis_stale(prior)
+        )
+
+    def _backfill(self, path: Path, state: dict, key: str) -> None:
+        """Reanalyse a settled file under the current analyzer. Usage is not re-sent.
+
+        Attribution is resolved again, ids only, exactly as on a scan. A file
+        with nothing attributed is marked done so it is not reopened again.
+        """
+        self.context["context_files_backfilled"] += 1
+        parsed = parse_file(path)
+        hints = [segment["hint"] for segment in parsed["segments"] if segment["hint"]]
+        try:
+            attribution = self.transport.resolve(session_id_of(path), hints)
+        except (TransportError, ClientError):
+            self.context["context_units_failed"] += 1
+            return
+        attributed, _unattributed = self._attribute(parsed["segments"], attribution)
+        if not attributed or self._upload_context(path, attributed):
+            state["files"][key]["analyzer_version"] = self._analyzer_version()
 
     def _settles(self, stat, owed: dict) -> bool:
         """Whether this file is done.
@@ -523,6 +595,7 @@ class Scanner:
             "owner_user_id": self.owner_user_id,
             "dry_run": self.dry_run,
             **self.counts,
+            **self.context,
             "conflicts": self.conflicts,
             "state_file": str(self.state_file),
         }
@@ -578,6 +651,9 @@ class ApiTransport:
                 conflicts[field] += int(got.get(field) or 0)
         return {"sent": sent, "rejected": rejected, "conflicts": conflicts}
 
+    def upload_context(self, unit: dict) -> dict:
+        return self._post("/api/usage/context", unit)
+
     def record_run(self, summary: dict, started: datetime, finished: datetime) -> None:
         self._post("/api/usage/requests/ingest-run", {
             "host": socket.gethostname(),
@@ -629,7 +705,8 @@ def _size(rows: list[dict]) -> int:
     return len(json.dumps({"rows": rows}).encode())
 
 
-def ingest(root: Path | None = None, dry_run: bool = False, transport=None) -> dict:
+def ingest(root: Path | None = None, dry_run: bool = False, transport=None,
+           backfill_context: bool = False) -> dict:
     """Run one ingest. Returns the summary; a transport failure exits nonzero."""
     transport = transport or ApiTransport()
     started = _now()
@@ -642,6 +719,7 @@ def ingest(root: Path | None = None, dry_run: bool = False, transport=None) -> d
         state_path(api_base(), owner),
         now=started,
         dry_run=dry_run,
+        backfill_context=backfill_context,
     )
     try:
         summary = scanner.run(root or PROJECTS_DIR, owner_user_id=owner)
@@ -658,9 +736,11 @@ def ingest(root: Path | None = None, dry_run: bool = False, transport=None) -> d
 @click.command("ingest-transcripts")
 @click.option("--dry-run", is_flag=True, help="Resolve ids, but upload nothing and write no state")
 @click.option("--json", "as_json", is_flag=True, help="Print the run summary as JSON")
-def ingest_transcripts(dry_run, as_json):
+@click.option("--backfill-context", is_flag=True,
+              help=f"Also reanalyse up to {MAX_BACKFILL_FILES} settled transcripts for context analysis")
+def ingest_transcripts(dry_run, as_json, backfill_context):
     """Upload attributed Claude Code transcript usage for this owner."""
-    summary = ingest(dry_run=dry_run)
+    summary = ingest(dry_run=dry_run, backfill_context=backfill_context)
     if as_json:
         click.echo(json.dumps(summary, default=str))
         return
@@ -673,6 +753,10 @@ def ingest_transcripts(dry_run, as_json):
         f"rows sent={summary['rows_sent']} rejected={summary['rows_rejected']} "
         f"unattributed={summary['unattributed_requests']} "
         f"subagent={summary['unsupported_subagent_requests']}"
+    )
+    click.echo(
+        f"context units uploaded={summary['context_units_uploaded']} "
+        f"failed={summary['context_units_failed']} backfilled={summary['context_files_backfilled']}"
     )
     if dry_run:
         click.echo(
