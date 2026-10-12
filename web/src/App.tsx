@@ -87,6 +87,7 @@ import { registerHostCommand, runHostCommand } from "./host/commands";
 import { getArtifactIntent, registerArtifactDetailOpener, setArtifactIntent } from "./host/intents";
 import { publishActivityBarVisibility, registerActivityBarVisibilityCommands } from "./host/activityBarVisibilityBridge";
 import { useActivityBarVisibility } from "./hooks/useActivityBarVisibility";
+import { deriveHiddenSlugs } from "./utils/activityBarVisibility";
 import { applyHostWorkspaceOpen, applyModuleOpenView, mergeModuleOpenViewIntent, resolveModuleOpenView } from "./utils/moduleOpenView";
 
 function catalogFromModules(modules: readonly Module[]): ModuleCatalogRow[] {
@@ -148,13 +149,17 @@ export default function App() {
     auth.isLoggedIn ? `${API}/api/module/list` : null,
     jsonFetcher,
   );
-  const activityBarVisibility = useActivityBarVisibility(auth.isLoggedIn ? auth.email : null);
-  const activityBarVisibilityRef = useRef(activityBarVisibility);
-  activityBarVisibilityRef.current = activityBarVisibility;
+  const activityBarPins = useActivityBarVisibility(auth.isLoggedIn ? auth.email : null);
   const authorizedModuleSlugs = useMemo(
     () => new Set(modulesFromPayload(moduleListResponse).map((artifact) => artifact.slug)),
     [moduleListResponse],
   );
+  const activityBarVisibility = useMemo(
+    () => ({ ...activityBarPins, hiddenSlugs: deriveHiddenSlugs(authorizedModuleSlugs, activityBarPins.pinnedSlugs) }),
+    [activityBarPins, authorizedModuleSlugs],
+  );
+  const activityBarVisibilityRef = useRef(activityBarVisibility);
+  activityBarVisibilityRef.current = activityBarVisibility;
   const moduleCatalogRef = useRef<{ loaded: boolean; modules: Module[] }>({ loaded: false, modules: [] });
   moduleCatalogRef.current = {
     loaded: Array.isArray(moduleListResponse),
@@ -1314,7 +1319,7 @@ export default function App() {
     const current = activityBarVisibilityRef.current;
     publishActivityBarVisibility(current);
     return registerActivityBarVisibilityCommands({
-      get hiddenSlugs() { return activityBarVisibilityRef.current.hiddenSlugs; },
+      get pinnedSlugs() { return activityBarVisibilityRef.current.pinnedSlugs; },
       get loaded() { return activityBarVisibilityRef.current.loaded; },
       get saving() { return activityBarVisibilityRef.current.saving; },
       get error() { return activityBarVisibilityRef.current.error; },
@@ -1322,6 +1327,7 @@ export default function App() {
       retry: () => activityBarVisibilityRef.current.retry(),
     }, authorizedModuleSlugs);
   }, [
+    activityBarVisibility.pinnedSlugs,
     activityBarVisibility.hiddenSlugs,
     activityBarVisibility.loaded,
     activityBarVisibility.saving,
@@ -1539,7 +1545,7 @@ export default function App() {
           email={auth.email}
           gsiReady={auth.gsiReady}
           onLogout={handleLogout}
-          hiddenSlugs={activityBarVisibility.hiddenSlugs}
+          pinnedSlugs={activityBarVisibility.pinnedSlugs}
           modulesAvailable={uiArtifactBySlug.has("module")}
           onOpenModules={openModulesPanel}
         />
@@ -1569,7 +1575,7 @@ export default function App() {
             email={auth.email}
             gsiReady={auth.gsiReady}
             onLogout={handleLogout}
-            hiddenSlugs={activityBarVisibility.hiddenSlugs}
+            pinnedSlugs={activityBarVisibility.pinnedSlugs}
             modulesAvailable={uiArtifactBySlug.has("module")}
             onOpenModules={openModulesPanel}
           />

@@ -2,16 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { API, authFetch, getToken } from "../api";
 import {
-  ACTIVITY_BAR_HIDDEN_MODULES_KEY,
-  normalizeHiddenSlugs,
-  sameHiddenSlugs,
-  withSlugVisibility,
+  ACTIVITY_BAR_PINNED_MODULES_KEY,
+  normalizePinnedSlugs,
+  samePinnedSlugs,
+  withSlugPinned,
   type ActivityBarVisibilityState,
 } from "../utils/activityBarVisibility";
 
-export interface ActivityBarVisibilityController extends ActivityBarVisibilityState {
+export interface ActivityBarVisibilityController extends Omit<ActivityBarVisibilityState, "hiddenSlugs"> {
   /** Last value a failed write was trying to persist. Null when the failure was the initial GET. */
   pendingSlugs: string[] | null;
+  /** visible=true pins the slug to the activity bar. */
   setSlugVisible: (slug: string, visible: boolean) => void;
   retry: () => void;
 }
@@ -22,20 +23,20 @@ interface PreferenceResponse {
 }
 
 function preferenceKey(identity: string): string {
-  return `activityBarHiddenModules:${identity}`;
+  return `activityBarPinnedModules:${identity}`;
 }
 
-async function fetchHiddenSlugs(): Promise<string[]> {
-  const res = await authFetch(`${API}/api/user-preference?key=${encodeURIComponent(ACTIVITY_BAR_HIDDEN_MODULES_KEY)}`);
+async function fetchPinnedSlugs(): Promise<string[]> {
+  const res = await authFetch(`${API}/api/user-preference?key=${encodeURIComponent(ACTIVITY_BAR_PINNED_MODULES_KEY)}`);
   if (!res.ok) {
     throw new Error(`activity bar visibility load failed (${res.status})`);
   }
   const data = (await res.json()) as PreferenceResponse;
-  return normalizeHiddenSlugs(data?.value);
+  return normalizePinnedSlugs(data?.value);
 }
 
 /**
- * One host-owned source for `activityBarHiddenModules`.
+ * One host-owned source for `activityBarPinnedModules`.
  * Mutations wait for a successful GET. A failed GET is not an empty preference
  * and is never written back. Writes are serialized; failure restores the last
  * confirmed set and keeps the intended target for Retry. Focus/reconnect
@@ -53,12 +54,12 @@ export function useActivityBarVisibility(identity: string | null): ActivityBarVi
   const inFlightRef = useRef(false);
   const savingRef = useRef(false);
   const pendingRef = useRef<string[] | null>(null);
-  const hiddenSlugsRef = useRef<readonly string[]>([]);
+  const pinnedSlugsRef = useRef<readonly string[]>([]);
   const loadedRef = useRef(false);
   const identityRef = useRef(identity);
   identityRef.current = identity;
 
-  const swr = useSWR<string[]>(key, fetchHiddenSlugs, {
+  const swr = useSWR<string[]>(key, fetchPinnedSlugs, {
     revalidateOnFocus: true,
     revalidateOnReconnect: true,
     revalidateIfStale: true,
@@ -77,13 +78,13 @@ export function useActivityBarVisibility(identity: string | null): ActivityBarVi
 
   const confirmedRef = useRef<string[]>([]);
   const confirmed = useMemo(() => {
-    const next = swr.data ? normalizeHiddenSlugs(swr.data) : [];
-    if (sameHiddenSlugs(confirmedRef.current, next)) return confirmedRef.current;
+    const next = swr.data ? normalizePinnedSlugs(swr.data) : [];
+    if (samePinnedSlugs(confirmedRef.current, next)) return confirmedRef.current;
     confirmedRef.current = next;
     return next;
   }, [swr.data]);
-  const hiddenSlugs = optimistic && !sameHiddenSlugs(optimistic, confirmed) ? optimistic : confirmed;
-  hiddenSlugsRef.current = hiddenSlugs;
+  const pinnedSlugs = optimistic && !samePinnedSlugs(optimistic, confirmed) ? optimistic : confirmed;
+  pinnedSlugsRef.current = pinnedSlugs;
   loadedRef.current = enabled && swr.data !== undefined && !swr.isLoading && !swr.error;
   const loaded = loadedRef.current;
   const loadError = swr.error instanceof Error
@@ -101,12 +102,12 @@ export function useActivityBarVisibility(identity: string | null): ActivityBarVi
       const res = await authFetch(`${API}/api/user-preference`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: ACTIVITY_BAR_HIDDEN_MODULES_KEY, value: target }),
+        body: JSON.stringify({ key: ACTIVITY_BAR_PINNED_MODULES_KEY, value: target }),
       });
       if (identityRef.current !== forIdentity) return;
       if (!res.ok) throw new Error(`activity bar visibility save failed (${res.status})`);
       const body = (await res.json()) as PreferenceResponse;
-      const next = normalizeHiddenSlugs(body?.value ?? target);
+      const next = normalizePinnedSlugs(body?.value ?? target);
       pendingRef.current = null;
       setPendingSlugs(null);
       setOptimistic(next);
@@ -128,8 +129,8 @@ export function useActivityBarVisibility(identity: string | null): ActivityBarVi
     if (!enabled || !identity || !loadedRef.current || savingRef.current) return;
     const trimmed = slug.trim();
     if (!trimmed) return;
-    const base = pendingRef.current ?? hiddenSlugsRef.current;
-    const next = withSlugVisibility(base, trimmed, visible);
+    const base = pendingRef.current ?? pinnedSlugsRef.current;
+    const next = withSlugPinned(base, trimmed, visible);
     setOptimistic(next);
     pendingRef.current = next;
     setPendingSlugs(next);
@@ -152,7 +153,7 @@ export function useActivityBarVisibility(identity: string | null): ActivityBarVi
   }, [enabled, identity, saving, swr, write, writeError]);
 
   return {
-    hiddenSlugs,
+    pinnedSlugs,
     loaded,
     saving,
     error: writeError ?? (loaded ? null : loadError),

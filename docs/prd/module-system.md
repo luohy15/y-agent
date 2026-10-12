@@ -470,41 +470,48 @@ declaring `shell` alone still gets a sidebar entry. The column's name promises
 more than it delivers; treat it as a claim on host slots, not as a manifest of
 the bundle.
 
-### Per-user activity-bar visibility
+### Per-user activity-bar pins
 
 Whether a module **appears in the left activity bar** is a personal navigation
-choice, not a property of the module, its version, or `ui_surfaces`. Todo 3676
-stores a string array of hidden slugs at `user_preference.key =
-activityBarHiddenModules`, scoped to the signed-in caller by the existing
-preference routes. Absence or null means nothing is hidden. A slug in the set
-only drops that module's icon from the desktop rail and the mobile rail, after
-the full catalog has been ordered, so unhiding restores the previous position.
-It does not disable the module, remove it from `GET /api/module/list`, change
-`activityBarOrder`, unmount an open panel, or stop a shell (including Chat).
+choice, not a property of the module, its version, or `ui_surfaces`. It is
+opt-in since todo 3869: a module is unpinned by default. The host stores a
+string array of pinned slugs at `user_preference.key =
+activityBarPinnedModules`, scoped to the signed-in caller by the existing
+preference routes. Absence or null means nothing is pinned. There is no seeding,
+so existing users start with only Modules on the rail and re-pin by hand. The
+`module` slug is always on the rail and cannot be pinned or unpinned. The
+legacy 3676 deny-list `activityBarHiddenModules` is neither read, written nor
+deleted; the row stays in the database, so a host rollback restores the old
+rail exactly. A pin only adds the module's icon to the desktop and mobile rail,
+after the full catalog has been ordered, so re-pinning restores the previous
+position. Unpinned modules stay in `GET /api/module/list`, stay openable
+(`module.openView` ignores pins), and are neither disabled nor unmounted. A pin
+never changes `activityBarOrder` or stops a shell (including Chat).
 
 The host owns the preference. App is the only writer. It publishes the current
 set on the existing `module` intent as
-`activityBarVisibility: {hiddenSlugs, loaded, saving, error}`, preserving any
-other fields already latched for that slug. The module list toggles through two
-host commands, `module.setActivityBarVisibility` with `{slug, visible}` and
-`module.retryActivityBarVisibility`, via `runHostCommand`. The host checks the
-payload types and that the slug is in the caller's unfiltered module list,
-including disabled rows the Modules panel shows. The enabled-only rail catalog
-is not that list. A desired-state command cannot double-flip. The published
-intent keeps its object identity until `hiddenSlugs`, `loaded`, `saving`, or
-`error` actually changes. These commands are not a new `@y/host`
-export. Browser contract **v15 → v16** exists so a module built against them
-stamps `min_host_version` 16 and will not load on an older host. There is no
-new endpoint, no `module_host` capability, and no schema migration.
+`activityBarVisibility: {pinnedSlugs, hiddenSlugs, loaded, saving, error}`,
+preserving any other fields already latched for that slug. `hiddenSlugs` is
+derived (authorized slugs minus pinned minus `module`) so a rollback-reachable
+module at v15 or older still toggles correctly. The module list pins through two
+host commands, `module.setActivityBarVisibility` with `{slug, visible}`
+(`visible: true` pins) and `module.retryActivityBarVisibility`, via
+`runHostCommand`. The host checks the payload types, ignores `module`, and
+requires the slug to be in the caller's unfiltered module list, including
+disabled rows the Modules panel shows. The enabled-only rail catalog is not that
+list. A desired-state command cannot double-flip. The published intent keeps its
+object identity until a field actually changes. Browser contract **v25 → v26**
+adds no `@y/host` export; a module that reads `pinnedSlugs` stamps
+`min_host_version` 26. There is no new endpoint, no `module_host` capability,
+and no schema migration. Deploy the host before `y module publish module`.
 
 Public and preview rails are `presentationOnly` and neither read nor apply the
-preference. Hiding the Modules entry itself is allowed. The signed-in account
-menu keeps a `Modules` action, on desktop and mobile, that opens that sidebar
-whenever the module is mountable, so the rail is not the only way back. A failed
-first read is an error, not an empty preference, and is never written back. A
-failed write restores the last confirmed set; Retry resends the same intended
-value. The stored set is last-successful-write-wins. A second device sees it on
-load or refocus, not by push. Slugs are not pruned when discovery omits them.
+preference. The signed-in account menu keeps a `Modules` action, on desktop and
+mobile, that opens that sidebar whenever the module is mountable. A failed first
+read is an error, not an empty preference, and is never written back. A failed
+write restores the last confirmed set; Retry resends the same intended value.
+The stored set is last-successful-write-wins. A second device sees it on load or
+refocus, not by push. Slugs are not pruned when discovery omits them.
 
 ### Opening a module from the Modules list
 
@@ -1782,3 +1789,4 @@ hook, both of which cost more than the single-user failure mode justifies.
 | 3780 | Synchronous, fail-open API lifespan prewarm of the maintainer's active `chat` module (pool ping, `configure_mappers`, loader load; 1.5s soft budget), and `resolve_active_version` backed by one joined `get_active_version_by_slug` read per request (the 3556 per-request permission invariant is kept; no TTL cache) | - | `pages/plan-3780-chat-list-latency.md` | `pages/impl-3780-chat-list-latency.md` | `pages/review-3780-chat-list-latency.md` | reviewed and approved (round 2); publication pending authorization |
 | 3794 | Shared retry-later (fast-ack then retry) contract: 503 + `Retry-After` for not-ready, 200 + staleness flag for stale. Shared build-time UI helper `code/y-module/shared/ui/retry-later.ts`; File wake retry moved onto it (file v47, no behavior change). Finance holdings, investment-returns and fire-progress use the 250ms quote budget, add `POST /api/module/finance/realtime-quotes/refresh`, and the viewer refreshes stale quotes once per 60s with a "Prices as of" chip (finance v54, `d05b679`). No host code or contract bump. D7 (422 with empty cache) left unwired. | - | `pages/plan-3794-retry-later-pattern.md` | `pages/impl-3794-retry-later.md`, `pages/impl-3794-retry-later-doc.md` | `pages/review-3794-retry-later.md`, `pages/review-3794-retry-later-doc.md` | finance v54 + file v47 published; awaiting Roy's manual acceptance |
 | 3808 | `GET /api/module/list` loads owner modules and active versions in one outer join (`list_modules_with_active_versions`) instead of one `get_version` per module. The maintainer lookup stays per request. Response projection is unchanged. No migration. | - | `pages/plan-3808-module-list-latency.md` | `pages/impl-3808-module-list-latency.md` | `pages/review-3808-module-list-latency.md` | reviewed; publication and post-deploy 24h verification pending |
+| 3869 | Opt-in module activity bar. The rail shows a module only if pinned, plus `module` (always shown). Host stores pinned slugs at `user_preference.key = activityBarPinnedModules` (unset = empty, no seeding; legacy `activityBarHiddenModules` left untouched for rollback). The `module` intent gains `pinnedSlugs` and keeps a derived `hiddenSlugs`; the Modules row action becomes Pin to / Unpin from activity bar. Browser contract **v25 → v26**; no endpoint, capability or schema migration. Module half in `code/y-module/module`. | - | `pages/plan-3869-module-activity-bar-pin.md` | `pages/impl-3869-module-activity-bar-pin.md` | `pages/review-3869-module-activity-bar-pin.md` | reviewed local changes; uncommitted, host deploy and module publish not authorized |

@@ -84,6 +84,12 @@ Contract v24 (todo 3816) adds no new export. It registers `module.openView`
 (`{ slug }`). A module that calls it sets `min_host_version: 24`, and the host
 that serves that bundle must already be on v24: an older host treats the name
 as an unregistered no-op. The command does not change the browser URL.
+Contract v26 (todo 3869) adds no new export. The activity bar is opt-in: the
+`module` intent's `activityBarVisibility` gains `pinnedSlugs`, and
+`hiddenSlugs` stays as a derived value (authorized minus pinned minus `module`)
+for older modules. `module.setActivityBarVisibility` (`{slug, visible}`) now
+means pin (`visible: true`) or unpin; the host ignores it for `module`, which is
+always on the rail. A module that reads `pinnedSlugs` sets `min_host_version: 26`.
 See `docs/prd/module-system.md`, *The `shell`
 surface and the renderer seam*, before bundling anything heavy into a module.
 

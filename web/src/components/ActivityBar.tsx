@@ -23,12 +23,12 @@ interface ActivityBarProps {
   artifacts?: Module[];
   artifactsLoaded?: boolean;
   /**
-   * Module slugs whose left-rail icon is hidden (todo 3676). Applied only at
-   * render, after full-catalog ordering, so unhiding restores the previous
-   * position. Does not change `order`, localStorage, or `activityBarOrder`.
+   * Module slugs pinned to the left rail (todo 3869); `module` is always shown.
+   * Applied only at render, after full-catalog ordering, so re-pinning restores
+   * the previous position. Does not change `order`, localStorage, or `activityBarOrder`.
    */
-  hiddenSlugs?: readonly string[];
-  /** Signed-in account menu: open the Modules sidebar even when its icon is hidden. */
+  pinnedSlugs?: readonly string[];
+  /** Signed-in account menu: open the Modules sidebar even when its icon is unpinned. */
   onOpenModules?: () => void;
   modulesAvailable?: boolean;
 }
@@ -225,7 +225,7 @@ function saveOrder(order: SidebarPanel[]) {
 interface DragState { key: SidebarPanel }
 interface DropTargetState { key: SidebarPanel; pos: "before" | "after" }
 
-export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, activePanel, onSelectPanel, mobile, email, gsiReady, onLogout, artifacts = [], artifactsLoaded = true, hiddenSlugs = [], onOpenModules, modulesAvailable = false }: ActivityBarProps) {
+export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, activePanel, onSelectPanel, mobile, email, gsiReady, onLogout, artifacts = [], artifactsLoaded = true, pinnedSlugs = [], onOpenModules, modulesAvailable = false }: ActivityBarProps) {
   const signinRef: RefCallback<HTMLDivElement> = useCallback((node) => {
     if (!node || isLoggedIn || !gsiReady) return;
     if (!isPreview && (window as any).google?.accounts?.id) {
@@ -470,8 +470,8 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
   };
 
   const liveOrder = useMemo(
-    () => projectActivityBarOrder(order, hiddenSlugs) as SidebarPanel[],
-    [hiddenSlugs, order],
+    () => projectActivityBarOrder(order, pinnedSlugs) as SidebarPanel[],
+    [pinnedSlugs, order],
   );
 
   const panelButtons = liveOrder.map((key) => {
