@@ -15,17 +15,24 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ### Added
 
 - **Session context analysis (3844)**: local transcript context analyzer, `chat_context_*` storage, `POST/GET /api/usage/context` ingest and read API, a run-end ingest trigger in the worker, and TraceView participants linking to chat Context.
-- **Tablet composer newline (3860)**: Return inserts a newline in the fallback chat composer on tablets.
+- **Tablet composer newline (3860)**: Return inserts a newline in the fallback chat composer on tablets. Send stays one line tall, vertically centered, at the far right of the input row (including on a phone).
+- **Module SVG sidebar icons (3861)**: `module.json` `icon` may be a `ui/*.svg` path. Publish validates and stores the normalized SVG; the activity bar renders it sanitized. Host contract v27.
+- **Landing tour (3864)**: the logged-out landing is an anatomy-style tour ("dispatch anywhere, all data linked"), in English.
+- **Todo list sort (3867)**: todo list accepts `sort` (`todo_id`, `priority`, `updated_at`) and `order` (`asc` or `desc`) over the full filtered result. Pinned rows stay first.
 
 ### Changed
 
 - **Todo detail header (3859)**: single-row header with id, copy, and share as an icon button.
+- **Activity bar shortcuts are opt-in (3869)**: left-rail module icons show only when pinned. Nothing is pinned by default; Modules stays on the rail so recovery does not depend on a pin. The previous hidden-slug list is no longer read.
+- **`y email` is module-owned (3866)**: the email CLI group moved out of the host into the email module. `y email` commands are unchanged.
 
 ### Fixed
 
 - **`y dev release` errors (3855)**: API error bodies are surfaced instead of a `KeyError`.
 
 ### Removed
+
+- **Public `/docs` (3864)**: the logged-out docs site, its build, and its routes are gone (`/docs` redirects to `/`). Maintainer runbooks and `docs/prd` stay.
 
 ## [0.5.31] - 2026-10-11
 
