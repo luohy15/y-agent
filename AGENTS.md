@@ -255,8 +255,12 @@ entity + controller + service + CLI slices, and most have a web panel.
   deployment order (manual DDL before host) and env: `docs/mcp-connectors.md`.
 - **Email / Calendar** — multi-account Gmail sync: per-account IMAP app passwords live
   in the `email_account` table (`y email account add/list/rm`), `y email sync-gmail`
-  fans out over all registered accounts, and `email.account` tags each row with its
-  source address (filterable via `?account=` / `--account` / the EmailList dropdown).
+  fans out over all registered accounts, and `y email send` sends via Gmail SMTP
+  (preview + fingerprint `--confirm`, no retry, local duplicate ledger). The email
+  module owns the local-source `y email` CLI; the host keeps tables, HTTP routes,
+  credentials custody, the per-account sync route, and the tag carrier.
+  `email.account` tags each row with its source address (filterable via `?account=` /
+  `--account` / the EmailList dropdown).
   Full-stack calendar events with timezone-aware filtering. Finance domain views and
   CLI live in the finance module (`code/y-module/finance/README.md`); legacy physical
   column `vm_config.finance_config` remains intentionally for a later contract.
@@ -440,9 +444,9 @@ Grouped by feature area:
 ### CLI (`cli/src/yagent/`)
 - `command_option.py` — root `y` group
 - Built-in `commands/`: hybrid `chat` (dispatch/stop/attach/wakeup stay built-in; browse
-  falls through), `todo`, `calendar`, `entity`, `reminder`, `rss`, `link`, `email`,
+  falls through), `todo`, `calendar`, `entity`, `reminder`, `rss`, `link`,
   `dev`, `image`, `trace`, `english`, `module`, `assoc`/`unassoc`, `init`/`login`/
-  `logout`. Domain groups (`y finance`, `y bot`, `y file`, `y note`, …) resolve
+  `logout`. Domain groups (`y email`, `y finance`, `y bot`, `y file`, `y note`, …) resolve
   lazily from `code/y-module/<slug>/cli.py`. `y assoc note` stays built-in (3041
   content-path authority). `LazyModuleProxy` uses `module.json` `label` for help.
 - `sdk/` — build-time UI SDK (`contract.json`, shims, `build.mjs`, templates);

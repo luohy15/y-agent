@@ -34,15 +34,16 @@ inside the host web bundle. Four costs follow.
 
 ## Solution
 
-An `email` module owning the domain's presentation: the Email panel as its
-`panel` surface and the thread reader as its `detail` surface, published and
-rolled back independently of the host.
+An `email` module owning the domain's presentation and local-source CLI: the
+Email panel as its `panel` surface and the thread reader as its `detail` surface
+are published and rolled back independently of the host. `y email` resolves
+lazily from the module's `cli.py`; CLI source is local and unversioned, not part
+of a published module artifact.
 
 The host keeps what it must keep: the `email` and `email_account` tables, the
-`/api/email/*` HTTP surface, the `y email` CLI including Gmail sync and
-app-password custody, and the tag carrier and resolver. Email therefore becomes
-a **UI module over host-owned domain state**, the shape Calendar and Todo
-already use, not a data move.
+`/api/email/*` HTTP surface, app-password custody, the per-account sync route,
+and the tag carrier and resolver. Email is a **UI + CLI module over host-owned
+domain state**, not a data move. The CLI calls the existing host routes.
 
 The migration finishes by retiring the legacy surface: the `email.md` reserved
 tab, the host-held thread selection, and the host panel and reader are removed
@@ -125,17 +126,19 @@ once the module reaches parity, so exactly one email presentation exists.
 
 ### Sync, accounts, and privacy
 
-28. As the owner, I want `y email sync-gmail` to keep fanning out over every
-    registered account and importing starred threads exactly as it does now, so
-    that ingestion is unaffected by the migration.
+28. As the owner, I want the module CLI's `y email sync-gmail` to keep fanning
+    out over every registered account and importing starred threads exactly as
+    it does now through the host routes, so that ingestion is unaffected by the
+    migration.
 29. As the owner, I want app passwords to stay in host custody, never rendered
     after entry and never returned to the browsing surface, so that the
     migration does not widen credential exposure.
-30. As the owner, I want Gmail access to stay exactly as broad as it is today
-    (IMAP app password, starred threads, read-only), so that the migration adds
-    no new permission.
-31. As the owner, I want `y email list`, `get`, and `account` to keep working
-    unchanged, so that agents and scripts that read mail are unaffected.
+30. As the owner, I want Gmail ingestion to stay read-only over starred threads
+    with an IMAP app password, so that the CLI move adds no ingestion permission.
+    Explicit SMTP sending is the separate opt-in exception in "Sending (CLI)".
+31. As the owner, I want the module CLI's `y email list`, `get`, `account`, and
+    `tag` to keep working unchanged through the host routes, so that agents and
+    scripts that read mail are unaffected.
 32. As the owner, I want mail to stay owner-scoped on every read path, so that
     no surface can serve another account's mail.
 32a. As a user, I want a per-account sync action in the account manager that
@@ -168,11 +171,12 @@ once the module reaches parity, so exactly one email presentation exists.
 
 ## Implementation Decisions
 
-### Boundary: a UI module over host-owned domain state
+### Boundary: a UI + CLI module over host-owned domain state
 
-The module declares the `ui` part only, with `panel` and `detail` surfaces —
-the Calendar and Todo shape, not the Note or Chat shape. Tables, HTTP, and CLI
-stay host-owned. Three facts drive this:
+The module declares `ui` and `cli` parts, with `panel` and `detail` UI surfaces.
+Tables, HTTP, credentials custody, and the tag carrier stay host-owned. The
+local-source `y email` CLI calls the existing host routes; no module API or
+backend contract bump is needed. Three facts drive this:
 
 - **The host reads email rows in process.** `email` is a direct tag carrier and
   the host registers a batch resolver that hydrates tag results with each
@@ -183,19 +187,20 @@ stay host-owned. Three facts drive this:
   `email_*` backend capabilities and a backend contract bump purely to re-expose
   the queries the host already serves owner-scoped. The domain has no
   module-specific business logic to relocate.
-- **Credential custody should not move into hot-loadable code.** The account
-  credential read exists solely for the sync CLI. Keeping the account routes and
-  `y email sync-gmail` host-side keeps plaintext app passwords out of a
-  per-version published artifact and keeps ingestion working while the module is
-  disabled or rolled back (stories 29, 34).
+- **Credential custody stays in the host.** The account credential route serves
+  the local sync and send CLI, never the browsing surface. The module CLI reads
+  those credentials at runtime; plaintext app passwords are not embedded in a
+  per-version published artifact. CLI discovery uses local source regardless of
+  the published UI's enabled state or version, so disabling or rolling back the
+  UI leaves ingestion and CLI working (stories 29, 34).
 
 The module UI calls the existing host routes with the SDK's authenticated fetch,
 exactly as the Todo and Calendar modules call their host routes.
 
 ### Explicit per-account sync stays host-owned
 
-The Email module remains `ui` only. Browser code must not call
-`/api/email/account/credentials` and must not speak IMAP. A host-owned
+The Email module has no API half. Browser code must not call
+`/api/email/account/credentials` and must not speak IMAP or SMTP. A host-owned
 `POST /api/email/account/{address}/sync` validates that the address is
 registered for the caller, acquires an owner-and-account lock, runs
 `y email sync-gmail --account <address> --json` through VM execution, and
@@ -281,7 +286,33 @@ against v11.
 
 The reply and overflow affordances in the reader are decorative today and remain
 decorative. The star in collapsed rows is decorative today (no backend flag) and
-remains so. No mailbox mutation, no scope change, no new Gmail surface.
+remains so. The reader adds no mailbox mutation or scope change. Explicit
+plain-text sending is a separate module CLI action, not a reader affordance.
+
+### Sending (CLI)
+
+`y email send` (todo 3866) sends one plain-text message, with optional
+attachments, from a registered account over Gmail SMTP. It is module CLI only:
+the module has no send UI, no API route, and no contract change. Safety rules:
+without `--confirm <fingerprint>` (or with `--dry-run`) it only prints a
+preview; the fingerprint hashes sender, recipients, subject, body, and
+attachment digests, so any edit forces a fresh confirmation. A send is
+attempted once and never retried. A per-machine ledger
+(`~/.y-agent/email-send-ledger.jsonl`, under the OS user's home, no bodies or
+passwords) records an attempted send before connecting and refuses an identical
+message unless `--allow-resend`. Reservation uses an `fcntl` lock so concurrent
+attempts cannot bypass the duplicate check. Passwords are never echoed.
+
+- As the owner, I want a preview and fingerprint before anything is sent, so
+  that only the content I reviewed goes out.
+- As the owner, I want a failed send never retried automatically, so that a
+  flaky connection cannot spam a recipient.
+- As the owner, I want an identical message refused the second time, so that a
+  re-run cannot double-send.
+
+The module CLI source must land before the host removes its built-in email
+group, which otherwise shadows the module. CLI changes need neither module
+publish nor a deployment. A host rollback restores that built-in shadow.
 
 ### No public demo surface
 
@@ -338,14 +369,15 @@ Test files remain local-only and untracked.
 
 - **Moving `email` / `email_account` to module ownership.** Blocked by the
   host-side tag resolver; revisit only with a deliberate host capability design.
-- **A module API or CLI half.** New owner-bound `email_*` backend capabilities
-  and their contract bump are explicitly deferred; `y email` stays a built-in
-  group.
-- **Any mailbox mutation.** Send, reply, forward, archive, star, label, mark
-  read, and delete are all out. The existing decorative affordances stay
-  decorative.
-- **Broadening Gmail access.** Still IMAP with app passwords over starred
-  threads; no Gmail API, no OAuth mailbox scopes, no additional folders.
+- **A module API half.** New owner-bound `email_*` backend capabilities and
+  their contract bump are explicitly deferred; the module CLI uses host routes.
+- **Any mailbox mutation beyond plain sending.** Reply, forward, archive, star,
+  label, mark read, and delete are all out (plain sending is the CLI-only
+  exception in "Sending (CLI)"). The existing decorative affordances stay
+  decorative. No HTML, reply, or scheduled send and no web compose UI.
+- **Broadening Gmail ingestion.** Still IMAP with app passwords over starred
+  threads; no Gmail API, no OAuth mailbox scopes, no additional folders. Explicit
+  sending uses Gmail SMTP with the registered account's existing app password.
 - **Scheduled or automatic sync.** `y email sync-gmail` stays a manual CLI, and
   the UI action is an explicit per-account trigger of that same command. No
   background schedule, all-account UI sync, progress streaming, or cancellation.
@@ -355,8 +387,8 @@ Test files remain local-only and untracked.
   parity keeps the signed-in address only.
 - **An email deep-link route.** Module detail surfaces restore as persisted
   tabs; no URL contract is added.
-- **Attachments, richer threading than Gmail's thread id, and search ranking
-  improvements.**
+- **Reading attachments, richer threading than Gmail's thread id, and search
+  ranking improvements.** Sending optional attachments is the CLI-only exception.
 - **The module system's own mechanics.** Versioning, loading, integrity, publish
   gating, and rollback rules stay owned by [module-system](module-system.md);
   the browser runtime contract stays owned by
@@ -369,6 +401,7 @@ Test files remain local-only and untracked.
 
 | Todo | Outcome | Design | Plan | Decisions | Review | Status |
 |------|---------|--------|------|-----------|--------|--------|
+| 3866 | Moved the local-source `y email` CLI into the email module and added Gmail SMTP send: preview + exact fingerprint confirmation, single attempt, local duplicate ledger. Host retains tables, routes, credentials custody, sync route, and tag carrier. | - | `pages/plan-3866-email-send.md` | - | `pages/review-3866-email-send.md` | implemented, local |
 | 3270 | Migrated email presentation to the versioned `email` UI module while retaining host tables / HTTP / CLI / tag carrier; retired the `email.md` tab, host selection state, and legacy host surface after live parity approval. | - | `pages/plan-3270-email-module.md` | - | `pages/review-3270-email-host-prerequisites.md`; `pages/review-3270-email-module.md`; `pages/review-3270-email-host-retirement.md` | shipped |
 | 3287 | Host per-account sync route (`POST /api/email/account/{address}/sync`) with exclusive compare-and-set lock, sleeping-VM 503 probe, and `y email sync-gmail --json`; SDK build scans/hashes `code/y-module/shared/ui`. Module half adds per-account sync controls in the account manager and copy-thread-id buttons on thread rows + detail title, via the shared `shared/ui/copy-button.tsx` leaf also adopted by Tag. Shipped as email v2 / tag v11. | - | `pages/plan-3287-email-sync-copy-thread-id.md` | - | `pages/review-3287-email-sync-host.md`; `pages/review-3287-email-module-ui.md` | shipped |
 | 3292 | Moved the email tag carrier from `email_id` to the canonical thread key `COALESCE(thread_id, email_id)`; per-message tagging dropped entirely rather than kept as a second level. Host adds `/api/email/thread/{thread_id}/tags` (GET / POST / POST `remove`), `?tag=` on `/api/email/threads`, `y email tag list/add/rm`, thread-keyed filtering + hydration, and routes generic email tag writes through the same thread and vocabulary validation. Module half adds one shared `ThreadTags` editor on panel rows and the detail header (no per-message controls) and maps `/api/module/tag/add|remove` host errors to 404/400. Data migration `migration/3292_email_thread_tags.sql` is maintainer-applied. Shipped as host `b72fab7` + email v3 / tag v13. | - | `pages/plan-3292-email-thread-tag-carrier.md` | - | `pages/review-3292-email-thread-tag-carrier.md`; `pages/review-3292-email-tag-module.md` | shipped |
