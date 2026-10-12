@@ -59,6 +59,8 @@ async def list_todos(
     offset: int = Query(0),
     awaiting: Optional[str] = Query(None),
     include_history: bool = Query(False),
+    sort: Optional[Literal["todo_id", "priority", "updated_at"]] = Query(None),
+    order: Literal["asc", "desc"] = Query("desc"),
 ):
     timing = todo_list_timing.begin()
     ok = False
@@ -82,6 +84,8 @@ async def list_todos(
             limit=limit,
             offset=offset,
             include_history=include_history,
+            sort=sort,
+            order=order,
         )
         with todo_list_timing.stage("enrich"):
             todo_service.attach_next_wakeup(user_id, todos)

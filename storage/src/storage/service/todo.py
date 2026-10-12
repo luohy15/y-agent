@@ -37,6 +37,8 @@ def list_todos(
     limit: int = 50,
     offset: int = 0,
     include_history: bool = True,
+    sort: Optional[str] = None,
+    order: str = "desc",
 ) -> List[Todo]:
     """Preserve the repository's list result and optional internal trace flags."""
     return todo_repo.list_todos(
@@ -58,6 +60,8 @@ def list_todos(
         limit=limit,
         offset=offset,
         include_history=include_history,
+        sort=sort,
+        order=order,
     )
 
 

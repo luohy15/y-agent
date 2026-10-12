@@ -20,6 +20,39 @@ _PRIORITY_ORDER = case(
     else_=3,
 )
 
+# Explicit sidebar sort. asc is none/NULL, low, medium, high.
+_EXPLICIT_SORTS = frozenset({"todo_id", "priority", "updated_at"})
+_EXPLICIT_ORDERS = frozenset({"asc", "desc"})
+_EXPLICIT_PRIORITY_RANK = case(
+    (TodoEntity.priority == "high", 3),
+    (TodoEntity.priority == "medium", 2),
+    (TodoEntity.priority == "low", 1),
+    else_=0,
+)
+
+
+def _directed(expr, order: str):
+    return expr.desc() if order == "desc" else expr.asc()
+
+
+def _explicit_sort_clauses(sort: str, order: str, effective_updated):
+    """Pinned is applied by the caller. todo_id is ordered by length, then text.
+
+    That is numeric order for non-negative integers without leading zeros, and
+    stable for any other id. Other keys break ties by effective_updated desc,
+    then the same numeric todo_id desc.
+    """
+    if sort not in _EXPLICIT_SORTS:
+        raise ValueError(f"invalid sort: {sort}")
+    if order not in _EXPLICIT_ORDERS:
+        raise ValueError(f"invalid order: {order}")
+    updated = func.coalesce(effective_updated, 0)
+    id_len = func.length(TodoEntity.todo_id)
+    if sort == "todo_id":
+        return [_directed(id_len, order), _directed(TodoEntity.todo_id, order)]
+    primary = _directed(_EXPLICIT_PRIORITY_RANK if sort == "priority" else updated, order)
+    return [primary, updated.desc(), id_len.desc(), TodoEntity.todo_id.desc()]
+
 
 def _entity_to_dto(entity: TodoEntity, *, include_history: bool = True) -> Todo:
     # A summary caller must not touch the deferred column: reading it would
@@ -75,6 +108,8 @@ def list_todos(
     limit: int = 50,
     offset: int = 0,
     include_history: bool = True,
+    sort: Optional[str] = None,
+    order: str = "desc",
 ) -> List[Todo]:
     with get_db() as session:
         if todo_list_timing.active():
@@ -140,7 +175,10 @@ def list_todos(
             q = apply_time_filter(q, TodoEntity.completed_at, on=on, from_=from_, to=to)
         q = apply_time_filter(q, TodoEntity.created_at, on=created_on, from_=created_from, to=created_to)
         q = apply_time_filter(q, TodoEntity.updated_at, on=updated_on, from_=updated_from, to=updated_to)
-        if status == "pending":
+        if sort:
+            # Explicit sort replaces the status-dependent order. Pinned stays first.
+            q = q.order_by(TodoEntity.pinned.desc(), *_explicit_sort_clauses(sort, order, effective_updated))
+        elif status == "pending":
             # pending: two-group sorting
             # Group 0: has due_date within today + 14 days → sort by due_date ASC
             # Group 1: everything else → sort by priority ASC, effective_updated DESC
