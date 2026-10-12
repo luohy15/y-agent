@@ -2,7 +2,7 @@
 
 The rules in `AGENTS.md` and `skills/*/SKILL.md` are written against the `y` CLI. This page
 lists **the entire command surface those rules depend on**, so you can either run them as
-written (install the CLI, see `../docs/cli.md`) or rebind them to your own tooling.
+written (install the CLI, see `README.md`) or rebind them to your own tooling.
 
 There are only four groups. Everything else in `y` is unrelated to orchestration.
 

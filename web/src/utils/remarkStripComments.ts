@@ -2,8 +2,8 @@
 // `<!-- SCREENSHOT: chat -->` don't leak as visible text. react-markdown (no
 // rehype-raw) renders raw `html` mdast node values as escaped text, so a
 // standalone or inline comment shows up verbatim in docs / notes / chat. This
-// strips them before render. Used by every ReactMarkdown call site (DocsView,
-// SharedNote, MessageBubble) to keep the behavior DRY.
+// strips them before render. Used by every ReactMarkdown call site (SharedNote,
+// MessageBubble) to keep the behavior DRY.
 
 interface MdastNode {
   type: string;

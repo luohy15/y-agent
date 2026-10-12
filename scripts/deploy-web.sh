@@ -31,10 +31,6 @@ if [ ! -d "$STATIC_DIR" ]; then
     exit 1
 fi
 
-# Build docs output (copy + manifest.json) into the SPA build dir
-echo "Building docs into $STATIC_DIR/docs-content/..."
-bash scripts/build-docs.sh "$STATIC_DIR/docs-content"
-
 echo "Deploying static files to S3 bucket: $WEB_BUCKET_NAME"
 
 # Sync files to S3

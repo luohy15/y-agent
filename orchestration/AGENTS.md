@@ -4,7 +4,7 @@ These rules are loaded by **every** session in the tree. Skill-specific rules li
 `skills/<name>/SKILL.md` and are loaded only when that skill is active.
 
 Paths written as `$Y_AGENT_HOME/...` refer to your workspace root (the `Y_AGENT_HOME`
-config key, see `docs/cli.md`). Nothing below assumes a particular machine or user.
+config key). Nothing below assumes a particular machine or user.
 
 ## Task management (`y todo`)
 

@@ -35,13 +35,13 @@ Under the hood, a React web UI and Telegram feed a FastAPI API. The API queues w
 - **Extensible surfaces.** Hot-loadable modules can add UI, API, CLI, and data. Chat can render Mermaid diagrams, Vega-Lite charts, and sanitized SVG artifacts. See the [module contract](docs/prd/module-system.md).
 - **MCP connectors.** Connect remote HTTPS MCP servers (OAuth, static header, or no auth; Alpha Vantage first) once (OAuth via `y mcp connect` loopback login), approve tools explicitly, and every Claude Code session gets them from its next launch. Credentials stay central in the API and are never returned by any read; sessions only see approved tools through a launch-scoped gateway. See the [MCP connectors PRD](docs/prd/mcp-connectors.md) and [runbook](docs/mcp-connectors.md).
 
-See a [real task trace](https://yovy.app/t/6fc5c4) or browse the [capability reference](docs/capabilities.md).
+See a [real task trace](https://yovy.app/t/6fc5c4).
 
 ## Get started
 
 This is my personal system, not a hosted service or a supported product. It is not supported for public use or third-party deployment.
 
-If you're an advanced user who wants to deploy your own, use this project and the [self-hosting documentation](docs/self-host.md) as a reference, not a turnkey installation guide. Expect to adapt the code and infrastructure to your environment and maintain them yourself.
+If you're an advanced user who wants to deploy your own, use this project as a reference, not a turnkey installation guide. Expect to adapt the code and infrastructure to your environment and maintain them yourself.
 
 Domain modules live in a separate y-module repository; their source and published bundles are not included in this checkout. Backups, permissions, provider access, and infrastructure maintenance remain yours to manage.
 

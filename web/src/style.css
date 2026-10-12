@@ -226,6 +226,62 @@ html {
 }
 
 /*
+ * Landing tour (todo 3864, spec pages/design-3864.html). Scoped under .lt;
+ * colors follow the active Solarized theme.
+ */
+.lt { --lt-surface: #fffbef; font-family: var(--font-mono); font-size: 13px; line-height: 1.55; color: var(--color-sol-base0); }
+[data-theme="solarized-dark"] .lt { --lt-surface: #04313d; }
+.lt-stage, .lt-card { background: var(--lt-surface); }
+.lt-card { border: 1px solid var(--color-sol-base02); border-radius: 4px; padding: 10px 12px; }
+.lt-eyebrow { font-size: 11px; color: var(--color-sol-base00); letter-spacing: .04em; }
+.lt-step-title { color: var(--color-sol-base2); font-size: 15px; font-weight: 600; margin: 2px 0 6px; }
+.lt-real { border-left: 2px solid var(--color-sol-blue); padding-left: 8px; margin-top: 6px; color: var(--color-sol-base1); font-size: 12px; }
+.lt-edge { border-left: 2px solid var(--color-sol-base01); padding-left: 8px; margin-top: 6px; font-size: 12px; }
+.lt details summary { cursor: pointer; color: var(--color-sol-base00); font-size: 12px; margin-top: 8px; }
+.lt code { color: var(--color-sol-base2); background: var(--color-sol-base02); border-radius: 4px; padding: 0 4px; font-size: 12px; }
+.lt-hint { font-size: 11px; color: var(--color-sol-base00); }
+.lt-legend { width: 36px; height: 8px; display: inline-block; vertical-align: middle; margin-right: 6px; }
+.lt-btn { border: 1px solid var(--color-sol-base01); background: var(--color-sol-base03); border-radius: 4px; padding: 4px 10px; cursor: pointer; }
+.lt-btn:hover:not(:disabled) { background: var(--color-sol-base02); }
+.lt-btn.primary, .lt-btn[aria-pressed="true"] { border-color: var(--color-sol-blue); color: var(--color-sol-blue); }
+.lt-btn:disabled { opacity: .45; cursor: default; }
+.lt-btn:focus-visible, .lt-part:focus-visible { outline: 2px solid var(--color-sol-blue); outline-offset: 2px; }
+.lt-dot { width: 16px; height: 6px; border-radius: 999px; background: var(--color-sol-base02); border: 0; padding: 0; cursor: pointer; }
+.lt-dot.gap { margin-left: 8px; }
+.lt-dot.done { background: var(--color-sol-base01); }
+.lt-dot.now { background: var(--color-sol-blue); }
+.lt-part { cursor: pointer; transition: opacity .3s; }
+.lt-part .lt-body { fill: var(--color-sol-base03); stroke: var(--color-sol-base01); stroke-width: 1.5; transition: stroke .25s; }
+.lt-part .lt-depth { fill: var(--color-sol-base02); stroke: var(--color-sol-base01); stroke-width: 1; }
+.lt-part .lt-lbl { fill: var(--color-sol-base1); font: 600 12px var(--font-mono); }
+.lt-part .lt-sub, .lt-part .lt-status { fill: var(--color-sol-base00); font: 11px var(--font-mono); }
+.lt-part.active .lt-body { stroke: var(--color-sol-blue); stroke-width: 2.5; }
+.lt-part.active .lt-lbl { fill: var(--color-sol-base2); }
+.lt-part.active .lt-status { fill: var(--color-sol-blue); }
+.lt-part.picked .lt-body { stroke-dasharray: 5 3; }
+.lt-part.dim { opacity: .35; }
+.lt-glyph { fill: none; stroke: var(--color-sol-base00); stroke-width: 1.5; }
+.lt-part.active .lt-glyph { stroke: var(--color-sol-blue); }
+.lt-tagmark { fill: var(--color-sol-base00); font: 600 11px var(--font-mono); opacity: 0; transition: opacity .3s; }
+.lt-tagmark.on { opacity: 1; fill: var(--color-sol-blue); }
+.lt-link { fill: none; stroke: var(--color-sol-base01); stroke-width: 1.5; opacity: 0; transition: opacity .3s, stroke .25s; }
+.lt-link.on { opacity: 1; }
+.lt-link.hot { stroke: var(--color-sol-blue); stroke-width: 2; }
+.lt-link.tag { stroke-dasharray: 6 5; }
+.lt-link.read { stroke-dasharray: 1.5 4; stroke-linecap: round; stroke-width: 2; }
+.lt-elabel { fill: var(--color-sol-base00); font: 10px var(--font-mono); opacity: 0; transition: opacity .3s; }
+.lt-elabel.on { opacity: 1; }
+.lt-mover { opacity: 0; transition: opacity .25s; }
+.lt-mover.on { opacity: 1; }
+.lt-mover rect { fill: var(--lt-surface); stroke: var(--color-sol-blue); stroke-width: 1.5; }
+.lt-mover text { fill: var(--color-sol-base2); font: 11px var(--font-mono); }
+.lt-ghost { fill: var(--color-sol-base00); font: 11px var(--font-mono); opacity: 0; transition: opacity .4s; text-decoration: line-through; }
+.lt-ghost.on { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .lt-mover, .lt-part, .lt-link, .lt-ghost, .lt-tagmark, .lt-elabel { transition: none; }
+}
+
+/*
  * Host→module CSS contract (append-only class names):
  * .y-check / .y-field. Do not rename while older module versions remain
  * rollback-reachable. Ordinary utilities may still override per site.

@@ -91,10 +91,10 @@ executable rather than aspirational.
 
 ```bash
 uv tool install y-agent-cli          # or from source: uv tool install --force -e ./cli
-y login                              # a hosted instance, or self-host: ../docs/self-host.md
+y login                              # a hosted instance, or your own deployment
 ```
 
-Then put the config in your workspace root (`Y_AGENT_HOME`, see `../docs/cli.md`) and point
+Then put the config in your workspace root (`Y_AGENT_HOME`) and point
 the harness at it:
 
 ```bash

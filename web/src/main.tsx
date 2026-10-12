@@ -4,7 +4,6 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-route
 import { SWRConfig } from "swr";
 import App from "./App";
 import Landing from "./components/Landing";
-import DocsView from "./components/DocsView";
 import ShareView from "./components/ShareView";
 import PublicTraceApp from "./components/PublicTraceApp";
 import ShareNoteView from "./components/ShareNoteView";
@@ -49,8 +48,7 @@ createRoot(rootEl).render(
       <ThemeRouteSync />
       <Routes>
         <Route path="/" element={<RootGate />} />
-        <Route path="/docs" element={<DocsView />} />
-        <Route path="/docs/:slug" element={<DocsView />} />
+        <Route path="/docs/*" element={<Navigate to="/" replace />} />
         <Route path="/s/:shareId" element={<ShareView />} />
         <Route path="/share/:shareId" element={<ShareView />} />
         <Route path="/t/:shareId" element={<PublicTraceApp />} />
