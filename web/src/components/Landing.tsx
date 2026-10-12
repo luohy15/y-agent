@@ -21,12 +21,12 @@ export default function Landing() {
       <section className="max-w-[1200px] mx-auto px-6 pt-8 pb-12">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-3xl sm:text-4xl font-semibold text-sol-base2 tracking-tight">
-            Y agent：随处派发，一处全连
+            Dispatch anywhere. Connect everything.
           </h1>
-          <span className="border border-dashed border-sol-base01 rounded px-2 text-xs text-sol-base1">概念演示，非真实运行</span>
+          <span className="border border-dashed border-sol-base01 rounded px-2 text-xs text-sol-base1">Concept demo, not a live run</span>
         </div>
         <p className="mt-4 text-base sm:text-lg text-sol-base1 max-w-3xl leading-relaxed">
-          在任何设备上把任务交出去；你的待办、笔记、链接、邮件、日历、财务都在同一处，彼此能连起来。
+          Hand off a task from any device. Your todos, notes, links, email, calendar and finances live in one place, and they all link together.
         </p>
 
         <div className="mt-6 flex flex-wrap items-center gap-3">

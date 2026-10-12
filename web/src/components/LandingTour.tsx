@@ -9,11 +9,11 @@ function rich(text: string): ReactNode {
 const tr = ([x, y]: Pt) => `translate(${x}px, ${y}px)`;
 
 const CLIENT_BOXES: { key: string; y: number; label: string; sub: string; tx: number; glyph: ReactNode }[] = [
-  { key: "phone", y: 40, label: "手机", sub: "浏览器", tx: 62, glyph: <rect className="lt-glyph" x="32" y="52" width="20" height="36" rx="3" /> },
-  { key: "tablet", y: 124, label: "平板", sub: "浏览器", tx: 62, glyph: <rect className="lt-glyph" x="30" y="138" width="26" height="34" rx="3" /> },
-  { key: "laptop", y: 208, label: "电脑", sub: "浏览器", tx: 66, glyph: <><rect className="lt-glyph" x="31" y="224" width="26" height="18" rx="2" /><path className="lt-glyph" d="M27 248 H61" /></> },
-  { key: "tg", y: 292, label: "Telegram", sub: "私聊", tx: 66, glyph: <path className="lt-glyph" d="M31 322 L57 310 L51 338 L44 328 Z" /> },
-  { key: "cli", y: 376, label: "命令行", sub: "y chat", tx: 66, glyph: <path className="lt-glyph" d="M32 398 L40 405 L32 412 M44 414 H56" /> },
+  { key: "phone", y: 40, label: "Phone", sub: "browser", tx: 62, glyph: <rect className="lt-glyph" x="32" y="52" width="20" height="36" rx="3" /> },
+  { key: "tablet", y: 124, label: "Tablet", sub: "browser", tx: 62, glyph: <rect className="lt-glyph" x="30" y="138" width="26" height="34" rx="3" /> },
+  { key: "laptop", y: 208, label: "Laptop", sub: "browser", tx: 66, glyph: <><rect className="lt-glyph" x="31" y="224" width="26" height="18" rx="2" /><path className="lt-glyph" d="M27 248 H61" /></> },
+  { key: "tg", y: 292, label: "Telegram", sub: "private chat", tx: 66, glyph: <path className="lt-glyph" d="M31 322 L57 310 L51 338 L44 328 Z" /> },
+  { key: "cli", y: 376, label: "Terminal", sub: "y chat", tx: 66, glyph: <path className="lt-glyph" d="M32 398 L40 405 L32 412 M44 414 H56" /> },
 ];
 
 const EDGES: [string, string, string?][] = [
@@ -33,13 +33,13 @@ const EDGES: [string, string, string?][] = [
 ];
 
 const GHOSTS: [string, number, number][] = [
-  ["待办 app", 600, 40], ["笔记 app", 700, 40], ["稍后读", 800, 40],
-  ["RSS 阅读器", 600, 478], ["日历提醒", 720, 478], ["记账", 820, 478],
+  ["todo app", 600, 40], ["notes app", 700, 40], ["read-later", 800, 40],
+  ["RSS reader", 600, 478], ["reminders", 720, 478], ["budgeting", 820, 478],
 ];
 
 const MOVER_BOXES: Record<Mover, [string, number, number]> = {
-  msg: ["理一下下周", 116, 26], res: ["回答 ✓", 80, 26], cal: ["日程", 60, 22],
-  mail: ["待回", 60, 22], fin: ["持仓", 60, 22], note: ["周计划", 76, 22],
+  msg: ["plan next week", 116, 26], res: ["answer ✓", 80, 26], cal: ["events", 60, 22],
+  mail: ["inbox", 60, 22], fin: ["holdings", 68, 22], note: ["weekly plan", 90, 22],
 };
 
 export default function LandingTour() {
@@ -106,18 +106,18 @@ export default function LandingTour() {
     ["lt-link", extra, s.edges.includes(k) && "on", s.hot?.includes(k) && "hot"].filter(Boolean).join(" ");
   const status = (k: string) => s.st?.[k] ?? "";
   const pickedPart = picked ? PARTS[picked] : null;
-  const chapterLabel = s.ch === 0 ? "开场" : `${CHAPTERS[s.ch - 1].label} · 步骤 ${step} / ${last}`;
+  const chapterLabel = s.ch === 0 ? "Intro" : `${CHAPTERS[s.ch - 1].label} · step ${step} / ${last}`;
 
   return (
     <div className="lt grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-3.5">
       <div className="lt-stage border border-sol-base02 rounded">
         <svg viewBox="0 0 960 500" role="img" aria-labelledby="lt-title" className="block w-full h-auto">
-          <title id="lt-title">左侧多种设备把任务送到云端会话；右侧以任务为中心，笔记、链接、日历、提醒、实体、RSS、邮件、财务围成一圈并相互关联</title>
+          <title id="lt-title">On the left, several devices send a task to a cloud session; on the right, notes, links, calendar, reminders, entities, RSS, email and finance circle task T and link to each other</title>
 
           {/* ring of tags (dashed), gap at finance */}
           <path className={edgeClass("ring", "tag")} d="M563 370 A180 170 0 1 1 690 420" />
           {EDGES.map(([k, d, kind]) => <path key={k} className={edgeClass(k, kind)} d={d} />)}
-          <text className={`lt-elabel${s.edges.includes("trace") ? " on" : ""}`} x="525" y="243" textAnchor="middle">trace = 任务 ID</text>
+          <text className={`lt-elabel${s.edges.includes("trace") ? " on" : ""}`} x="525" y="243" textAnchor="middle">trace = task ID</text>
 
           {CLIENT_BOXES.map(c => (
             <g key={c.key} {...partProps(c.key, PARTS[c.key][0])}>
@@ -130,19 +130,19 @@ export default function LandingTour() {
             </g>
           ))}
 
-          <g {...partProps("cloud", "云端会话")}>
+          <g {...partProps("cloud", "Cloud session")}>
             <rect className="lt-depth" x="234" y="174" width="170" height="156" rx="4" />
             <rect className="lt-body" x="230" y="170" width="170" height="156" rx="4" />
             <path className="lt-glyph" d="M252 214 a12 12 0 0 1 22 -6 a10 10 0 0 1 18 6 a8 8 0 0 1 0 14 h-40 a8 8 0 0 1 0 -14 z" />
-            <text className="lt-lbl" x="244" y="252">云端会话</text>
+            <text className="lt-lbl" x="244" y="252">Cloud session</text>
             <text className="lt-sub" x="244" y="268">EC2 · Claude Code</text>
             <text className="lt-status" x="244" y="300">{status("cloud")}</text>
           </g>
 
-          <g {...partProps("todo", "任务 T")}>
+          <g {...partProps("todo", "Task T")}>
             <rect className="lt-depth" x="654" y="230" width="80" height="44" rx="4" />
             <rect className="lt-body" x="650" y="226" width="80" height="44" rx="4" />
-            <text className="lt-lbl" x="690" y="246" textAnchor="middle">任务 T</text>
+            <text className="lt-lbl" x="690" y="246" textAnchor="middle">Task T</text>
             <text className="lt-sub" x="690" y="262" textAnchor="middle">todo</text>
           </g>
           {SATS.map(({ key, label, sub, x, y }) => (
@@ -175,23 +175,23 @@ export default function LandingTour() {
               <button key={c.ch} type="button" className="lt-btn" aria-pressed={s.ch === c.ch} onClick={() => go(c.step)}>{c.label}</button>
             ))}
           </div>
-          <div className="flex gap-1 mx-1.5" role="tablist" aria-label="步骤">
+          <div className="flex gap-1 mx-1.5" role="tablist" aria-label="Steps">
             {STEPS.map((x, i) => (
               <button
                 key={i}
                 type="button"
                 role="tab"
                 aria-selected={i === step}
-                aria-label={`步骤 ${i}：${x.t}`}
+                aria-label={`Step ${i}: ${x.t}`}
                 className={["lt-dot", i && x.ch !== STEPS[i - 1].ch && "gap", i < step && "done", i === step && "now"].filter(Boolean).join(" ")}
                 onClick={() => go(i)}
               />
             ))}
           </div>
           <span className="flex-1" />
-          <button type="button" className="lt-btn" aria-label="上一步" disabled={step === 0} onClick={() => go(step - 1)}>←</button>
-          <button type="button" className="lt-btn primary" disabled={step === last} onClick={() => go(step + 1)}>下一步 →</button>
-          <button type="button" className="lt-btn" onClick={replay}>重播</button>
+          <button type="button" className="lt-btn" aria-label="Previous" disabled={step === 0} onClick={() => go(step - 1)}>←</button>
+          <button type="button" className="lt-btn primary" disabled={step === last} onClick={() => go(step + 1)}>Next →</button>
+          <button type="button" className="lt-btn" onClick={replay}>Replay</button>
         </div>
       </div>
 
@@ -201,29 +201,29 @@ export default function LandingTour() {
           <div className="lt-step-title" data-testid="step-title">{s.t}</div>
           <div>{s.x}</div>
           <details>
-            <summary>机制细节</summary>
-            <div className="lt-real">真实对应：{rich(s.r)}</div>
-            {s.e && <div className="lt-edge">边界：{rich(s.e)}</div>}
+            <summary>How it works</summary>
+            <div className="lt-real">In the code: {rich(s.r)}</div>
+            {s.e && <div className="lt-edge">Limits: {rich(s.e)}</div>}
           </details>
         </div>
         <div className="lt-card">
-          <div className="lt-eyebrow">连线</div>
+          <div className="lt-eyebrow">Lines</div>
           <div className="flex flex-col gap-1 mt-1.5 text-xs">
-            <div><svg className="lt-legend" viewBox="0 0 36 8"><path d="M0 4 H36" stroke="currentColor" strokeWidth="1.5" /></svg>直接关联（关系表 / 字段）</div>
-            <div><svg className="lt-legend" viewBox="0 0 36 8"><path d="M0 4 H36" stroke="currentColor" strokeWidth="1.5" strokeDasharray="6 5" /></svg>共享标签</div>
-            <div><svg className="lt-legend" viewBox="0 0 36 8"><path d="M2 4 H36" stroke="currentColor" strokeWidth="2" strokeDasharray="1.5 4" strokeLinecap="round" /></svg>会话读写</div>
+            <div><svg className="lt-legend" viewBox="0 0 36 8"><path d="M0 4 H36" stroke="currentColor" strokeWidth="1.5" /></svg>Direct link (relation table / field)</div>
+            <div><svg className="lt-legend" viewBox="0 0 36 8"><path d="M0 4 H36" stroke="currentColor" strokeWidth="1.5" strokeDasharray="6 5" /></svg>Shared tag</div>
+            <div><svg className="lt-legend" viewBox="0 0 36 8"><path d="M2 4 H36" stroke="currentColor" strokeWidth="2" strokeDasharray="1.5 4" strokeLinecap="round" /></svg>Session reads / writes</div>
           </div>
         </div>
         <div className="lt-card">
-          <div className="lt-eyebrow">部件</div>
-          <div className="lt-step-title" data-testid="part-title">{pickedPart ? pickedPart[0] : "点选任一部件"}</div>
+          <div className="lt-eyebrow">Parts</div>
+          <div className="lt-step-title" data-testid="part-title">{pickedPart ? pickedPart[0] : "Click any part"}</div>
           {pickedPart ? (
             <div>{rich(pickedPart[1])}<div className="lt-real">{rich(pickedPart[2])}</div></div>
           ) : (
-            <div className="lt-hint">查看它是什么、对应哪个真实功能。</div>
+            <div className="lt-hint">See what it is and which real feature it maps to.</div>
           )}
         </div>
-        <div className="lt-hint">键盘：← → 切换步骤，R 重播；Tab 聚焦部件后 Enter 查看。</div>
+        <div className="lt-hint">Keys: ← → to step, R to replay; Tab to a part, then Enter.</div>
       </aside>
     </div>
   );
