@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import DOMPurify from "dompurify";
 import { artifactLabel, artifactPanelKey, mountableUiArtifacts, type Module } from "../host/artifacts";
 
 export interface PanelItem<Key extends string = string> {
@@ -43,7 +44,39 @@ export const MODULE_ICONS: Record<string, ReactNode> = {
   camera: <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" /><circle cx="12" cy="13" r="3" /></svg>,
 };
 
+// Inline module glyphs (browser contract v27, todo 3861). Keyed by the stored
+// markup so a rail re-render does not re-sanitize the same string.
+const inlineIconCache = new Map<string, ReactNode>();
+
+function sanitizeModuleIcon(svg: string): string {
+  // No custom ALLOWED_URI_REGEXP: DOMPurify would then reject path `d` and
+  // viewBox the same way ArtifactRenderer's mermaid sanitizer had to avoid.
+  return DOMPurify.sanitize(svg, {
+    USE_PROFILES: { svg: true },
+    FORBID_TAGS: ["script", "iframe", "object", "embed", "foreignObject"],
+    FORBID_ATTR: [
+      "onerror", "onload", "onclick", "onmouseover", "onfocus",
+      "src", "href", "xlink:href", "style", "width", "height",
+    ],
+  });
+}
+
 export function artifactIcon(icon?: string | null): ReactNode {
+  if (icon && icon.startsWith("<svg")) {
+    const cached = inlineIconCache.get(icon);
+    if (cached) return cached;
+    const clean = sanitizeModuleIcon(icon);
+    const node = clean
+      ? (
+        <span
+          className="[&>svg]:w-[18px] [&>svg]:h-[18px]"
+          dangerouslySetInnerHTML={{ __html: clean }}
+        />
+      )
+      : DEFAULT_MODULE_ICON;
+    inlineIconCache.set(icon, node);
+    return node;
+  }
   return (icon && MODULE_ICONS[icon]) || DEFAULT_MODULE_ICON;
 }
 

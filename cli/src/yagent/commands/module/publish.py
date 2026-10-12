@@ -10,9 +10,11 @@ from pathlib import Path
 import click
 import httpx
 
+from storage.service.module_icon import normalize_module_icon
+
 from ._api import publish_bundle, resolve_or_create
 from ._build import build_api_bundle, build_artifact
-from ._paths import meta_path, source_path, validate_slug
+from ._paths import meta_path, source_dir, source_path, ui_dir, validate_slug
 from ._sdk import load_contract
 
 
@@ -67,7 +69,7 @@ def module_publish(slug, no_activate, label, icon, desc, trace_id):
 
     meta = _load_meta(slug)
     label = label if label is not None else meta.get("label")
-    icon = icon if icon is not None else meta.get("icon", "box")
+    icon = _resolve_icon(slug, icon if icon is not None else meta.get("icon", "box"))
     min_backend_version = meta.get("min_backend_version")
     if min_backend_version is not None:
         try:
@@ -90,11 +92,6 @@ def module_publish(slug, no_activate, label, icon, desc, trace_id):
     except CarrierConflict as exc:
         raise click.ClickException(str(exc)) from exc
     contract = load_contract()
-    valid_icons = contract["icons"]
-    if icon not in valid_icons:
-        raise click.ClickException(
-            f"module icon must be one of {', '.join(valid_icons)}, got {icon!r}"
-        )
 
     has_ui = source_path(slug).is_file()
     ui_manifest = None
@@ -188,6 +185,51 @@ def module_publish(slug, no_activate, label, icon, desc, trace_id):
         f"Published {slug} v{version['version_no']} ({state}) "
         f"{' '.join(parts)} ({', '.join(size_bits)})"
     )
+
+
+def _resolve_icon(slug: str, raw: str) -> str:
+    """Registry key, or a ui/*.svg path read and normalized.
+
+    ``--icon`` and module.json share this. ``y module create --icon`` stays
+    key-only and does not call it.
+    """
+    if not isinstance(raw, str) or raw == "":
+        raise click.ClickException(
+            f"module icon must be a registry key or a ui/*.svg path, got {raw!r}"
+        )
+    if raw.endswith(".svg"):
+        return _read_svg_icon(slug, raw)
+    valid_icons = load_contract()["icons"]
+    if raw not in valid_icons:
+        raise click.ClickException(
+            f"module icon must be one of {', '.join(valid_icons)}, or a ui/*.svg path, got {raw!r}"
+        )
+    return raw
+
+
+def _read_svg_icon(slug: str, raw: str) -> str:
+    rel = Path(raw)
+    if rel.is_absolute() or ".." in rel.parts:
+        raise click.ClickException(
+            f"module icon SVG must be a relative path under ui/, got {raw!r}"
+        )
+    root = source_dir(slug).resolve()
+    ui = ui_dir(slug).resolve()
+    full = (root / rel).resolve()
+    try:
+        full.relative_to(ui)
+    except ValueError as exc:
+        raise click.ClickException(
+            f"module icon SVG must live under ui/, got {raw!r}"
+        ) from exc
+    if not full.is_file():
+        raise click.ClickException(f"module icon SVG not found: {raw}")
+    try:
+        return normalize_module_icon(full.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    except OSError as exc:
+        raise click.ClickException(f"module icon SVG not readable: {raw}") from exc
 
 
 def _load_meta(slug: str) -> dict:

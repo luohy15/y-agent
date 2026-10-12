@@ -90,6 +90,12 @@ Contract v26 (todo 3869) adds no new export. The activity bar is opt-in: the
 for older modules. `module.setActivityBarVisibility` (`{slug, visible}`) now
 means pin (`visible: true`) or unpin; the host ignores it for `module`, which is
 always on the rail. A module that reads `pinnedSlugs` sets `min_host_version: 26`.
+Contract v27 (todo 3861) adds no new export and no new icon key. A module may
+ship its sidebar glyph as `ui/icon.svg` (`module.json` `"icon": "ui/icon.svg"`);
+publish stores the normalized markup on `module_version.icon`. The host renders
+a value that starts with `<svg` as that glyph. An older host treats the markup
+as an unknown registry key and falls back to `box`. A module that publishes an
+SVG icon sets `min_host_version: 27`.
 See `docs/prd/module-system.md`, *The `shell`
 surface and the renderer seam*, before bundling anything heavy into a module.
 

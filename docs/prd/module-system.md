@@ -1233,18 +1233,36 @@ module_version
 Both parts are nullable, which is what makes "a UI artifact is a module with
 only a UI part" true in the schema rather than only in prose.
 
-**`icon` is a validated host registry key.** `module.json` declares the icon
-stored on every immutable `module_version`; `y module publish` rejects unknown
-keys before building. The valid keys are `chart`, `calendar`, `list`, `bot`,
+**`icon` is either a host registry key or a module SVG.** `module.json`
+`"icon"` is a registry key, or a path ending in `.svg` under `ui/` (for example
+`"ui/icon.svg"`). `y module publish` checks a key against the frozen registry
+before building, and reads an SVG path from the module directory, rejecting
+`..` and anything outside `ui/`. `--icon` accepts either form. The normalized
+markup is stored on the existing unbounded `module_version.icon` column (no new
+column, no migration). A stored value that starts with `<svg` is an inline
+glyph; anything else is a registry key. The same normalizer runs on API publish
+and returns 400 for a bad value. An SVG must parse as XML, use an `svg` root in
+the SVG namespace, include `viewBox`, stay at or under 4096 bytes after
+whitespace collapse, and use only `svg`, `g`, `path`, `circle`, `ellipse`,
+`rect`, `line`, `polyline`, and `polygon`. `on*` attributes, `href`,
+`xlink:href`, and `style` are rejected. `width`, `height`, an XML declaration,
+and comments are stripped. The host renders inline glyphs through DOMPurify's
+SVG profile into an 18×18 span; an empty sanitize result falls back to `box`.
+Browser contract **v26 → v27** (todo 3861) adds no `@y/host` export and no
+registry key. An older host treats markup as an unknown key and shows `box`.
+New glyphs come from modules. The registry stays valid for rollback-reachable
+versions and is not extended.
+
+The registry keys are `chart`, `calendar`, `list`, `bot`,
 `todo`, `file`, `file-text`, `package`, `box`, `message`, `tag`, `activity`,
 `mail`, `bell`, `clock`, `utensils`, `entity`, `git-branch`, `pencil`, `link`,
 `rss`, and `camera`. `bell` and `clock` arrived with browser contract v20; `entity` and
 `git-branch` with v21; `pencil` with v22; `link` and `rss` with v23 (todo 3708);
 `camera` with v25 (todo 3838). `box` is the
 `y module create --icon` default and the host rendering fallback for unknown
-legacy persisted values. The host owns the SVG registry so every module stays
-small and existing published versions can gain a corrected glyph through an
-ordinary host deploy.
+legacy persisted values. `y module create --icon` stays key-only. The host
+still owns the registry SVGs, so an existing key can gain a corrected glyph
+through an ordinary host deploy.
 
 **The CLI part is deliberately not versioned.** It is never published and never
 stored; it is always read from local source on disk. This is a real asymmetry and
@@ -1789,4 +1807,5 @@ hook, both of which cost more than the single-user failure mode justifies.
 | 3780 | Synchronous, fail-open API lifespan prewarm of the maintainer's active `chat` module (pool ping, `configure_mappers`, loader load; 1.5s soft budget), and `resolve_active_version` backed by one joined `get_active_version_by_slug` read per request (the 3556 per-request permission invariant is kept; no TTL cache) | - | `pages/plan-3780-chat-list-latency.md` | `pages/impl-3780-chat-list-latency.md` | `pages/review-3780-chat-list-latency.md` | reviewed and approved (round 2); publication pending authorization |
 | 3794 | Shared retry-later (fast-ack then retry) contract: 503 + `Retry-After` for not-ready, 200 + staleness flag for stale. Shared build-time UI helper `code/y-module/shared/ui/retry-later.ts`; File wake retry moved onto it (file v47, no behavior change). Finance holdings, investment-returns and fire-progress use the 250ms quote budget, add `POST /api/module/finance/realtime-quotes/refresh`, and the viewer refreshes stale quotes once per 60s with a "Prices as of" chip (finance v54, `d05b679`). No host code or contract bump. D7 (422 with empty cache) left unwired. | - | `pages/plan-3794-retry-later-pattern.md` | `pages/impl-3794-retry-later.md`, `pages/impl-3794-retry-later-doc.md` | `pages/review-3794-retry-later.md`, `pages/review-3794-retry-later-doc.md` | finance v54 + file v47 published; awaiting Roy's manual acceptance |
 | 3808 | `GET /api/module/list` loads owner modules and active versions in one outer join (`list_modules_with_active_versions`) instead of one `get_version` per module. The maintainer lookup stays per request. Response projection is unchanged. No migration. | - | `pages/plan-3808-module-list-latency.md` | `pages/impl-3808-module-list-latency.md` | `pages/review-3808-module-list-latency.md` | reviewed; publication and post-deploy 24h verification pending |
+| 3861 | Module-owned sidebar icons. `module.json` `icon` is a registry key or a `ui/*.svg` path such as `ui/icon.svg`. Publish stores normalized SVG markup on the existing `module_version.icon` column (no migration). The host renders a value that starts with `<svg` at 18×18 after DOMPurify; unknown keys and an empty sanitize result stay `box`. Browser contract **v26 → v27**, no new `@y/host` export, registry frozen. Learning's book glyph is deferred until learning v2. | - | `pages/plan-3861-module-icon.md` | - | - | implemented; Learning glyph not in this host change |
 | 3869 | Opt-in module activity bar. The rail shows a module only if pinned, plus `module` (always shown). Host stores pinned slugs at `user_preference.key = activityBarPinnedModules` (unset = empty, no seeding; legacy `activityBarHiddenModules` left untouched for rollback). The `module` intent gains `pinnedSlugs` and keeps a derived `hiddenSlugs`; the Modules row action becomes Pin to / Unpin from activity bar. Browser contract **v25 → v26**; no endpoint, capability or schema migration. Module half in `code/y-module/module`. | - | `pages/plan-3869-module-activity-bar-pin.md` | `pages/impl-3869-module-activity-bar-pin.md` | `pages/review-3869-module-activity-bar-pin.md` | reviewed local changes; uncommitted, host deploy and module publish not authorized |

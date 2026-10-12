@@ -39,6 +39,7 @@ from storage.database.base import get_engine
 from storage.dto.module import Module
 from storage.dto.module_version import ModuleVersion
 from storage.service import module as module_service
+from storage.service.module_icon import normalize_module_icon
 
 router = APIRouter(prefix="/module")
 
@@ -373,6 +374,11 @@ async def publish(
         ))
     except CarrierConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if icon is not None:
+        try:
+            icon = normalize_module_icon(icon)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # File(None) defaults are not None when the endpoint is invoked directly
     # (unit tests); only treat values that actually look like UploadFile.
