@@ -231,7 +231,7 @@ export default function ChatFallbackView({
             aria-label="Send"
             onClick={() => void send()}
             disabled={sending || !draft.trim()}
-            className="ml-2 px-2 py-0.5 bg-sol-cyan text-sol-base03 rounded text-xs font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-default shrink-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sol-cyan"
+            className="ml-2 self-center h-5 max-h-5 px-2 leading-none bg-sol-cyan text-sol-base03 rounded text-xs font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-default shrink-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sol-cyan"
           >
             {sending ? "…" : "Send"}
           </button>
