@@ -22,6 +22,8 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "boto3>=1.34.0",
     "fava>=1.30.12",
+    "Pillow==12.1.1",
+    "pillow-heif==1.8.0",
 ]
 
 [dependency-groups]

@@ -174,7 +174,9 @@ into a published module's JSON routes (policy in `agent.module_json`), tag
 helpers `tag_memberships`, `tag_ids_for_exact_tag` (cursor-paged),
 `tag_delete_memberships`, the owner-locked `module_tag_transaction` for
 carrier deletion, plus optional `require_existing` on `tag_add`.
-That bumps 22 to 23. Photo requires v23; deploy this host before publishing it.
+That bumps 22 to 23. Todo 3879 bumps 23 to 24: no new capability, the API now
+ships Pillow and pillow-heif so the Photo module can decode on its request path.
+Photo requires v24; deploy this host before publishing it.
 Modules declare the minimum version they use and an
 older host rejects their bundle. Every later addition to the surface above
 bumps the version and, for modules that need it, `min_backend_version`.
@@ -194,7 +196,7 @@ from sqlalchemy.orm import Session
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-BACKEND_CONTRACT_VERSION = 23
+BACKEND_CONTRACT_VERSION = 24
 
 # Wall-clock budget for the wake="nowait" readiness check (todo 3777).
 NOWAIT_BUDGET_SECONDS = 1.0

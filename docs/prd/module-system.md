@@ -861,6 +861,11 @@ module that declares `min_backend_version: 23` or `tag_carriers`. Roll those
 modules back before rolling the host below v23. Photo processing itself stays
 in the module; the host does not decode images.
 
+Todo 3879 bumps the backend contract from 23 to **24**. No host capability is
+added: the API image ships Pillow 12.1.1 and `pillow-heif==1.8.0` so the Photo
+module can decode in-process on its own request path. Deploy this host before
+publishing a Photo version that declares `min_backend_version: 24`.
+
 Frozen signatures (`agent.module_host`):
 
 - `photo_authorize_upload(user_id, upload_id, *, sha256_b64, byte_count, filename, file_mtime) -> {upload_id, variant, post, expires_in, cache_control, filename, file_mtime, byte_count}`
@@ -1021,17 +1026,23 @@ marker under that id prefix and is safe to retry. Abandoned-version sweeping
 is a release job, not this host slice: do not add a lifecycle rule that
 expires current photo versions.
 
-Decoder dependencies for the module's later processing step are pinned in the
-CLI lock set: Pillow (locked 12.1.1) and `pillow-heif==1.8.0`. The host does
-not import them on the request path.
+Decoder dependencies are pinned in both the CLI and API lock sets: Pillow
+(locked 12.1.1) and `pillow-heif==1.8.0` (todo 3879). The host itself does not
+import them; only the Photo module does.
 
-Job operation, when the Photo module lands: durable Photo-owned rows, consumed
-by bounded `y photo process-pending` VM runs. Not API background tasks, not a
-worker-loaded module, not a browser conversion. A crash must leave the job
+Job operation: durable Photo-owned rows. The CLI derives locally at upload,
+import and retry. A web upload is processed by the Photo module synchronously
+inside the upload-complete or retry request under a bounded deadline, in a
+resource-limited child process. `y photo process-pending` remains a manual
+drain command, not a schedule. Not API background tasks outliving the request,
+not a worker-loaded module, not a browser conversion. A crash must leave the job
 leased or retryable, never a second ready original. Deletion writes a tombstone
 before object deletion and retries independently. Rollback of the first Photo
-version is disable, not an older version. Host rollback below v23 is forbidden
-while a published module still declares backend floor 23 or `tag_carriers`.
+version is disable, not an older version. Host rollback below v24 is forbidden
+while an active module version still declares backend floor 24: reactivate the
+pre-release Photo version first (and re-enable the retired routine if needed),
+only then lower the host. Tag carriers need v23, not v24, so `tag_carriers`
+alone does not block a return to host v23.
 The manual DDL is expand-only and stays applied across that rollback.
 
 **v1 has shipped and been
