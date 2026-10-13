@@ -4,13 +4,19 @@ from datetime import datetime, timezone
 import click
 from tabulate import tabulate
 
+from storage.dto.user_cookies import normalize_cookie_expiry
+
 from yagent.api_client import api_request
 
 
 def _format_expiry(value: int | None) -> str:
+    value = normalize_cookie_expiry(int(value or 0))
     if not value:
         return "-"
-    label = datetime.fromtimestamp(value, timezone.utc).strftime("%Y-%m-%d")
+    try:
+        label = datetime.fromtimestamp(value, timezone.utc).strftime("%Y-%m-%d")
+    except (OverflowError, OSError, ValueError):
+        return f"INVALID {value}"
     if value < int(time.time()) + 7 * 24 * 3600:
         return f"STALE {label}"
     return label

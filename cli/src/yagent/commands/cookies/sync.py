@@ -7,11 +7,15 @@ from typing import Iterable
 
 import click
 
+from storage.dto.user_cookies import normalize_cookie_expiry
+
 from yagent.api_client import api_request
 
 
 YOUTUBE_URL = "https://www.youtube.com/"
 DEFAULT_DOMAINS = ("youtube.com",)
+# Any one of these means the export carries a signed-in YouTube session.
+YOUTUBE_SESSION_COOKIES = {"LOGIN_INFO", "SID", "__Secure-1PSID", "__Secure-3PSID"}
 
 
 def _cookie_applies(cookie: Cookie, domain: str) -> bool:
@@ -50,7 +54,7 @@ def _browser_cookie3_to_netscape(browser: str, domains: Iterable[str]) -> str:
                 continue
             seen.add(key)
             include_subdomains = cookie.domain_initial_dot or cookie.domain.startswith(".")
-            expires = int(cookie.expires or 0)
+            expires = normalize_cookie_expiry(int(cookie.expires or 0))
             lines.append("\t".join([
                 cookie.domain,
                 _format_bool(include_subdomains),
@@ -64,6 +68,12 @@ def _browser_cookie3_to_netscape(browser: str, domains: Iterable[str]) -> str:
 
 
 def _extract_with_ytdlp(browser: str) -> str:
+    """Export the browser's full cookie jar via yt-dlp.
+
+    yt-dlp saves the jar when it exits, even when the YouTube request itself
+    fails (bot check, network), so a written jar is kept regardless of the exit
+    code. Raises FileNotFoundError when yt-dlp is not installed.
+    """
     fd, tmp_path = tempfile.mkstemp(prefix="y-cookies-", suffix=".txt")
     os.close(fd)
     Path(tmp_path).unlink(missing_ok=True)
@@ -78,11 +88,11 @@ def _extract_with_ytdlp(browser: str) -> str:
             "--quiet",
             YOUTUBE_URL,
         ], capture_output=True, text=True, timeout=60)
-        if result.returncode != 0:
-            raise RuntimeError(result.stderr.strip() or "yt-dlp failed")
         path = Path(tmp_path)
         if not path.exists() or path.stat().st_size == 0:
-            raise RuntimeError("yt-dlp did not write cookies")
+            raise RuntimeError(result.stderr.strip() or f"yt-dlp exited {result.returncode} without writing cookies")
+        if result.returncode != 0:
+            click.echo(f"yt-dlp request failed but cookies were exported: {result.stderr.strip()}", err=True)
         return path.read_text(encoding="utf-8")
     finally:
         Path(tmp_path).unlink(missing_ok=True)
@@ -104,13 +114,13 @@ def _filter_netscape(cookies_txt: str, domain: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _cookie_count(cookies_txt: str) -> int:
-    return sum(
-        1 for line in cookies_txt.splitlines()
+def _cookie_names(cookies_txt: str) -> list[str]:
+    return [
+        line.split("\t")[5] for line in cookies_txt.splitlines()
         if line.strip()
         and (not line.startswith("#") or line.startswith("#HttpOnly_"))
         and len(line.split("\t")) >= 7
-    )
+    ]
 
 
 @click.command(name="sync")
@@ -120,15 +130,25 @@ def cookies_sync(domains: tuple[str, ...], browser: str):
     """Sync local browser cookies to the y-agent API."""
     try:
         raw_cookies = _extract_with_ytdlp(browser)
-    except Exception as exc:
-        click.echo(f"yt-dlp cookie export failed ({exc}); falling back to browser_cookie3", err=True)
+    except FileNotFoundError:
+        # browser_cookie3 may miss signed-in cookies; only used without yt-dlp.
+        click.echo("yt-dlp not found; falling back to browser_cookie3 (may miss signed-in cookies)", err=True)
         raw_cookies = _browser_cookie3_to_netscape(browser, domains)
+    except Exception as exc:
+        raise click.ClickException(f"yt-dlp cookie export failed: {exc}")
 
     for domain in domains:
         cookies_txt = _filter_netscape(raw_cookies, domain)
-        count = _cookie_count(cookies_txt)
+        names = _cookie_names(cookies_txt)
+        count = len(names)
         if count == 0:
             raise click.ClickException(f"No cookies found for {domain}")
+        if domain.lstrip(".").lower() == "youtube.com" and not YOUTUBE_SESSION_COOKIES & set(names):
+            click.echo(
+                f"Warning: no signed-in YouTube session cookies ({', '.join(sorted(YOUTUBE_SESSION_COOKIES))}) "
+                f"in the {browser} export; check the browser profile is logged in",
+                err=True,
+            )
         resp = api_request("PUT", "/api/cookies", json={"domain": domain, "cookies_txt": cookies_txt})
         data = resp.json()
         click.echo(f"Synced {data.get('count', count)} cookies for {data.get('domain', domain)}")

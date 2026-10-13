@@ -1,6 +1,6 @@
 from typing import List, Optional, Tuple
 
-from storage.dto.user_cookies import UserCookies
+from storage.dto.user_cookies import UserCookies, normalize_cookie_expiry
 from storage.repository import user_cookies as user_cookies_repo
 
 
@@ -23,7 +23,7 @@ def _parse_cookie_stats(cookies_txt: str) -> Tuple[int, Optional[int]]:
             continue
         count += 1
         try:
-            expiry = int(parts[4])
+            expiry = normalize_cookie_expiry(int(parts[4]))
         except ValueError:
             continue
         if expiry > 0:
