@@ -12,11 +12,7 @@ from storage.dto.user_cookies import SESSION_COOKIE_NAMES, normalize_cookie_expi
 from yagent.api_client import api_request
 
 
-YOUTUBE_URL = "https://www.youtube.com/"
 DEFAULT_DOMAINS = ("youtube.com",)
-# yt-dlp writes the jar only on exit; a stalled YouTube request (slow proxy)
-# would otherwise hold it past the subprocess timeout and lose the export.
-YTDLP_SOCKET_TIMEOUT = "10"
 
 
 def _cookie_applies(cookie: Cookie, domain: str) -> bool:
@@ -71,9 +67,11 @@ def _browser_cookie3_to_netscape(browser: str, domains: Iterable[str]) -> str:
 def _extract_with_ytdlp(browser: str) -> str:
     """Export the browser's full cookie jar via yt-dlp.
 
-    yt-dlp saves the jar when it exits, even when the YouTube request itself
-    fails (bot check, network, socket timeout), so a written jar is kept
-    regardless of the exit code. Raises FileNotFoundError when yt-dlp is not installed.
+    Runs yt-dlp without a URL: it loads the browser jar, saves it on exit and
+    then fails with a usage error, so no network request is made (a YouTube
+    request stalled behind a slow proxy used to hit the timeout and lose the
+    jar). The exit code is therefore ignored; only a written jar counts.
+    Raises FileNotFoundError when yt-dlp is not installed.
     """
     fd, tmp_path = tempfile.mkstemp(prefix="y-cookies-", suffix=".txt")
     os.close(fd)
@@ -83,18 +81,11 @@ def _extract_with_ytdlp(browser: str) -> str:
             "yt-dlp",
             "--cookies-from-browser", browser,
             "--cookies", tmp_path,
-            "--socket-timeout", YTDLP_SOCKET_TIMEOUT,
-            "--skip-download",
-            "--simulate",
             "--no-warnings",
-            "--quiet",
-            YOUTUBE_URL,
         ], capture_output=True, text=True, timeout=60)
         path = Path(tmp_path)
         if not path.exists() or path.stat().st_size == 0:
             raise RuntimeError(result.stderr.strip() or f"yt-dlp exited {result.returncode} without writing cookies")
-        if result.returncode != 0:
-            click.echo(f"yt-dlp request failed but cookies were exported: {result.stderr.strip()}", err=True)
         return path.read_text(encoding="utf-8")
     finally:
         Path(tmp_path).unlink(missing_ok=True)
