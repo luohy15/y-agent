@@ -16,6 +16,8 @@ import base64
 import binascii
 import json
 import os
+import unicodedata
+import urllib.parse
 import uuid
 from typing import Any, Optional
 
@@ -393,21 +395,51 @@ def _read_version_pin(client, bucket: str, key: str) -> Optional[str]:
     return text
 
 
+_FILENAME_MAX_BYTES = 255
+
+
+def content_disposition(name: str) -> str:
+    """Attachment header for a stored filename: ASCII fallback plus RFC 5987 UTF-8 name."""
+    clean = "".join(c for c in name if unicodedata.category(c) not in ("Cc", "Cf", "Zl", "Zp")) or "photo"
+    ascii_name = "".join(
+        "_" if not 0x20 <= ord(c) <= 0x7E or c in '"\\;%' else c
+        for c in unicodedata.normalize("NFKD", clean)
+        if unicodedata.category(c) != "Mn"
+    )
+    if not ascii_name.strip(" ._"):
+        ascii_name = "photo"
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{urllib.parse.quote(clean, safe='')}"
+
+
+def _validate_filenames(filenames, photo_ids: list[str], variant: str) -> None:
+    if variant != "original":
+        raise PhotoStoreError("Filenames apply to the original only.")
+    if not isinstance(filenames, dict) or set(filenames) != set(photo_ids):
+        raise PhotoStoreError("Filenames must map exactly the requested photo ids.")
+    for name in filenames.values():
+        if not isinstance(name, str) or not name or "\x00" in name or len(name.encode("utf-8")) > _FILENAME_MAX_BYTES:
+            raise PhotoStoreError("A filename must be 1 to 255 UTF-8 bytes without NUL.")
+
+
 def authorize_get_batch(
     user_id: int,
     photo_ids: list[str],
     *,
     variant: str,
+    filenames: Optional[dict[str, str]] = None,
     client=None,
 ) -> dict[str, Any]:
     """Sign 300s GETs for the pinned versions of up to 100 ids, auditing the bucket once.
 
     Order follows the input. Only an absent pin lands in missing; config,
-    transport and malformed-pin failures fail the whole call.
+    transport and malformed-pin failures fail the whole call. For the original,
+    `filenames` (exactly the ids) makes the browser save the file as an attachment.
     """
     public = _require_owner(user_id)
     photo_ids = validate_object_ids(photo_ids)
     variant = validate_variant(variant)
+    if filenames is not None:
+        _validate_filenames(filenames, photo_ids, variant)
     data: list[dict[str, Any]] = []
     missing: list[str] = []
     if not photo_ids:
@@ -420,16 +452,15 @@ def authorize_get_batch(
         if version_id is None:
             missing.append(photo_id)
             continue
-        url = s3.generate_presigned_url(
-            "get_object",
-            Params={
-                "Bucket": name,
-                "Key": object_key(public, photo_id, variant),
-                "VersionId": version_id,
-                "ResponseCacheControl": "no-store",
-            },
-            ExpiresIn=PHOTO_URL_TTL_SECONDS,
-        )
+        params = {
+            "Bucket": name,
+            "Key": object_key(public, photo_id, variant),
+            "VersionId": version_id,
+            "ResponseCacheControl": "no-store",
+        }
+        if filenames is not None:
+            params["ResponseContentDisposition"] = content_disposition(filenames[photo_id])
+        url = s3.generate_presigned_url("get_object", Params=params, ExpiresIn=PHOTO_URL_TTL_SECONDS)
         data.append({
             "photo_id": photo_id,
             "variant": variant,

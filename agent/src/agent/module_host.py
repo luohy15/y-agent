@@ -177,6 +177,9 @@ carrier deletion, plus optional `require_existing` on `tag_add`.
 That bumps 22 to 23. Todo 3879 bumps 23 to 24: no new capability, the API now
 ships Pillow and pillow-heif so the Photo module can decode on its request path.
 Photo requires v24; deploy this host before publishing it.
+Todo 3879 bumps 24 to 25: `photo_authorize_get_batch` takes optional `filenames` so the
+original downloads as an attachment. Photo v8 requires v25; deploy this host first and
+activate photo v7 before rolling the host below v25.
 Modules declare the minimum version they use and an
 older host rejects their bundle. Every later addition to the surface above
 bumps the version and, for modules that need it, `min_backend_version`.
@@ -196,7 +199,7 @@ from sqlalchemy.orm import Session
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-BACKEND_CONTRACT_VERSION = 24
+BACKEND_CONTRACT_VERSION = 25
 
 # Wall-clock budget for the wake="nowait" readiness check (todo 3777).
 NOWAIT_BUDGET_SECONDS = 1.0
@@ -1618,17 +1621,23 @@ def photo_authorize_get(user_id: int, photo_id: str, *, variant: str) -> dict[st
 
 
 def photo_authorize_get_batch(
-    user_id: int, photo_ids: list[str], *, variant: str
+    user_id: int,
+    photo_ids: list[str],
+    *,
+    variant: str,
+    filenames: Optional[Dict[str, str]] = None,
 ) -> dict[str, Any]:
     """Sign 300s GETs for up to 100 distinct ids with one bucket audit.
 
     Returns {data: [{photo_id, variant, url, expires_in, cache_control}],
     missing: [photo_id]} in input order; only an absent pin is missing.
+    `filenames` ({photo_id: stored name}, original only, exactly the ids) signs
+    a response-content-disposition attachment header into each URL.
     """
     _require_photo_owner(user_id)
     from storage.service import photo_store
 
-    return photo_store.authorize_get_batch(user_id, photo_ids, variant=variant)
+    return photo_store.authorize_get_batch(user_id, photo_ids, variant=variant, filenames=filenames)
 
 
 def photo_delete_objects(user_id: int, photo_id: str) -> dict[str, Any]:

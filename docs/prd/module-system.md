@@ -866,13 +866,21 @@ added: the API image ships Pillow 12.1.1 and `pillow-heif==1.8.0` so the Photo
 module can decode in-process on its own request path. Deploy this host before
 publishing a Photo version that declares `min_backend_version: 24`.
 
+Todo 3879 (attachment download) bumps the backend contract from 24 to **25**.
+`photo_authorize_get_batch` gains an optional `filenames` map (`{photo_id: stored
+name}`) that, for the `original` variant only, signs a
+`response-content-disposition: attachment` header into each URL so the browser
+saves the file under its stored name. Deploy this host before publishing a Photo
+version that declares `min_backend_version: 25`, and reactivate Photo v7 before
+lowering the host below v25.
+
 Frozen signatures (`agent.module_host`):
 
 - `photo_authorize_upload(user_id, upload_id, *, sha256_b64, byte_count, filename, file_mtime) -> {upload_id, variant, post, expires_in, cache_control, filename, file_mtime, byte_count}`
 - `photo_authorize_derived_upload(user_id, photo_id, *, variant, sha256_b64, byte_count) -> {photo_id, variant, post, expires_in, cache_control, byte_count}`
 - `photo_verify_and_pin(user_id, object_id, *, variant="original", sha256_b64, byte_count) -> {id, variant, version_id, byte_count, cache_control}`
 - `photo_authorize_get(user_id, photo_id, *, variant) -> {photo_id, variant, url, expires_in, cache_control}`
-- `photo_authorize_get_batch(user_id, photo_ids, *, variant) -> {data: [{photo_id, variant, url, expires_in, cache_control}], missing: [photo_id]}`
+- `photo_authorize_get_batch(user_id, photo_ids, *, variant, filenames=None) -> {data: [{photo_id, variant, url, expires_in, cache_control}], missing: [photo_id]}`
 - `photo_delete_objects(user_id, photo_id) -> {photo_id, deleted, cache_control}`
 - `published_module_json(user_id, slug, method, path, *, body=None, timeout=5.0) -> dict`
 - `async published_module_json_async(user_id, slug, method, path, *, body=None, timeout=5.0) -> dict`
@@ -890,6 +898,13 @@ time. POST and GET expiry is 300 seconds. JSON and object reads are
 `cache_control: no-store`. Every call requires the request owner and the
 configured maintainer (`Y_AGENT_MODULE_MAINTAINER_USER_ID`). `PhotoStoreError.code`
 is `invalid`, `forbidden`, `unavailable`, `conflict`, or `not_found`.
+
+`filenames` is `None` or a dict whose keys are exactly the requested ids; it is
+valid only for `original`. Each value is a `str` of 1 to 255 UTF-8 bytes without
+NUL (an over-length name is `invalid`, never cut). The header is
+`attachment; filename="<ASCII fallback>"; filename*=UTF-8''<percent-encoded name>`
+with control, format and line-separator characters removed. Any violation is
+`invalid` before bucket I/O.
 
 `photo_authorize_get_batch` takes a list of at most 100 distinct canonical
 UUIDs (a repeated id is `invalid`; callers dedupe first) and one closed
@@ -1038,8 +1053,8 @@ drain command, not a schedule. Not API background tasks outliving the request,
 not a worker-loaded module, not a browser conversion. A crash must leave the job
 leased or retryable, never a second ready original. Deletion writes a tombstone
 before object deletion and retries independently. Rollback of the first Photo
-version is disable, not an older version. Host rollback below v24 is forbidden
-while an active module version still declares backend floor 24: reactivate the
+version is disable, not an older version. Host rollback below v25 is forbidden
+while an active module version still declares backend floor 25 (likewise v24 for floor 24): reactivate the
 pre-release Photo version first (and re-enable the retired routine if needed),
 only then lower the host. Tag carriers need v23, not v24, so `tag_carriers`
 alone does not block a return to host v23.
