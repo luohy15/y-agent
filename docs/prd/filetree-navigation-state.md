@@ -282,6 +282,24 @@ not React hook structure or a particular debounce implementation.
   remain required; browser-driven UI verification remains for the user unless
   explicitly requested.
 
+## Reveal from chat
+
+Clicking a directory path in an authenticated chat asks the host to show that
+directory in the left Files tree. The chat module sends `file.reveal` with
+`{path}`. The host publishes `reveal: {path, nonce}` on the existing `file`
+artifact intent, keeping the current left/right location and giving every call
+a new nonce, then switches the left sidebar to Files and opens it. Desktop
+opens the desktop sidebar. Narrow viewports close the activity-bar drawer and
+open the sidebar. The command never changes activity-bar pins. If the Files
+artifact is not mounted, it does nothing.
+
+Whether the path is a directory, and how ancestors expand, stay with the File
+panel. This reveal is a one-shot intent, not a second expansion authority and
+not part of the persisted tree snapshot. Public and snapshot viewers do not
+receive a file-reference resolver, so they gain no filesystem access. A chat
+whose VM is not the default still reveals against the left panel's default-VM
+root.
+
 ## Out of Scope
 
 - Live synchronization of an already-mounted tree when another device writes.
@@ -313,3 +331,4 @@ not React hook structure or a particular debounce implementation.
 | Todo | Outcome | Design | Plan | Decisions | Review | Status |
 |------|---------|--------|------|-----------|--------|--------|
 | 3200 | Preserve per-context Files sidebar expansion, selection, loaded branch cache, and scroll through authenticated backend persistence across activity switches, refreshes, browser restarts, and devices | - | `pages/plan-3200-filetree-navigation-state.md` | This PRD | `pages/review-3200-user-preference-cas.md`; `pages/review-3200-filetree-persistence.md` | shipped; user verification pending |
+| 3906 | Reveal a clicked directory path in the left Files tree without changing pins or opening a file tab | - | `pages/plan-3906-directory-path-reveal.md` | This PRD | `pages/review-3906-directory-path-reveal.md` | implemented |

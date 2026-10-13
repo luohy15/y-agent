@@ -18,10 +18,19 @@ export interface FileLocationContext {
  * (modules/note convention): the host republishes with a fresh value when the
  * right activity rail wants a list refresh. Every publish below reads and
  * re-sends the halves it isn't updating. */
+/** One-shot "scroll the left Files tree to this path" signal. `nonce` rises on
+ * every publish so a repeated click is distinct from a retained intent. Not
+ * persisted; a later context or list-refresh publish keeps the same value. */
+export interface FileRevealIntent {
+  path: string;
+  nonce: number;
+}
+
 export interface FileArtifactIntent {
   left: FileLocationContext;
   right: FileLocationContext;
   nonce?: number;
+  reveal?: FileRevealIntent;
 }
 
 const EMPTY_LOCATION: FileLocationContext = { vmName: null, workDir: null };
@@ -31,12 +40,14 @@ const EMPTY_LOCATION: FileLocationContext = { vmName: null, workDir: null };
 let lastLeft: FileLocationContext = EMPTY_LOCATION;
 let lastRight: FileLocationContext = EMPTY_LOCATION;
 let lastNonce = 0;
+let lastReveal: FileRevealIntent | undefined;
 
 function publish(): void {
   setArtifactIntent("file", {
     left: lastLeft,
     right: lastRight,
     nonce: lastNonce,
+    ...(lastReveal ? { reveal: lastReveal } : {}),
   } satisfies FileArtifactIntent);
 }
 
@@ -70,6 +81,25 @@ export function usePublishFileContext(
 export function publishFileRefresh(): void {
   lastNonce = Date.now();
   publish();
+}
+
+/** Host -> file artifact directory reveal. Keeps left/right and the list
+ * refresh nonce. The reveal nonce is strictly increasing so two clicks in
+ * the same millisecond still count as two reveals. */
+export function publishFileReveal(path: string): void {
+  const now = Date.now();
+  const prev = lastReveal?.nonce ?? 0;
+  lastReveal = { path, nonce: now > prev ? now : prev + 1 };
+  publish();
+}
+
+/** Parse `{ path }` from a `file.reveal` host-command payload; `undefined`
+ * means malformed (missing/non-string `path`). */
+export function fileRevealPayload(payload: unknown): { path: string } | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+  const { path } = payload as { path?: unknown };
+  if (typeof path !== "string") return undefined;
+  return { path };
 }
 
 /** Parse `{ path, vmName?, workDir?, line? }` from a `file.open` host-command

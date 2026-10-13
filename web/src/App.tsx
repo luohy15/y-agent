@@ -37,10 +37,12 @@ import {
 } from "./utils/chatHost";
 import {
   fileOpenPayload,
+  fileRevealPayload,
   fileSearchPayload,
   isHostWorkspaceTab,
   isOrdinaryFilePath,
   publishFileRefresh,
+  publishFileReveal,
   usePublishFileContext,
 } from "./utils/fileHost";
 import {
@@ -906,6 +908,21 @@ export default function App() {
       if (!parsed) return;
       applyOrdinaryOpen(parsed.path, parsed.vmName, parsed.workDir, true, parsed.line);
     });
+    // Plan 3906 H1: reveal a directory in the left Files tree. Pins stay
+    // untouched. No Files artifact means the command is a no-op.
+    const unregisterFileReveal = registerHostCommand("file.reveal", (payload) => {
+      const parsed = fileRevealPayload(payload);
+      if (!parsed) return;
+      if (!uiArtifactBySlug.has("file")) return;
+      publishFileReveal(parsed.path);
+      setSidebarPanel("artifact:file");
+      if (window.innerWidth < 768) {
+        setActivityBarOpen(false);
+        setSidebarOpen(true);
+      } else {
+        setDesktopSidebarOpen(true);
+      }
+    });
     const unregisterFileClose = registerHostCommand("file.close", (payload) => {
       if (payload && typeof payload === "object" && typeof (payload as { tabId?: unknown }).tabId === "string") {
         handleCloseFile((payload as { tabId: string }).tabId);
@@ -948,8 +965,9 @@ export default function App() {
       unregisterFileDirty();
       unregisterFileRemap();
       unregisterFileRemove();
+      unregisterFileReveal();
     };
-  }, [applyOrdinaryOpen, handleCloseFile, handleRemapOrdinaryFiles, handleRemoveOrdinaryFiles]);
+  }, [applyOrdinaryOpen, handleCloseFile, handleRemapOrdinaryFiles, handleRemoveOrdinaryFiles, uiArtifactBySlug]);
 
   useEffect(() => { localStorage.setItem("chatHide", String(chatHide)); }, [chatHide]);
   useEffect(() => { if (selectedChatId) localStorage.setItem("selectedChatId", selectedChatId); else localStorage.removeItem("selectedChatId"); }, [selectedChatId]);
