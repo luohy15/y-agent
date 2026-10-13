@@ -61,7 +61,7 @@ function FileToolGroup({ kind, messages, startIndex, caps }: { kind: string; mes
   return (
     <div>
       <div
-        className="font-mono text-[0.775rem] sm:text-[0.725rem] cursor-pointer flex items-center gap-1.5 select-none"
+        className="font-mono y-chat-turn-text cursor-pointer flex items-center gap-1.5 select-none"
         onClick={() => setExpanded((v) => !v)}
       >
         <span className={`inline-flex items-center justify-center w-5 h-5 rounded text-[0.65rem] font-bold shrink-0 ${meta.bg} ${meta.color}`}>
@@ -98,7 +98,7 @@ function ProcessSummary({ toolCounts, roundMessages, roundStartIndex, defaultExp
     <div>
       <div
         data-testid="process-summary"
-        className="flex items-center gap-2 font-mono text-[0.775rem] sm:text-[0.725rem] cursor-pointer select-none py-0.5 group"
+        className="flex items-center gap-2 font-mono y-chat-turn-text cursor-pointer select-none py-0.5 group"
         onClick={() => setExpanded((v) => !v)}
       >
         <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[0.65rem] bg-sol-base02 text-sol-base01">

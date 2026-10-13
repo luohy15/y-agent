@@ -170,9 +170,9 @@ function UserMessage({ content, images, timestamp, onSelectChat, onSelectTrace }
       <div className="group relative bg-sol-base02 rounded px-2 py-1.5 -mx-2">
         <CopyButton text={displayContent} className="absolute right-1 top-1 opacity-0 transition-opacity group-hover:opacity-100" />
         <div className="flex items-baseline">
-          <span className="text-sol-base01 font-mono text-sm sm:text-[0.775rem] mr-2 select-none shrink-0">&gt;</span>
+          <span className="text-sol-base01 font-mono y-chat-prompt-text mr-2 select-none shrink-0">&gt;</span>
           <div className="min-w-0 flex-1">
-            <div ref={contentRef} className={`text-sm sm:text-[0.775rem] md:text-sm lg:text-[0.775rem] text-sol-base1 whitespace-pre-wrap break-words min-w-0${!expanded && clamped ? " line-clamp-3" : ""}`}>{displayContent}</div>
+            <div ref={contentRef} className={`y-chat-message-text text-sol-base1 whitespace-pre-wrap break-words min-w-0${!expanded && clamped ? " line-clamp-3" : ""}`}>{displayContent}</div>
             {clamped && <button type="button" onClick={() => setExpanded(!expanded)} className="text-sol-blue text-xs mt-0.5 hover:underline cursor-pointer">{expanded ? "Show less" : "Show more"}</button>}
             <ChatMessageImages images={images} />
           </div>
@@ -210,7 +210,7 @@ export default function ChatMessagePresentation(props: ChatMessagePresentationPr
     onSelectChat, onSelectTrace, onOpenArtifact, resolveFileReference,
   } = props;
   const [artifactMode, setArtifactMode] = useState<Record<string, ArtifactMode>>({});
-  if (role === "system") return <div data-testid="message-system" className="self-center text-sol-base01 text-xs sm:text-[0.7rem] py-1">{content}</div>;
+  if (role === "system") return <div data-testid="message-system" className="self-center text-sol-base01 y-chat-system-text py-1">{content}</div>;
   if (role === "tool_pending" || role === "tool_result" || role === "tool_denied") {
     const status = role === "tool_pending" ? "pending" : role === "tool_denied" ? "denied" : "done";
     return (
@@ -236,7 +236,7 @@ export default function ChatMessagePresentation(props: ChatMessagePresentationPr
     <div className="group relative" data-testid="message-assistant">
       <CopyButton text={content} className="absolute right-0 top-0 z-10 opacity-0 transition-opacity group-hover:opacity-100" />
       {!dimmed && <TimestampLine timestamp={timestamp} />}
-      <div className={`text-sm sm:text-[0.775rem] md:text-sm lg:text-[0.775rem] prose prose-sm max-w-none ${dimmed ? "text-sol-base01" : "text-sol-base0"}`}>
+      <div className={`y-chat-message-text prose prose-sm max-w-none ${dimmed ? "text-sol-base01" : "text-sol-base0"}`}>
         <ReactMarkdown
           remarkPlugins={[remarkGfm, remarkStripComments]}
           urlTransform={(url: string) => url.startsWith("cite://") ? url : defaultUrlTransform(url)}

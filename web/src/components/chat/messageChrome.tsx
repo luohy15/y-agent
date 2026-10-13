@@ -122,7 +122,7 @@ export function TimestampLine({
     </span>
   );
   return (
-    <div className="text-xs sm:text-[0.65rem] text-sol-base01 mb-1 flex items-center" data-testid="message-timestamp">
+    <div className="y-chat-timestamp-text text-sol-base01 mb-1 flex items-center" data-testid="message-timestamp">
       {formatted && <span>{formatted}</span>}
       {traceId && (
         <span

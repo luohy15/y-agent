@@ -86,7 +86,7 @@ export default function MarkdownBodyPreview({
         {children}
       </div>
       {headings.length > 0 && (
-        <nav className={`hidden lg:flex flex-col shrink-0 border-l border-sol-base02 transition-all duration-200 ${tocCollapsed ? "w-8" : "w-48"}`} data-testid="toc-desktop">
+        <nav className={`y-markdown-toc-desktop flex-col shrink-0 border-l border-sol-base02 transition-all duration-200 ${tocCollapsed ? "w-8" : "w-48"}`} data-testid="toc-desktop">
           <button
             type="button"
             onClick={() => setTocCollapsed((value) => {
@@ -108,7 +108,7 @@ export default function MarkdownBodyPreview({
         </nav>
       )}
       {headings.length > 0 && (
-        <div className="hidden md:block lg:hidden absolute top-2 right-2 z-10" data-testid="toc-tablet">
+        <div className="y-markdown-toc-tablet absolute top-2 right-2 z-10" data-testid="toc-tablet">
           <button type="button" onClick={() => setTocOpen((value) => !value)} className="w-8 h-8 rounded bg-sol-base02 border border-sol-base01 text-sol-base1 flex items-center justify-center cursor-pointer hover:bg-sol-base01/30" title="Table of contents">{TOC_ICON}</button>
           {tocOpen && (
             <>
@@ -122,7 +122,7 @@ export default function MarkdownBodyPreview({
         </div>
       )}
       {headings.length > 0 && (
-        <div className="md:hidden" data-testid="toc-mobile">
+        <div className="y-markdown-toc-mobile" data-testid="toc-mobile">
           <button type="button" onClick={() => setTocOpen((value) => !value)} className="fixed right-4 bottom-14 z-40 w-10 h-10 rounded-full bg-sol-base02 border border-sol-base01 text-sol-base1 flex items-center justify-center shadow-float cursor-pointer" title="Table of contents">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" />

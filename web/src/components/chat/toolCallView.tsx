@@ -167,7 +167,7 @@ export function ToolCallView({
   return (
     <div data-testid={`tool-${status}`}>
       <div
-        className={`flex items-center gap-1.5 font-mono text-[0.775rem] sm:text-[0.725rem] ${hasContent ? "cursor-pointer" : ""} select-none`}
+        className={`flex items-center gap-1.5 font-mono y-chat-turn-text ${hasContent ? "cursor-pointer" : ""} select-none`}
         onClick={() => hasContent && setExpanded((value) => !value)}
       >
         <span className={`inline-flex items-center justify-center w-5 h-5 rounded text-[0.65rem] font-bold shrink-0 ${iconBg} ${headerColor}`}>{meta.icon}</span>

@@ -16,6 +16,82 @@ html {
   font-size: 110%;
 }
 
+/* Shared host TOC also renders inside module @scope styles. Do not use
+ * generic display utilities here: a module's scoped .hidden can override
+ * host responsive utilities that the module no longer generates. */
+.y-markdown-toc-desktop,
+.y-markdown-toc-tablet {
+  display: none;
+}
+
+.y-markdown-toc-mobile {
+  display: block;
+}
+
+@media (width >= 48rem) {
+  .y-markdown-toc-mobile {
+    display: none;
+  }
+  .y-markdown-toc-tablet {
+    display: block;
+  }
+}
+
+@media (width >= 64rem) {
+  .y-markdown-toc-tablet {
+    display: none;
+  }
+  .y-markdown-toc-desktop {
+    display: flex;
+  }
+}
+
+/* Keep shared chat typography independent of a consuming module's scoped
+ * utilities, including the pairs its other components still happen to emit. */
+.y-chat-turn-text {
+  font-size: 0.775rem;
+}
+
+.y-chat-message-text,
+.y-chat-prompt-text {
+  font-size: 0.875rem;
+  line-height: calc(1.25 / 0.875);
+}
+
+.y-chat-timestamp-text,
+.y-chat-system-text {
+  font-size: 0.75rem;
+  line-height: calc(1 / 0.75);
+}
+
+@media (width >= 40rem) {
+  .y-chat-turn-text {
+    font-size: 0.725rem;
+  }
+  .y-chat-message-text,
+  .y-chat-prompt-text {
+    font-size: 0.775rem;
+  }
+  .y-chat-timestamp-text {
+    font-size: 0.65rem;
+  }
+  .y-chat-system-text {
+    font-size: 0.7rem;
+  }
+}
+
+@media (width >= 48rem) {
+  .y-chat-message-text {
+    font-size: 0.875rem;
+  }
+}
+
+@media (width >= 64rem) {
+  .y-chat-message-text {
+    font-size: 0.775rem;
+  }
+}
+
 /*
  * Theme tokens.
  * @theme registers the sol-* color names for Tailwind utilities and emits
