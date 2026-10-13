@@ -19,16 +19,25 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Module SVG sidebar icons (3861)**: `module.json` `icon` may be a `ui/*.svg` path. Publish validates and stores the normalized SVG; the activity bar renders it sanitized. Host contract v27.
 - **Landing tour (3864)**: the logged-out landing is an anatomy-style tour ("dispatch anywhere, all data linked"), in English.
 - **Todo list sort (3867)**: todo list accepts `sort` (`todo_id`, `priority`, `updated_at`) and `order` (`asc` or `desc`) over the full filtered result. Pinned rows stay first.
+- **Files tree reveal (3906)**: clicking a directory path reveals that path in the Files tree (`file.reveal`).
+- **Photo decode and original downloads (3879)**: the API decodes photo bytes within bounds. Original attachment downloads are signed with safe filenames.
 
 ### Changed
 
 - **Todo detail header (3859)**: single-row header with id, copy, and share as an icon button.
 - **Activity bar shortcuts are opt-in (3869)**: left-rail module icons show only when pinned. Nothing is pinned by default; Modules stays on the rail so recovery does not depend on a pin. The previous hidden-slug list is no longer read.
 - **`y email` is module-owned (3866)**: the email CLI group moved out of the host into the email module. `y email` commands are unchanged.
+- **RSS stored body (3900)**: a link download prefers a usable feed-embedded body and falls back to fetching the page. Content already stored is left as-is.
+- **Markdown metadata card (3884)**: shared through host contract v28.
+- **Chat presenters (3892)**: host contract v29 and v30 share the chat message, Markdown body (article column and TOC), turn list, and process summary across public and authenticated views. TOC and chat text sizes stay visible inside module scopes.
+- **Module publish gate (3886)**: `y module publish` requires `--source-sha` and runs only when the canonical checkout HEAD matches the live `origin/main` tip.
 
 ### Fixed
 
 - **`y dev release` errors (3855)**: API error bodies are surfaced instead of a `KeyError`.
+- **Link URL association (3907)**: associating a URL no longer attaches another link's activity. `y assoc link` echoes the attached activity id.
+- **Page extraction (3889)**: structured extraction keeps body text that lives in `div` / `br` markup.
+- **Browser cookie sync (3896)**: export pins a browser profile (Chromium defaults to Default), writes the jar without a network request, and reports expiry from sign-in cookies instead of short-lived tracking cookies.
 
 ### Removed
 
