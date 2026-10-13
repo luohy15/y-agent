@@ -7,15 +7,16 @@ from typing import Iterable
 
 import click
 
-from storage.dto.user_cookies import normalize_cookie_expiry
+from storage.dto.user_cookies import SESSION_COOKIE_NAMES, normalize_cookie_expiry
 
 from yagent.api_client import api_request
 
 
 YOUTUBE_URL = "https://www.youtube.com/"
 DEFAULT_DOMAINS = ("youtube.com",)
-# Any one of these means the export carries a signed-in YouTube session.
-YOUTUBE_SESSION_COOKIES = {"LOGIN_INFO", "SID", "__Secure-1PSID", "__Secure-3PSID"}
+# yt-dlp writes the jar only on exit; a stalled YouTube request (slow proxy)
+# would otherwise hold it past the subprocess timeout and lose the export.
+YTDLP_SOCKET_TIMEOUT = "10"
 
 
 def _cookie_applies(cookie: Cookie, domain: str) -> bool:
@@ -71,8 +72,8 @@ def _extract_with_ytdlp(browser: str) -> str:
     """Export the browser's full cookie jar via yt-dlp.
 
     yt-dlp saves the jar when it exits, even when the YouTube request itself
-    fails (bot check, network), so a written jar is kept regardless of the exit
-    code. Raises FileNotFoundError when yt-dlp is not installed.
+    fails (bot check, network, socket timeout), so a written jar is kept
+    regardless of the exit code. Raises FileNotFoundError when yt-dlp is not installed.
     """
     fd, tmp_path = tempfile.mkstemp(prefix="y-cookies-", suffix=".txt")
     os.close(fd)
@@ -82,6 +83,7 @@ def _extract_with_ytdlp(browser: str) -> str:
             "yt-dlp",
             "--cookies-from-browser", browser,
             "--cookies", tmp_path,
+            "--socket-timeout", YTDLP_SOCKET_TIMEOUT,
             "--skip-download",
             "--simulate",
             "--no-warnings",
@@ -143,9 +145,9 @@ def cookies_sync(domains: tuple[str, ...], browser: str):
         count = len(names)
         if count == 0:
             raise click.ClickException(f"No cookies found for {domain}")
-        if domain.lstrip(".").lower() == "youtube.com" and not YOUTUBE_SESSION_COOKIES & set(names):
+        if domain.lstrip(".").lower() == "youtube.com" and not SESSION_COOKIE_NAMES & set(names):
             click.echo(
-                f"Warning: no signed-in YouTube session cookies ({', '.join(sorted(YOUTUBE_SESSION_COOKIES))}) "
+                f"Warning: no signed-in YouTube session cookies ({', '.join(sorted(SESSION_COOKIE_NAMES))}) "
                 f"in the {browser} export; check the browser profile is logged in",
                 err=True,
             )

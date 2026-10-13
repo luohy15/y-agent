@@ -6,6 +6,10 @@ from typing import Dict, Optional
 _WEBKIT_EPOCH_OFFSET = 11644473600
 _WEBKIT_THRESHOLD = 10 ** 14
 
+# Google/YouTube sign-in cookies; any one of these means the jar carries a
+# logged-in session, and their expiry is what decides when a re-sync is due.
+SESSION_COOKIE_NAMES = frozenset({"LOGIN_INFO", "SID", "__Secure-1PSID", "__Secure-3PSID"})
+
 
 def normalize_cookie_expiry(value: int) -> int:
     """Return a Netscape cookie expiry as Unix seconds (0 = session cookie)."""

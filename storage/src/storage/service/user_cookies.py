@@ -1,6 +1,6 @@
 from typing import List, Optional, Tuple
 
-from storage.dto.user_cookies import UserCookies, normalize_cookie_expiry
+from storage.dto.user_cookies import SESSION_COOKIE_NAMES, UserCookies, normalize_cookie_expiry
 from storage.repository import user_cookies as user_cookies_repo
 
 
@@ -12,8 +12,12 @@ def normalize_domain(domain: str) -> str:
 
 
 def _parse_cookie_stats(cookies_txt: str) -> Tuple[int, Optional[int]]:
+    """Return (cookie count, expiry). The expiry is the earliest sign-in
+    cookie expiry when the jar has one, else the earliest of any cookie, so
+    short-lived tracking cookies (e.g. `_gid`) do not mark a session stale."""
     count = 0
     expiries: list[int] = []
+    session_expiries: list[int] = []
     for raw_line in cookies_txt.splitlines():
         line = raw_line.strip()
         if not line or (line.startswith("#") and not line.startswith("#HttpOnly_")):
@@ -28,6 +32,10 @@ def _parse_cookie_stats(cookies_txt: str) -> Tuple[int, Optional[int]]:
             continue
         if expiry > 0:
             expiries.append(expiry)
+            if parts[5] in SESSION_COOKIE_NAMES:
+                session_expiries.append(expiry)
+    if session_expiries:
+        return count, min(session_expiries)
     return count, min(expiries) if expiries else None
 
 
