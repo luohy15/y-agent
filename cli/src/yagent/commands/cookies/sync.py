@@ -13,6 +13,10 @@ from yagent.api_client import api_request
 
 
 DEFAULT_DOMAINS = ("youtube.com",)
+# Without an explicit profile yt-dlp reads whichever profile's cookie DB was
+# written last, which flips between signed-in accounts from run to run.
+CHROMIUM_BROWSERS = {"chrome", "chromium", "edge", "brave", "opera", "vivaldi", "whale"}
+DEFAULT_CHROMIUM_PROFILE = "Default"
 
 
 def _cookie_applies(cookie: Cookie, domain: str) -> bool:
@@ -64,7 +68,13 @@ def _browser_cookie3_to_netscape(browser: str, domains: Iterable[str]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _extract_with_ytdlp(browser: str) -> str:
+def _browser_spec(browser: str, profile: str | None) -> str:
+    if profile is None and browser in CHROMIUM_BROWSERS:
+        profile = DEFAULT_CHROMIUM_PROFILE
+    return f"{browser}:{profile}" if profile else browser
+
+
+def _extract_with_ytdlp(browser_spec: str) -> str:
     """Export the browser's full cookie jar via yt-dlp.
 
     Runs yt-dlp without a URL: it loads the browser jar, saves it on exit and
@@ -79,7 +89,7 @@ def _extract_with_ytdlp(browser: str) -> str:
     try:
         result = subprocess.run([
             "yt-dlp",
-            "--cookies-from-browser", browser,
+            "--cookies-from-browser", browser_spec,
             "--cookies", tmp_path,
             "--no-warnings",
         ], capture_output=True, text=True, timeout=60)
@@ -118,14 +128,17 @@ def _cookie_names(cookies_txt: str) -> list[str]:
 
 @click.command(name="sync")
 @click.option("--domain", "domains", multiple=True, default=DEFAULT_DOMAINS, show_default=True, help="Cookie domain to sync; repeatable.")
-@click.option("--browser", default="chrome", show_default=True, help="Browser profile for cookie extraction.")
-def cookies_sync(domains: tuple[str, ...], browser: str):
+@click.option("--browser", default="chrome", show_default=True, help="Browser for cookie extraction.")
+@click.option("--profile", default=None, help=f"Browser profile name or path (Chromium browsers default to {DEFAULT_CHROMIUM_PROFILE!r}).")
+def cookies_sync(domains: tuple[str, ...], browser: str, profile: str | None):
     """Sync local browser cookies to the y-agent API."""
+    browser_spec = _browser_spec(browser, profile)
+    click.echo(f"Exporting cookies from {browser_spec}", err=True)
     try:
-        raw_cookies = _extract_with_ytdlp(browser)
+        raw_cookies = _extract_with_ytdlp(browser_spec)
     except FileNotFoundError:
         # browser_cookie3 may miss signed-in cookies; only used without yt-dlp.
-        click.echo("yt-dlp not found; falling back to browser_cookie3 (may miss signed-in cookies)", err=True)
+        click.echo("yt-dlp not found; falling back to browser_cookie3 (may miss signed-in cookies, ignores --profile)", err=True)
         raw_cookies = _browser_cookie3_to_netscape(browser, domains)
     except Exception as exc:
         raise click.ClickException(f"yt-dlp cookie export failed: {exc}")
@@ -139,7 +152,7 @@ def cookies_sync(domains: tuple[str, ...], browser: str):
         if domain.lstrip(".").lower() == "youtube.com" and not SESSION_COOKIE_NAMES & set(names):
             click.echo(
                 f"Warning: no signed-in YouTube session cookies ({', '.join(sorted(SESSION_COOKIE_NAMES))}) "
-                f"in the {browser} export; check the browser profile is logged in",
+                f"in the {browser_spec} export; check the browser profile is logged in",
                 err=True,
             )
         resp = api_request("PUT", "/api/cookies", json={"domain": domain, "cookies_txt": cookies_txt})
