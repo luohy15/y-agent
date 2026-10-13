@@ -112,7 +112,7 @@ entity + controller + service + CLI slices, and most have a web panel.
   lives in the English module Vocabulary sub-tab and `y english vocab`
   (`seed` / `list` / `mark` / `stats`). Tiers 3k/5k/10k are derived from rank.
 - **RSS** — two-stage pipeline: admin schedules feed jobs → worker scrapes feed XML →
-  downloader fetches each item's content → storage on S3 (per-activity key). `y rss` CLI
+  downloader prefers the feed-embedded body, page fetch fallback (todo 3900) → storage on S3 (per-activity key). `y rss` CLI
   for feeds + items. The feed panel and feed-filtered list are the UI-only `rss`
   module (todo 3708, `code/y-module/rss/README.md`); the host keeps the APIs,
   CLI, data, pipelines and the `rss.open` command.

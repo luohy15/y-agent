@@ -521,7 +521,9 @@ def _extract_title(md: str) -> str:
                    'read it from `path` if you need the content.')
 @click.option('--link-id', default=None, help='Existing link_id to write under.')
 @click.option('--activity-id', default=None, help='Existing activity_id for per-activity content.')
-def link_fetch(url: str, page: int, lang: str, json_output: bool, link_id: str | None, activity_id: str | None):
+@click.option('--markdown-stdin', is_flag=True,
+              help='Write markdown from stdin verbatim (requires --link-id). Skips source fetch.')
+def link_fetch(url: str, page: int, lang: str, json_output: bool, link_id: str | None, activity_id: str | None, markdown_stdin: bool):
     """Fetch URL content and save as markdown.
 
     Output: $Y_AGENT_HOME/lifelog/link/<link_id>/content.md
@@ -538,9 +540,50 @@ def link_fetch(url: str, page: int, lang: str, json_output: bool, link_id: str |
     Requires OXYLABS_USERNAME / OXYLABS_PASSWORD in env (or ~/.y-agent/config.toml)
     for everything except YouTube and Twitter. yt-dlp must be installed for YouTube.
     """
+    global CURRENT_LINK_ID, CURRENT_ACTIVITY_ID
     load_dotenv()
 
     url = normalize_url(url)
+
+    if markdown_stdin:
+        if not link_id:
+            error = "--markdown-stdin requires --link-id"
+            if json_output:
+                click.echo(json.dumps({
+                    "status": "failed",
+                    "title": None,
+                    "path": None,
+                    "error": error,
+                }))
+                return
+            raise click.ClickException(error)
+        try:
+            CURRENT_LINK_ID = link_id
+            CURRENT_ACTIVITY_ID = activity_id
+            content = click.get_text_stream('stdin').read()
+            out_path = _write_markdown(content)
+            title = _extract_title(content) or None
+            _save_content_meta(url, title)
+        except Exception as e:
+            if json_output:
+                click.echo(json.dumps({
+                    "status": "failed",
+                    "title": None,
+                    "path": None,
+                    "error": str(e),
+                }))
+                return
+            raise click.ClickException(str(e))
+        if json_output:
+            click.echo(json.dumps({
+                "status": "done",
+                "title": title,
+                "path": str(out_path),
+                "error": None,
+            }))
+            return
+        click.echo(f"Saved: {out_path}")
+        return
 
     if _detect_source(url) not in ('youtube', 'twitter'):
         if not os.environ.get('OXYLABS_USERNAME') or not os.environ.get('OXYLABS_PASSWORD'):
@@ -555,7 +598,6 @@ def link_fetch(url: str, page: int, lang: str, json_output: bool, link_id: str |
             raise click.ClickException("OXYLABS_USERNAME and OXYLABS_PASSWORD must be set")
 
     try:
-        global CURRENT_LINK_ID, CURRENT_ACTIVITY_ID
         if link_id:
             # Pipeline download path: writing content for an already-recorded link.
             # Do not record a new visit — leave visit history untouched.

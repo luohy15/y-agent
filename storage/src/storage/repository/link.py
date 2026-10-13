@@ -214,6 +214,11 @@ def _strip_query(url: str) -> str:
     return url
 
 
+def strip_query(url: str) -> str:
+    """Public alias of `_strip_query` for feed-entry URL matching."""
+    return _strip_query(url)
+
+
 def _upsert_link(
     session,
     url: str,
@@ -705,8 +710,9 @@ def list_pending_downloads(limit: int, max_fails: int = 5) -> List[dict]:
     explicit user-triggered downloads. Link-level `user_id` is resolved via the
     earliest activity per link; orphan links with no activity are skipped.
 
-    Returns list of dicts: {user_id, link_id, base_url, url, activity_id}.
-    `activity_id` is None for link-level items.
+    Returns list of dicts: {user_id, link_id, base_url, url, activity_id, source_feed_id}.
+    `activity_id` is None for link-level items. `source_feed_id` is set only on
+    link-level rows (the link's own feed); activity-level rows always carry None.
     """
     results: list[dict] = []
 
@@ -754,6 +760,7 @@ def list_pending_downloads(limit: int, max_fails: int = 5) -> List[dict]:
                     'base_url': lnk.base_url,
                     'url': lnk.base_url,
                     'activity_id': None,
+                    'source_feed_id': lnk.source_feed_id,
                 })
 
         # --- Activity-level pending ---
@@ -781,6 +788,7 @@ def list_pending_downloads(limit: int, max_fails: int = 5) -> List[dict]:
                     'base_url': lnk.base_url,
                     'url': act.url,
                     'activity_id': act.activity_id,
+                    'source_feed_id': None,
                 })
 
     return results

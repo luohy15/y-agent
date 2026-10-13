@@ -18,6 +18,9 @@ from storage.service import link as link_service
 from storage.service import pipeline_lock as pipeline_lock_service
 
 from worker.downloaders.router import route_and_download
+from worker.downloaders.ssh import write_markdown
+from worker.link_downloader import s3_get
+from worker.steps._feed_body import feed_markdown, index_feed_entries, select_feed_body
 
 
 LOCK_NAME = "batch_download_links"
@@ -27,11 +30,62 @@ DEFAULT_MAX_FAILS = 5
 DEFAULT_DOWNLOAD_TIMEOUT = 120
 
 
-async def _download_one(item: dict, timeout: int) -> str:
+def _markdown_from_feed(item: dict, feed_indexes: dict | None) -> str | None:
+    """Return feed markdown for a link-level RSS item, or None to page-fetch."""
+    if item.get("activity_id") or not feed_indexes:
+        return None
+    feed_id = item.get("source_feed_id")
+    if not feed_id:
+        return None
+    entry = feed_indexes.get(feed_id, {}).get(item.get("base_url") or "")
+    if entry is None:
+        return None
+    html = select_feed_body(entry)
+    if not html:
+        return None
+    title = entry.get("title") or item.get("url")
+    return feed_markdown(title, item["url"], html)
+
+
+async def _index_feed(feed_id: str) -> dict:
+    """Index one staged feed. Missing or bad XML is an empty index (page fetch)."""
+    try:
+        xml = await asyncio.to_thread(s3_get, f"rss/{feed_id}.xml")
+    except Exception as e:
+        logger.warning("batch_download_links feed xml read failed feed={}: {}", feed_id, e)
+        return {}
+    if not xml:
+        return {}
+    try:
+        return index_feed_entries(xml)
+    except Exception as e:
+        logger.warning("batch_download_links feed xml index failed feed={}: {}", feed_id, e)
+        return {}
+
+
+async def _load_feed_indexes(pending: list[dict]) -> dict:
+    feed_ids: list[str] = []
+    seen: set[str] = set()
+    for item in pending:
+        if item.get("activity_id"):
+            continue
+        feed_id = item.get("source_feed_id")
+        if feed_id and feed_id not in seen:
+            seen.add(feed_id)
+            feed_ids.append(feed_id)
+    if not feed_ids:
+        return {}
+    pairs = await asyncio.gather(*(_index_feed(feed_id) for feed_id in feed_ids))
+    return dict(zip(feed_ids, pairs))
+
+
+async def _download_one(item: dict, timeout: int, feed_indexes: dict | None = None) -> str:
     """Download a single link/activity, write content, update status.
 
-    `item` keys: user_id, link_id, base_url, url, activity_id (optional).
-    Returns 'success' or 'error'.
+    `item` keys: user_id, link_id, base_url, url, activity_id (optional),
+    source_feed_id (link-level only). Returns 'success' or 'error'.
+    A usable feed body is written as-is; failure counts as a normal download
+    failure and does not fall through to a page fetch in the same attempt.
     """
     user_id = item["user_id"]
     link_id = item["link_id"]
@@ -40,7 +94,11 @@ async def _download_one(item: dict, timeout: int) -> str:
     link_service.update_download_status(link_id, "downloading", url=url)
 
     try:
-        result = await route_and_download(user_id, url, timeout=timeout, link_id=link_id, activity_id=activity_id)
+        markdown = _markdown_from_feed(item, feed_indexes)
+        if markdown is not None:
+            result = await write_markdown(user_id, url, markdown, link_id, timeout=timeout)
+        else:
+            result = await route_and_download(user_id, url, timeout=timeout, link_id=link_id, activity_id=activity_id)
     except Exception as e:
         logger.exception("batch_download_links download crashed for link={} url={}: {}", link_id, url, e)
         link_repo.increment_crawl_fail_count(link_id)
@@ -116,11 +174,12 @@ async def handle_batch_download_links() -> dict:
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
+        feed_indexes = await _load_feed_indexes(pending)
         semaphore = asyncio.Semaphore(rate_limit)
 
         async def guarded(item):
             async with semaphore:
-                return await _download_one(item, timeout=timeout)
+                return await _download_one(item, timeout=timeout, feed_indexes=feed_indexes)
 
         results = await asyncio.gather(*(guarded(item) for item in pending))
     finally:

@@ -8,6 +8,38 @@ from agent.config import resolve_vm_config
 from agent.vm_command import execute_vm_command
 
 
+def _parse_fetch_output(output: str, method_used: str) -> dict:
+    result = json.loads(output.strip())
+    status = result.get("status", "failed")
+    return {
+        "status": "done" if status == "done" else "failed",
+        "title": result.get("title") or None,
+        "content": result.get("content"),
+        "path": result.get("path"),
+        "method_used": method_used,
+        "error": result.get("error") if status != "done" else None,
+    }
+
+
+async def write_markdown(user_id: int, url: str, markdown: str, link_id: str, timeout: int = 300) -> dict:
+    """Write caller-supplied markdown via `y link fetch --markdown-stdin` on the VM."""
+    try:
+        vm_config = resolve_vm_config(user_id)
+        cmd = ["y", "link", "fetch", "--json", "--link-id", link_id, "--markdown-stdin", url]
+        output = await execute_vm_command(vm_config, cmd, stdin=markdown, timeout=timeout)
+        logger.info("ssh y link fetch --markdown-stdin output (truncated): {}", output[:200])
+        return _parse_fetch_output(output, "feed")
+    except Exception as e:
+        logger.exception("ssh markdown write failed: {}", e)
+        return {
+            "status": "failed",
+            "title": None,
+            "content": None,
+            "method_used": "feed",
+            "error": str(e),
+        }
+
+
 async def download(user_id: int, url: str, timeout: int = 300, link_id: str | None = None, activity_id: str | None = None) -> dict:
     """Run `y link fetch --json <url>` via SSH on the user's VM; return content in memory."""
     try:
@@ -20,16 +52,7 @@ async def download(user_id: int, url: str, timeout: int = 300, link_id: str | No
         cmd.append(url)
         output = await execute_vm_command(vm_config, cmd, timeout=timeout)
         logger.info("ssh y link fetch output (truncated): {}", output[:200])
-        result = json.loads(output.strip())
-        status = result.get("status", "failed")
-        return {
-            "status": "done" if status == "done" else "failed",
-            "title": result.get("title") or None,
-            "content": result.get("content"),
-            "path": result.get("path"),
-            "method_used": "ssh",
-            "error": result.get("error") if status != "done" else None,
-        }
+        return _parse_fetch_output(output, "ssh")
     except Exception as e:
         logger.exception("ssh download failed: {}", e)
         return {
