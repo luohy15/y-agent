@@ -1286,8 +1286,9 @@ and no historical-SHA mode.
   so a linked `<slug>`, `common`, or `shared` root is refused the same way. The
   link text is not the bytes that would ship.
   Links under the allowed noise components above are ignored. As of
-  2026-10-13 the canonical checkout has no symlink under any slug, `common/`,
-  or `shared/` (the only tracked link is `CLAUDE.md` at the repo root).
+  2026-10-13 the y-module canonical checkout has no symlink under any slug,
+  `common/`, or `shared/`. A symlink at that checkout's repo root, if one
+  exists, sits outside those three paths and is not an input to this check.
 - The same check runs again after both builds and before `resolve_or_create`,
   so a tree that changes mid-build is caught. Prebuilt `.build` output is
   never reused.

@@ -69,7 +69,7 @@ arrive as real messages that resume the session. This is what keeps a deep tree 
 ## What is here
 
 ```
-AGENTS.md              Always loaded by every session
+global-instructions.md Always-loaded rules, installed as user memory
 cli-contract.md        The CLI surface the rules depend on, and how to rebind it
 skills/
   manager/SKILL.md     Root dispatcher: intent -> todo -> dispatch -> report
@@ -79,10 +79,11 @@ skills/
   review/SKILL.md      Leaf: effect-first review against the plan note, approve or request changes
 ```
 
-The partition rule between the two kinds of file: **AGENTS.md holds what every session needs**
+The partition rule between the two kinds of file: **global-instructions.md holds what every session needs**
 (the tree model, dispatch, trace rules, callback and handoff rules, shared conventions);
-**a SKILL.md holds what only that skill needs**. A SKILL.md may tighten an AGENTS.md rule, but
-never repeats one.
+**a SKILL.md holds what only that skill needs**. A SKILL.md may tighten a rule from that file, but
+never repeats one. Skill prose still says "AGENTS.md" for this file. That name is the
+global-instructions file, not a project `AGENTS.md`.
 
 ## Running it
 
@@ -98,13 +99,18 @@ Then put the config in your workspace root (`Y_AGENT_HOME`) and point
 the harness at it:
 
 ```bash
-cp    orchestration/AGENTS.md $Y_AGENT_HOME/AGENTS.md
-cp -r orchestration/skills    $Y_AGENT_HOME/.agents/skills
+cp    orchestration/global-instructions.md $Y_AGENT_HOME/.agents/global-instructions.md
+cp -r orchestration/skills                 $Y_AGENT_HOME/.agents/skills
 
-ln -sfn $Y_AGENT_HOME/.agents        ~/.agents          # agent runtime skill discovery
-ln -sfn $Y_AGENT_HOME/AGENTS.md      ~/.claude/CLAUDE.md
-ln -sfn $Y_AGENT_HOME/.agents/skills ~/.claude/skills
+ln -sfn $Y_AGENT_HOME/.agents                        ~/.agents          # agent runtime skill discovery
+ln -sfn $Y_AGENT_HOME/.agents/global-instructions.md ~/.claude/CLAUDE.md
+ln -sfn $Y_AGENT_HOME/.agents/skills                 ~/.claude/skills
 ```
+
+Claude Code 2.1.277 and later reads a project `AGENTS.md` natively when that project has no
+`CLAUDE.md`. Keep these rules in `.agents/global-instructions.md` and point `~/.claude/CLAUDE.md`
+at that file. Do not also install them under the ancestor walk, and do not add a project
+`CLAUDE.md` symlink: a project `CLAUDE.md` turns native `AGENTS.md` loading off for the whole walk.
 
 The last two lines are Claude Code specific. Any harness that loads one global instructions
 file plus per-skill instruction files works the same way; only the paths change.
