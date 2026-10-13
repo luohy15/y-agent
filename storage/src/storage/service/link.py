@@ -1,5 +1,6 @@
 """Link service."""
 
+import time
 from typing import List, Optional
 from storage.entity.dto import LinkActivity, LinkSummary
 from storage.repository import link as link_repo
@@ -31,7 +32,9 @@ def add_link(
     timestamp: Optional[int] = None,
     published_at: Optional[int] = None,
 ) -> LinkActivity:
-    return link_repo.save_link(user_id, url, title, timestamp or 0, published_at=published_at)
+    if not timestamp:
+        timestamp = int(time.time() * 1000)
+    return link_repo.save_link(user_id, url, title, timestamp, published_at=published_at)
 
 
 def add_links_batch(user_id: int, links: List[dict]) -> int:

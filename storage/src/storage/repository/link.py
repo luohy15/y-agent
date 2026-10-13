@@ -288,9 +288,10 @@ def save_link(
 ) -> LinkActivity:
     with get_db() as session:
         link = _upsert_link(session, url, title, published_at=published_at)
-        # Dedup: skip if same user+timestamp already exists
+        # Dedup: same user, timestamp, link, and exact URL. A timestamp alone
+        # must never return another URL's activity.
         existing = session.query(LinkActivityEntity).filter_by(
-            user_id=user_id, timestamp=timestamp,
+            user_id=user_id, timestamp=timestamp, link_id=link.id, url=url,
         ).first()
         if existing:
             return _row_to_dto(existing, link)
@@ -541,13 +542,13 @@ def get_links_by_urls(urls: List[str]) -> List[LinkEntity]:
 def resolve_url(user_id: int, url: str) -> dict:
     """Resolve a URL against the link library.
 
-    Strips fragment/query to derive base_url, looks up LinkEntity, then falls
-    back to an activity row for the current user so query-specific downloads
-    surface their own content_key/download_status.
+    Strips fragment/query to derive base_url and looks up LinkEntity, then an
+    exact-URL activity for this user. Falls back to that link's latest activity
+    only when the input has no query (`fragless == base_url`). A query URL with
+    no exact activity keeps `activity_id` None and the link's own status/keys.
 
     Returns a dict with `base_url` and `found`. When found, also fills
-    `link_id`, `activity_id` (may be None if this user has no activity for the
-    link), `download_status`, and `content_key`.
+    `link_id`, `activity_id` (may be None), `download_status`, and `content_key`.
     """
     fragless = url.split('#', 1)[0]
     base_url = _strip_query(url)
@@ -565,7 +566,7 @@ def resolve_url(user_id: int, url: str) -> dict:
             )
             .first()
         )
-        if activity is None:
+        if activity is None and fragless == base_url:
             activity = (
                 session.query(LinkActivityEntity)
                 .filter(

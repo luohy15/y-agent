@@ -20,7 +20,9 @@ def _resolve_activity_id(id_value):
         url = normalize_url(id_value)
         resp = api_request("POST", "/api/link", json={"url": url})
         data = resp.json()
-        click.echo(f"Created link: {url} -> {data.get('link_id', '?')}")
+        click.echo(
+            f"Created link: {url} -> {data.get('link_id', '?')} activity {data.get('activity_id', '?')}"
+        )
         return data.get('activity_id')
     if '/' in id_value or id_value.endswith('.md'):
         resolved_path = resolve_content_path(id_value)
