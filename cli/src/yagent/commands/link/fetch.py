@@ -376,26 +376,44 @@ def _fetch_youtube(url: str, lang: str = 'en') -> Path:
 # --- Generic page ---
 
 def _extract_text_with_structure(elem) -> str:
-    lines: list[str] = []
-    for child in elem.descendants:
-        if child.name in ('h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
-            text = child.get_text(strip=True)
-            if text:
-                lines.extend(['', '#' * int(child.name[1]) + ' ' + text, ''])
-        elif child.name == 'p':
-            text = child.get_text(strip=True)
-            if text:
-                lines.extend([text, ''])
-        elif child.name == 'li':
-            text = child.get_text(strip=True)
-            if text:
-                lines.append('- ' + text)
-        elif child.name == 'br':
-            lines.append('')
+    from bs4 import Comment, NavigableString
 
-    if not any(line.strip() for line in lines):
+    preformatted: list[str] = []
+    pre_marker = '\x00pre'
+    source_text = elem.get_text()
+    while pre_marker in source_text:
+        pre_marker += '_'
+
+    def render(node) -> str:
+        if isinstance(node, Comment):
+            return ''
+        if isinstance(node, NavigableString):
+            return re.sub(r'\s+', ' ', str(node))
+        if node.name == 'br':
+            return '\n'
+        if node.name == 'pre':
+            preformatted.append(node.get_text())
+            return '\n\n' + pre_marker + str(len(preformatted) - 1) + '\x00\n\n'
+
+        text = ''.join(render(child) for child in node.children)
+        if node.name in ('h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
+            return '\n\n' + '#' * int(node.name[1]) + ' ' + text.strip() + '\n\n'
+        if node.name in ('p', 'div', 'section', 'article', 'ul', 'ol', 'blockquote',
+                         'table', 'tr', 'dl', 'dt', 'dd', 'figure', 'figcaption',
+                         'caption', 'details', 'summary', 'hr'):
+            return '\n\n' + text.strip() + '\n\n'
+        if node.name in ('td', 'th'):
+            return '\n' + text.strip()
+        if node.name == 'li':
+            return '\n- ' + text.strip()
+        return text
+
+    try:
+        rendered = render(elem)
+    except RecursionError:
         return elem.get_text(separator='\n', strip=True)
 
+    lines = [line.strip() for line in rendered.splitlines()]
     result: list[str] = []
     prev_empty = False
     for line in lines:
@@ -404,7 +422,11 @@ def _extract_text_with_structure(elem) -> str:
             continue
         result.append(line)
         prev_empty = is_empty
-    return '\n'.join(result).strip()
+    text = '\n'.join(result).strip()
+    # Restore preformatted text only after prose whitespace has been normalized.
+    for index, content in enumerate(preformatted):
+        text = text.replace(pre_marker + str(index) + '\x00', content)
+    return text
 
 
 def _parse_page(html: str, url: str) -> dict:
