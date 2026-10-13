@@ -57,6 +57,7 @@ def publish_bundle(
     tag_carriers: str = "[]",
     description: Optional[str] = None,
     trace_id: Optional[str] = None,
+    source_commit: Optional[str] = None,
 ) -> dict:
     """POST one or both halves in a single publish request.
 
@@ -94,6 +95,8 @@ def publish_bundle(
         data["description"] = description
     if trace_id is not None:
         data["trace_id"] = trace_id
+    if source_commit is not None:
+        data["source_commit"] = source_commit
     return api_request("POST", "/api/module/publish", files=files or None, data=data).json()
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -16,9 +17,19 @@ from ._api import publish_bundle, resolve_or_create
 from ._build import build_api_bundle, build_artifact
 from ._paths import meta_path, source_dir, source_path, ui_dir, validate_slug
 from ._sdk import load_contract
+from ._source import verify_source_snapshot
 
 
 VALID_SURFACES = {"panel", "detail", "shell"}
+_SOURCE_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+
+
+def _validate_source_sha(ctx, param, value):
+    if not isinstance(value, str) or not _SOURCE_SHA_RE.fullmatch(value):
+        raise click.BadParameter(
+            "must be the full 40-hex lowercase SHA of the approved origin/main tip"
+        )
+    return value
 
 
 def _validate_surfaces(surfaces) -> str:
@@ -58,7 +69,13 @@ def _validate_surfaces(surfaces) -> str:
     default=None,
     help="Trace/todo id for this version, defaults to $Y_TRACE_ID",
 )
-def module_publish(slug, no_activate, label, icon, desc, trace_id):
+@click.option(
+    "--source-sha",
+    required=True,
+    callback=_validate_source_sha,
+    help="Full 40-hex SHA of the approved origin/main tip. Refused if it is not the live tip.",
+)
+def module_publish(slug, no_activate, label, icon, desc, trace_id, source_sha):
     """Build the module and publish it. A build error leaves the active version untouched."""
     try:
         slug = validate_slug(slug)
@@ -66,6 +83,8 @@ def module_publish(slug, no_activate, label, icon, desc, trace_id):
         raise click.ClickException(str(exc)) from exc
 
     trace_id = trace_id or os.environ.get("Y_TRACE_ID") or None
+    # Before metadata and either build: a mismatch must not start a build.
+    verify_source_snapshot(slug, source_sha)
 
     meta = _load_meta(slug)
     label = label if label is not None else meta.get("label")
@@ -122,6 +141,9 @@ def module_publish(slug, no_activate, label, icon, desc, trace_id):
         (ui_manifest or {}).get("min_host_version") or contract.get("version") or 1
     )
 
+    # Source can change while the builds run. Recheck before any API call.
+    verify_source_snapshot(slug, source_sha)
+
     try:
         module = resolve_or_create(slug)
     except httpx.HTTPStatusError as exc:
@@ -163,6 +185,7 @@ def module_publish(slug, no_activate, label, icon, desc, trace_id):
             dispatch_scope=dispatch_scope,
             ui_surfaces=ui_surfaces,
             tag_carriers=tag_carriers,
+            source_commit=source_sha,
         )
     except httpx.HTTPStatusError as exc:
         detail = _http_detail(exc)
@@ -183,7 +206,7 @@ def module_publish(slug, no_activate, label, icon, desc, trace_id):
         size_bits.append(f"api {api_manifest['bytes']}B")
     click.echo(
         f"Published {slug} v{version['version_no']} ({state}) "
-        f"{' '.join(parts)} ({', '.join(size_bits)})"
+        f"{' '.join(parts)} ({', '.join(size_bits)}) src={source_sha[:12]}"
     )
 
 

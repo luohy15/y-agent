@@ -28,6 +28,7 @@ def _entity_to_dto(entity: ModuleVersionEntity) -> ModuleVersion:
         built_at=entity.built_at,
         description=entity.description,
         trace_id=entity.trace_id,
+        source_commit=entity.source_commit,
         created_at=entity.created_at,
         updated_at=entity.updated_at,
         created_at_unix=entity.created_at_unix,
@@ -56,6 +57,7 @@ def create_version(
     built_at: Optional[str] = None,
     description: Optional[str] = None,
     trace_id: Optional[str] = None,
+    source_commit: Optional[str] = None,
 ) -> ModuleVersion:
     from storage.service.module_carrier import assert_available, parse_tag_carriers
 
@@ -81,6 +83,7 @@ def create_version(
             built_at=built_at,
             description=description,
             trace_id=trace_id,
+            source_commit=source_commit,
         )
         session.add(entity)
         session.flush()

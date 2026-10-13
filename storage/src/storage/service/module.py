@@ -102,6 +102,7 @@ def publish(
     trace_id: Optional[str] = None,
     activate: bool = True,
     tag_carriers: str = "[]",
+    source_commit: Optional[str] = None,
 ) -> Optional[ModuleVersion]:
     """Insert a new immutable version; move the active pointer unless activate=False.
 
@@ -132,6 +133,7 @@ def publish(
         trace_id=trace_id,
         tag_carriers=tag_carriers,
         activate=activate,
+        source_commit=source_commit,
     )
     return version
 

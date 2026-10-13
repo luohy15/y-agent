@@ -323,6 +323,7 @@ async def publish(
     trace_id: Optional[str] = Form(None),
     activate: bool = Form(True),
     tag_carriers: str = Form("[]"),
+    source_commit: Optional[str] = Form(None),
 ):
     """Publish one version spanning the UI half, the API half, or both.
 
@@ -355,6 +356,14 @@ async def publish(
     if candidate_trace_id and len(candidate_trace_id) > 64:
         raise HTTPException(status_code=400, detail="trace_id must be at most 64 characters")
     candidate_trace_id = candidate_trace_id or None
+    # Shape only (todo 3886). The API has no GitHub token, so it cannot prove
+    # this SHA is origin/main. Missing or malformed values fail before any
+    # bundle write. The CLI is the provenance boundary.
+    if not isinstance(source_commit, str) or not re.fullmatch(r"[0-9a-f]{40}", source_commit):
+        raise HTTPException(
+            status_code=400,
+            detail="source_commit must be a 40-character lowercase hex SHA",
+        )
     candidate_dispatch_scope = (
         dispatch_scope if isinstance(dispatch_scope, str) else "maintainer"
     )
@@ -497,6 +506,7 @@ async def publish(
             trace_id=candidate_trace_id,
             activate=activate,
             tag_carriers=candidate_tag_carriers,
+            source_commit=source_commit,
         )
     except CarrierConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

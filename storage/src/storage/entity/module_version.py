@@ -31,6 +31,9 @@ class ModuleVersionEntity(Base, BaseEntity):
     built_at = Column(String, nullable=True)
     description = Column(String, nullable=True)
     trace_id = Column(String(64), nullable=True)
+    # Exact origin/main SHA recorded at publish (todo 3886). Nullable: rows
+    # published before the column existed have none. Shape is checked by the API.
+    source_commit = Column(String(40), nullable=True)
 
     __table_args__ = (
         UniqueConstraint("user_id", "version_id"),

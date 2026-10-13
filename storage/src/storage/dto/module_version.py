@@ -36,6 +36,7 @@ class ModuleVersion:
     built_at: Optional[str] = None
     description: Optional[str] = None
     trace_id: Optional[str] = None
+    source_commit: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     created_at_unix: Optional[int] = None
@@ -63,6 +64,7 @@ class ModuleVersion:
             built_at=data.get('built_at'),
             description=data.get('description'),
             trace_id=data.get('trace_id'),
+            source_commit=data.get('source_commit'),
             created_at=data.get('created_at'),
             updated_at=data.get('updated_at'),
             created_at_unix=data.get('created_at_unix'),
@@ -90,6 +92,7 @@ class ModuleVersion:
             'built_at': self.built_at,
             'description': self.description,
             'trace_id': self.trace_id,
+            'source_commit': self.source_commit,
         }
         if self.created_at is not None:
             result['created_at'] = self.created_at

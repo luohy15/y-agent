@@ -1239,7 +1239,55 @@ module_version
   description
   trace_id             todo/trace this version was published for
   tag_carriers         JSON list, default []; module tag-carrier claims (todo 3838)
+  source_commit        nullable VARCHAR(40); exact origin/main SHA (todo 3886)
 ```
+
+#### Publish provenance
+
+`y module publish <slug> --source-sha <sha>` builds and uploads only when the
+canonical checkout `/Users/roy/luohy15/code/y-module` satisfies all of the
+following. Otherwise it fails closed before any API call. There is no bypass
+and no historical-SHA mode.
+
+- `--source-sha` is required and is the full 40-hex lowercase SHA of the
+  approved candidate. The CLI never substitutes a newer tip.
+- Remote truth is `git ls-remote origin refs/heads/main` (read-only, 30s
+  timeout). The stale local `origin/main` ref is not consulted. A failure,
+  empty output or timeout refuses.
+- HEAD must equal that live tip. Ahead, behind and diverged each refuse with
+  a distinct message from `git merge-base --is-ancestor`. When the tip commit
+  is not already local, the CLI downloads the objects with
+  `git fetch --refmap=` (no branch, remote-tracking ref or FETCH_HEAD write)
+  so that comparison can run. It never pushes, resets, merges, stashes or
+  fetches into branches.
+- Build inputs `<slug>/`, `common/` and `shared/` must be clean.
+  `git status --porcelain=v1 -z --untracked-files=all --ignored=matching`
+  refuses every entry except paths whose components include `.build`,
+  `__pycache__`, `tests`, `node_modules` or `.pytest_cache`, and `.pyc` /
+  `.pyo` files. Ignored files the API zip would otherwise pick up (for
+  example `*.test.*`) refuse. Dirt outside those three paths does not. A symlink
+  inside those paths also refuses, including a clean committed one: the API
+  zip follows file links, and `os.walk` follows a symlink given as its start,
+  so a linked `<slug>`, `common`, or `shared` root is refused the same way. The
+  link text is not the bytes that would ship.
+  Links under the allowed noise components above are ignored. As of
+  2026-10-13 the canonical checkout has no symlink under any slug, `common/`,
+  or `shared/` (the only tracked link is `CLAUDE.md` at the repo root).
+- The same check runs again after both builds and before `resolve_or_create`,
+  so a tree that changes mid-build is caught. Prebuilt `.build` output is
+  never reused.
+
+`POST /api/module/publish` requires `source_commit` matching `^[0-9a-f]{40}$`
+and returns 400 otherwise, before any bundle write. The check is shape only:
+`luohy15/y-module` is private, and this API has no GitHub token, so it cannot
+prove the SHA is main's tip. The CLI is the enforcing boundary. The accepted
+SHA is stored on `module_version.source_commit` (nullable for rows published
+before the column). `y module versions` prints `src=<12>` when it is present.
+Rollback and activate still only move the pointer. The column is added by the
+hand-applied expand-only DDL `migration/3886_module_version_source_commit.sql`,
+which must land before the host that writes it. Order: DDL, then host deploy,
+then CLI. An old CLI against the new API is refused. A new CLI against an old
+API sends a field the old API ignores.
 
 Both parts are nullable, which is what makes "a UI artifact is a module with
 only a UI part" true in the schema rather than only in prose.
@@ -1820,3 +1868,4 @@ hook, both of which cost more than the single-user failure mode justifies.
 | 3808 | `GET /api/module/list` loads owner modules and active versions in one outer join (`list_modules_with_active_versions`) instead of one `get_version` per module. The maintainer lookup stays per request. Response projection is unchanged. No migration. | - | `pages/plan-3808-module-list-latency.md` | `pages/impl-3808-module-list-latency.md` | `pages/review-3808-module-list-latency.md` | reviewed; publication and post-deploy 24h verification pending |
 | 3861 | Module-owned sidebar icons. `module.json` `icon` is a registry key or a `ui/*.svg` path such as `ui/icon.svg`. Publish stores normalized SVG markup on the existing `module_version.icon` column (no migration). The host renders a value that starts with `<svg` at 18×18 after DOMPurify; unknown keys and an empty sanitize result stay `box`. Browser contract **v26 → v27**, no new `@y/host` export, registry frozen. Learning's book glyph is deferred until learning v2. | - | `pages/plan-3861-module-icon.md` | - | - | implemented; Learning glyph not in this host change |
 | 3869 | Opt-in module activity bar. The rail shows a module only if pinned, plus `module` (always shown). Host stores pinned slugs at `user_preference.key = activityBarPinnedModules` (unset = empty, no seeding; legacy `activityBarHiddenModules` left untouched for rollback). The `module` intent gains `pinnedSlugs` and keeps a derived `hiddenSlugs`; the Modules row action becomes Pin to / Unpin from activity bar. Browser contract **v25 → v26**; no endpoint, capability or schema migration. Module half in `code/y-module/module`. | - | `pages/plan-3869-module-activity-bar-pin.md` | `pages/impl-3869-module-activity-bar-pin.md` | `pages/review-3869-module-activity-bar-pin.md` | reviewed local changes; uncommitted, host deploy and module publish not authorized |
+| 3886 | Publish provenance. `y module publish` requires `--source-sha` and refuses unless the canonical y-module checkout HEAD equals the live `origin/main` tip and that SHA, with clean build inputs, rechecked after the build. The API requires and records a shape-checked `module_version.source_commit` (nullable VARCHAR(40)); it does not call GitHub. Hand-applied DDL `migration/3886_module_version_source_commit.sql` is not applied in this change. | - | `pages/plan-3886-publish-origin-main.md` | `pages/hr-3886-publish-origin-main.md` | `pages/review-3886-publish-origin-main.md` | reviewed (approve r3); DDL, host deploy, CLI rollout not applied |

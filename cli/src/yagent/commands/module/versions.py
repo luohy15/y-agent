@@ -43,4 +43,7 @@ def module_versions(slug):
         text = f"{tag} {description}".strip() if description else tag
         if text:
             line += f"  {text}"
+        source_commit = v.get("source_commit") or ""
+        if source_commit:
+            line += f"  src={source_commit[:12]}"
         click.echo(line)
