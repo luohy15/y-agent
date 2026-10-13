@@ -518,6 +518,42 @@ declare module "@y/host" {
   }
   export function ChatMessagePresentation(props: ChatMessagePresentationProps): any;
 
+  // chat/ChatTurnList.tsx (contract v30, todo 3892) — shared turn list.
+  export interface ChatTurnMessage {
+    role: ChatMessageRole;
+    content: string;
+    toolName?: string;
+    arguments?: Record<string, unknown>;
+    toolCallId?: string;
+    timestamp?: string;
+    images?: string[];
+    links?: ChatMessagePresentationProps["links"];
+    contentTruncated?: boolean;
+    contentLength?: number;
+  }
+  export interface ChatTurnListProps {
+    messages: ChatTurnMessage[];
+    scopeId: string;
+    running?: boolean;
+    centered?: boolean;
+    inline?: boolean;
+    allowLocalAttachments?: boolean;
+    showProgress?: boolean;
+    scrollContainerRef?: { current: HTMLDivElement | null };
+    selectMode?: boolean;
+    selectedIndices?: Set<number>;
+    onToggleSelect?: (index: number) => void;
+    resolveFileReference?: ChatMessagePresentationProps["resolveFileReference"];
+    onOpenFile?: (path: string, line?: number) => void;
+    onShowSources?: (links: Array<string | { url: string; title?: string; snippet?: string; last_updated?: string }>, messageIndex?: number) => void;
+    onSelectChat?: (chatId: string) => void;
+    onSelectTrace?: (traceId: string) => void;
+    onOpenArtifact?: (type: ArtifactType, spec: string) => void;
+    onLoadFullContent?: LoadPresentedContent;
+    getFullContent?: GetPresentedContent;
+  }
+  export function ChatTurnList(props: ChatTurnListProps): any;
+
   // resolvedRange.ts / ResolvedRangeLabel.tsx (contract v14, todo 3580) —
   // host-owned inclusive date/instant range formatter and presentational
   // label. Calendar `from_date`/`to_date` are YYYY-MM-DD and are never

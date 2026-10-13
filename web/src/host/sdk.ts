@@ -34,6 +34,7 @@ import MarkdownPreview from "../components/shell/MarkdownPreview";
 import MarkdownBodyPreview from "../components/shell/MarkdownBodyPreview";
 import { FrontMatterCard, MARKDOWN_ARTICLE_TABLE_CLASSES } from "../components/shell/FrontMatterCard";
 import ChatMessagePresentation from "../components/chat/ChatMessagePresentation";
+import ChatTurnList from "../components/chat/ChatTurnList";
 import { ChatImage, ChatImageScope, ChatMessageImages } from "../components/ChatImage";
 import ImageLightbox from "../components/ImageLightbox";
 import ResolvedRangeLabel from "../components/ResolvedRangeLabel";
@@ -178,6 +179,10 @@ export const hostSdk = {
   // module. No capabilities means no authenticated controls.
   ChatMessagePresentation,
 
+  // chat/ChatTurnList.tsx (contract v30, todo 3892) — shared turn grouping,
+  // process summary row and expanded process. Absent capabilities = no control.
+  ChatTurnList,
+
   // resolvedRange.ts / ResolvedRangeLabel.tsx (contract v14, todo 3580) —
   // host-owned inclusive date/instant range formatter plus the presentational
   // label. One physical copy for the y-module surfaces;
@@ -241,6 +246,7 @@ export type {
   LoadPresentedContent,
   GetPresentedContent,
 } from "../components/chat/ChatMessagePresentation";
+export type { ChatTurnListProps, ChatTurnMessage } from "../components/chat/ChatTurnList";
 export type { ResolvedRangeLabelProps } from "../components/ResolvedRangeLabel";
 export type {
   FormatResolvedRangeOptions,
