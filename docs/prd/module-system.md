@@ -1488,15 +1488,39 @@ the existing intent channel, and what it needs the app to do goes out through
 `runHostCommand` (the host registers nine for chat, e.g. `chat.open`, `chat.setTraceFilter`,
 `chat.openFile`, `chat.openArtifact`, `chat.openTrace`).
 
-**The renderer seam is below the bubble, not above the list.** A shell module that
-merely orchestrated a host-owned message list would leave the part that actually
-changes weekly — how a message looks — on the deploy clock, which is the whole
-problem this feature exists to solve. So the module owns the message list, the
-bubble and its chrome, the message parser, the export view, layout, markdown
-component overrides, citation and file-link presentation, and the artifact
-**fence dispatch** (deciding that a fence is mermaid / vega-lite / artifact-svg
-and in which mode). The host owns every leaf whose dependency is measured in
-megabytes and hands them to the module as component values on `@y/host`:
+**The renderer seam is the shared presenter, not a second bubble.** Todo 3892
+supersedes the todo 3042/3061 choice to keep public bubble presentation
+deliberately plainer. The chat module owns conversation orchestration: data
+loading, SSE, parsing and adaptation, message ordering and grouping, scroll and
+selection, the composer, controls, full-output retrieval, and export
+orchestration. It does not own a parallel implementation of one message. The
+host owns `ChatMessagePresentation`, a prop-driven presenter consumed by the
+public and fallback adapters directly and by the chat module through `@y/host`.
+Interactive file, chat, trace, source, artifact-tab, and full-output actions are
+optional callbacks. Public adapters omit them. Rendering shared content does not
+authorize another fetch.
+
+The host likewise owns `MarkdownBodyPreview`, the reusable Markdown article and
+responsive TOC chrome. Host `MarkdownPreview` and the file module keep their own
+front-matter adapters, heading and link policy, and export orchestration. The
+metadata card is the single host-owned `FrontMatterCard` from todo 3884.
+Export-only HTML and PDF rendering stays a separate document target.
+
+Shared presentation performs no domain fetch, SWR read, authentication lookup,
+host command, or module discovery. Attachment transport stays the existing
+host image scope, and a public wrapper passes `allowLocalAttachments={false}`
+so a signed-in visitor of a share URL still cannot enter authenticated local-file
+resolution. No public raw-file endpoint and no public module bundle load are
+added.
+
+Browser contract **v28 → v29** (todo 3892) exports `ChatMessagePresentation`,
+`MarkdownBodyPreview`, and their prop types. The exports are additive. Host
+deployment precedes publication of chat or file versions that import them.
+Older module versions stay loadable. A rollback that removes v29 must restore
+the dependent module versions first.
+
+The host still owns every leaf whose dependency is measured in megabytes and
+hands them to the module as component values on `@y/host`:
 `ArtifactView` / `ArtifactRenderer` (mermaid, vega, DOMPurify, highlight.js),
 `PatchDiff` (`@pierre/diffs/react`), `ImageLightbox`, the PNG capture
 primitive, (since todo 3068 / contract v7) `CodeEditor` (CodeMirror with
@@ -1536,10 +1560,10 @@ opens `ui:entity`; the host keeps entity relations and dev-worktree/release
 routes, services, tables, CLI and lifecycle. Entity and Dev are UI-only modules
 (`panel` + `detail`) that read these existing host contracts. Their built-in
 panels and exact `entity.md`/`dev.md` special tabs retire; real file paths with
-those names remain ordinary files. The rule
-of thumb: **the module owns everything that
-decides what a message looks like; the host owns every leaf measured in
-megabytes.**
+those names remain ordinary files. The historical rule of thumb (module owns message look, host owns megabyte
+leaves) is superseded for message chrome and Markdown body/TOC by todo 3892.
+The module still owns list grouping, parsers, and orchestration. The host owns
+the shared presenter plus every leaf measured in megabytes.
 
 The numbers are why the seam sits there. Bundling the whole subtree into the
 module produces **20.8 MB** (shiki grammars ≈ 9.95 MB, the artifact subtree
@@ -1558,26 +1582,26 @@ would move their cost from first-artifact-render to before-shell-mount. That is
 the content of the `@y/host` **v4 → v5** bump, together with the exported leaf set
 and a default parsing set the module may use as-is or replace.
 
-**Drift control is one degraded host renderer plus physically shared leaves.**
-The host keeps exactly one simple renderer, `HostMessageView` (markdown plus the
-leaves above, ceiling 300 lines), used by three call sites: the public trace
-projection `/t/:shareId`, the public chat share `/s/:shareId`, and
-`ChatFallbackView`. Everything carrying real rendering logic is one physical copy
-shared with the module, so only bubble chrome and layout *can* diverge — which is
-the deliberate "the fallback is plainer" property, not an accident. The line
-ceiling is the tripwire: growth past it means the host renderer is drifting back
-toward parity and the seam should be revisited rather than quietly re-implemented.
+**Drift control is one physical presenter, not a plainer fallback.**
+`HostMessageView` is a thin list and scroll adapter over `ChatMessagePresentation`.
+Its 300-line ceiling is an adapter-size guard, not a reason to keep public
+bubbles simpler or to compress the shared leaves back into the adapter. The
+public trace (`/t/:shareId`), the public chat share (`/s/:shareId`), and
+`ChatFallbackView` all use that adapter. Fallback keeps authenticated local
+attachments when the caller omits the denial. Public wrappers always deny them.
+List grouping is intentionally not unified in this round.
 
-The version-coupling consequence inverts, and that is the point: **message
-rendering is now a `y module publish`**, and only a change to an artifact, diff,
-or image leaf needs a host web deploy.
+Fixes to shared message, body, and TOC presentation require a host web
+deployment. Authenticated orchestration and capability wiring still ship through
+module publication. Only a change to an artifact, diff, or image leaf that is
+not part of the shared presenter needs a host web deploy for that leaf alone.
 
 ### Chat: a control-plane module over the runtime kernel
 
 Chat extends the bot control-plane precedent in two directions: a domain every
 account uses (per-version `dispatch_scope: authenticated`) and a domain that
 owns the app's centre column (the `shell` surface and the renderer seam). The
-module owns **browsing and presentation**; the host owns the **runtime**.
+module owns **browsing and conversation orchestration**. Shared message and Markdown body presentation is host-owned (todo 3892, decision `pages/decision-3892-shared-presentation.md`, plan `pages/plan-3892-shared-presentation.md`). The host owns the **runtime**.
 
 Four hard constraints shaped the boundary. Modules having no worker half, no
 unauthenticated routes, and no host reads of module tables all still stand, so
@@ -1888,4 +1912,5 @@ hook, both of which cost more than the single-user failure mode justifies.
 | 3861 | Module-owned sidebar icons. `module.json` `icon` is a registry key or a `ui/*.svg` path such as `ui/icon.svg`. Publish stores normalized SVG markup on the existing `module_version.icon` column (no migration). The host renders a value that starts with `<svg` at 18×18 after DOMPurify; unknown keys and an empty sanitize result stay `box`. Browser contract **v26 → v27**, no new `@y/host` export, registry frozen. Learning's book glyph is deferred until learning v2. | - | `pages/plan-3861-module-icon.md` | - | - | implemented; Learning glyph not in this host change |
 | 3869 | Opt-in module activity bar. The rail shows a module only if pinned, plus `module` (always shown). Host stores pinned slugs at `user_preference.key = activityBarPinnedModules` (unset = empty, no seeding; legacy `activityBarHiddenModules` left untouched for rollback). The `module` intent gains `pinnedSlugs` and keeps a derived `hiddenSlugs`; the Modules row action becomes Pin to / Unpin from activity bar. Browser contract **v25 → v26**; no endpoint, capability or schema migration. Module half in `code/y-module/module`. | - | `pages/plan-3869-module-activity-bar-pin.md` | `pages/impl-3869-module-activity-bar-pin.md`, `pages/decision-3869-module-publication-path.md` | `pages/review-3869-module-activity-bar-pin.md` | host e6c5d5be deployed; module v16 active from e12d783; awaiting manual acceptance; no y-module git push |
 | 3884 | Shared file-metadata card. Host `FrontMatterCard` owns the overflow-safe grid and table classes. The file module will pass its tag editor as the `tags` slot. Browser contract **v27 → v28**, additive. | - | `pages/plan-3884-markdown-metadata-overflow.md` | `pages/impl-3884-host-markdown-overflow.md` | - | host implementation in progress; module half not started |
+| 3892 | Shared chat message presenter and Markdown body/TOC. Public and authenticated chat use `ChatMessagePresentation`; host and file Markdown previews use `MarkdownBodyPreview`. Capabilities stay optional, public adapters pass no authenticated callbacks, and public image scopes deny local attachments even when a token is present. Browser contract **v28 → v29**, additive. Decision `pages/decision-3892-shared-presentation.md`. Plan `pages/plan-3892-shared-presentation.md`. | - | `pages/plan-3892-shared-presentation.md` | `pages/decision-3892-shared-presentation.md`, `pages/impl-3892-shared-presentation.md` | `pages/review-3892-shared-presentation.md` | reviewed; host v29 deploy and chat/file module publish pending |
 | 3886 | Publish provenance. `y module publish` requires `--source-sha` and refuses unless the canonical y-module checkout HEAD equals the live `origin/main` tip and that SHA, with clean build inputs, rechecked after the build. The API requires and records a shape-checked `module_version.source_commit` (nullable VARCHAR(40)); it does not call GitHub. Hand-applied DDL `migration/3886_module_version_source_commit.sql` is not applied in this change. | - | `pages/plan-3886-publish-origin-main.md` | `pages/hr-3886-publish-origin-main.md` | `pages/review-3886-publish-origin-main.md` | reviewed (approve r3); DDL, host deploy, CLI rollout not applied |

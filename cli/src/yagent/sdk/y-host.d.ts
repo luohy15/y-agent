@@ -390,6 +390,9 @@ declare module "@y/host" {
     root?: HTMLElement | null;
     rootRef?: { current: HTMLElement | null };
     mode?: ChatImageScopeMode;
+    // Omit to keep the legacy token gate. false denies local attachments
+    // even when a token is present.
+    allowLocalAttachments?: boolean;
     children?: any;
   }): any;
   export function ChatImage(props: {
@@ -462,6 +465,58 @@ declare module "@y/host" {
     forceTagsBlock?: boolean;
   }
   export function FrontMatterCard(props: FrontMatterCardProps): any;
+
+  // shell/MarkdownBodyPreview.tsx (contract v29, todo 3892) — shared body
+  // column and the three responsive TOC surfaces. Callers pass rendered
+  // children, a metadata slot, collected headings and article classes.
+  export interface MarkdownBodyHeading {
+    text: string;
+    id: string;
+    level: number;
+  }
+  export interface MarkdownBodyPreviewProps {
+    children?: any;
+    metadata?: any;
+    headings: MarkdownBodyHeading[];
+    articleClassName: string;
+    rootClassName?: string;
+    articleRef?: { current: HTMLElement | null };
+    tocItemClassName?: (level: number) => string;
+  }
+  export function MarkdownBodyPreview(props: MarkdownBodyPreviewProps): any;
+
+  // chat/ChatMessagePresentation.tsx (contract v29, todo 3892) — shared
+  // message chrome. Callbacks are optional; public adapters omit them.
+  export type ChatMessageRole = "user" | "assistant" | "tool_pending" | "tool_result" | "tool_denied" | "system";
+  export interface PresentedContentState {
+    status: "loading" | "loaded" | "error";
+    content?: string;
+    error?: string;
+  }
+  export type LoadPresentedContent = (toolCallId: string) => void;
+  export type GetPresentedContent = (toolCallId: string) => PresentedContentState | undefined;
+  export interface ChatMessagePresentationProps {
+    role: ChatMessageRole;
+    content: string;
+    toolName?: string;
+    arguments?: Record<string, unknown>;
+    timestamp?: string;
+    images?: string[];
+    links?: Array<string | { url: string; title?: string; snippet?: string; last_updated?: string }>;
+    dimmed?: boolean;
+    toolCallId?: string;
+    contentTruncated?: boolean;
+    contentLength?: number;
+    onLoadFullContent?: LoadPresentedContent;
+    getFullContent?: GetPresentedContent;
+    onOpenFile?: (path: string, line?: number) => void;
+    onShowSources?: (links: Array<string | { url: string; title?: string }>) => void;
+    onSelectChat?: (chatId: string) => void;
+    onSelectTrace?: (traceId: string) => void;
+    onOpenArtifact?: (type: ArtifactType, spec: string) => void;
+    resolveFileReference?: (href?: string | null, options?: { allowRelative?: boolean }) => { path: string; line?: number } | null;
+  }
+  export function ChatMessagePresentation(props: ChatMessagePresentationProps): any;
 
   // resolvedRange.ts / ResolvedRangeLabel.tsx (contract v14, todo 3580) —
   // host-owned inclusive date/instant range formatter and presentational

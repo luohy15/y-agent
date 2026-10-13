@@ -121,17 +121,22 @@ export function ChatImageScope({
   root = null,
   rootRef,
   mode = "visible",
+  allowLocalAttachments,
   children,
 }: {
   scopeId: string;
   root?: HTMLElement | null;
   rootRef?: RefObject<HTMLElement | null>;
   mode?: ChatImageScopeMode;
+  // Omitted preserves the legacy token gate. false denies local files even
+  // when a token is present (public share / public trace).
+  allowLocalAttachments?: boolean;
   children?: ReactNode;
 }) {
   const storeRef = useRef(new Map<string, Entry>());
   const slotsRef = useRef(new Map<Element, string>());
   const observerRef = useRef<IntersectionObserver | null>(null);
+  const allowLocalRef = useRef(allowLocalAttachments !== false);
   const [resolvedRoot, setResolvedRoot] = useState<HTMLElement | null>(root);
   const [version, setVersion] = useState(0);
   const bump = useCallback(() => setVersion((value) => value + 1), []);
@@ -155,6 +160,22 @@ export function ChatImageScope({
 
   useEffect(() => () => teardown(), [scopeId, teardown]);
 
+  useEffect(() => {
+    const next = allowLocalAttachments !== false;
+    if (allowLocalRef.current === next) return;
+    allowLocalRef.current = next;
+    for (const entry of storeRef.current.values()) {
+      if (entry.source.kind !== "local") continue;
+      entry.abort?.abort();
+      entry.abort = undefined;
+      if (entry.ownedBlob) URL.revokeObjectURL(entry.ownedBlob);
+      entry.ownedBlob = undefined;
+      entry.displayUrl = undefined;
+      entry.status = next ? "idle" : "unavailable";
+    }
+    bump();
+  }, [allowLocalAttachments, bump]);
+
   const admit = useCallback((key: string) => {
     const entry = storeRef.current.get(key);
     if (!entry || entry.status !== "idle") return;
@@ -169,7 +190,7 @@ export function ChatImageScope({
       bump();
       return;
     }
-    if (!getToken()) {
+    if (!allowLocalRef.current || !getToken()) {
       entry.status = "unavailable";
       bump();
       return;

@@ -1,11 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { PatchDiff } from "@pierre/diffs/react";
-import ArtifactView, { type ArtifactMode, type ArtifactType } from "./ArtifactView";
-import { ChatImage, ChatImageScope, ChatMessageImages } from "./ChatImage";
-import remarkStripComments from "../utils/remarkStripComments";
-import { parseLocalFileReference } from "../utils/localFileLinks";
+import { ChatImageScope } from "./ChatImage";
+import ChatMessagePresentation from "./chat/ChatMessagePresentation";
 
 export type HostMessageRole = "user" | "assistant" | "tool_pending" | "tool_result" | "tool_denied" | "system";
 export type HostCitationLink = string | { url: string; title?: string; snippet?: string; last_updated?: string };
@@ -21,7 +16,6 @@ export interface HostMessage {
 }
 
 interface ContentPart { type: string; text?: string }
-interface HastNode { type?: string; tagName?: string; value?: string; properties?: { className?: string | string[] }; children?: HastNode[] }
 
 function stripInvisible(value: string): string {
   // eslint-disable-next-line no-control-regex
@@ -101,21 +95,6 @@ export function parseChatMessages(rawMessages: unknown[]): HostMessage[] {
   return filterTrailingEmptyAssistantMessages(messages);
 }
 
-function artifactFromNode(node?: HastNode): { type: ArtifactType; spec: string } | null {
-  const code = node?.children?.find((child) => child.tagName === "code");
-  const classes = Array.isArray(code?.properties?.className) ? code.properties.className.join(" ") : code?.properties?.className || "";
-  const type = /\blanguage-mermaid\b/.test(classes) ? "mermaid" : /\blanguage-vega-lite\b/.test(classes) ? "vega-lite" : /\blanguage-artifact-svg\b/.test(classes) ? "artifact-svg" : null;
-  if (!type || !code) return null;
-  const text = (part: HastNode): string => typeof part.value === "string" ? part.value : part.children?.map(text).join("") || "";
-  return { type, spec: text(code).replace(/\n$/, "") };
-}
-
-function buildDiff(path: string, oldText: string, newText: string): string {
-  const oldLines = oldText ? oldText.split("\n") : [];
-  const newLines = newText ? newText.split("\n") : [];
-  return `--- a/${path}\n+++ b/${path}\n@@ -1,${oldLines.length} +1,${newLines.length} @@\n${oldLines.map((line) => `-${line}`).join("\n")}\n${newLines.map((line) => `+${line}`).join("\n")}`;
-}
-
 export interface HostTurnItem { key: string; message?: HostMessage; process?: HostMessage[] }
 
 // Compact a flat message stream into one item per user/final-assistant pair,
@@ -178,38 +157,10 @@ function ProcessSummary({ messages }: { messages: HostMessage[] }) {
 }
 
 function HostBubble({ message }: { message: HostMessage }) {
-  const [modes, setModes] = useState<Record<string, ArtifactMode>>({});
-  if (message.role === "user") return <div className="rounded bg-sol-base02 px-2 py-1.5 text-sm text-sol-base1 whitespace-pre-wrap break-words"><span className="mr-2 font-mono text-sol-base01">&gt;</span>{message.content}<ChatMessageImages images={message.images} /></div>;
-  if (message.role === "tool_pending") return <div className="font-mono text-xs text-sol-blue">● {message.toolName || "tool"}</div>;
-  if (message.role === "tool_result" || message.role === "tool_denied") {
-    const args = message.arguments || {};
-    const edit = ["edit", "file_edit"].includes((message.toolName || "").toLowerCase());
-    return <details className="font-mono text-xs text-sol-base01"><summary className="cursor-pointer">{message.toolName || "tool"}{message.role === "tool_denied" ? " denied" : ""}</summary>{edit ? <PatchDiff patch={buildDiff(String(args.file_path || args.path || "file"), String(args.old_string || ""), String(args.new_string || ""))} options={{ theme: "solarized-dark" }} /> : <pre className="mt-1 max-h-60 overflow-auto whitespace-pre-wrap rounded bg-sol-base02 p-2 text-sol-base0">{message.content}</pre>}</details>;
-  }
-  if (message.role === "system") return <div className="text-center text-xs text-sol-base01">{message.content}</div>;
-  return <div className="text-sm sm:text-[0.775rem] prose prose-sm max-w-none text-sol-base0">
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm, remarkStripComments]}
-      urlTransform={(url) => url.startsWith("cite://") ? url : defaultUrlTransform(url)}
-      components={{
-        pre({ children, node }) {
-          const artifact = artifactFromNode(node as HastNode);
-          if (!artifact) return <pre>{children}</pre>;
-          const key = `${artifact.type}:${artifact.spec.slice(0, 80)}`;
-          return <ArtifactView type={artifact.type} spec={artifact.spec} mode={modes[key] || "preview"} onModeChange={(mode) => setModes((previous) => ({ ...previous, [key]: mode }))} variant="inline" />;
-        },
-        a({ href, children, ...props }) {
-          const file = parseLocalFileReference(href);
-          return file ? <a href={href} title={file.path} {...props}>{children}</a> : <a href={href} {...props}>{children}</a>;
-        },
-        img: ChatImage,
-      }}
-    >{message.content}</ReactMarkdown>
-    <ChatMessageImages images={message.images} />
-  </div>;
+  return <ChatMessagePresentation role={message.role} content={message.content} toolName={message.toolName} arguments={message.arguments} timestamp={message.timestamp} images={message.images} links={message.links} toolCallId={message.toolCallId} />;
 }
 
-export default function HostMessageView({ messages, running = false, centered = false, scopeId, scrollContainerRef }: { messages: HostMessage[]; running?: boolean; centered?: boolean; scopeId: string; scrollContainerRef?: React.RefObject<HTMLDivElement | null> }) {
+export default function HostMessageView({ messages, running = false, centered = false, scopeId, scrollContainerRef, allowLocalAttachments }: { messages: HostMessage[]; running?: boolean; centered?: boolean; scopeId: string; scrollContainerRef?: React.RefObject<HTMLDivElement | null>; allowLocalAttachments?: boolean }) {
   const ownRef = useRef<HTMLDivElement>(null);
   const ref = scrollContainerRef || ownRef;
   const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null);
@@ -238,5 +189,5 @@ export default function HostMessageView({ messages, running = false, centered = 
     };
   }, [messages, ref]);
   const items = buildTurnDisplay(messages);
-  return <div ref={setScroller} className="flex-1 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable] px-6 py-4 text-xs"><ChatImageScope key={scopeId} scopeId={scopeId} root={rootEl}><div className={`${centered ? "max-w-3xl mx-auto w-full " : ""}flex flex-col gap-3`}>{items.map((item) => item.message ? <HostBubble key={item.key} message={item.message} /> : <ProcessSummary key={item.key} messages={item.process!} />)}{running && <span className="inline-block h-5 w-2.5 bg-sol-base1" />}</div></ChatImageScope></div>;
+  return <div ref={setScroller} className="flex-1 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable] px-6 py-4 text-xs"><ChatImageScope key={scopeId} scopeId={scopeId} root={rootEl} allowLocalAttachments={allowLocalAttachments}><div className={`${centered ? "max-w-3xl mx-auto w-full " : ""}flex flex-col gap-3`}>{items.map((item) => item.message ? <HostBubble key={item.key} message={item.message} /> : <ProcessSummary key={item.key} messages={item.process!} />)}{running && <span className="inline-block h-5 w-2.5 bg-sol-base1" />}</div></ChatImageScope></div>;
 }

@@ -31,7 +31,9 @@ import ArtifactView from "../components/ArtifactView";
 import CodeEditor from "../components/CodeEditor";
 import HtmlPreview from "../components/HtmlPreview";
 import MarkdownPreview from "../components/shell/MarkdownPreview";
+import MarkdownBodyPreview from "../components/shell/MarkdownBodyPreview";
 import { FrontMatterCard, MARKDOWN_ARTICLE_TABLE_CLASSES } from "../components/shell/FrontMatterCard";
+import ChatMessagePresentation from "../components/chat/ChatMessagePresentation";
 import { ChatImage, ChatImageScope, ChatMessageImages } from "../components/ChatImage";
 import ImageLightbox from "../components/ImageLightbox";
 import ResolvedRangeLabel from "../components/ResolvedRangeLabel";
@@ -166,6 +168,16 @@ export const hostSdk = {
   FrontMatterCard,
   MARKDOWN_ARTICLE_TABLE_CLASSES,
 
+  // shell/MarkdownBodyPreview.tsx (contract v29, todo 3892) — shared article
+  // and responsive TOC chrome. Wrappers still supply body, metadata, headings
+  // and link policy.
+  MarkdownBodyPreview,
+
+  // chat/ChatMessagePresentation.tsx (contract v29, todo 3892) — one
+  // prop-driven message presenter for public/fallback adapters and the chat
+  // module. No capabilities means no authenticated controls.
+  ChatMessagePresentation,
+
   // resolvedRange.ts / ResolvedRangeLabel.tsx (contract v14, todo 3580) —
   // host-owned inclusive date/instant range formatter plus the presentational
   // label. One physical copy for the y-module surfaces;
@@ -217,7 +229,18 @@ export type {
 export type { TagsEditorProps } from "../components/TagsEditor";
 export type { HtmlPreviewProps } from "../components/HtmlPreview";
 export type { MarkdownPreviewProps } from "../components/shell/MarkdownPreview";
+export type { MarkdownBodyPreviewProps, MarkdownBodyHeading } from "../components/shell/MarkdownBodyPreview";
 export type { FrontMatterCardProps } from "../components/shell/FrontMatterCard";
+export type {
+  ChatMessagePresentationProps,
+  ChatMessageRole,
+  PresentedCitationLink,
+  PresentedFileReference,
+  ResolveFileReference,
+  PresentedContentState,
+  LoadPresentedContent,
+  GetPresentedContent,
+} from "../components/chat/ChatMessagePresentation";
 export type { ResolvedRangeLabelProps } from "../components/ResolvedRangeLabel";
 export type {
   FormatResolvedRangeOptions,
