@@ -31,6 +31,7 @@ import ArtifactView from "../components/ArtifactView";
 import CodeEditor from "../components/CodeEditor";
 import HtmlPreview from "../components/HtmlPreview";
 import MarkdownPreview from "../components/shell/MarkdownPreview";
+import { FrontMatterCard, MARKDOWN_ARTICLE_TABLE_CLASSES } from "../components/shell/FrontMatterCard";
 import { ChatImage, ChatImageScope, ChatMessageImages } from "../components/ChatImage";
 import ImageLightbox from "../components/ImageLightbox";
 import ResolvedRangeLabel from "../components/ResolvedRangeLabel";
@@ -159,6 +160,12 @@ export const hostSdk = {
   // instead of bundling a copy.
   MarkdownPreview,
 
+  // shell/FrontMatterCard.tsx (contract v28, todo 3884) — one presentational
+  // metadata card for the public trace and the authenticated file module.
+  // `tags` replaces the read-only chips when a module passes its own editor.
+  FrontMatterCard,
+  MARKDOWN_ARTICLE_TABLE_CLASSES,
+
   // resolvedRange.ts / ResolvedRangeLabel.tsx (contract v14, todo 3580) —
   // host-owned inclusive date/instant range formatter plus the presentational
   // label. One physical copy for the y-module surfaces;
@@ -210,6 +217,7 @@ export type {
 export type { TagsEditorProps } from "../components/TagsEditor";
 export type { HtmlPreviewProps } from "../components/HtmlPreview";
 export type { MarkdownPreviewProps } from "../components/shell/MarkdownPreview";
+export type { FrontMatterCardProps } from "../components/shell/FrontMatterCard";
 export type { ResolvedRangeLabelProps } from "../components/ResolvedRangeLabel";
 export type {
   FormatResolvedRangeOptions,

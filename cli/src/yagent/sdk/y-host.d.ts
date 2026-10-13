@@ -452,6 +452,17 @@ declare module "@y/host" {
   }
   export function MarkdownPreview(props: MarkdownPreviewProps): any;
 
+  // shell/FrontMatterCard.tsx (contract v28, todo 3884) — presentational
+  // front-matter card. `tags` replaces the read-only chips. `forceTagsBlock`
+  // keeps the tags area when a caller has an editor but no tag values yet.
+  export const MARKDOWN_ARTICLE_TABLE_CLASSES: string;
+  export interface FrontMatterCardProps {
+    data: Record<string, unknown>;
+    tags?: any;
+    forceTagsBlock?: boolean;
+  }
+  export function FrontMatterCard(props: FrontMatterCardProps): any;
+
   // resolvedRange.ts / ResolvedRangeLabel.tsx (contract v14, todo 3580) —
   // host-owned inclusive date/instant range formatter and presentational
   // label. Calendar `from_date`/`to_date` are YYYY-MM-DD and are never
