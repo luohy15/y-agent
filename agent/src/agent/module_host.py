@@ -180,6 +180,12 @@ Photo requires v24; deploy this host before publishing it.
 Todo 3879 bumps 24 to 25: `photo_authorize_get_batch` takes optional `filenames` so the
 original downloads as an attachment. Photo v8 requires v25; deploy this host first and
 activate photo v7 before rolling the host below v25.
+Todo 3941 bumps 25 to 26: six owner-bound `dev_worktree_*` capabilities over the
+host worktree registry (list/get/by_name/create/update/remove). The table stays
+host-owned. Dev declares `min_backend_version: 26` when its API is published;
+deploy this host before that publish, and do not roll the host below v26 while
+that API is active. The old `/api/dev-worktree/*` routes stay as adapters over
+the same list policy.
 Modules declare the minimum version they use and an
 older host rejects their bundle. Every later addition to the surface above
 bumps the version and, for modules that need it, `min_backend_version`.
@@ -199,7 +205,7 @@ from sqlalchemy.orm import Session
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-BACKEND_CONTRACT_VERSION = 25
+BACKEND_CONTRACT_VERSION = 26
 
 # Wall-clock budget for the wake="nowait" readiness check (todo 3777).
 NOWAIT_BUDGET_SECONDS = 1.0
@@ -1801,3 +1807,130 @@ def module_tag_transaction(user_id: int, entity_type: str) -> Iterator[Any]:
 
     with tag_service.module_tag_transaction(user_id, entity_type) as handle:
         yield handle
+
+
+# ---------------------------------------------------------------------------
+# v26 dev-worktree capability (todo 3941)
+#
+# The dev module manages worktree rows through this surface. The table stays a
+# host kernel table because resume advice reads it. No repository, entity, or
+# integer owner id crosses the boundary. Callers pass the authenticated owner;
+# payloads cannot choose a different owner or rewrite internal ids.
+# ---------------------------------------------------------------------------
+
+_DEV_WORKTREE_MUTABLE = frozenset({
+    "name", "project_path", "worktree_path", "branch", "status", "todo_id", "server_state",
+})
+_DEV_WORKTREE_STRINGS = frozenset({
+    "name", "project_path", "worktree_path", "branch", "status", "todo_id",
+})
+
+
+def _require_dev_worktree_owner(user_id: int) -> None:
+    owner = _request_owner.get()
+    if owner is None or owner != user_id:
+        raise ModuleHostAuthError(
+            f"dev worktree operation for user_id={user_id} does not match the "
+            f"authenticated request owner (bound={owner}); dev worktree access is request-bound"
+        )
+
+
+def _dev_worktree_service():
+    from storage.service import dev_worktree as wt_service
+
+    return wt_service
+
+
+def _dev_worktree_public(wt) -> dict[str, Any]:
+    if wt is None:
+        from storage.service.dev_worktree import DevWorktreeRequestError
+
+        raise DevWorktreeRequestError(404, "Worktree not found")
+    body = wt.to_dict()
+    body.pop("id", None)
+    body.pop("user_id", None)
+    return body
+
+
+def dev_worktree_list(
+    user_id: int,
+    status: Optional[str] = None,
+    limit: Optional[int] = None,
+) -> list[dict[str, Any]]:
+    """Owner-scoped worktree rows. Omitted limit follows the shared service policy."""
+    _require_dev_worktree_owner(user_id)
+    rows = _dev_worktree_service().list_worktrees(user_id, status=status, limit=limit)
+    return [_dev_worktree_public(row) for row in rows]
+
+
+def dev_worktree_get(user_id: int, worktree_id: str) -> dict[str, Any]:
+    _require_dev_worktree_owner(user_id)
+    return _dev_worktree_public(_dev_worktree_service().get_worktree(user_id, worktree_id))
+
+
+def dev_worktree_by_name(user_id: int, name: str) -> dict[str, Any]:
+    _require_dev_worktree_owner(user_id)
+    return _dev_worktree_public(_dev_worktree_service().get_worktree_by_name(user_id, name))
+
+
+def dev_worktree_create(
+    user_id: int,
+    /,
+    *,
+    name: str,
+    project_path: str,
+    worktree_path: str,
+    branch: str,
+    todo_id: Optional[str] = None,
+    **rejected: Any,
+) -> dict[str, Any]:
+    """Create one active row. user_id, id and worktree_id are not payload fields."""
+    _require_dev_worktree_owner(user_id)
+    from storage.service.dev_worktree import DevWorktreeRequestError
+
+    if rejected:
+        raise DevWorktreeRequestError(422, "ownership and internal ids are not accepted")
+    for label, value in (
+        ("name", name),
+        ("project_path", project_path),
+        ("worktree_path", worktree_path),
+        ("branch", branch),
+    ):
+        if not isinstance(value, str) or not value:
+            raise DevWorktreeRequestError(422, f"{label} must be a non-empty string")
+    if todo_id is not None and not isinstance(todo_id, str):
+        raise DevWorktreeRequestError(422, "todo_id must be a string")
+    created = _dev_worktree_service().create_worktree(
+        user_id,
+        name,
+        project_path=project_path,
+        worktree_path=worktree_path,
+        branch=branch,
+        todo_id=todo_id,
+    )
+    return _dev_worktree_public(created)
+
+
+def dev_worktree_update(user_id: int, worktree_id: str, /, **fields: Any) -> dict[str, Any]:
+    """Update mutable public fields. Empty updates and unknown keys are rejected."""
+    _require_dev_worktree_owner(user_id)
+    from storage.service.dev_worktree import DevWorktreeRequestError
+
+    unknown = set(fields) - _DEV_WORKTREE_MUTABLE
+    if unknown:
+        raise DevWorktreeRequestError(422, "ownership and internal ids are not accepted")
+    present = {key: value for key, value in fields.items() if value is not None}
+    if not present:
+        raise DevWorktreeRequestError(400, "No fields to update")
+    for key, value in present.items():
+        if key in _DEV_WORKTREE_STRINGS and not isinstance(value, str):
+            raise DevWorktreeRequestError(422, f"{key} must be a string")
+        if key == "server_state" and not isinstance(value, dict):
+            raise DevWorktreeRequestError(422, "server_state must be an object")
+    updated = _dev_worktree_service().update_worktree(user_id, worktree_id, **present)
+    return _dev_worktree_public(updated)
+
+
+def dev_worktree_remove(user_id: int, worktree_id: str) -> dict[str, Any]:
+    _require_dev_worktree_owner(user_id)
+    return _dev_worktree_public(_dev_worktree_service().remove_worktree(user_id, worktree_id))

@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from storage.service import dev_worktree as wt_service
+from storage.service.dev_worktree import DevWorktreeRequestError
 
 router = APIRouter(prefix="/dev-worktree")
 
@@ -39,10 +40,13 @@ class WorktreeIdRequest(BaseModel):
 async def list_worktrees(
     request: Request,
     status: Optional[str] = Query(None),
-    limit: int = Query(50),
+    limit: Optional[int] = Query(None),
 ):
     user_id = _get_user_id(request)
-    worktrees = wt_service.list_worktrees(user_id, status=status, limit=limit)
+    try:
+        worktrees = wt_service.list_worktrees(user_id, status=status, limit=limit)
+    except DevWorktreeRequestError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
     return [w.to_dict() for w in worktrees]
 
 

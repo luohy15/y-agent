@@ -25,13 +25,14 @@ def _entity_to_dto(entity: DevWorktreeEntity) -> DevWorktree:
     )
 
 
-def list_worktrees(user_id: int, status: Optional[str] = None, limit: int = 50) -> List[DevWorktree]:
+def list_worktrees(user_id: int, status: Optional[str] = None, limit: Optional[int] = 50) -> List[DevWorktree]:
     with get_db() as session:
         query = session.query(DevWorktreeEntity).filter_by(user_id=user_id)
         if status:
             query = query.filter_by(status=status)
         query = query.order_by(DevWorktreeEntity.updated_at.desc())
-        query = query.limit(limit)
+        if limit is not None:
+            query = query.limit(limit)
         return [_entity_to_dto(row) for row in query.all()]
 
 
