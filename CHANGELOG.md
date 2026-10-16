@@ -31,11 +31,12 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Markdown metadata card (3884)**: shared through host contract v28.
 - **Chat presenters (3892)**: host contract v29 and v30 share the chat message, Markdown body (article column and TOC), turn list, and process summary across public and authenticated views. TOC and chat text sizes stay visible inside module scopes.
 - **Module publish gate (3886)**: `y module publish` requires `--source-sha` and runs only when the canonical checkout HEAD matches the live `origin/main` tip.
+- **`y dev` is module-owned (3941)**: the dev CLI group moved out of the host into the Dev module. Active worktree lists with no limit return every active row (removed and all still default to 50; a nonpositive limit is rejected). Host contract v26 adds owner-bound `dev_worktree_*` reads. Compatibility `/api/dev-worktree/*` routes, worktree storage, and the release kernel stay on the host.
 
 ### Fixed
 
 - **`y dev release` errors (3855)**: API error bodies are surfaced instead of a `KeyError`.
-- **Link URL association (3907)**: associating a URL no longer attaches another link's activity. `y assoc link` echoes the attached activity id.
+- **Link URL association (3907)**: associating a URL no longer attaches another link's activity. `y assoc link` echoes the attached activity id. The link list collapses only repeat visits to the same activity URL within five minutes, so query-distinct pages that share a base URL or title stay visible.
 - **Page extraction (3889)**: structured extraction keeps body text that lives in `div` / `br` markup.
 - **Browser cookie sync (3896)**: export pins a browser profile (Chromium defaults to Default), writes the jar without a network request, and reports expiry from sign-in cookies instead of short-lived tracking cookies.
 
