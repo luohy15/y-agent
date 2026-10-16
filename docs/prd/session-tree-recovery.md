@@ -476,9 +476,3 @@ table-driven over states and evidence rather than transcript fixtures.
 - **Automatic todo status transitions.** Recovery never finishes, reopens, or
   progresses a todo; it only reports upward so a human or a parent session
   decides.
-
-## Delivery Records
-
-| Todo | Outcome | Design | Plan | Decisions | Review | Status |
-|------|---------|--------|------|-----------|--------|--------|
-| 3166 | Established the durable feature home for session-tree recovery: dispatch edges as persisted parent→child handoff state, a suppressor-based classifier (running / awaiting_user / awaiting_children vs completed_without_callback / failed / stalled), a bounded scheduled recovery ladder (one synthesized callback, then one escalation), accept-time trace/parent validation with quarantine instead of discard, bounded idempotent CLI callback retry, and a `y trace` operator surface. No implementation yet | - | - | - | - | requirements defined; implementation not started |

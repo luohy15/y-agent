@@ -241,9 +241,3 @@ in [Bot Dispatch and Tier Routing](bot-routing.md).
 - A new structured capability field or backend-specific JSON configuration on
   bot configs.
 - Any dependency on or change to TradingAgents.
-
-## Delivery Records
-
-| Todo | Outcome | Design | Plan | Decisions | Review | Status |
-|------|---------|--------|------|-----------|--------|--------|
-| 3206 | Add explicit native xAI web and X inline-search contracts, conventional `grok-web` / `grok-x` model bots, shared inline lifecycle and visible failure handling | - | `pages/plan-3206-grok-search-bots.md` | - | `pages/review-3206-model-pin-routing.md` (routing Deploy A), `pages/review-3206-deploy-b-inline-search.md` (backend Deploy B), `pages/review-3206-bots-module-backend-options.md` (Bots module) | Deploy A and Deploy B shipped; Bots module v30 active; live `grok-web` smoke `30184b` and `grok-x` smoke `afc8e6` succeeded |

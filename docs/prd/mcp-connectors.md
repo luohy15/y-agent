@@ -309,9 +309,3 @@ not release authorization.
   [chat-steer](chat-steer.md). This feature only adds the connector launch contract.
 - General module packaging, publishing and rollback infrastructure, owned by
   [module-system](module-system.md).
-
-## Delivery Records
-
-| Todo | Outcome | Design | Plan | Decisions | Review | Status |
-|------|---------|--------|------|-----------|--------|--------|
-| 3796 | Owner-scoped MCP connector management and Claude Code integration, Alpha Vantage first | - | `pages/plan-3796-mcp-connectors.md`, `pages/plan-3796-mcp-runtime.md` | `pages/decision-3796-mcp-interview.md` | `pages/review-3796-mcp-connectors.md` | Implemented (host S1-S6 + `mcp` module), S1-S5 reviewed; review nits 1-3 fixed pending re-review; runbook `code/y-agent/docs/mcp-connectors.md`; not deployed, DDL not applied, live acceptance pending. Round 2 (Roy 2026-10-01): CLI loopback OAuth replaces the API-hosted callback, plaintext custody replaces KMS, contract v22; host half `pages/impl-3796-mcp-round2-host.md` |

@@ -203,9 +203,3 @@ Roy approved all six recommended answers on 2026-10-11 (todo 3861):
 - Curriculum-style learning (1309 valuation basics, 3011 CFA, 3009 DCF, 1595 history). These are structured courses, not source studies. Revisit them separately if needed.
 - Managing Roy's own published content (owned by [media-management](media-management.md)).
 - Paid transcription, external media uploads, cookie use, and publication without per-task approval.
-
-## Delivery Records
-
-| Todo | Outcome | Design | Plan | Decisions | Review | Status |
-|------|---------|--------|------|-----------|--------|--------|
-| 3861 | Learning review and approved V1 scope (this PRD); 2026-10-12 addition: detail view, richer list rows (link, title, tags, report note, summary, time), `summary` and `title` fields (`pages/impl-3861-learning-title.md`); `video-learning` skill in deliverable (1) | pages/design-3861.html | pages/plan-3861-learning.md, pages/impl-3861-learning.md, pages/impl-3861-learning-summary.md, pages/impl-3861-video-learning.md, pages/plan-3861-module-icon.md, pages/impl-3861-module-icon.md, pages/impl-3861-learning-icon.md | - | pages/review-3861-learning.md, pages/review-3861-module-icon.md | module v3 active 2026-10-12 (own book icon via host contract v27, y-agent 88e919a1); awaiting Roy's manual acceptance |

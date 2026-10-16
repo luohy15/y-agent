@@ -120,12 +120,3 @@ best-effort drop.
   openrouter-credit-check,news-ingest-monitor}/`) off `--topic` /
   `notify_topic` — those live outside this repository and are delivered as
   todo 3468 sub-task 6 by a separate session.
-
-## Delivery Records
-
-| Todo | Outcome | Design | Plan | Decisions | Review | Status |
-|------|---------|--------|------|-----------|--------|--------|
-| 3460 | Read-only inventory and removal proposal for the Telegram group and per-topic delivery; corrected to manager-only-DM policy after Roy's scope feedback | - | `pages/plan-3460-telegram-group-removal.md` | - | - | proposal approved |
-| 3468 | Implemented the manager-only gate (worker eligibility, immediate-attachment API path, `deliver_death` topic branch), private-only inbound webhook gate with forum discovery/`/clear`-branch/thread-plumbing removal, and full `tg_topic` API/service/repository/entity/DTO removal and `y telegram send --topic` retirement; routine-caller migration (sub-task 6) delivered separately | - | `pages/plan-3460-telegram-group-removal.md` | - | `pages/review-3468-telegram-removal.md` | shipped |
-| 3474 | Explicit send image transport: uploads posted as bytes (no EC2 store), `images` delivered via `send_telegram_photo_reference` with `require_exists=False`, hard 502 on undeliverable | - | `pages/plan-3474-telegram-send-image.md` | - | `pages/review-3474-telegram-send-image.md` | shipped; verification: `pages/deploy-3474-telegram-send-image.md` |
-| 3648 | Inbound reply / selected-quote context prepended as a `> ` blockquote before persistence and model input; non-text targets and plain messages unchanged | - | `pages/plan-3648-telegram-reply-context.md` | - | `pages/review-3648-telegram-reply-context.md` | reviewed; pending publication authorization |

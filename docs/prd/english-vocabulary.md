@@ -156,9 +156,3 @@ Deferred by Roy's 2026-08-30 v1 narrowing (the full-system interview in chat
   and dismissals are owned by [english-correction](english-correction.md);
   this feature owns word-level vocabulary state. The two share the English
   panel and `y english` namespace but no tables.
-
-## Delivery Records
-
-| Todo | Outcome | Design | Plan | Decisions | Review | Status |
-|------|---------|--------|------|-----------|--------|--------|
-| 2903 | v1 scan-and-mark | `pages/design-2903.html` | `pages/plan-2903-english-vocabulary.md` | - | `pages/review-2903-english-vocabulary.md` | shipped |

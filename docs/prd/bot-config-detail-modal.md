@@ -195,11 +195,3 @@ Settled contract:
 - Bot usage analytics and subscription limit windows (see bot-usage).
 - Opportunistic cleanup of orphan presentation attributes left after the inline
   expansion removal, unless a delivery chooses to include it.
-
-## Delivery Records
-
-| Todo | Outcome | Design | Plan | Decisions | Review | Status |
-|------|---------|--------|------|-----------|--------|--------|
-| 2865 | Config-tab detail opens in a modal with standard close interactions; row status-dot stays independent | - | `pages/plan-2865-bot-config-detail-modal.md` | - | `pages/review-2865-bot-config-modal.md` | shipped |
-| 2868 | Modal form seeds only from loaded config detail; save/toggle invalidates config cache so Weight and other fields never show stale/empty values | - | `pages/plan-2868-bot-config-modal-weight-load.md` | - | `pages/review-2868-bot-config-modal-weight-load.md` | shipped |
-| 2970 | Frontend migrated off the built-in `BotList.tsx`/`BotViewer.tsx` onto the dynamic `bot` UI artifact (see `docs/prd/ui-dynamic-artifacts.md`); the focused `BotViewer.configModal.test.tsx` suite behind stories 22-23 was retired with the built-in, with no replacement coverage | - | `pages/plan-2970-bot-dynamic-ui.md` | - | `pages/review-2970-bot-dynamic-ui.md`, `pages/review-2970-rm-builtin-bot.md` | shipped |

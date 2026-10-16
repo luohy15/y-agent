@@ -161,9 +161,3 @@ worker/VM crashes.
   the surface that sends it is the `chat` module's `shell`. See
   `docs/prd/module-system.md` ("Chat: a control-plane module over the runtime
   kernel").
-
-## Delivery Records
-
-| Todo | Outcome | Design | Plan | Decisions | Review | Status |
-|------|---------|--------|------|-----------|--------|--------|
-| 3643 | Native input ledger, serialized closeout ownership, and whole-run pending-input recovery | - | `pages/plan-3643.md` | `pages/impl-3643.md` | - | implemented; review pending; not published |

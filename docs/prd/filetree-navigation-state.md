@@ -325,10 +325,3 @@ root.
   chrome - owned by [web-refresh-policy](web-refresh-policy.md). This PRD's
   "explicit refresh" is the tree's own re-list action over persisted navigation
   state, not a centre-tab revalidation policy.
-
-## Delivery Records
-
-| Todo | Outcome | Design | Plan | Decisions | Review | Status |
-|------|---------|--------|------|-----------|--------|--------|
-| 3200 | Preserve per-context Files sidebar expansion, selection, loaded branch cache, and scroll through authenticated backend persistence across activity switches, refreshes, browser restarts, and devices | - | `pages/plan-3200-filetree-navigation-state.md` | This PRD | `pages/review-3200-user-preference-cas.md`; `pages/review-3200-filetree-persistence.md` | shipped; user verification pending |
-| 3906 | Reveal a clicked directory path in the left Files tree without changing pins or opening a file tab | - | `pages/plan-3906-directory-path-reveal.md` | This PRD | `pages/review-3906-directory-path-reveal.md` | implemented |

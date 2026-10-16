@@ -159,9 +159,3 @@ Use the existing module contract and routine/reporting conventions as integratio
 - Guaranteed permanent retention contrary to binding platform obligations.
 - Public sharing, competitor monitoring, audience targeting, and automated growth campaigns.
 - Reimplementation of generic modules, agent execution, scheduling, or Telegram infrastructure. Those remain shared platform responsibilities; any required extension must be planned explicitly.
-
-## Delivery Records
-
-| Todo | Outcome | Design | Plan | Decisions | Review | Status |
-|------|---------|--------|------|-----------|--------|--------|
-| 3850 | Official-API-only X archive and reports. Owned-rate gate passed. S1-S6 plus Retweet disallowed-resource fix on y-module main `c389537`; `media` v2 active; migrations 001+002 applied; routines `media-collect` / `media-report` enabled | - | `pages/plan-3850-media-module.md` | `pages/decision-3850-media-interview.md`, `pages/decision-3850-x-capability.md` | `pages/review-3850-media-s1.md` | published; awaiting first scheduled report verification |

@@ -181,13 +181,3 @@ decisions and the additive host→module CSS contract.
   chrome).
 - Publishing or deploying module versions (delivery step owned by the
   coordinator after docs land).
-
-## Delivery Records
-
-| Todo | Outcome | Design | Plan | Decisions | Review | Status |
-|------|---------|--------|------|-----------|--------|--------|
-| 3112 | Current UI design-language reference | `docs/prd/design-language.html` | - | - | - | approved |
-| 3115 | Converge host and module controls on the design language | `docs/prd/design-language.html` | `pages/plan-3115-design-language-convergence.md` | - | `pages/review-3115-host-design-language-convergence.md`, `pages/review-3115-module-design-language-convergence.md` | reviewed |
-| 3181 | Step chat and file reader body copy up one type-scale step at tablet widths (768–1023px) | - | `pages/plan-3181-tablet-reader-type.md` | - | `pages/review-3181-tablet-reader-type.md` | shipped (chat v26, file v16) |
-| 3236 | Windows CJK typography: explicit SC fallback chain in host/SDK mono+sans tokens, mono body retained, local Adobe Source faces preferred | `pages/design-3236.html` | `pages/plan-3236-windows-cjk-typography.md` | `pages/decision-3236-typography-roles.md` | `pages/review-3236-windows-cjk-typography.md` | shipped (web deploy d10289c) |
-| 3852 | Remove secondary inline sidebar actions into one shared menu, and make textual left-sidebar records a single line except Todo, which stays fully displayed | - | `pages/plan-3852-sidebar-actions.md` | - | - | implemented |

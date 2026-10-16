@@ -188,13 +188,3 @@ and adds the inverse `y file download`. After 2833, the public contract is the
 - Changing the EC2 directory-structure scheme beyond the default dest root
   constant (directory layout ownership stays with the broader luohy15 layout
   work; this feature only needs a stable default dest string).
-
-## Delivery Records
-
-| Todo | Outcome | Design | Plan | Decisions | Review | Status |
-|------|---------|--------|------|-----------|--------|--------|
-| 2826 | Ship Mac→EC2 `y upload` (rsync/SSH, API host resolve, tilde-safe mkdir, generic SOURCE paths) | - | `pages/plan-2826-y-upload.md` | - | `pages/review-2826-y-upload.md` | shipped |
-| 2833 | Regroup under `y file`; add EC2→Mac `y file download` mirroring upload | - | - | - | `pages/review-2833-cli-file-transfer.md` | shipped |
-| 3068 | `y file` relocated from the built-in CLI into `modules/file/cli.py` as part of consolidating the whole file domain into a hot-loadable module (see `code/y-agent/docs/prd/module-system.md` Delivery Records). Behavior-level parity verified command-by-command against the deleted built-in group: same options, output, host resolution, rsync argv, and dry-run semantics. No change to this PRD's transfer contract. | - | `pages/plan-3068-file-module.md` | - | `pages/review-3068-file-cli.md` | shipped |
-
-Related private context (not requirement text): `pages/mac-cleanup-backup-plan.md`.
