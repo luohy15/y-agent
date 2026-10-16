@@ -110,21 +110,14 @@ def list_links(
         # Fetch extra rows to account for dedup filtering
         q = q.offset(offset)
         results: List[LinkActivity] = []
-        # Track last-seen timestamp per base_url and per title; skip duplicates within 5 min
+        # Skip repeat visits to the exact activity URL within 5 min, not other URLs sharing a base or title.
         last_ts_url: dict[str, int] = {}
-        last_ts_title: dict[str, int] = {}
         window_ms = 5 * 60 * 1000
         for act, lnk in q.yield_per(200):
-            title = act.title or lnk.title
-            prev_url = last_ts_url.get(lnk.base_url)
+            prev_url = last_ts_url.get(act.url)
             if prev_url is not None and abs(prev_url - act.timestamp) < window_ms:
                 continue
-            if title:
-                prev_title = last_ts_title.get(title)
-                if prev_title is not None and abs(prev_title - act.timestamp) < window_ms:
-                    continue
-                last_ts_title[title] = act.timestamp
-            last_ts_url[lnk.base_url] = act.timestamp
+            last_ts_url[act.url] = act.timestamp
             results.append(_row_to_dto(act, lnk))
             if len(results) >= limit:
                 break
