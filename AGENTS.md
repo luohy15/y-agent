@@ -162,13 +162,13 @@ entity + controller + service + CLI slices, and most have a web panel.
   conventional `common` (vendored at publish). Rollback/activate change code only;
   delete removes deployed metadata/bytes, not source/tables. No worker half:
   deterministic work is `routine` `vm_command`; judgment stays chat dispatch.
-  Backend host contract (`agent.module_host`) is **v25** (todo 3627's v18 adds
+  Backend host contract (`agent.module_host`) is **v26** (todo 3627's v18 adds
   owner-bound no-wake VM execution; v19 / v20 are todos 3777 / 3781; v21 adds the
   maintainer-bound `mcp_*` connector capabilities of todo 3796; v22 is its round 2
   loopback OAuth start/complete; v23 adds the private photo object primitives,
   `published_module_json`, and module tag-carrier helpers of todo 3838; v24 adds
   Pillow / pillow-heif to the API runtime for the Photo module, todo 3879; v25 adds
-  optional `filenames` to `photo_authorize_get_batch` for attachment downloads, todo 3879). The tag module owns
+  optional `filenames` to `photo_authorize_get_batch` for attachment downloads, todo 3879; v26 adds owner-bound `dev_worktree_*` and pure `normalize_project_key` / `ProjectKeyError` exports, todo 3941). The tag module owns
   `/api/module/tag/*`, the lazy `y tag` CLI, and the `artifact:tag` panel; the
   host retains the `entity_tag` projection, normalization, carrier sync and
   cleanup, resolver hydration (todo rows carry `updated_at_unix` for client
@@ -199,7 +199,17 @@ entity + controller + service + CLI slices, and most have a web panel.
   may contain EC2 asset paths or deliberate `http(s)://` pass-through URLs, never new
   `s3://` / CDN refs; legacy `s3://` entries from before 2026-05-17 are warning-skipped.
 - **Dev worktrees** — `dev_worktree` tracks active coding sessions. `y dev wt add/rm` +
-  `y dev commit` handle worktree lifecycle; PID and session state live under
+  `y dev commit` are local-source Dev module commands, as is `y dev release`.
+  Dev owns `/api/module/dev/worktree{,/list,/detail,/by-name,/update,/remove}`
+  and its UI. The host retains the table/service and resume-advice lookup, six
+  owner-bound v26 `dev_worktree_*` capabilities, and `/api/dev-worktree/*`
+  compatibility adapters for in-flight old CLI/UI clients. Active lists without
+  a limit are unbounded; removed/all default to 50; positive limits are honored
+  and nonpositive limits return 422. Deploy the v26 host, land canonical module
+  source, publish the API-bearing Dev version and verify parity before retiring
+  the built-in CLI. Do not disable Dev or roll back to UI-only Dev or a pre-v26
+  host while new clients depend on it; recovery needs an authorized coordinated
+  source/CLI restoration or an API-bearing version. PID and session state live under
   `/tmp/dev-sessions/<name>/` so multiple worktrees coexist. For a root uv project
   (root `pyproject.toml` + committed `uv.lock`), `y dev wt add` provisions a
   worktree-local `.venv` via `uv sync --locked` after the repository hook and
@@ -207,8 +217,9 @@ entity + controller + service + CLI slices, and most have a web panel.
   non-environment assets (credentials, `node_modules`, `migration`, datasets); they
   must not link `.venv`. Existing worktrees created before this behavior need a
   one-time local repair (`rm .venv && uv sync --locked` in the worktree) or
-  recreation. The UI-only `dev` module reads host worktree history in its detail
-  view (`code/y-module/dev/README.md`); worktree/release APIs and CLI remain host-owned.
+  recreation. The `dev` module reads worktree history through its own API in its detail
+  view (`code/y-module/dev/README.md`). Release APIs, state, worker recovery and
+  outbox remain host-owned; only the release CLI moves.
 - **Publication ownership** — `dev_release` holds one persistent publication slot per
   canonical project (`host/owner/repository`, normalized from the checkout's GitHub
   `origin` by `storage/project_key.py`; never per worktree, branch, environment or
@@ -376,7 +387,8 @@ Grouped by feature area:
   `provider_status.py` (exact Anthropic Statuspage receiver), `mcp.py` (the
   launch-grant-authenticated runtime gateway only; management and OAuth completion
   are the `mcp` module over `mcp_*` host capabilities), `vm_config.py`,
-  `dev_worktree.py`, `dev_release.py` (publication slot: detail / list / claim /
+  `dev_worktree.py` (supported compatibility worktree routes),
+  `dev_release.py` (publication slot: detail / list / claim /
   check / release / handoff / publisher / takeover, plus the waiter queue:
   enqueue / cancel-waiter / waiters)
 
@@ -386,12 +398,13 @@ Grouped by feature area:
 - `perplexity.py`, `openai_chat.py`, `xai_search.py` — inline single-shot (non-agentic)
   backends; `xai_search.py` serves both `xai_web` and `xai_x`
 - `config.py` — provider factory, bot/vm config resolution
-- `module_host.py` — backend host contract for modules (`BACKEND_CONTRACT_VERSION = 25`:
+- `module_host.py` — backend host contract for modules (`BACKEND_CONTRACT_VERSION = 26`:
   `session`, `run_vm_command` with work_dir/stdin, `cli_user_id`, external-table
   protocol, plus request-scoped `bot_config_*`, `chat_*` with optional
   `sort_by`/`sort_order`, `note_list_at_path`, owner-bound `note_*`, `tag_*`
   (including `tag_create_vocabulary`, `tag_delete_vocabulary`,
   `tag_rename_plan` / `tag_rename_apply`),
+  `dev_worktree_*`, pure `normalize_project_key` / `ProjectKeyError`,
   fixed `api_latency_*`, and configured-maintainer-only `provider_status_*` and
   `mcp_*` capabilities; `tag_get` todo rows include `updated_at_unix`; time-range
   allowlist includes `describe_time_range`)
@@ -447,8 +460,8 @@ Grouped by feature area:
 - `command_option.py` — root `y` group
 - Built-in `commands/`: hybrid `chat` (dispatch/stop/attach/wakeup stay built-in; browse
   falls through), `todo`, `calendar`, `entity`, `reminder`, `rss`, `link`,
-  `dev`, `image`, `trace`, `english`, `module`, `assoc`/`unassoc`, `init`/`login`/
-  `logout`. Domain groups (`y email`, `y finance`, `y bot`, `y file`, `y note`, …) resolve
+  `image`, `trace`, `english`, `module`, `assoc`/`unassoc`, `init`/`login`/
+  `logout`. Domain groups (`y dev`, `y email`, `y finance`, `y bot`, `y file`, `y note`, …) resolve
   lazily from `code/y-module/<slug>/cli.py`. `y assoc note` stays built-in (3041
   content-path authority). `LazyModuleProxy` uses `module.json` `label` for help.
 - `sdk/` — build-time UI SDK (`contract.json`, shims, `build.mjs`, templates);

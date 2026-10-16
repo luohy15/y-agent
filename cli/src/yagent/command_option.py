@@ -10,7 +10,6 @@ from yagent.commands.calendar.click import calendar_group
 from yagent.commands.link.click import link_group
 from yagent.commands.image.click import image_group
 from yagent.commands.pdf.click import pdf_group
-from yagent.commands.dev.click import dev_group
 from yagent.commands.assoc import assoc_group, unassoc_group
 from yagent.commands.entity.click import entity_group
 from yagent.commands.reminder.click import reminder_group
@@ -42,7 +41,6 @@ cli.add_command(calendar_group)
 cli.add_command(link_group)
 cli.add_command(image_group)
 cli.add_command(pdf_group)
-cli.add_command(dev_group)
 cli.add_command(entity_group)
 cli.add_command(assoc_group)
 cli.add_command(unassoc_group)

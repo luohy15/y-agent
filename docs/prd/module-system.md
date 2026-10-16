@@ -1565,11 +1565,35 @@ the command, declares `min_host_version: 20`. Browser contract **v20 → v21**
 (todo 3708 batch 2) adds icon keys `entity` and `git-branch`, exports the
 host-owned `MarkdownPreview` leaf, and supplies live VM/work-directory context
 to module detail mounts. The host command `entity.open` latches selection and
-opens `ui:entity`; the host keeps entity relations and dev-worktree/release
-routes, services, tables, CLI and lifecycle. Entity and Dev are UI-only modules
-(`panel` + `detail`) that read these existing host contracts. Their built-in
-panels and exact `entity.md`/`dev.md` special tabs retire; real file paths with
-those names remain ordinary files. The historical rule of thumb (module owns message look, host owns megabyte
+opens `ui:entity`; the host keeps entity relations. Entity remains UI-only
+(`panel` + `detail`). Dev owns its API, local CLI and UI: `y dev wt`,
+`y dev commit` and the thin `y dev release` commands load from canonical
+`code/y-module/dev`. Its worktree routes are
+`/api/module/dev/worktree{,/list,/detail,/by-name,/update,/remove}`. The host
+retains `dev_worktree` persistence and resume-advice lookup, and all release
+APIs, tables, services, worker grant recovery, liveness and outbox machinery.
+Backend contract v26 exports six request-owner-bound `dev_worktree_*`
+capabilities and the pure `normalize_project_key` / `ProjectKeyError` pair;
+normalization reuses the kernel function, without request context or DB access.
+Dev declares `min_backend_version: 26` and `dispatch_scope: authenticated`;
+rows remain isolated to the authenticated owner. Old `/api/dev-worktree/*`
+routes remain supported compatibility adapters over the same service, not
+redirects or a local fallback. Both paths return every active row when limit
+is omitted; removed/all default to 50, positive explicit limits are honored,
+and zero/negative limits return 422. Registry failures must abort before any
+session/process/filesystem cleanup. No table migration, ID rewrite or
+`/tmp/dev-sessions/<name>` rename occurs.
+
+Rollout requires the v26 host first, then canonical module source and an
+API-bearing Dev publish with read-only route/list parity verified, then
+built-in CLI retirement. Already-running old commands keep their compatible
+HTTP routes. Do not disable Dev, activate a UI-only Dev version, or roll the
+host below v26 while new clients depend on it. Recovery requires a known-good
+API-bearing version or explicitly authorized coordinated CLI/source restoration
+and module rollback; no automatic fallback. Module ownership and recovery
+hazards are also documented in `code/y-module/dev/README.md`.
+Their built-in panels and exact `entity.md`/`dev.md` special tabs retire; real
+file paths with those names remain ordinary files. The historical rule of thumb (module owns message look, host owns megabyte
 leaves) is superseded for message chrome and Markdown body/TOC by todo 3892.
 The module still owns parsers and orchestration. The host owns the shared
 presenter, turn-list grouping (`ChatTurnList`, round 2) and every leaf measured
@@ -1925,4 +1949,4 @@ hook, both of which cost more than the single-user failure mode justifies.
 | 3884 | Shared file-metadata card. Host `FrontMatterCard` owns the overflow-safe grid and table classes. The file module will pass its tag editor as the `tags` slot. Browser contract **v27 → v28**, additive. | - | `pages/plan-3884-markdown-metadata-overflow.md` | `pages/impl-3884-host-markdown-overflow.md` | - | host implementation in progress; module half not started |
 | 3892 | Shared chat message presenter and Markdown body/TOC. Public and authenticated chat use `ChatMessagePresentation`; host and file Markdown previews use `MarkdownBodyPreview`. Capabilities stay optional, public adapters pass no authenticated callbacks, and public image scopes deny local attachments even when a token is present. Browser contract **v28 → v29**, additive. Round 2: turn grouping, process summary and expanded process move into host `ChatTurnList` (share, snapshot, fallback and module chat list render identically), browser contract **v29 → v30**, additive. Decision `pages/decision-3892-shared-presentation.md`. Plan `pages/plan-3892-shared-presentation.md`. | - | `pages/plan-3892-shared-presentation.md` | `pages/decision-3892-shared-presentation.md`, `pages/impl-3892-shared-presentation.md` | `pages/review-3892-shared-presentation.md` | round 1 live: host 4851e064, chat v47, file v51; round 2 (v30) reviewed, publication pending |
 | 3886 | Publish provenance. `y module publish` requires `--source-sha` and refuses unless the canonical y-module checkout HEAD equals the live `origin/main` tip and that SHA, with clean build inputs, rechecked after the build. The API requires and records a shape-checked `module_version.source_commit` (nullable VARCHAR(40)); it does not call GitHub. Hand-applied DDL `migration/3886_module_version_source_commit.sql` is not applied in this change. | - | `pages/plan-3886-publish-origin-main.md` | `pages/hr-3886-publish-origin-main.md` | `pages/review-3886-publish-origin-main.md` | reviewed (approve r3); DDL, host deploy, CLI rollout not applied |
-| 3941 | Dev control-plane migration, stage 1 (host foundation). Active `dev_worktree` list with omitted limit is now unbounded (carries the todo 3938 fix; removed/all keep 50; explicit positive honored; 0/negative 422) through one shared service policy used by the retained `/api/dev-worktree/*` compatibility routes. Backend host contract 25 to 26 adds six owner-bound `dev_worktree_*` capabilities for the coming Dev module API. `dev_worktree` stays host-owned; no migration. Later stages (Dev API/UI/CLI, host CLI retirement, docs) pending. | - | `pages/plan-3941-dev-module.md` | - | `pages/review-3941-dev-foundation.md` | in progress |
+| 3941 | Dev control-plane migration. Dev is now API + CLI + UI: worktree lifecycle CLI (`y dev wt`, `y dev commit`) and the thin `y dev release` command resolve lazily from `code/y-module/dev`; canonical worktree routes are `/api/module/dev/worktree/*` over six owner-bound `dev_worktree_*` capabilities (backend contract v26, which also re-exports `normalize_project_key`). Active list with omitted limit is unbounded (todo 3938 fix); removed/all keep 50. Host keeps the `dev_worktree` table and service (no migration), `/api/dev-worktree/*` as compatibility adapters, and the whole release kernel (`/api/dev-release/*`, tables, grant recovery, liveness, outbox) per Roy's decision. Staged rollout: host foundation `39af6c30` (Deploy run 38883952468), then Dev module publish, then host built-in CLI retirement. Rolling Dev back to a pre-API version after retirement breaks `y dev`. | - | `pages/plan-3941-dev-module.md` | Release CLI placement: recommended (Roy, todo 3941 progress) | `pages/review-3941-dev-foundation.md`, `pages/review-3941-dev-cutover.md` | in progress |

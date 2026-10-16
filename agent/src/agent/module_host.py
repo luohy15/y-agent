@@ -182,7 +182,10 @@ original downloads as an attachment. Photo v8 requires v25; deploy this host fir
 activate photo v7 before rolling the host below v25.
 Todo 3941 bumps 25 to 26: six owner-bound `dev_worktree_*` capabilities over the
 host worktree registry (list/get/by_name/create/update/remove). The table stays
-host-owned. Dev declares `min_backend_version: 26` when its API is published;
+host-owned. The same v26 cutover exports the pure `normalize_project_key`
+function and its `ProjectKeyError` (a ValueError) for Dev's release CLI, without
+request-owner or database access. Both are re-exports of the kernel's single
+normalizer, not a second implementation. Dev declares `min_backend_version: 26` when its API is published;
 deploy this host before that publish, and do not roll the host below v26 while
 that API is active. The old `/api/dev-worktree/*` routes stay as adapters over
 the same list policy.
@@ -201,6 +204,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional
 
 from sqlalchemy.orm import Session
+
+from storage.project_key import ProjectKeyError, normalize_project_key
 
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
