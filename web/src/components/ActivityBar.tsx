@@ -398,7 +398,7 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
   // Show minimal bar with just GitHub + login when not logged in
   if (!isLoggedIn) {
     return (
-      <div className={mobile ? "flex shrink-0 bg-sol-base03 flex-col items-start p-3 gap-1 w-full h-full" : "hidden md:flex shrink-0 w-10 bg-sol-base03 border-r border-sol-base02 flex-col items-center pt-2 gap-1"}>
+      <div {...(mobile ? {} : { "data-drawer-background": "" })} className={mobile ? "flex shrink-0 bg-sol-base03 flex-col items-start p-3 gap-1 w-full h-full" : "hidden md:flex shrink-0 w-10 bg-sol-base03 border-r border-sol-base02 flex-col items-center pt-2 gap-1"}>
         <div className="mt-auto" />
         <a
           href="https://github.com/luohy15/y-agent"
@@ -506,7 +506,7 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
   });
 
   return (
-    <div className={mobile ? "flex shrink-0 bg-sol-base03 flex-col items-start p-3 gap-1 w-full h-full" : "hidden md:flex shrink-0 w-10 bg-sol-base03 border-r border-sol-base02 flex-col items-center pt-2"}>
+    <div {...(mobile ? {} : { "data-drawer-background": "" })} className={mobile ? "flex shrink-0 bg-sol-base03 flex-col items-start p-3 gap-1 w-full h-full" : "hidden md:flex shrink-0 w-10 bg-sol-base03 border-r border-sol-base02 flex-col items-center pt-2"}>
       <div className={mobile ? "flex-1 flex flex-col items-start gap-1 w-full min-h-0 overflow-y-auto" : "flex-1 flex flex-col items-center gap-1 w-full min-h-0 overflow-y-auto pb-1"}>
         {panelButtons}
       </div>

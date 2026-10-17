@@ -124,6 +124,29 @@ Finance is the reference case and the first migration target.
 17. As a user, I want artifact panels to participate in the existing sidebar
     ordering behavior, so that I can arrange them among the built-ins.
 
+Below 768px, each content sidebar fills the available width and the dynamic
+viewport height (`100vh`, and `100dvh` where the browser supports it), with
+border-box padding on every safe-area edge. A saved desktop pixel width and any
+mobile max-width cap do not apply there. At 768px and above, saved desktop
+widths, collapse, and layout stay as they are.
+
+A full-screen content drawer has no outside backdrop. The left drawer always
+shows a mobile Close control, including when the panel has no detail header.
+The right drawer keeps its header Close, and the category strip cannot push
+that control off screen. Opening one content drawer closes the other and the
+activity-bar launcher; closing it does not bring back a drawer that was already
+closed. The launcher itself stays a 200px drawer with its backdrop.
+
+While a mobile content drawer is open, the background does not scroll or take
+interaction, and focus moves to Close. Escape dismisses the drawer and returns
+focus. A module menu portaled outside the drawer keeps working and handles
+Escape first. Scroll lock, background isolation, and the focus return are
+cleared on close, on unmount, and when the viewport crosses 768px. The drawer
+content itself still scrolls. Opening or closing a drawer does not reset query,
+sort, or scroll state and does not rewrite saved preferences. Between 640px and
+767px the existing desktop right pane stays in the layout but does not take
+input while a mobile drawer covers it.
+
 ### The host contract
 
 18. As an artifact author, I want the host's React instance to be shared rather
@@ -472,6 +495,11 @@ Test the observable contract, not the loader's internals.
   extend.
 - **Panel composition**: each narrow host sidebar lists its built-ins plus the
   current user's enabled modules, and a disabled module does not appear.
+- **Mobile content sidebars**: below 768px both content drawers fill the
+  viewport and can be dismissed without a backdrop; background scroll and
+  interaction stay off until close, unmount, or a resize to desktop; saved
+  desktop widths and panel preferences are unchanged. Desktop layout at 768px
+  and above is unchanged, including the 640px right-pane breakpoint.
 - **Finance migration** is verified by behavioral equivalence: the migrated panel
   renders the same figures from the same endpoints as the built-in version.
 - Prior art for component-level tests already exists in the web package

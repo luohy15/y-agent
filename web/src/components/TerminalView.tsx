@@ -11,7 +11,7 @@ export default function TerminalView({ isLoggedIn, vmName, workDir }: TerminalVi
   const [output, setOutput] = useState("");
   const [input, setInput] = useState("");
   const [running, setRunning] = useState(false);
-  const outputRef = useRef<HTMLPreElement>(null);
+  const outputRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {

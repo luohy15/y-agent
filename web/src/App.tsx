@@ -91,6 +91,8 @@ import { publishActivityBarVisibility, registerActivityBarVisibilityCommands } f
 import { useActivityBarVisibility } from "./hooks/useActivityBarVisibility";
 import { deriveHiddenSlugs } from "./utils/activityBarVisibility";
 import { applyHostWorkspaceOpen, applyModuleOpenView, mergeModuleOpenViewIntent, resolveModuleOpenView } from "./utils/moduleOpenView";
+import { CONTENT_DRAWER_BODY_CLASS, LeftContentDrawer, mobileContentSurface, RightContentDrawer, useContentDrawerLifecycle, useViewportWidth } from "./components/shell/mobileDrawers";
+import { reconcileMobileSurfaces, surfaceActionForHostNavigation, type MobileSurfaceAction, type MobileSurfaces } from "./components/shell/mobileSurface";
 
 function catalogFromModules(modules: readonly Module[]): ModuleCatalogRow[] {
   return modules.map((module) => {
@@ -248,6 +250,18 @@ export default function App() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(() => localStorage.getItem("selectedChatId") || null);
   const [chatListOpen, setChatListOpen] = useState(() => { const v = localStorage.getItem("chatListOpen"); return v === null ? false : v !== "false"; });
+  const surfacesRef = useRef<MobileSurfaces>({ activity: false, left: false, right: false });
+  surfacesRef.current = { activity: activityBarOpen, left: sidebarOpen, right: chatListOpen };
+  const applySurface = useCallback((action: MobileSurfaceAction) => {
+    const next = reconcileMobileSurfaces(surfacesRef.current, action);
+    surfacesRef.current = next;
+    setActivityBarOpen(next.activity);
+    setSidebarOpen(next.left);
+    setChatListOpen(next.right);
+  }, []);
+  const closeMobileContent = useCallback(() => {
+    applySurface({ type: "close-content" });
+  }, [applySurface]);
   const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>(() => {
     const raw = localStorage.getItem("sidebarPanel");
     // Same one-shot map as the activity-bar order (APP_TO_PANEL), including
@@ -427,8 +441,8 @@ export default function App() {
     // Pin preview if this file is the current preview (opened via non-preview action)
     setPreviewFile((current) => current === p ? null : current);
     setChatHide(true);
-    if (window.innerWidth < 768) setSidebarOpen(false);
-  }, [touchWorkspace]);
+    if (window.innerWidth < 768) applySurface(surfaceActionForHostNavigation("file-preview"));
+  }, [touchWorkspace, applySurface]);
 
   const applyOrdinaryOpen = useCallback((
     path: string,
@@ -459,11 +473,8 @@ export default function App() {
       setFileFocus((prev) => ({ ...prev, [tab.id]: { line, nonce: Date.now() } }));
     }
     setChatHide(true);
-    if (window.innerWidth < 768) {
-      setSidebarOpen(false);
-      setChatListOpen(false);
-    }
-  }, [touchWorkspace]);
+    if (window.innerWidth < 768) applySurface(surfaceActionForHostNavigation("ordinary-file"));
+  }, [touchWorkspace, applySurface]);
 
   const openOrdinaryFile = useCallback((
     path: string,
@@ -501,7 +512,7 @@ export default function App() {
       setChatHide,
       getSelectedChatId: () => selectedChatIdRef.current,
       requestChatRefresh: () => setTodoOpenRefreshKey((k) => k + 1),
-      onAfterTodoOpen: () => setSidebarOpen(false),
+      onAfterTodoOpen: () => applySurface(surfaceActionForHostNavigation("todo-open")),
     });
     // Plan P2 (pages/plan-3042-control-plane.md): chat control-plane host
     // commands for the code/y-module/chat UI.
@@ -512,7 +523,7 @@ export default function App() {
         selectedChatId,
         setSelectedChatId,
         setChatHide,
-        setChatListOpen,
+        setChatListOpen: (open) => applySurface(open ? { type: "open", surface: "right" } : surfaceActionForHostNavigation("chat-select")),
         bumpChatRefresh: () => setChatRefreshKey((k) => k + 1),
       });
     });
@@ -530,7 +541,7 @@ export default function App() {
       setArtifactIntent("chat", { kind: "routine-filter", routineName, routineOnly, nonce: Date.now() });
       setSidebarPanel("artifact:chat");
       if (window.innerWidth < 768) {
-        setSidebarOpen(true);
+        applySurface({ type: "open", surface: "left" });
       } else {
         setDesktopSidebarOpen(true);
       }
@@ -596,8 +607,7 @@ export default function App() {
         openTab: handleOpenFile,
         setSidebarPanel,
         setMobileSidebarOpen: (open) => {
-          if (open) setActivityBarOpen(false);
-          setSidebarOpen(open);
+          applySurface(open ? { type: "open", surface: "left" } : { type: "close", surface: "left" });
         },
         setDesktopSidebarOpen,
         setCentreFiles: (visible) => {
@@ -643,7 +653,7 @@ export default function App() {
       // Already open as pinned — just activate
       setActiveFile(p);
       setChatHide(true);
-      if (window.innerWidth < 768) setSidebarOpen(false);
+      if (window.innerWidth < 768) applySurface(surfaceActionForHostNavigation("file-preview"));
       return;
     }
 
@@ -651,7 +661,7 @@ export default function App() {
       // Already the preview — just activate
       setActiveFile(p);
       setChatHide(true);
-      if (window.innerWidth < 768) setSidebarOpen(false);
+      if (window.innerWidth < 768) applySurface(surfaceActionForHostNavigation("file-preview"));
       return;
     }
 
@@ -683,8 +693,8 @@ export default function App() {
     setPreviewFile(p);
     setActiveFile(p);
     setChatHide(true);
-    if (window.innerWidth < 768) setSidebarOpen(false);
-  }, [openOrdinaryFile, selectedVM, effectiveWorkDir, touchWorkspace]);
+    if (window.innerWidth < 768) applySurface(surfaceActionForHostNavigation("file-preview"));
+  }, [openOrdinaryFile, selectedVM, effectiveWorkDir, touchWorkspace, applySurface]);
 
   const handlePinFile = useCallback((path: string) => {
     touchWorkspace();
@@ -706,8 +716,8 @@ export default function App() {
     setActiveFile(path);
     setPreviewFile(null);
     setChatHide(true);
-    if (window.innerWidth < 768) setSidebarOpen(false);
-  }, [touchWorkspace]);
+    if (window.innerWidth < 768) applySurface(surfaceActionForHostNavigation("artifact-open"));
+  }, [touchWorkspace, applySurface]);
 
   const handleCloseFile = useCallback((path: string) => {
     if (fileDirtyRef.current[path]) {
@@ -917,8 +927,7 @@ export default function App() {
       publishFileReveal(parsed.path);
       setSidebarPanel("artifact:file");
       if (window.innerWidth < 768) {
-        setActivityBarOpen(false);
-        setSidebarOpen(true);
+        applySurface({ type: "open", surface: "left" });
       } else {
         setDesktopSidebarOpen(true);
       }
@@ -1319,19 +1328,18 @@ export default function App() {
       setSidebarPanel,
       moduleCatalog: catalogFromModules(moduleCatalogRef.current.modules),
     });
-    if (window.innerWidth < 768) setSidebarOpen(false);
-  }, [handleOpenFile, handlePreviewFile, defaultWorkDir]);
+    if (window.innerWidth < 768) applySurface(surfaceActionForHostNavigation("tag-navigate"));
+  }, [handleOpenFile, handlePreviewFile, defaultWorkDir, applySurface]);
 
   const openModulesPanel = useCallback(() => {
     if (!uiArtifactBySlug.has("module")) return;
     setSidebarPanel("artifact:module");
     if (window.innerWidth < 768) {
-      setActivityBarOpen(false);
-      setSidebarOpen(true);
+      applySurface({ type: "open", surface: "left" });
     } else {
       setDesktopSidebarOpen(true);
     }
-  }, [uiArtifactBySlug]);
+  }, [uiArtifactBySlug, applySurface]);
 
   useEffect(() => {
     const current = activityBarVisibilityRef.current;
@@ -1399,7 +1407,7 @@ export default function App() {
   const renderRightPanel = (mobile = false) => {
     const artifactSlug = artifactSlugFromPanel(rightPanel);
     const artifact = artifactSlug ? uiArtifactBySlug.get(artifactSlug) : undefined;
-    const closeMobile = () => { if (mobile) setChatListOpen(false); };
+    const closeMobile = () => { if (mobile) applySurface(surfaceActionForHostNavigation("chat-select")); };
 
     if (artifact) {
       return (
@@ -1417,14 +1425,20 @@ export default function App() {
     return <GitPanel isLoggedIn={auth.isLoggedIn} vmName={selectedVM} workDir={effectiveWorkDir} onSelectFile={(path) => { handleOpenDiffFile(path); closeMobile(); }} refreshKey={rightPanelRefreshKey} />;
   };
 
+  const viewportWidth = useViewportWidth();
+  useContentDrawerLifecycle({
+    surface: mobileContentSurface(viewportWidth, sidebarOpen, chatListOpen),
+    onClose: closeMobileContent,
+  });
+
   return (
     <ErrorBoundary className="h-dvh">
     <div className="h-dvh flex flex-col overflow-hidden">
       {/* Mobile-only nav bar */}
       {auth.isLoggedIn && (
-        <div className="md:hidden flex items-center gap-1 px-2 py-1.5 border-b border-sol-base02 bg-sol-base03 shrink-0">
+        <div data-drawer-background="" className="md:hidden flex items-center gap-1 px-2 py-1.5 border-b border-sol-base02 bg-sol-base03 shrink-0">
           <button
-            onClick={() => setActivityBarOpen((v) => !v)}
+            onClick={() => applySurface({ type: "toggle", surface: "activity" })}
             className={`h-8 flex items-center gap-1.5 px-2 text-sm cursor-pointer rounded hover:bg-sol-base02 ${activityBarOpen ? "text-sol-blue" : "text-sol-base01 hover:text-sol-base1"}`}
             title="Menu"
           >
@@ -1442,7 +1456,7 @@ export default function App() {
             </svg>
           </button>
           <button
-            onClick={() => setChatListOpen((v) => !v)}
+            onClick={() => applySurface({ type: "toggle", surface: "right" })}
             className={`h-8 flex items-center gap-1.5 px-2 text-sm cursor-pointer rounded hover:bg-sol-base02 ${chatListOpen ? "text-sol-blue" : "text-sol-base01 hover:text-sol-base1"}`}
             title={chatListOpen ? "Hide chat list" : "Show chat list"}
           >
@@ -1454,6 +1468,7 @@ export default function App() {
       )}
       {/* Desktop-only header bar */}
       {auth.isLoggedIn && (
+        <div data-drawer-background="">
         <DesktopHeaderBar
           leftOpen={desktopSidebarOpen}
           bottomOpen={!bottomPanelCollapsed}
@@ -1545,6 +1560,7 @@ export default function App() {
             </>
           }
         />
+        </div>
       )}
       <div className="flex flex-1 min-h-0">
         {/* Left: Activity Bar */}
@@ -1555,7 +1571,7 @@ export default function App() {
           sidebarOpen={window.innerWidth < 768 ? sidebarOpen : desktopSidebarOpen}
           onToggleSidebar={() => {
             const isMobile = window.innerWidth < 768;
-            if (isMobile) setSidebarOpen((v) => !v);
+            if (isMobile) applySurface({ type: "toggle", surface: "left" });
             else setDesktopSidebarOpen((v) => !v);
           }}
           activePanel={sidebarPanel}
@@ -1568,8 +1584,8 @@ export default function App() {
           onOpenModules={openModulesPanel}
         />
         {/* Mobile overlay backdrop (sidebar or activity bar) */}
-        {(sidebarOpen || activityBarOpen) && (
-          <div className="fixed inset-0 bg-black/40 z-20 md:hidden" onClick={() => { setSidebarOpen(false); setActivityBarOpen(false); }} />
+        {activityBarOpen && (
+          <div className="fixed inset-0 bg-black/40 z-20 md:hidden" onClick={() => applySurface({ type: "close", surface: "activity" })} />
         )}
         {/* Mobile: Activity Bar drawer */}
         <div
@@ -1587,9 +1603,9 @@ export default function App() {
             artifacts={uiArtifacts}
             artifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading}
             sidebarOpen={sidebarOpen}
-            onToggleSidebar={() => { setActivityBarOpen(false); setSidebarOpen((v) => !v); }}
+            onToggleSidebar={() => applySurface({ type: "toggle", surface: "left" })}
             activePanel={sidebarPanel}
-            onSelectPanel={(panel) => { setSidebarPanel(panel); setActivityBarOpen(false); setSidebarOpen(true); }}
+            onSelectPanel={(panel) => { setSidebarPanel(panel); applySurface({ type: "open", surface: "left" }); }}
             email={auth.email}
             gsiReady={auth.gsiReady}
             onLogout={handleLogout}
@@ -1599,13 +1615,12 @@ export default function App() {
           />
         </div>
         {/* Left: Sidebar (global views) */}
-        <div
-          className={`
-            fixed inset-y-0 left-0 z-30 transform transition-transform duration-200 md:relative md:z-auto shrink-0 border-r border-sol-base02 bg-sol-base03 overflow-hidden max-w-[280px] md:max-w-none
-            ${sidebarOpen ? "translate-x-0" : "-translate-x-full hidden"}
-            ${desktopSidebarOpen ? "md:translate-x-0 md:block" : "md:-translate-x-full md:hidden"}
-          `}
-          style={{ width: sidebarWidth }}
+        <LeftContentDrawer
+          open={sidebarOpen}
+          desktopOpen={desktopSidebarOpen}
+          width={sidebarWidth}
+          onClose={() => applySurface({ type: "close", surface: "left" })}
+          onResizePointerDown={handleResizeStart}
         >
           {(() => {
             const artifactSlug = artifactSlugFromPanel(sidebarPanel);
@@ -1668,17 +1683,11 @@ export default function App() {
               </div>
             );
           })()}
-          <div
-            className="hidden sm:block absolute top-0 -right-2 w-4 lg:w-1 lg:right-0 h-full cursor-col-resize z-10 group"
-            onPointerDown={handleResizeStart}
-          >
-            <div className="absolute top-0 right-2 lg:right-0 w-1 h-full hover:bg-sol-blue/40 active:bg-sol-blue/60" />
-          </div>
-        </div>
+        </LeftContentDrawer>
         {/* Center + Right */}
         <div className="flex-1 flex min-w-0 min-h-0">
           {/* Center column */}
-          <div className="flex-1 flex flex-col min-w-0 min-h-0">
+          <div data-drawer-background="" className="flex-1 flex flex-col min-w-0 min-h-0">
             {/* Center mode switcher header */}
             <CentreModeTabs
               mode={chatHide ? "files" : "chat"}
@@ -1690,7 +1699,7 @@ export default function App() {
               {/* FileViewer (shown when chat hidden) */}
               <div className={`absolute inset-0 ${chatHide ? "" : "hidden"}`}>
                 <ErrorBoundary label="Panel">
-                  <FileViewer openFiles={workspaceVisible ? openFiles : []} activeFile={workspaceVisible ? activeFile : null} onSelectFile={handleSelectFile} onCloseFile={handleCloseFile} onReorderFiles={handleReorderFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} fileTabs={workspaceVisible ? fileTabs : {}} fileDirty={fileDirty} fileFocus={fileFocus} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} onSelectChat={(id) => { setSelectedChatId(id); setChatListOpen(false); setChatHide(false); }} previewFile={workspaceVisible ? previewFile : null} onPinFile={handlePinFile} fileHistory={fileHistory} onFileBack={handleFileBack} onFileForward={handleFileForward} />
+                  <FileViewer openFiles={workspaceVisible ? openFiles : []} activeFile={workspaceVisible ? activeFile : null} onSelectFile={handleSelectFile} onCloseFile={handleCloseFile} onReorderFiles={handleReorderFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} fileTabs={workspaceVisible ? fileTabs : {}} fileDirty={fileDirty} fileFocus={fileFocus} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} onSelectChat={(id) => { setSelectedChatId(id); applySurface(surfaceActionForHostNavigation("chat-select")); setChatHide(false); }} previewFile={workspaceVisible ? previewFile : null} onPinFile={handlePinFile} fileHistory={fileHistory} onFileBack={handleFileBack} onFileForward={handleFileForward} />
                 </ErrorBoundary>
               </div>
               {/* Chat stays mounted while hidden. The shell module owns the live
@@ -1763,6 +1772,8 @@ export default function App() {
               the only thing that collapses. */}
           {!rightPanelCollapsed && (
             <div
+              data-drawer-background=""
+              data-desktop-right-pane=""
               className="hidden sm:flex shrink-0 border-l border-sol-base02 bg-sol-base03 overflow-hidden relative flex-col"
               style={{ width: rightPanelWidth }}
             >
@@ -1785,29 +1796,19 @@ export default function App() {
               </div>
             </div>
           )}
-          {chatListOpen && (
-            <div className="fixed inset-0 bg-black/40 z-20 md:hidden" onClick={() => setChatListOpen(false)} />
-          )}
-          <div
-            className={`
-              fixed inset-y-0 right-0 z-30 transform transition-transform duration-200
-              md:hidden shrink-0 border-l border-sol-base02 bg-sol-base03 overflow-hidden flex flex-col
-              max-w-[280px] ${chatListOpen ? "translate-x-0" : "translate-x-full hidden"}
-            `}
-            style={{ width: rightPanelWidth }}
-          >
+          <RightContentDrawer open={chatListOpen} width={rightPanelWidth}>
             <RightActivityBar
               items={rightPanelItems}
               activePanel={rightPanel}
               onSelectPanel={setRightPanel}
               onRefresh={refreshRightPanel}
-              onClose={() => setChatListOpen(false)}
+              onClose={() => applySurface({ type: "close", surface: "right" })}
               refreshing={rightPanelSpinning}
             />
-            <div className="flex-1 min-h-0 overflow-hidden">
+            <div className={`flex-1 min-h-0 overflow-auto ${CONTENT_DRAWER_BODY_CLASS}`}>
               <ErrorBoundary label="Panel">{renderRightPanel(true)}</ErrorBoundary>
             </div>
-          </div>
+          </RightContentDrawer>
         </div>
       </div>
       <CommandPalette open={commandPaletteOpen} onClose={() => setCommandPaletteOpen(false)} actions={commandActions} />

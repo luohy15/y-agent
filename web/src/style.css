@@ -301,6 +301,43 @@ html {
   }
 }
 
+/* Mobile content drawers (todo 3960). Below md, persisted pixel widths and the
+ * old 280px cap do not apply. 100vh and 100dvh live in separate rules so a
+ * minifier cannot drop the fallback. At 768px and above, width is not set, so
+ * the inline saved desktop width applies again. */
+@media (max-width: 767px) {
+  .y-content-drawer {
+    box-sizing: border-box;
+    width: 100% !important;
+    max-width: none !important;
+    height: 100vh;
+    min-height: 0;
+    overflow: hidden;
+    padding-top: env(safe-area-inset-top);
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+  }
+  .y-content-drawer-body {
+    min-height: 0;
+    overflow: auto;
+  }
+}
+@supports (height: 100dvh) {
+  @media (max-width: 767px) {
+    .y-content-drawer {
+      height: 100dvh;
+    }
+  }
+}
+@media (min-width: 768px) {
+  .y-content-drawer {
+    box-sizing: border-box;
+    max-width: none;
+    min-height: 0;
+  }
+}
+
 /*
  * Landing tour (todo 3864, spec pages/design-3864.html). Scoped under .lt;
  * colors follow the active Solarized theme.

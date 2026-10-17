@@ -20,8 +20,8 @@ export default function RightActivityBar<Key extends string>({ items, activePane
     `h-8 w-8 flex items-center justify-center rounded cursor-pointer shrink-0 ${active ? "text-sol-base1 bg-sol-base02" : "text-sol-base01 hover:text-sol-base1 hover:bg-sol-base02"}`;
 
   return (
-    <div className="flex items-center justify-between gap-1 px-2 py-0.5 border-b border-sol-base02 shrink-0">
-      <div className="flex items-center gap-1 overflow-x-auto">
+    <div className="flex items-center gap-1 px-2 py-0.5 border-b border-sol-base02 shrink-0 min-w-0">
+      <div className="flex items-center gap-1 overflow-x-auto min-w-0 flex-1">
         {items.map((item) => (
           <button
             key={item.key}
@@ -43,8 +43,11 @@ export default function RightActivityBar<Key extends string>({ items, activePane
           <svg className={`w-3.5 h-3.5 transition-transform ${refreshing ? "animate-spin" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
         </button>
         <button
+          type="button"
+          data-drawer-close=""
+          aria-label="Close"
           onClick={onClose}
-          className="p-1 text-sol-base01 hover:text-sol-base1 rounded cursor-pointer"
+          className="p-1 text-sol-base01 hover:text-sol-base1 rounded cursor-pointer shrink-0"
           title="Close"
         >
           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
