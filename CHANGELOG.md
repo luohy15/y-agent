@@ -35,6 +35,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Fixed
 
+- **Mobile sidebars (3960)**: below 768px, content sidebars fill the viewport and dismiss without a backdrop. Saved desktop widths and the layout at 768px and above stay as they are.
 - **`y dev release` errors (3855)**: API error bodies are surfaced instead of a `KeyError`.
 - **Link URL association (3907)**: associating a URL no longer attaches another link's activity. `y assoc link` echoes the attached activity id. The link list collapses only repeat visits to the same activity URL within five minutes, so query-distinct pages that share a base URL or title stay visible.
 - **Page extraction (3889)**: structured extraction keeps body text that lives in `div` / `br` markup.
