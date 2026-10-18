@@ -23,6 +23,7 @@ from urllib.parse import urlparse
 from typing import Callable, Dict, List, Optional
 
 from agent.claude_code import (
+    _enable_keepalive,
     _parse_ssh_target,
     _shell_quote,
     _ssh_exec,
@@ -71,6 +72,7 @@ def _with_ssh_client(vm_config, ssh_client=None):
             pkey=key,
             timeout=SSH_CONNECT_TIMEOUT_SECONDS,
         )
+        _enable_keepalive(ssh_client)
 
     try:
         yield ssh_client

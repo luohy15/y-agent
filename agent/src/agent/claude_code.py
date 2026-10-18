@@ -34,6 +34,15 @@ from agent.poll_loop import PollLoop
 # Per-read inactivity timeout for one-shot SSH commands (`_ssh_exec`).
 _SSH_EXEC_TIMEOUT_SECONDS = 60
 
+# TCP keepalive for long-lived SSH clients. A silent model turn can exceed the
+# AWS NAT idle timeout (~350s); 30s keepalive traffic keeps the tail channel up.
+SSH_KEEPALIVE_SECONDS = 30
+
+
+def _enable_keepalive(client) -> None:
+    """Ask paramiko to send SSH keepalive packets on this client's transport."""
+    client.get_transport().set_keepalive(SSH_KEEPALIVE_SECONDS)
+
 
 # ---------------------------------------------------------------------------
 # Stream-json message converters
@@ -696,30 +705,86 @@ def _tmux_session_alive(client, chat_id: str) -> bool:
         return True
 
 
-def _kill_session_marking_self_killed(client, chat_id: str) -> None:
-    """Tear down the detached tmux session for a self-initiated kill (steer
-    or interrupt), marking it as self-killed first.
+def _kill_and_verify_cmd(chat_id: str) -> str:
+    """Marker + kill + cleanup, then a tmux liveness check.
 
-    The `.killed` sentinel is written BEFORE `tmux kill-session`, chained
-    with `&&` so the kill only runs if the marker write actually succeeded
-    (a failed touch must not be followed by an unmarked kill). Cleanup of
-    the stdin/exit files always runs afterward regardless of whether the
-    marker+kill chain succeeded. Uses `_ssh_exec` (not fire-and-forget) so
-    the caller only proceeds once the remote command has actually
-    completed.
+    The marker+kill+cleanup chain is unchanged: `.killed` is written before
+    `tmux kill-session` (`&&`), and stdin/exit/MCP cleanup always runs. The
+    trailing `has-session` prints `gone` only when `cc-<chat_id>` is gone.
     """
     from agent.mcp.staging import cleanup_command
     session_name = f"cc-{chat_id}"
-    cmd = (
+    return (
         f"touch /tmp/cc-{chat_id}.killed && "
         f"tmux kill-session -t {_shell_quote(session_name)} 2>/dev/null; "
         f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null; "
         + cleanup_command(chat_id)
+        + f"; tmux has-session -t {_shell_quote(f'=cc-{chat_id}')} 2>/dev/null "
+        f"&& echo alive || echo gone"
     )
+
+
+def _output_last_line(output: str) -> str:
+    lines = (output or "").splitlines()
+    return lines[-1] if lines else ""
+
+
+def _connect_fresh_client(vm_config):
+    """Open a one-shot SSH client for a kill retry. Caller closes it."""
+    import io
+    import paramiko
+
+    user, host, port = _parse_ssh_target(vm_config.vm_name)
+    key = paramiko.Ed25519Key.from_private_key(io.StringIO(vm_config.api_token))
+    fresh = paramiko.SSHClient()
+    fresh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    fresh.connect(host, port=port, username=user, pkey=key, timeout=30)
+    _enable_keepalive(fresh)
+    return fresh
+
+
+def _kill_session_marking_self_killed(client, chat_id: str, vm_config=None) -> bool:
+    """Tear down the detached tmux session for a self-initiated kill (steer
+    or interrupt), marking it as self-killed first.
+
+    Returns True only when the remote command's last line is exactly `gone`.
+    An exception or any other output is a warning and, when `vm_config` is
+    given, one retry on a fresh client. A failed retry is logged at error and
+    returns False. The caller's client is never closed: other tails may share it.
+    """
+    cmd = _kill_and_verify_cmd(chat_id)
     try:
-        _ssh_exec(client, cmd)
-    except Exception:
-        pass
+        output = _ssh_exec(client, cmd)
+    except Exception as exc:
+        logger.warning("self-kill command failed for chat {}: {}", chat_id, exc)
+    else:
+        if _output_last_line(output) == "gone":
+            return True
+        logger.warning(
+            "self-kill not verified for chat {}: last line {!r}",
+            chat_id, _output_last_line(output),
+        )
+
+    if vm_config is None:
+        return False
+
+    fresh = None
+    try:
+        fresh = _connect_fresh_client(vm_config)
+        output = _ssh_exec(fresh, cmd)
+        if _output_last_line(output) == "gone":
+            return True
+    except Exception as exc:
+        logger.error("self-kill retry failed for chat {}: {}", chat_id, exc)
+        return False
+    finally:
+        if fresh is not None:
+            try:
+                fresh.close()
+            except Exception:
+                pass
+    logger.error("self-kill retry not verified for chat {}", chat_id)
+    return False
 
 
 def _consume_self_kill_sentinel(client, chat_id: str) -> bool:
@@ -990,6 +1055,7 @@ async def tail_ssh_output(
         ssh_client = paramiko.SSHClient()
         ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         ssh_client.connect(host, port=port, username=user, pkey=key, timeout=30)
+        _enable_keepalive(ssh_client)
 
     client = ssh_client
     stdin_file = f"/tmp/cc-{chat_id}.stdin"
@@ -1017,6 +1083,9 @@ async def tail_ssh_output(
     steer_lock = threading.RLock()
     torn_down = False
     reader_stop = threading.Event()
+    # True only after a self-kill whose remote check printed `gone`. An
+    # interrupt whose kill did not verify must not be reported as done.
+    interrupt_kill_verified = False
 
     try:
         # tail from offset, follow until exit file appears or deadline/interrupt
@@ -1025,11 +1094,12 @@ async def tail_ssh_output(
         stdin_ch, stdout_ch, stderr_ch = client.exec_command(tail_cmd)
 
         def _kill_detached():
-            nonlocal torn_down
+            nonlocal torn_down, interrupt_kill_verified
             logger.info("interrupt watchdog (detached): killing tmux session cc-{}", chat_id)
             with steer_lock:
                 torn_down = True
-                _kill_session_marking_self_killed(client, chat_id)
+                if _kill_session_marking_self_killed(client, chat_id, vm_config):
+                    interrupt_kill_verified = True
                 try:
                     stdout_ch.channel.close()
                 except Exception:
@@ -1088,10 +1158,11 @@ async def tail_ssh_output(
             is not written here stays pending and is picked up by the locked
             closeout instead.
             """
-            nonlocal torn_down
+            nonlocal torn_down, interrupt_kill_verified
             torn_down = True
             if self_killed:
-                _kill_session_marking_self_killed(client, chat_id)
+                if _kill_session_marking_self_killed(client, chat_id, vm_config):
+                    interrupt_kill_verified = True
             else:
                 try:
                     client.exec_command(
@@ -1292,6 +1363,24 @@ async def tail_ssh_output(
 
         if owns_client:
             client.close()
+
+        if exit_reason == "interrupted" and not interrupt_kill_verified:
+            # The kill did not confirm `cc-<id>` is gone. Release this tail so
+            # the monitor re-tails and the next pass retries the kill.
+            return {
+                "offset": current_offset,
+                "last_message_id": converter.last_message_id,
+                "session_id": session_id,
+                "is_done": False,
+                "result_data": None,
+                "status": "monitoring",
+                "delivery_states": ledger.states,
+                "input_groups": ledger.groups,
+                "lifecycle_observed": ledger.lifecycle_observed,
+                "pending_result": result_data,
+                "pending_context_usage": context_usage,
+                "has_usable_output": converter.has_usable_output,
+            }
 
         if exit_reason == "interrupted":
             return {

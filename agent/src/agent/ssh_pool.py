@@ -6,7 +6,7 @@ from typing import Dict, Tuple
 import paramiko
 from loguru import logger
 
-from agent.claude_code import _parse_ssh_target
+from agent.claude_code import _enable_keepalive, _parse_ssh_target
 from agent.ec2_wake import ensure_and_touch_vm
 
 
@@ -64,6 +64,7 @@ class SSHPool:
             pkey=key_obj,
             timeout=SSH_CONNECT_TIMEOUT_SECONDS,
         )
+        _enable_keepalive(client)
 
         self._clients[key] = client
         logger.info("ssh_pool: new connection to {}:{} (pool size={})", host, port, len(self._clients))

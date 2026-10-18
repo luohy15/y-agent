@@ -89,6 +89,11 @@ class SendMessageResponse(BaseModel):
 
 class StopChatRequest(BaseModel):
     chat_id: str
+    vm_name: Optional[str] = None
+
+
+# Inline backends have no detached tmux session to tear down.
+_INLINE_STOP_BACKENDS = {"perplexity", "openai", "xai_web", "xai_x"}
 
 
 class AttachImageRequest(BaseModel):
@@ -489,7 +494,39 @@ async def post_stop_chat(req: StopChatRequest, request: Request):
         await asyncio.to_thread(end_chat_launches, _get_user_id(request), req.chat_id)
     except Exception as exc:
         logger.warning("stop: MCP launch revocation failed chat_id={}: {}", req.chat_id, type(exc).__name__)
-    return {"ok": True}
+
+    if getattr(chat, "backend", None) in _INLINE_STOP_BACKENDS:
+        return {"ok": True, "teardown": "not_applicable"}
+
+    teardown = "unknown"
+    try:
+        from agent.claude_code import _kill_and_verify_cmd
+        from agent.vm_command import run_vm_command
+        output = await run_vm_command(
+            _get_user_id(request),
+            ["sh", "-c", _kill_and_verify_cmd(req.chat_id)],
+            timeout=20,
+            vm_name=req.vm_name,
+            wake=False,
+        )
+        last = ""
+        if isinstance(output, str) and output.splitlines():
+            last = output.splitlines()[-1]
+        if last == "gone":
+            teardown = "confirmed"
+        elif last == "alive":
+            teardown = "pending"
+        else:
+            logger.warning(
+                "stop teardown unparseable chat_id={} last_line={!r}",
+                req.chat_id, last,
+            )
+    except Exception as exc:
+        logger.warning(
+            "stop teardown failed chat_id={}: {}",
+            req.chat_id, type(exc).__name__,
+        )
+    return {"ok": True, "teardown": teardown}
 
 
 class AttentionRequest(BaseModel):
