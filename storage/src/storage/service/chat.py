@@ -265,7 +265,7 @@ async def restart_manager_session(user_id: int) -> Chat:
     chat.running = True
     await chat_repo.save_chat_by_id(chat)
     chat_repo.release_topic(user_id, "manager", except_chat_id=chat.id)
-    send_chat_message(chat.id, user_id=user_id, topic="manager", bot_tier="tier1")
+    send_chat_message(chat.id, user_id=user_id, topic="manager")
     return chat
 
 
