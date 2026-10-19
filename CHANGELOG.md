@@ -35,6 +35,8 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Fixed
 
+- **Manager restart tier (3982)**: restarting the manager session no longer pins `tier1`. It uses default bot tier resolution.
+- **SSH keepalive and chat stop (3976)**: long-lived SSH clients send a 30-second keepalive so an idle timeout does not drop the tail during a silent model turn. Stopping a chat confirms the session is gone before reporting stopped; `y chat stop` prints "Stopped" only when teardown is confirmed.
 - **Mobile sidebars (3960)**: below 768px, content sidebars fill the viewport and dismiss without a backdrop. Saved desktop widths and the layout at 768px and above stay as they are.
 - **`y dev release` errors (3855)**: API error bodies are surfaced instead of a `KeyError`.
 - **Link URL association (3907)**: associating a URL no longer attaches another link's activity. `y assoc link` echoes the attached activity id. The link list collapses only repeat visits to the same activity URL within five minutes, so query-distinct pages that share a base URL or title stay visible.
