@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 
 [manifest]
@@ -11,6 +11,9 @@ members = [
     "y-agent-storage",
     "y-agent-worker",
 ]
+
+[manifest.dependency-groups]
+dev = []
 
 [[package]]
 name = "amqp"
@@ -261,7 +264,7 @@ name = "browser-cookie3"
 version = "0.20.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "jeepney", marker = "'bsd' in sys_platform or sys_platform == 'linux'" },
+    { name = "jeepney", marker = "sys_platform == 'linux' or 'bsd' in sys_platform" },
     { name = "lz4" },
     { name = "pycryptodomex" },
     { name = "shadowcopy", marker = "sys_platform == 'win32'" },
@@ -2933,6 +2936,7 @@ dependencies = [
     { name = "pillow" },
     { name = "pillow-heif" },
     { name = "prompt-toolkit" },
+    { name = "pymupdf" },
     { name = "pymupdf4llm" },
     { name = "pyperclip" },
     { name = "python-dateutil" },
@@ -2960,7 +2964,8 @@ requires-dist = [
     { name = "pillow", specifier = ">=10.0.0" },
     { name = "pillow-heif", specifier = "==1.8.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.0" },
-    { name = "pymupdf4llm", specifier = ">=0.0.17" },
+    { name = "pymupdf", specifier = ">=1.27,<2" },
+    { name = "pymupdf4llm", specifier = ">=1.27,<2" },
     { name = "pyperclip", specifier = ">=1.9.0" },
     { name = "python-dateutil", specifier = ">=2.8.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },

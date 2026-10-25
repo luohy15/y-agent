@@ -1,8 +1,6 @@
 from pathlib import Path
 
 import click
-import pymupdf
-import pymupdf4llm
 
 
 @click.command('parse')
@@ -17,6 +15,10 @@ def pdf_parse(input_pdf: Path, output: Path | None):
         y pdf parse paper.pdf
         y pdf parse paper.pdf -o /tmp/out.md
     """
+    # Imported here so a broken PDF install cannot take down every `y` command.
+    import pymupdf
+    import pymupdf4llm
+
     if input_pdf.suffix.lower() != '.pdf':
         raise click.ClickException(f"Not a PDF file: {input_pdf}")
 
