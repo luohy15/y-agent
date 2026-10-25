@@ -121,7 +121,10 @@ its entry points are migrated intentionally rather than left as dead paths.
     their existing open behavior, so that the detail remains the hub of a todo's
     artifacts.
 20. As a user, I want the todo's activity history available in the detail, so
-    that I can see how it progressed.
+    that I can see how it progressed. The History section lists entries newest
+    first; the trace payloads (`GET /api/trace/chats`, `GET /api/trace/share`)
+    return them in that order, while stored history and `GET /api/todo/detail`
+    stay chronological (todo 4026).
 21. As a user, I want existing sharing actions to keep their current behavior and
     permissions, so that the migration does not widen or narrow what is
     shareable.

@@ -132,7 +132,7 @@ async def get_trace_chats(request: Request, trace_id: str = Query(...)):
             "updated_at": todo.updated_at,
             "history": [
                 {"timestamp": h.timestamp, "action": h.action, "note": h.note}
-                for h in (todo.history or [])
+                for h in reversed(todo.history or [])
             ],
         }
 
@@ -372,7 +372,7 @@ async def get_share(share_id: str = Query(...), password: Optional[str] = Query(
             "updated_at": todo.updated_at,
             "history": [
                 {"timestamp": h.timestamp, "action": h.action, "note": h.note}
-                for h in (todo.history or [])
+                for h in reversed(todo.history or [])
             ],
         }
 
