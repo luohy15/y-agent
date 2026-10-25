@@ -14,6 +14,19 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Added
 
+### Changed
+
+### Fixed
+
+- **CLI without pymupdf**: a missing `pymupdf` no longer crashes every `y` command. PDF parse imports it only when used, and the dependency stays in the 1.x range.
+- **Todo detail history (4026)**: todo detail history is newest first, including on public shares. Stored history and other todo lists are unchanged.
+
+### Removed
+
+## [0.5.32] - 2026-10-25
+
+### Added
+
 - **Session context analysis (3844)**: local transcript context analyzer, `chat_context_*` storage, `POST/GET /api/usage/context` ingest and read API, a run-end ingest trigger in the worker, and TraceView participants linking to chat Context.
 - **Tablet composer newline (3860)**: Return inserts a newline in the fallback chat composer on tablets. Send stays one line tall, vertically centered, at the far right of the input row (including on a phone).
 - **Module SVG sidebar icons (3861)**: `module.json` `icon` may be a `ui/*.svg` path. Publish validates and stores the normalized SVG; the activity bar renders it sanitized. Host contract v27.
