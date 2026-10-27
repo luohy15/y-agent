@@ -707,7 +707,8 @@ mode (`-i`) serves a human at a terminal.
   The composer textarea is the visible editable element at every viewport width (todo 4038).
   The composer and the chat sidebar search insert pasted plain text from the
   paste event itself, like the CodeMirror editor, instead of relying on the
-  browser's native paste (todo 4050).
+  browser's native paste (todo 4050). The Todo sidebar search uses the same
+  shared helper (`shared/ui/paste-text.ts`).
 - **Web streaming**: detail view loads the snapshot, then opens SSE only when
   the chat is running; the SSE stream re-polls the chat row and emits new
   messages by index, ending with a done event from the completion predicate.
