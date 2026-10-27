@@ -704,6 +704,7 @@ mode (`-i`) serves a human at a terminal.
   before image conversion; a rejected send unlocks and keeps attachments.
   Chat running state is not that guard. Plan:
   `pages/plan-3860-tablet-chat-return.md`.
+  The composer textarea is the visible editable element at every viewport width (todo 4038).
 - **Web streaming**: detail view loads the snapshot, then opens SSE only when
   the chat is running; the SSE stream re-polls the chat row and emits new
   messages by index, ending with a done event from the completion predicate.
