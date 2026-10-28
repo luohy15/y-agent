@@ -827,8 +827,9 @@ async def _handle_timeout(chat_id: str, proc: dict, ssh_pool=None):
         vm_config = resolve_vm_config(user_id, vm_name, work_dir=proc.get("work_dir"))
         client = ssh_pool.get_or_create(vm_config) if ssh_pool else None
         if client:
+            from agent.detach import _tmux_kill_cmd
             client.exec_command(
-                f"tmux kill-session -t 'cc-{chat_id}' 2>/dev/null; "
+                f"{_tmux_kill_cmd(chat_id)}; "
                 f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.stdout /tmp/cc-{chat_id}.stderr /tmp/cc-{chat_id}.exit 2>/dev/null"
             )
             logger.info("hard timeout: killed tmux session for chat_id={}", chat_id)

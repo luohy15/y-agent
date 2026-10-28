@@ -660,6 +660,11 @@ def _no_result_error_message(client, chat_id: str, backend: str, stream_error: O
             f"(ssh error: {type(e).__name__}: {e}).{suffix}"
         )
     if not raw:
+        if not _tmux_session_alive(client, chat_id):
+            return (
+                f"{backend}: tmux session vanished without exit status: "
+                f"wrapper or tmux server killed externally.{suffix}"
+            )
         return generic
     try:
         code = int(raw)
@@ -694,10 +699,9 @@ def _tmux_session_alive(client, chat_id: str) -> bool:
     monitor resumes instead of declaring death (HARD_TIMEOUT_SECONDS bounds
     the retries).
     """
-    cmd = (
-        f"tmux has-session -t {_shell_quote(f'=cc-{chat_id}')} 2>/dev/null "
-        f"&& echo alive || echo dead"
-    )
+    from agent.detach import _tmux_alive_cmd
+
+    cmd = f"{_tmux_alive_cmd(chat_id)} && echo alive || echo dead"
     try:
         return _ssh_exec(client, cmd).strip() == "alive"
     except Exception as e:
@@ -712,15 +716,14 @@ def _kill_and_verify_cmd(chat_id: str) -> str:
     `tmux kill-session` (`&&`), and stdin/exit/MCP cleanup always runs. The
     trailing `has-session` prints `gone` only when `cc-<chat_id>` is gone.
     """
+    from agent.detach import _tmux_alive_cmd, _tmux_kill_cmd
     from agent.mcp.staging import cleanup_command
-    session_name = f"cc-{chat_id}"
+
     return (
-        f"touch /tmp/cc-{chat_id}.killed && "
-        f"tmux kill-session -t {_shell_quote(session_name)} 2>/dev/null; "
+        f"touch /tmp/cc-{chat_id}.killed && {_tmux_kill_cmd(chat_id)}; "
         f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null; "
         + cleanup_command(chat_id)
-        + f"; tmux has-session -t {_shell_quote(f'=cc-{chat_id}')} 2>/dev/null "
-        f"&& echo alive || echo gone"
+        + f"; {_tmux_alive_cmd(chat_id)} && echo alive || echo gone"
     )
 
 
@@ -821,15 +824,22 @@ def _pkill_tail_cmd(chat_id: str) -> str:
 def _build_tail_cmd(stdout_file: str, exit_file: str, offset: int) -> str:
     """Build the remote tail + watcher command for tailing a detached turn.
 
-    Tails from `offset`, following until the exit file appears. The watcher
-    probes the tail pid (`kill -0`) each pass and exits as soon as the tail is
-    gone, so killing only the tail (see `_pkill_tail_cmd`) doesn't leave an
-    orphan watcher subshell looping until the exit file appears.
+    Follow until the exit file appears or two ten-second probes find no session.
+    Check the tail pid each pass so killing the reader leaves no orphan watcher.
+    The final second lets tail drain output before it is stopped.
     """
+    from agent.detach import _tmux_alive_cmd
+
+    chat_id = Path(stdout_file).name.removeprefix("cc-").removesuffix(".stdout")
     return (
         f"tail -n +{offset + 1} -f {_shell_quote(stdout_file)} & TAIL_PID=$!; "
-        f"(while ! test -f {_shell_quote(exit_file)}; do "
-        f"kill -0 $TAIL_PID 2>/dev/null || exit; sleep 2; done; "
+        f"(MISSES=0; TICKS=0; while ! test -f {_shell_quote(exit_file)}; do "
+        f"kill -0 $TAIL_PID 2>/dev/null || exit; "
+        f"if test $TICKS -eq 0; then "
+        f"if {_tmux_alive_cmd(chat_id)}; then MISSES=0; "
+        f"else MISSES=$((MISSES + 1)); fi; "
+        f"test $MISSES -lt 2 || break; fi; "
+        f"TICKS=$(((TICKS + 1) % 5)); sleep 2; done; "
         f"sleep 1; kill $TAIL_PID 2>/dev/null) & "
         f"wait $TAIL_PID 2>/dev/null"
     )
@@ -1165,9 +1175,8 @@ async def tail_ssh_output(
                     interrupt_kill_verified = True
             else:
                 try:
-                    client.exec_command(
-                        f"tmux kill-session -t {_shell_quote(f'cc-{chat_id}')} 2>/dev/null"
-                    )
+                    from agent.detach import _tmux_kill_cmd
+                    client.exec_command(_tmux_kill_cmd(chat_id))
                     client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null")
                 except Exception:
                     pass

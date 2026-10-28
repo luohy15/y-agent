@@ -38,7 +38,7 @@ WRAPPER_PREFIX = (
 
 
 def _read_proc(pid):
-    """Return (ppid, pgrp, sid, start, uid, argv) or None if gone/unreadable."""
+    """Return (ppid, pgrp, sid, start, uid, argv, comm) or None if unreadable."""
     try:
         with open(f"/proc/{pid}/stat") as f:
             stat = f.read()
@@ -50,7 +50,8 @@ def _read_proc(pid):
         return None
     fields = stat[stat.rfind(")") + 2:].split()
     argv = [a.decode("utf-8", "replace") for a in raw.split(b"\0")[:-1]]
-    return int(fields[1]), int(fields[2]), int(fields[3]), int(fields[19]), uid, argv
+    comm = stat[stat.find("(") + 1:stat.rfind(")")]
+    return int(fields[1]), int(fields[2]), int(fields[3]), int(fields[19]), uid, argv, comm
 
 
 def _snapshot():
@@ -68,24 +69,43 @@ def is_wrapper(argv, stdin_prefix):
         return False
     inner = argv[2]
     stdin_re = r"tail -f -n \+1 '" + re.escape(stdin_prefix) + r"[A-Za-z0-9_.-]*\.stdin' \|"
+    # Recognize both pre-isolation wrappers and new dedicated-socket wrappers.
+    inner = inner.removeprefix("unset TMUX; ")
     return inner.startswith(WRAPPER_PREFIX) and re.search(stdin_re, inner) is not None
 
 
-def live_pane_pids():
-    """PIDs of every live tmux pane, or None when tmux cannot be enumerated."""
-    try:
-        out = subprocess.run(
-            ["tmux", "list-panes", "-a", "-F", "#{pane_pid}"],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10,
-        )
-    except (OSError, subprocess.SubprocessError):
+def live_pane_pids(procs=None):
+    """Live pane PIDs, or None if a potentially live server is unaccounted for."""
+    if procs is None:
+        procs = _snapshot()
+    servers = sum(info[4] == os.getuid() and info[6] == "tmux: server"
+                  for info in procs.values())
+    panes = set()
+    enumerated = 0
+    missing = False
+    # This standalone source is shipped without agent imports. Keep y-agent in
+    # sync with detach.TMUX_SOCKET; default covers pre-deploy wrappers.
+    for socket in ("y-agent", "default"):
+        try:
+            out = subprocess.run(
+                ["tmux", "-L", socket, "list-panes", "-a", "-F", "#{pane_pid}"],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if out.returncode != 0:
+            missing = True
+            continue
+        try:
+            panes.update(int(line) for line in out.stdout.decode().split())
+        except ValueError:
+            return None
+        enumerated += 1
+    # A missing socket is safe only if every same-UID server is accounted for.
+    # In particular, unlinking a live server's socket must not expose its panes.
+    if missing and servers != enumerated:
         return None
-    if out.returncode != 0:
-        return None
-    try:
-        return {int(line) for line in out.stdout.decode().split()}
-    except ValueError:
-        return None
+    return panes
 
 
 def _tree(procs, leader, uid):
@@ -126,7 +146,7 @@ def reap(min_age_s, stdin_prefix, grace_s=5.0):
     }
     if not candidates:
         return "reaped=0"
-    panes = live_pane_pids()
+    panes = live_pane_pids(procs)
     if panes is None:
         return "reaped=0 skipped=tmux"
     targets = {pid: start for pid, start in candidates.items() if pid not in panes}

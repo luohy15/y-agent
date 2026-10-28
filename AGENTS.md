@@ -305,6 +305,9 @@ The repo no longer contains an in-process agent loop — the worker shells out.
 - **Detached execution on EC2** — subprocesses run inside `tmux` on the VM. The worker
   SSHes in, tails stdout, and streams JSON events back. `agent/ssh_pool.py` reuses SSH
   connections across monitor passes; `agent/ec2_wake.py` auto-wakes the instance.
+  New `cc-*` sessions use `tmux -L y-agent` with `TMUX` unset inside the wrapper;
+  liveness, teardown and orphan enumeration also cover the legacy default socket
+  during transition. A vanished session without exit status ends as an execution error.
 - **Lambda hand-off** — since Lambda caps at ~15 min, the worker releases its lease
   before the deadline and re-enqueues itself via SQS; the next invocation picks up the
   existing tail offset. `poll_loop.py` unifies the steer / interrupt polling cadence.

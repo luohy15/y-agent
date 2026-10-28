@@ -36,6 +36,23 @@ logger = logging.getLogger(__name__)
 
 SSH_CONNECT_TIMEOUT_SECONDS = 30
 ORPHAN_WRAPPER_MIN_AGE_SECONDS = 120
+TMUX_SOCKET = "y-agent"
+
+
+def _tmux_command(args: str, legacy: bool = False) -> str:
+    socket = "default" if legacy else TMUX_SOCKET
+    return f"tmux -L {socket} {args}"
+
+
+def _tmux_alive_cmd(chat_id: str) -> str:
+    # One-release transition: pre-deploy turns still live on the default socket.
+    args = f"has-session -t {_shell_quote(f'=cc-{chat_id}')} 2>/dev/null"
+    return f"( {_tmux_command(args)} || {_tmux_command(args, legacy=True)} )"
+
+
+def _tmux_kill_cmd(chat_id: str) -> str:
+    args = f"kill-session -t {_shell_quote(f'=cc-{chat_id}')} 2>/dev/null"
+    return f"( {_tmux_command(args)}; {_tmux_command(args, legacy=True)} )"
 
 
 def _reap_orphan_wrappers_cmd(min_age_s: float = ORPHAN_WRAPPER_MIN_AGE_SECONDS, stdin_prefix: str = "/tmp/cc-") -> str:
@@ -189,7 +206,7 @@ async def _start_detached_tmux(
         from agent.mcp.staging import cleanup_command
         _ssh_exec(
             client,
-            f"tmux kill-session -t {_shell_quote(session_name)} 2>/dev/null; "
+            f"{_tmux_kill_cmd(chat_id)}; "
             f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit /tmp/cc-{chat_id}.killed 2>/dev/null; "
             f"rm -rf /tmp/cc-{chat_id}-images 2>/dev/null; "
             + cleanup_command(chat_id),
@@ -229,6 +246,7 @@ async def _start_detached_tmux(
 
         # 3. Assemble tmux inner command
         inner_parts = [
+            "unset TMUX;",
             "date +%s > /tmp/ec2-ssh-last-seen;",
             "( while :; do date +%s > /tmp/ec2-ssh-last-seen; sleep 60; done ) &",
             "HEARTBEAT_PID=$!;",
@@ -252,7 +270,7 @@ async def _start_detached_tmux(
         )
 
         tmux_cmd = (
-            f"tmux new-session -d -s {_shell_quote(session_name)} "
+            f"{_tmux_command('new-session')} -d -s {_shell_quote(session_name)} "
             f"{_shell_quote(' '.join(inner_parts))}"
         )
 

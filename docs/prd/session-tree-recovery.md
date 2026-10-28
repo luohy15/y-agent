@@ -315,7 +315,8 @@ callback is a message that was refused, not a handoff that exists.
   it went idle has elapsed.
 
 - **`failed` covers execution errors** (launch failure, backend error result,
-  hard timeout) and is reported upward rather than retried. The existing single
+  hard timeout, or a tmux session that vanished without exit status) and is
+  reported upward rather than retried. The existing single
   automatic resume-on-5xx retry inside the monitor is the *only* automatic
   re-run in the system and is untouched by this feature; recovery deliberately
   adds no second retry layer, because a retry that re-runs an agent's work can
