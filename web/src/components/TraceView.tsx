@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import useSWR from "swr";
 import { API, authFetch, clearToken, jsonFetcher as fetcher } from "../api";
 import { runHostCommand } from "../host/commands";
-import WaterfallChart, { type TraceChat, type TraceLaunchSummary } from "./WaterfallChart";
+import WaterfallChart, { type TraceChat } from "./WaterfallChart";
 import { statusBadgeClass } from "./badges";
 import SharePopover, { type ExistingShare } from "./SharePopover";
 import TraceTodoDetail, { type TodoInfo, type TodoPatch } from "./TraceTodoDetail";
@@ -101,39 +101,6 @@ function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
 
-/** One launch line. A null launch effort is "default", never a level. */
-export function formatLaunchLine(index: number, launch: TraceLaunchSummary): string {
-  const requested = launch.requested_effort || "-";
-  const launched = launch.launch_effort || "default";
-  const appliedEntries = Object.entries(launch.applied || {}).filter(([, count]) => count > 0);
-  const applied = appliedEntries.length
-    ? appliedEntries.map(([level, count]) => `${level}×${count}`).join(" ")
-    : "not ingested";
-  const bot = launch.bot_name || "-";
-  return `L${index} · ${bot} · requested ${requested} · launch ${launched} · applied ${applied} · provider unconfirmed`;
-}
-
-function sanitizeLaunches(value: unknown): TraceLaunchSummary[] {
-  return asArray<unknown>(value).slice(0, 20).flatMap((item) => {
-    const obj = asRecord(item);
-    if (!obj) return [];
-    const appliedRaw = asRecord(obj.applied);
-    const applied: Record<string, number> = {};
-    if (appliedRaw) {
-      for (const [level, count] of Object.entries(appliedRaw)) {
-        if (typeof count === "number" && count > 0) applied[level] = count;
-      }
-    }
-    return [{
-      bot_name: typeof obj.bot_name === "string" ? obj.bot_name : null,
-      requested_effort: typeof obj.requested_effort === "string" ? obj.requested_effort : null,
-      launch_effort: typeof obj.launch_effort === "string" ? obj.launch_effort : null,
-      applied,
-      provider: "unconfirmed",
-    }];
-  });
-}
-
 /** Normalize a trace payload so malformed fields cannot throw during render. */
 export function normalizeTraceData(raw: unknown): TraceChatsResponse | null {
   const obj = asRecord(raw);
@@ -149,10 +116,7 @@ export function normalizeTraceData(raw: unknown): TraceChatsResponse | null {
       }
     : null;
   return {
-    chats: asArray<TraceChat>(obj.chats).map((chat) => ({
-      ...chat,
-      launches: sanitizeLaunches((chat as { launches?: unknown }).launches),
-    })),
+    chats: asArray<TraceChat>(obj.chats),
     todo_name: typeof obj.todo_name === "string" ? obj.todo_name : null,
     todo_status: typeof obj.todo_status === "string" ? obj.todo_status : null,
     todo,
@@ -543,15 +507,6 @@ export default function TraceView({
                           Context
                         </button>
                       </div>
-                      {(chat.launches || []).map((launch, index) => (
-                        <div
-                          key={`${chat.chat_id}-launch-${index}`}
-                          className="text-[0.65rem] font-mono text-sol-base1 truncate"
-                          data-testid={`trace-launch-${chat.chat_id}-${index + 1}`}
-                        >
-                          {formatLaunchLine(index + 1, launch)}
-                        </div>
-                      ))}
                     </div>
                   );
                 })}

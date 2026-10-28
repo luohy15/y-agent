@@ -380,10 +380,10 @@ requested effort (the explicit input, or null) and launch effort (the argv
 level, or null when no flag was passed). Null launch effort is shown as
 "default", never as a level. Client-applied effort comes from the top-level
 transcript `assistant.effort` and fills `chat_request_usage.applied_effort`
-only when that column is still null. Trace view shows, for the authenticated
-payload only, the newest 20 launches per chat: requested, launch, applied
-counts in the launch's time window, and provider unconfirmed. The public share
-payload has no launches.
+only when that column is still null. The history is recorded for effort
+diagnosis only: no trace payload (authenticated or public share) returns it,
+and trace detail shows no per-launch lines (todo 4084). Query `chat_launch`
+directly when diagnosing effort.
 
 Seeds are conservative and owner-scoped. They stamp only a row whose model is
 still the model observed in the 2026-10-28 client/wire scan. They are not

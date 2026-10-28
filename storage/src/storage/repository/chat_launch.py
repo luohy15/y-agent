@@ -49,16 +49,3 @@ def insert_launch(
         session.flush()
         session.expunge(row)
         return row
-
-
-def list_newest(user_id: int, chat_id: str, limit: int = 20) -> list[ChatLaunchEntity]:
-    """Newest launches first, capped. Callers that need windows reverse a copy."""
-    with get_db() as session:
-        rows = (session.query(ChatLaunchEntity)
-                .filter_by(user_id=user_id, chat_id=chat_id)
-                .order_by(ChatLaunchEntity.launched_at.desc(), ChatLaunchEntity.id.desc())
-                .limit(limit)
-                .all())
-        for row in rows:
-            session.expunge(row)
-        return rows
