@@ -4,6 +4,7 @@
 
 # GitHub Actions config secrets
 .github/config*.json
+.github/config*.json.bak*
 requirements.txt
 .vscode
 .env
@@ -44,6 +45,7 @@ backfill_*.py
 # match directories only and leave mode-120000 test symlinks untracked, so
 # `y dev commit` stage-all could commit them and later replace the real
 # suites in the main checkout with dead self-links.
+/tests
 agent/tests
 api/tests
 cli/tests
