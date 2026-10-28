@@ -229,8 +229,9 @@ live work exists; enablement remains a separate rollout step.
     behalf or re-run any work, so that the only thing it can ever do is make
     a fault visible by moving active to awaiting.
 37. As Roy, I want a session that ends a turn without declaring done or
-    blocked to be caught by the watchdog exactly like a death, so that the
-    forbidden third ending is detectable rather than merely prohibited.
+    blocked to be reconciled the moment that turn closes out, exactly like a
+    death, so that the forbidden third ending is detectable immediately
+    rather than up to one watchdog tick later.
 
 ### Contract alignment
 
@@ -375,7 +376,9 @@ y todo list --status awaiting
   one is a `TypeError`, not a graceful abstain); returning `None` from
   recheck aborts without mutation. Fault explanation is stored in the
   existing history entry (`; fault: …`, bounded to 1000 characters), not a
-  reason enum or a synthetic agent progress message.
+  reason enum or a synthetic agent progress message. The scheduled watchdog
+  and the normal-session-end reconcile (todo 4077) build their recheck from
+  one shared claim helper, so the two callers cannot diverge.
 - **Awaiting clears on an accepted human message**, resolved by the chat's
   persisted trace id, never by the pointer, and only when the current status
   is awaiting. Human replies and agent dispatches both carry the user role,
@@ -694,6 +697,26 @@ expressed as a branch:
   the 24-hour backstop. The pass scans `status == "active"` only. The
   schedule itself stays every five minutes, so a finished-but-undeclared
   trace is claimed on the next tick.
+- **Normal session end reconciles immediately (todo 4077).** When a
+  detached Claude Code turn completes normally, the monitor runs
+  `reconcile_session_end` after `complete_current_process` and the post
+  hooks. It only runs for a completed, non-interrupted turn whose persisted
+  chat carries a non-empty `trace_id` and a topic other than the root
+  `manager`; error/timeout, interrupt, pending-input relaunch, skipped
+  closeout, inline backends and traceless or root chats do not reconcile.
+  It probes its own owner's default VM once, upserts that snapshot at probe
+  time T (the second writer of `trace_runtime_snapshot`), and claims
+  through the shared under-lock builder with `observed_after_ms=T`, so
+  only that probe can prove `ended` and every watchdog suppressor
+  (`session`, `child`, `tmux`, `process`, pending `waiter`/`wakeup`,
+  `unknown`) applies unchanged. It only claims a todo that is still
+  `active` at its own read, so a session's explicit awaiting wins and no
+  duplicate notice is sent. On a claim the detail is `Session ended;
+  nothing else is running on the trace. Last chat <id>: exit completed.`
+  and the notice comes from the same shared post-commit hook. The outcome
+  is recorded in `trace_session_end` (see migration below); the reconcile
+  is best-effort, and any failure is logged without affecting the closeout.
+  The five-minute pass stays the abnormal-recovery fallback.
 - **Evidence.** The pass first takes a fully paginated process snapshot
   keyed by owner (live by owner plus trace id, and by owner plus chat id
   mapped back to the chat's persisted trace). A snapshot failure aborts the
@@ -747,12 +770,16 @@ expressed as a branch:
   (`sh -c "sleep 600; y chat ..."`) counts as live because its child shell is
   not `sleep`; a bare typed sleep or typed sleep loop does not. Progress text
   and callbacks alone are not evidence.
-  The decision path never probes. One refresher, `refresh_trace_runtime`,
-  probes every owner that has at least one active todo whose trace has no
-  SQL-running chat, exactly once per pass, and stores the result in the
-  host-owned kernel table `trace_runtime_snapshot`: one row per owner holding
+  The decision path never probes. The scheduled refresher
+  `refresh_trace_runtime` probes every owner that has at least one active
+  todo whose trace has no SQL-running chat, exactly once per pass, and
+  stores the result in the host-owned kernel table
+  `trace_runtime_snapshot`: one row per owner holding
   `observed_at_unix`, `ok`, and `jobs` (`{todo_id: [session names]}`). The
-  table has no API, CLI or module-host write path; only the worker writes it.
+  second writer is the session-end reconcile (todo 4077): at a normal turn
+  closeout it probes only its own owner once and uses that same monotonic
+  upsert. The table has no API, CLI or module-host write path; only the
+  worker writes it.
   Writes are monotonic on `observed_at_unix`, so an older or concurrent pass
   can never replace newer evidence. A probe exception, timeout, missing
   marker or no parseable ps rows stores `ok=false` with empty `jobs`; no VM
@@ -919,6 +946,18 @@ Runtime evidence (todo 4070) adds one expand-only kernel table,
 `migration/4070_trace_runtime_snapshot.sql`. Apply that DDL before the host
 deploy: the refresher and the watchdog require it, while the module tolerates
 a missing `runtime` field. The table can stay on host rollback.
+
+The normal-session-end reconcile (todo 4077) adds one more expand-only kernel
+table, `trace_session_end`, created by
+`migration/4077_trace_session_end.sql`. Apply it before the host deploy that
+ships the reconcile. One row per `(user_id, chat_id, run_key)` records the
+outcome (`awaiting`, `active`, `not_active`, `unknown`, `failed`) and, when a
+suppressor kept the trace active, its evidence (`session`, `child`, `tmux`,
+`process`, `waiter`, `wakeup`, `stale_row`); inserts are
+`ON CONFLICT DO NOTHING` so a repeated closeout adds nothing. No API, CLI or
+UI reads it in this change. If the table is missing the disposition write
+fails and is logged, while the claim itself still stands. The table can stay
+on host rollback.
 
 ### Delivered limitations
 

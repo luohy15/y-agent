@@ -1,7 +1,8 @@
-"""Owner-scoped runtime evidence (todo 4070).
+"""Owner-scoped runtime evidence (todo 4070, todo 4077).
 
 `trace_runtime_snapshot` is worker-written. Reads serve the todo list and the
-watchdog decision; the only writer is `refresh_trace_runtime`.
+claim decision; the writers are the scheduled `refresh_trace_runtime` and the
+session-end reconcile's per-owner probe (todo 4077).
 """
 
 from typing import Dict, Iterable, Optional, Set, Tuple

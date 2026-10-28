@@ -1,8 +1,10 @@
-"""Single runtime-evidence refresh for the watchdog pass (todo 4070).
+"""Runtime-evidence refresh for the watchdog pass (todo 4070, todo 4077).
 
 One probe per owner, written to `trace_runtime_snapshot`, so both the todo list
-and the under-lock fault recheck derive from the same evidence. This module is
-the only writer of that table; no API, CLI or module-host path writes it.
+and the under-lock fault recheck derive from the same evidence. Two writers own
+that table: this module's scheduled `refresh_trace_runtime`, and the
+session-end reconcile's one owner probe (`worker.session_end`). No API, CLI or
+module-host path writes it.
 """
 
 from typing import Dict, Optional, Set

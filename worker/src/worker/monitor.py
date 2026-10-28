@@ -454,6 +454,16 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                     from worker.runner import _run_post_hooks
                     _run_post_hooks(fresh, user_id, post_hooks, trace_id=proc.get("trace_id"))
 
+                # A normal closeout reconciles its trace right away (todo 4077);
+                # the scheduled watchdog stays the abnormal-recovery fallback.
+                if result["status"] == "completed":
+                    try:
+                        from worker.session_end import reconcile_session_end, should_reconcile
+                        if should_reconcile(fresh):
+                            await reconcile_session_end(user_id, fresh, proc)
+                    except Exception as e:
+                        logger.exception("session-end reconcile failed: chat_id={} error={}", chat_id, e)
+
             await _trigger_context_ingest(
                 vm_config, backend_type,
                 (result.get("result_data") or {}).get("session_id") or updated_session_id,

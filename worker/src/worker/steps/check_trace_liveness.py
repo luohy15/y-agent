@@ -1,4 +1,5 @@
-"""Scheduled trace liveness watchdog (todo 3458 phase 4, todo 3506 S2, todo 4070).
+"""Scheduled trace liveness watchdog (todo 3458 phase 4, todo 3506 S2, todo 4070,
+todo 4077).
 
 Observation plus one conditional transition. An `active` trace with no live
 machine evidence becomes `awaiting` once, with a bounded fault detail folded
@@ -13,6 +14,11 @@ Since todo 4070, runtime evidence is probed once per owner by
 `refresh_trace_runtime` and stored in `trace_runtime_snapshot`; this pass and
 its under-lock recheck only read chat state and that store. They never probe
 tmux, and only a snapshot from this same pass can prove `ended`.
+
+Since todo 4077 the under-lock idle claim builder is shared with the
+session-end reconcile (`worker.session_end`), so a normal turn closeout uses
+exactly the watchdog's suppressors and never diverges from them. This pass
+stays the fallback for abnormal endings.
 """
 
 from typing import Optional
@@ -73,6 +79,7 @@ def _fault_detail(reason, chat_id, outcome, error_text) -> str:
     detail = {
         "idle": "No running session.",
         "backstop": f"Active for over {ZERO_CHAT_BACKSTOP_SECONDS // 3600} hours with no chat on the trace.",
+        "session_end": "Session ended; nothing else is running on the trace.",
     }[reason]
     if chat_id:
         detail += f" Last chat {chat_id}: exit {outcome}."
@@ -96,24 +103,45 @@ def _derive_for(session, user_id: int, todo_id: str, now_ms: int, pass_started_m
     return derive_runtime(roles, snapshot, todo_id, now_ms, observed_after_ms=pass_started_ms)
 
 
-def _claim_fault(todo, reason, pass_started_ms: int) -> str:
-    """One conditional claim under the todo lock; the shared notice hook sends on entry."""
-    user_id, todo_id = todo.user_id, todo.todo_id
+def claim_idle_trace(user_id: int, todo, reason: str, observed_after_ms: int) -> dict:
+    """One conditional claim under the todo lock, shared by both claim callers.
+
+    `todo` only needs `todo_id` and `updated_at_unix`; the owner is explicit so
+    a todo DTO without `user_id` works. The recheck re-validates every
+    suppressor against the locked row, exactly like the watchdog pass. Returns
+    `{"outcome": claimed|suppressed|failed, "evidence": <named suppressor or
+    None>, "runtime_state": <derived state or None>, "rechecked": <recheck
+    ran>, "chat_id": <newest chat or None>}` so a caller can persist why it did
+    not claim. The owner notice is sent by the shared post-commit hook on
+    entry.
+    """
+    todo_id = todo.todo_id
+    seen = {"evidence": None, "runtime_state": None, "rechecked": False, "chat_id": None}
 
     def recheck(session, row):
         # Re-read the roles and the snapshot inside the locked transaction:
         # no network I/O crosses the todo lock.
+        seen["rechecked"] = True
         now_ms = get_unix_timestamp()
-        if _derive_for(session, user_id, todo_id, now_ms, pass_started_ms)["state"] != "ended":
+        runtime = _derive_for(session, user_id, todo_id, now_ms, observed_after_ms)
+        state = runtime["state"]
+        seen["runtime_state"] = state
+        if state in SUPPRESSING_STATES:
+            seen["evidence"] = state
+            return None
+        if state != "ended":
             return None
         if dev_release_repo.has_pending_waiter(session, user_id, todo_id):
+            seen["evidence"] = "waiter"
             return None
         if wakeup_repo.has_pending_wakeup(session, user_id, todo_id, now_ms):
+            seen["evidence"] = "wakeup"
             return None
         chats = (session.query(ChatEntity.chat_id, ChatEntity.status, ChatEntity.updated_at_unix)
                  .filter_by(user_id=user_id, trace_id=todo_id)
                  .order_by(ChatEntity.updated_at_unix.desc()).all())
         if any(c.status == "running" for c in chats):
+            seen["evidence"] = "session"
             return None
         # Identity, outcome and error text in the notice all come from the
         # newest chat. An older chat's record is only live/not-live evidence;
@@ -124,6 +152,7 @@ def _claim_fault(todo, reason, pass_started_ms: int) -> str:
             if record.get("user_id") != user_id:
                 continue
             if record.get("status") == "running":
+                seen["evidence"] = "process"
                 return None
             if c is chats[0]:
                 newest_record = record
@@ -140,7 +169,10 @@ def _claim_fault(todo, reason, pass_started_ms: int) -> str:
             newest_row = session.query(ChatEntity).filter_by(
                 user_id=user_id, chat_id=chat_id).first()
             error_text = _assistant_text_from_entity(newest_row)
-        return _fault_detail(current, chat_id, outcome, error_text), chat_id
+        seen["chat_id"] = chat_id
+        # The caller's reason labels the detail; `current` only re-validates
+        # that a fault still applies under the lock.
+        return _fault_detail(reason, chat_id, outcome, error_text), chat_id
 
     try:
         _todo, changed = todo_service.claim_fault(
@@ -148,8 +180,13 @@ def _claim_fault(todo, reason, pass_started_ms: int) -> str:
         )
     except Exception:
         logger.exception("check_trace_liveness: evidence recheck failed, no claim: user_id={} todo_id={}", user_id, todo_id)
-        return "failed"
-    return "claimed" if changed else "suppressed"
+        return {**seen, "outcome": "failed"}
+    return {**seen, "outcome": "claimed" if changed else "suppressed"}
+
+
+def _claim_fault(todo, reason, pass_started_ms: int) -> str:
+    """Watchdog pass wrapper: only the claim outcome matters here."""
+    return claim_idle_trace(todo.user_id, todo, reason, pass_started_ms)["outcome"]
 
 
 async def run_pass(now_ms: Optional[int] = None, pass_started_ms: Optional[int] = None) -> dict:
