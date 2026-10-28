@@ -91,9 +91,8 @@ entity + controller + service + CLI slices, and most have a web panel.
   probes, and only a snapshot from the same pass can prove the trace ended.
   A normal Claude Code turn closeout also reconciles its own trace
   immediately (todo 4077): it probes its owner once, upserts the snapshot,
-  runs the same under-lock idle claim as the watchdog (shared builder) and
-  records the outcome in `trace_session_end`; the five-minute pass stays the
-  abnormal-recovery fallback. Probe errors or
+  and runs the same under-lock idle claim as the watchdog (shared builder);
+  the five-minute pass stays the abnormal-recovery fallback. Probe errors or
   missing process output are unknown (`runtime_unknown`) and suppress claims;
   valid process output with no tmux panes is empty. The todo list derives the
   same `session | child | tmux | unknown | ended` evidence for its runtime
@@ -340,8 +339,7 @@ exceptions noted):
 
 - **Identity / chat**: `user`, `chat`
 - **Tasks / time**: `todo`, `calendar_event`, `reminder`, `chat_wakeup` (todo 3655),
-  `trace_runtime_snapshot` (worker-written per-owner runtime evidence, todo 4070),
-  `trace_session_end` (worker-written normal-session-end reconcile outcome, todo 4077)
+  `trace_runtime_snapshot` (worker-written per-owner runtime evidence, todo 4070)
 - **Notes / knowledge graph**: `note`, `note_todo_relation`, `entity`,
   `entity_note_relation`, `entity_rss_relation`
 - **Link / RSS**: `link`, `link_todo_relation`, `rss_feed`, `pipeline_lock` (RSS scrape
@@ -459,8 +457,7 @@ Grouped by feature area:
 - `tasks.py` — Celery task `process_chat()`
 - `monitor.py` — tails detached process stdout, flushes to DB; on a normal
   closeout it calls the session-end reconcile (todo 4077)
-- `session_end.py` — `reconcile_session_end`: one owner probe, shared idle
-  claim, `trace_session_end` disposition
+- `session_end.py` — `reconcile_session_end`: one owner probe, shared idle claim
 - `steps/` — RSS feed fetch, link batch download, provider-status reconciliation,
   publication-grant wakeup recovery (`recover_release_grants`), registered
   scheduled chat wakeup delivery (`deliver_chat_wakeups`, todo 3655)

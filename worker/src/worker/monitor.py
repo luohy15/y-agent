@@ -460,7 +460,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                     try:
                         from worker.session_end import reconcile_session_end, should_reconcile
                         if should_reconcile(fresh):
-                            await reconcile_session_end(user_id, fresh, proc)
+                            await reconcile_session_end(user_id, fresh)
                     except Exception as e:
                         logger.exception("session-end reconcile failed: chat_id={} error={}", chat_id, e)
 

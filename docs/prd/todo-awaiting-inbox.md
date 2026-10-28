@@ -713,8 +713,7 @@ expressed as a branch:
   `active` at its own read, so a session's explicit awaiting wins and no
   duplicate notice is sent. On a claim the detail is `Session ended;
   nothing else is running on the trace. Last chat <id>: exit completed.`
-  and the notice comes from the same shared post-commit hook. The outcome
-  is recorded in `trace_session_end` (see migration below); the reconcile
+  and the notice comes from the same shared post-commit hook. The reconcile
   is best-effort, and any failure is logged without affecting the closeout.
   The five-minute pass stays the abnormal-recovery fallback.
 - **Evidence.** The pass first takes a fully paginated process snapshot
@@ -947,17 +946,9 @@ Runtime evidence (todo 4070) adds one expand-only kernel table,
 deploy: the refresher and the watchdog require it, while the module tolerates
 a missing `runtime` field. The table can stay on host rollback.
 
-The normal-session-end reconcile (todo 4077) adds one more expand-only kernel
-table, `trace_session_end`, created by
-`migration/4077_trace_session_end.sql`. Apply it before the host deploy that
-ships the reconcile. One row per `(user_id, chat_id, run_key)` records the
-outcome (`awaiting`, `active`, `not_active`, `unknown`, `failed`) and, when a
-suppressor kept the trace active, its evidence (`session`, `child`, `tmux`,
-`process`, `waiter`, `wakeup`, `stale_row`); inserts are
-`ON CONFLICT DO NOTHING` so a repeated closeout adds nothing. No API, CLI or
-UI reads it in this change. If the table is missing the disposition write
-fails and is logged, while the claim itself still stands. The table can stay
-on host rollback.
+The normal-session-end reconcile (todo 4077) moves an idle trace to awaiting
+immediately but adds no table of its own; it reuses
+`trace_runtime_snapshot` and the shared idle claim. It has no migration.
 
 ### Delivered limitations
 
