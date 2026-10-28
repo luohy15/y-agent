@@ -21,7 +21,7 @@ from storage.service import vm_config as vm_service
 from storage.util import get_unix_timestamp
 
 PROBE_SCRIPT = (
-    "tmux list-panes -a -F '#{session_name}\t#{pane_dead}\t#{pane_pid}\t#{pane_current_command}' 2>/dev/null; "
+    "tmux list-panes -a -F '#{session_name}:#{pane_dead}:#{pane_pid}:#{pane_current_command}' 2>/dev/null; "
     "echo @@PS@@; ps -e -o pid=,ppid=,comm="
 )
 
@@ -46,7 +46,8 @@ def parse_probe(text: str) -> Optional[Dict[str, list]]:
     """A complete process snapshot distinguishes idle prompts from shell jobs.
 
     Returns `{todo_id: [session names]}` for live panes, or None when the
-    snapshot itself is unknown (missing marker / no parseable ps rows).
+    snapshot itself is unknown (missing marker, no parseable ps rows, or a
+    tmux section whose lines do not match the four colon-separated fields).
     """
     panes, marker, processes = text.partition("@@PS@@\n")
     if not marker:
@@ -62,16 +63,24 @@ def parse_probe(text: str) -> Optional[Dict[str, list]]:
     if not pids:
         return None
     live: Dict[str, Set[str]] = {}
+    saw_pane_line = False
+    parsed_pane = False
     for line in panes.splitlines():
-        fields = line.split("\t")
+        if not line.strip():
+            continue
+        saw_pane_line = True
+        fields = line.split(":", 3)
         if len(fields) != 4:
             continue
+        parsed_pane = True
         name, dead, pane_pid, command = fields
         purpose, separator, todo_id = name.rpartition("-")
         if dead != "0" or not separator or not purpose or not todo_id or name.startswith("cc-"):
             continue
         if _live_pane(command, pane_pid, tree if pane_pid in pids else {}):
             live.setdefault(todo_id, set()).add(name)
+    if saw_pane_line and not parsed_pane:
+        return None
     return {todo_id: sorted(names) for todo_id, names in live.items()}
 
 
