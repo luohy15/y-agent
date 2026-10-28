@@ -12,6 +12,7 @@ from .reopen import todo_reopen
 from .status import todo_status
 from .pin import todo_pin, todo_unpin
 from .usage import todo_usage
+from .claim import todo_claim, todo_release
 
 @click.group('todo')
 def todo_group():
@@ -31,3 +32,5 @@ todo_group.add_command(todo_status)
 todo_group.add_command(todo_pin)
 todo_group.add_command(todo_unpin)
 todo_group.add_command(todo_usage)
+todo_group.add_command(todo_claim)
+todo_group.add_command(todo_release)

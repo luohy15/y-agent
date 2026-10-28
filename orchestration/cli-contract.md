@@ -73,12 +73,15 @@ y todo list [filters]
 
 What the rules require of this surface:
 
-- **`--progress` is append-only and readable back.** Handoff state, sub-task claims, and the
-  `[dev-claim]` lock all live here. If your equivalent overwrites instead of appending, the dev
-  ownership protocol breaks.
-- **`y todo get` surfaces the latest `[dev-claim]` and `[dev-handoff]` markers** as compact
-  `Dev-claim:` / `Dev-handoff:` lines, so a coordinator does not have to page through full
-  history to learn ownership.
+- **`--progress` is append-only and readable back.** Handoff notes and sub-task claims live
+  here. Coordinator ownership does not: `y todo claim` / `y todo release` write three columns
+  on the todo (`leader_chat`, `leader_claimed_at`, `leader_state`). `y todo release --handoff`
+  stores the handoff in `progress` in that same write. If your equivalent overwrites progress
+  instead of appending, sub-task claims break. A legacy `[dev-claim]` marker is only a bridge
+  while those columns are still null.
+- **`y todo get` surfaces ownership as one `Leader:` line** (`claimed by <chat>`, `released`,
+  or `free`, with a `(legacy)` suffix when the row was derived from an old marker), so a
+  coordinator does not have to page through full history.
 - Status vocabulary: `pending` → `active` → `completed`, plus `deleted` as a soft delete.
 
 ## 3. Artifacts: `y note` / `y assoc`

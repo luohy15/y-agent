@@ -10,7 +10,7 @@ metadata:
 
 Thin shell coordinator for development work. Manages worktree lifecycle and dispatches to the
 `plan` / `impl` / `review` leaf skills via `y chat --skill <name>`. Dispatched by manager via
-`y chat --topic dev`.
+`y chat --topic leader --skill dev`.
 
 **Does not read code, audit, implement, or review directly.** Those are leaf-skill
 responsibilities. This keeps the coordinator's own context lean. It is a hard rule with no
@@ -157,7 +157,7 @@ y dev commit <worktree>                        # (the commit is fine, but no imp
 ```bash
 y dev wt add <project_path> <name>-2368
 y chat --skill impl -m "Look at todo 2368, impl sub-task: <one line>, callback when done" \
-  --work-dir <worktree_path> --new --trace-id 2368 --from-topic dev
+  --work-dir <worktree_path> --new --trace-id 2368 --from-topic leader
 # stop here; on impl callback → optional review → y dev commit → y dev wt rm
 ```
 
@@ -167,61 +167,60 @@ y chat --skill impl -m "Look at todo 2368, impl sub-task: <one line>, callback w
 coordinators on the same todo must never run silently in parallel; the conflict has to be
 visible.**
 
-The lock is cooperative and advisory. It lives in the todo's **progress channel**
-(`y todo update --progress`), which is already the coordination surface impl workers use.
-`y todo get <trace_id>` surfaces the most recent `[dev-claim]` marker as a compact
-`Dev-claim:` line. There is no separate lock CLI: the marker *is* the lock.
+The lock is three columns on the todo (`leader_chat`, `leader_claimed_at`, `leader_state`).
+`y todo claim` / `y todo release` write them and `y todo get` reads them back as a `Leader:`
+line. A second claim while another chat holds it is refused, and the error names that chat.
+Do not encode ownership in progress text. `y todo release --handoff` writes the handoff into
+progress in the same change; that text is the handoff, not a second lock.
 
-**Marker format** (one line, written via `y todo update <trace_id> --progress "<line>"`):
-
-```
-[dev-claim] CLAIM chat=<Y_CHAT_ID> at=<ts>
-[dev-claim] RELEASE chat=<Y_CHAT_ID> at=<ts>
-[dev-claim] TAKEOVER chat=<Y_CHAT_ID> from=<old_chat> at=<ts>
-```
-
-`<Y_CHAT_ID>` is this coordinator's own chat id (`$Y_CHAT_ID`). `<ts>` is
-`TZ=<TZ> date +'%Y-%m-%d %H:%M'`. The `[dev-claim]` prefix is reserved for this
-protocol; do not reuse it for sub-task progress.
+New coordinator chats use topic `leader` and skill `dev` (`--topic leader --skill dev`).
+`--from-topic` for this role is `leader`. The skill stays `dev`. Old chats keep `topic=dev`;
+readers accept both, and the badge shows `leader` either way.
 
 **Step 0 of every dev task, claim before activate:**
 
-1. `y todo get <trace_id>` and read the `Dev-claim:` line. It decides ownership state:
-   - **None, or latest is `RELEASE`** → the todo is free → write a `CLAIM` line, then proceed.
-   - **Latest is `CLAIM` / `TAKEOVER` with `chat=$Y_CHAT_ID`** → I already own it (this is a
-     resume) → continue, do **not** write a second CLAIM.
-   - **Latest is `CLAIM` / `TAKEOVER` with a different chat** → **another live coordinator owns
-     this todo, so this is a CONFLICT.** Do not activate, plan, impl, create a worktree, or
-     touch anything.
+```bash
+y todo claim <trace_id>          # uses $Y_CHAT_ID; --chat-id overrides
+```
+
+1. `y todo get <trace_id>` and read the `Leader:` line, then claim:
+   - **`Leader: free`, or `released`** → `y todo claim` succeeds (`claimed`). Proceed.
+   - **`claimed by` this chat** → `y todo claim` returns `resumed`. Continue. Do not treat that
+     as a conflict.
+   - **`claimed by` a different chat** → the command exits non-zero and names the owner. This is
+     a CONFLICT. Do not activate, plan, impl, create a worktree, or touch anything.
+   - A `(legacy)` suffix means there is no row yet and the server derived the line from an old
+     claim marker. The first `y todo claim` seeds the row from that marker, so a legacy claim
+     held by another chat still refuses.
 
 2. **On conflict**: stop and surface it, naming the current owner's chat id, e.g. *"todo 2367
-   is already claimed by dev chat `f3f0fb`; not starting. Say 'take over' to seize it."* Then
+   is already claimed by leader chat `f3f0fb`; not starting. Say 'take over' to seize it."* Then
    end the turn. Never start a second parallel line of work. **Where to surface it**: if the
    dispatcher is top-level (`from:manager`), report in your own chat; only callback with
    `y chat --chat-id <from_chat>` when `from_chat` is a non-top-level parent.
 
 3. **Explicit takeover only**: seize a todo owned by another coordinator **only** when the user
-   or dispatcher explicitly says so ("take over"). Then write a `TAKEOVER` line recording
-   `from=<old_chat>` and proceed. The displaced coordinator, on its next turn, will see it no
-   longer owns the todo and must stop.
+   or dispatcher explicitly says so ("take over"):
+
+   ```bash
+   y todo claim <trace_id> --takeover-from <owner_chat>
+   ```
+
+   The displaced coordinator, on its next turn, will see it no longer owns the todo and must stop.
 
 4. **Release at the end, not at every pause**: ownership spans the whole coordination,
    including the fire-and-forget gaps while `plan` / `impl` / `review` run. Those pauses do
-   **not** release the lock. Write a `RELEASE` line only when coordination truly terminates:
-   all sub-tasks done and reported ready for verification, or you are abandoning or handing off
-   the todo. (You do not need to RELEASE before `y todo finish`, but do RELEASE if you stop
-   without finishing.)
+   **not** release the lock. Release only when coordination truly terminates: all sub-tasks done
+   and reported ready for verification, or you are abandoning or handing off the todo.
 
-**Why advisory, not a hard mutex**: this is KISS by design. The goal is *conflict becomes
-visible*, not perfect mutual exclusion. A near-simultaneous double dispatch may still have both
-write a CLAIM, but the second lands after the first in history, so whoever reads the
-`Dev-claim:` line next sees another coordinator already owns it and stops. The full claim /
-release trail stays visible for a human to resolve after the fact. That is the whole point.
+   ```bash
+   y todo release <trace_id> --handoff "done=<phases> next=<step> wt=<worktree or none> branch=<branch>"
+   ```
 
 **Anti-example (the failure that motivated the rule):**
 
 ```
-# The user double-dispatched todo 2367. Two dev coordinators both ran:
+# The user double-dispatched todo 2367. Two coordinators both ran:
 coordinator A: y todo activate 2367; y dev wt add ...; y chat --skill impl ...   # silent
 coordinator B: y todo activate 2367; y dev wt add ...; y chat --skill impl ...   # silent parallel collision
 ```
@@ -230,13 +229,12 @@ coordinator B: y todo activate 2367; y dev wt add ...; y chat --skill impl ...  
 
 ```bash
 # Coordinator A (todo free):
-y todo get 2367                                   # no Dev-claim: line
-y todo update 2367 --progress "[dev-claim] CLAIM chat=$Y_CHAT_ID at=$(TZ=<TZ> date +'%Y-%m-%d %H:%M')"
+y todo claim 2367
 y todo activate 2367                              # ... proceeds
 
 # Coordinator B (todo already claimed by A):
-y todo get 2367                                   # Dev-claim: ... CLAIM chat=<A>, not me
-y chat --chat-id <from_chat> -m "todo 2367 already claimed by dev chat <A>; not starting. Reply 'take over' to seize." \
+y todo claim 2367                                 # exits non-zero: claimed by <A>
+y chat --chat-id <from_chat> -m "todo 2367 already claimed by leader chat <A>; not starting. Reply 'take over' to seize." \
   ${Y_TOPIC:+--from-topic $Y_TOPIC} --trace-id 2367
 # stop: no activate, no worktree, no impl
 ```
@@ -278,10 +276,10 @@ and do not build further dispatches on it.
 
 On receiving a task:
 
-1. `y todo get <trace_id>`: read the todo desc / notes / progress **and check `[dev-claim]`
-   ownership via the `Dev-claim:` line** (see "Claim / ownership").
-2. **Claim**: if free, write a `[dev-claim] CLAIM`; if owned by another coordinator, surface
-   the conflict and stop; if already mine, continue.
+1. `y todo get <trace_id>`: read the todo desc / notes / progress **and check ownership via
+   the `Leader:` line** (see "Claim / ownership").
+2. **Claim**: `y todo claim <trace_id>`. If it exits non-zero because another chat holds it,
+   surface the conflict and stop. `resumed` means it is already yours.
 3. `y todo activate <trace_id>`: mark in progress.
 4. Decide the path:
    - **Scope unclear, no plan note linked** → dispatch `plan` first, continue on its callback
@@ -294,8 +292,8 @@ On receiving a task:
      commands / manual smoke steps when execution is not appropriate
 5. Manage worktrees (create, remove).
 6. On the impl callback, optionally dispatch `review`, then commit and clean up.
-7. Finish coordination when all sub-tasks and required verification are done, then write a
-   `[dev-claim] RELEASE`.
+7. Finish coordination when all sub-tasks and required verification are done, then
+   `y todo release <trace_id>`.
 
 ## Worktree management
 
@@ -386,12 +384,12 @@ same name is still a new worktree, so its old chats remain dead.
 
 ```bash
 # ❌ WRONG: resumes a review chat bound to an already-removed worktree
-y chat --chat-id <old review chat> -m "Re-review in worktree public-api-2897" --trace-id 2897 --from-topic dev
+y chat --chat-id <old review chat> -m "Re-review in worktree public-api-2897" --trace-id 2897 --from-topic leader
 
 # ✓ RIGHT: fresh session, verified path, explicit --work-dir
 test -d <worktree_path> || echo MISSING
 y chat --skill review -m "Look at todo 2897, review worktree public-api-2897, callback when done" \
-  --work-dir <worktree_path> --new --trace-id 2897 --from-topic dev --tier tier1
+  --work-dir <worktree_path> --new --trace-id 2897 --from-topic leader --tier tier1
 ```
 
 ## Dispatch procedure
@@ -414,7 +412,7 @@ to a bot name or tier: the per-phase guidance above is dispatch policy, decided 
 
 ```bash
 y chat --skill plan -m "Look at todo <todo_id>, plan/audit phase, callback when done" \
-  --work-dir <project_path> --new --trace-id <todo_id> --from-topic dev --tier tier1
+  --work-dir <project_path> --new --trace-id <todo_id> --from-topic leader --tier tier1
 ```
 
 **Impl dispatch** (one worktree per sub-task):
@@ -422,7 +420,7 @@ y chat --skill plan -m "Look at todo <todo_id>, plan/audit phase, callback when 
 ```bash
 y dev wt add <project_path> <name>
 y chat --skill impl -m "Look at todo <todo_id>, impl sub-task: brief description, callback when done" \
-  --work-dir <worktree_path> --new --trace-id <todo_id> --from-topic dev
+  --work-dir <worktree_path> --new --trace-id <todo_id> --from-topic leader
 ```
 
 **Review dispatch** (after impl, against the worktree diff; optional but recommended for
@@ -430,7 +428,7 @@ non-trivial changes):
 
 ```bash
 y chat --skill review -m "Look at todo <todo_id>, review worktree <worktree_name> against plan note, callback when done" \
-  --work-dir <worktree_path> --new --trace-id <todo_id> --from-topic dev --tier tier1
+  --work-dir <worktree_path> --new --trace-id <todo_id> --from-topic leader --tier tier1
 ```
 
 **Push and deployment**: after review approval and `y dev commit`, push the target branch and
@@ -456,7 +454,7 @@ parent and is not top-level, so those callbacks are valid.
 `from:manager`), so do NOT call back.** When you finish (or hit a conflict or blocker), report
 directly in your own chat; the user reads it there. Attempting `y chat --chat-id <from_chat>`
 back to a `from:manager` dispatcher is rejected by the CLI and wastes a turn. Only call back to
-`from_chat` when the dispatch prefix names a non-top-level parent (`from:dev`) with a real
+`from_chat` when the dispatch prefix names a non-top-level parent (`from:leader`) with a real
 blocking dependency. See AGENTS.md "Callback rules".
 
 Dispatch is fire-and-forget by default. The dev coordinator should not keep itself alive with
@@ -466,10 +464,10 @@ with a concrete next step.
 
 ## Workflow
 
-1. `y todo get <todo_id>`: read the requirements **and the `[dev-claim]` ownership state**.
-2. **Claim the todo**: if free → write `[dev-claim] CLAIM chat=$Y_CHAT_ID at=<ts>`; if owned by
-   another live coordinator → surface the conflict to the dispatcher and **stop**; if already
-   mine → continue.
+1. `y todo get <todo_id>`: read the requirements **and the `Leader:` ownership line**.
+2. **Claim the todo**: `y todo claim <todo_id>`. If another live coordinator holds it, the
+   command exits non-zero: surface that conflict to the dispatcher and **stop**. `resumed`
+   means it is already yours.
 3. `y todo activate <todo_id>`: mark in progress.
 4. **Determine the target branch** (see "Branch and push policy") and check out / pull the
    right base in the project repo.
@@ -495,8 +493,8 @@ with a concrete next step.
 9. **After commit**: if pushed or deployed behavior must be checked, push and watch the
    deployment gate, then run any remaining focused local verification or report the exact
    manual verification steps.
-10. Once all sub-tasks and required verification are done, update todo progress, write a
-    `[dev-claim] RELEASE`, and report that it is ready for user verification **in your own
+10. Once all sub-tasks and required verification are done, update todo progress,
+    `y todo release <todo_id>`, and report that it is ready for user verification **in your own
     chat**: read the linked plan and review notes and write the user-facing summary here (the
     workers do not write one, see Notes). Your dispatcher is normally the top-level
     `from:manager`, which does not accept callbacks. Do not run `y todo finish <todo_id>`
@@ -530,28 +528,23 @@ dead session, stalling the trace. If a child is running, stop and wait for its c
 
 1. Record where the trace stands, in the todo. This is what the successor reads, not a message:
    ```bash
-   y todo update <todo_id> --progress "[dev-handoff] chat=$Y_CHAT_ID at=$(TZ=<TZ> date +'%Y-%m-%d %H:%M') done=<phases finished> next=<next step> wt=<worktree name or none> branch=<target branch>"
+   y todo release <todo_id> --handoff "done=<phases finished> next=<next step> wt=<worktree name or none> branch=<target branch>"
    ```
-2. Release the claim. A restart is a handoff of the todo, so the successor can `CLAIM` cleanly
-   instead of needing an explicit `TAKEOVER`:
-   ```bash
-   y todo update <todo_id> --progress "[dev-claim] RELEASE chat=$Y_CHAT_ID at=$(TZ=<TZ> date +'%Y-%m-%d %H:%M')"
-   ```
+2. That release is the handoff. The successor claims a free todo. Do not ask it to take over.
 3. Spawn the successor coordinator: same trace, `--new`, and `--tier tier1` (every dev session
-   is tier1):
+   is tier1). Topic `leader`, skill `dev`:
    ```bash
-   y chat --topic dev -m "Look at todo <todo_id>, context handoff: continue coordination from the Dev-handoff line in 'y todo get <todo_id>'. Predecessor chat <this chat id> is retiring, do not callback to it, report in your own chat." \
-     --work-dir <project_path> --new --trace-id <todo_id> --tier tier1 --from-topic dev
+   y chat --topic leader --skill dev -m "Look at todo <todo_id>, context handoff: continue coordination from the progress handoff in 'y todo get <todo_id>'. Predecessor chat <this chat id> is retiring, do not callback to it, report in your own chat." \
+     --work-dir <project_path> --new --trace-id <todo_id> --tier tier1 --from-topic leader
    ```
 4. Report in your own chat that the trace moved to a fresh coordinator, and stop. Dispatch
    nothing else and do not poll the successor.
 
-**Arriving as the successor**: the dispatch prefix says `from:dev`, but that parent is
+**Arriving as the successor**: the dispatch prefix says `from:leader`, but that parent is
 retiring, so treat yourself as top-level (report in your own chat, no callback). Run the normal
-opening (`y todo get <todo_id>`, claim, activate); the `Dev-claim:` line is a `RELEASE`, so the
-todo is free and you write an ordinary `CLAIM`. `y todo get <todo_id>` surfaces the
-predecessor's state as a compact `Dev-handoff:` line (`done=` / `next=` / `wt=` / `branch=`)
-even after the release overwrote `Dev-claim:`. Rebuild context from that line plus the linked
+opening (`y todo get <todo_id>`, claim, activate). The `Leader:` line is `released`, so the
+todo is free and an ordinary `y todo claim` takes it. The predecessor's handoff
+(`done=` / `next=` / `wt=` / `branch=`) is the progress text. Rebuild context from that text plus the linked
 plan and review notes, and re-verify any worktree it names (`y dev wt list`, `test -d`) instead
 of trusting the path.
 
@@ -610,7 +603,7 @@ of trusting the path.
   ```bash
   y todo add "<new task>" -d "<desc>" -p <priority> -t <tags>
   y todo activate <new_todo_id>
-  y chat --topic dev -m "Look at todo <new_todo_id>, <hint>" --work-dir <project_path> --new --trace-id <new_todo_id> --from-topic dev --tier tier1
+  y chat --topic leader --skill dev -m "Look at todo <new_todo_id>, <hint>" --work-dir <project_path> --new --trace-id <new_todo_id> --from-topic leader --tier tier1
   ```
   Do NOT expect a callback: the new coordinator runs independently. The current coordinator
   stays focused on its original todo.

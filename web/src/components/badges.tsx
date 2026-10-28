@@ -3,6 +3,7 @@
 // --- Topic → solarized color token ---
 const TOPIC_SOL_COLOR: Record<string, string> = {
   manager:         "blue",
+  leader:          "green",
   dev:             "green",
   todo:            "yellow",
   hr:              "magenta",
@@ -64,6 +65,11 @@ export const CHAT_BADGE = `${BADGE_BASE} bg-sol-blue/20 text-sol-blue`;
 export function topicBadgeClass(topic: string) {
   const c = getTopicColor(topic);
   return `${BADGE_BASE} ${c.bg} ${c.text}`;
+}
+
+/** Display label. Legacy coordinator topic ``dev`` renders as ``leader``; the filter still uses the raw topic. */
+export function topicLabel(topic: string): string {
+  return topic === "dev" ? "leader" : topic;
 }
 
 // --- Status badge (todo status) ---

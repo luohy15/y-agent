@@ -3,6 +3,17 @@ from yagent.api_client import api_request
 from yagent.commands.todo.wakeup_text import release_slot_label, wakeup_label
 
 
+def leader_line(claim: dict) -> str:
+    """One compact ownership line. A legacy-marker view keeps a ``(legacy)`` suffix."""
+    suffix = " (legacy)" if claim.get("source") == "legacy" else ""
+    state = claim.get("state")
+    if state == "claimed":
+        return f"Leader: claimed by {claim.get('chat_id')} since {claim.get('claimed_at')}{suffix}"
+    if state == "released":
+        return f"Leader: released{suffix}"
+    return f"Leader: free{suffix}"
+
+
 @click.command('get')
 @click.argument('todo_id')
 def todo_get(todo_id):
@@ -28,10 +39,8 @@ def todo_get(todo_id):
         click.echo(f"Desc:      {todo['desc']}")
     if todo.get('progress'):
         click.echo(f"Progress:  {todo['progress']}")
-    if todo.get('dev_claim'):
-        click.echo(f"Dev-claim: {todo['dev_claim']}")
-    if todo.get('dev_handoff'):
-        click.echo(f"Dev-handoff: {todo['dev_handoff']}")
+    if todo.get('leader_claim'):
+        click.echo(leader_line(todo['leader_claim']))
     if todo.get('completed_at'):
         click.echo(f"Completed: {todo['completed_at']}")
     if todo.get('created_at'):

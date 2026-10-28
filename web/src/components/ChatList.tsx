@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 import { API, jsonFetcher as fetcher } from "../api";
-import { TRACE_BADGE, CHAT_BADGE, topicBadgeClass } from "./badges";
+import { TRACE_BADGE, CHAT_BADGE, topicBadgeClass, topicLabel } from "./badges";
 import { formatDateTime } from "../utils/formatTime";
 import { ListEmpty, ListError, ListLoading } from "./ListStates";
 
@@ -174,7 +174,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                         <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                         {c.chat_id.slice(0, 8)}
                       </button>
-                      {c.topic && <span className={`text-[0.55rem] truncate ${topicBadgeClass(c.topic)}`}>{c.topic}</span>}
+                      {c.topic && <span className={`text-[0.55rem] truncate ${topicBadgeClass(c.topic)}`}>{topicLabel(c.topic)}</span>}
                       {c.skill && c.skill !== c.topic && <span className="inline-flex items-center px-1 py-0.5 rounded font-mono font-medium shrink-0 text-[0.55rem] bg-sol-base01/20 text-sol-base01">{c.skill}</span>}
                     </div>
                   )}
@@ -412,7 +412,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                           className={`text-[0.55rem] truncate cursor-pointer ${topicBadgeClass(c.topic)}`}
                           title={`Filter by topic ${c.topic}`}
                         >
-                          {c.topic}
+                          {topicLabel(c.topic)}
                         </button>
                       )}
                       {c.skill && c.skill !== c.topic && (

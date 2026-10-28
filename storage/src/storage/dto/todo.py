@@ -43,6 +43,9 @@ class Todo:
     awaiting_chat: Optional[str] = None
     progress: Optional[str] = None
     completed_at: Optional[str] = None
+    leader_chat: Optional[str] = None
+    leader_claimed_at: Optional[str] = None
+    leader_state: Optional[str] = None
     history: Optional[List[TodoHistoryEntry]] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
@@ -71,6 +74,9 @@ class Todo:
             awaiting_chat=data.get('awaiting_chat'),
             progress=data.get('progress'),
             completed_at=data.get('completed_at'),
+            leader_chat=data.get('leader_chat'),
+            leader_claimed_at=data.get('leader_claimed_at'),
+            leader_state=data.get('leader_state'),
             history=history,
             created_at=data.get('created_at'),
             updated_at=data.get('updated_at'),
@@ -101,6 +107,12 @@ class Todo:
             result['progress'] = self.progress
         if self.completed_at is not None:
             result['completed_at'] = self.completed_at
+        if self.leader_chat is not None:
+            result['leader_chat'] = self.leader_chat
+        if self.leader_claimed_at is not None:
+            result['leader_claimed_at'] = self.leader_claimed_at
+        if self.leader_state is not None:
+            result['leader_state'] = self.leader_state
         if self.history:
             result['history'] = [h.to_dict() for h in self.history]
         if self.created_at is not None:

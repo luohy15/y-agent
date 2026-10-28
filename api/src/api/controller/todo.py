@@ -8,6 +8,8 @@ from pydantic import BaseModel
 
 from storage import todo_list_timing
 from storage.service import todo as todo_service
+from storage.service import leader_claim as leader_claim_service
+from storage.service.leader_claim import LeaderClaimError, LeaderClaimInvalid
 
 router = APIRouter(prefix="/todo")
 
@@ -137,14 +139,7 @@ async def get_todo(request: Request, todo_id: str = Query(...)):
     todo_service.attach_pending_release_waiter(user_id, [todo])
     todo_service.attach_runtime_evidence(user_id, [todo])
     result = todo.to_dict()
-
-    dev_claim = todo_service.get_latest_marker(todo, "[dev-claim]")
-    if dev_claim:
-        result["dev_claim"] = dev_claim
-
-    dev_handoff = todo_service.get_latest_marker(todo, "[dev-handoff]")
-    if dev_handoff:
-        result["dev_handoff"] = dev_handoff
+    result["leader_claim"] = leader_claim_service.get_view(todo)
 
     # Include associated notes
     from storage.repository.note_todo_relation import list_by_todo as list_note_relations
@@ -195,6 +190,57 @@ async def pin_todo(req: PinTodoRequest, request: Request):
     if not todo:
         raise HTTPException(status_code=404, detail="Todo not found")
     return todo.to_dict()
+
+
+def _leader_http(exc: LeaderClaimError) -> HTTPException:
+    if isinstance(exc, LeaderClaimInvalid):
+        return HTTPException(status_code=422, detail={"error": "invalid", "reason": exc.reason})
+    return HTTPException(
+        status_code=409,
+        detail={"error": "conflict", "reason": exc.reason, "owner": exc.owner},
+    )
+
+
+class ClaimTodoRequest(BaseModel):
+    todo_id: str
+    chat_id: str
+    takeover_from: Optional[str] = None
+
+
+class ReleaseTodoRequest(BaseModel):
+    todo_id: str
+    chat_id: str
+    handoff: Optional[str] = None
+
+
+@router.post("/claim")
+async def claim_todo(req: ClaimTodoRequest, request: Request):
+    user_id = _get_user_id(request)
+    try:
+        result = await asyncio.to_thread(
+            leader_claim_service.claim_todo, user_id, req.todo_id, req.chat_id, req.takeover_from,
+        )
+    except LeaderClaimError as exc:
+        raise _leader_http(exc) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="Todo not found")
+    view, outcome = result
+    return {"status": outcome, "leader_claim": view}
+
+
+@router.post("/release")
+async def release_todo(req: ReleaseTodoRequest, request: Request):
+    user_id = _get_user_id(request)
+    try:
+        result = await asyncio.to_thread(
+            leader_claim_service.release_todo, user_id, req.todo_id, req.chat_id, req.handoff,
+        )
+    except LeaderClaimError as exc:
+        raise _leader_http(exc) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="Todo not found")
+    view, outcome = result
+    return {"status": outcome, "leader_claim": view}
 
 
 class UpdateStatusRequest(BaseModel):

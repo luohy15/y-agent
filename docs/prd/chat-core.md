@@ -50,21 +50,23 @@ mode (`-i`) serves a human at a terminal.
    `updated_at` + `desc`. The right-side chat drawer does not expose sort
    controls and always requests the default ordinary-list order
    (`updated_at` + `desc`); its per-location localStorage sort keys from the
-   earlier both-mounts ship are ignored. Manager and right-drawer dev pin
+   earlier both-mounts ship are ignored. Manager and right-drawer leader pin
    requests stay newest-updated navigation shortcuts and do not take the
    ordinary-list sort mode.
 2. As a web user, I want the root manager chat pinned above the list, so that
    my main inbox conversation is always one click away regardless of filters.
    In the right-side chat drawer specifically, when the query is filtered by
-   `todo:<id>`, I also want the newest `dev` chat for that trace pinned
+   `todo:<id>`, I also want the newest `leader` chat for that trace pinned
    directly below manager, so that I can jump straight to whichever session
    is actually coordinating that todo (this second pin does not apply to the
-   left activity-bar panel or to an unfiltered list). When that right-drawer
-   `todo:` filter is applied, default selection follows the rendered eligible
-   order rather than an independent "newest regular list row" pick: if the
-   dev pin is shown, select that dev chat; otherwise select the first regular
-   list result. Manager stays a navigation pin and does not win the default
-   under a todo filter (todo 3070).
+   left activity-bar panel or to an unfiltered list). A legacy `dev`-topic
+   chat still pins when that trace has no `leader` chat. The badge shows
+   `leader` for both. When that right-drawer `todo:` filter is applied,
+   default selection follows the rendered eligible order rather than an
+   independent "newest regular list row" pick: if the leader pin is shown,
+   select that chat; otherwise select the first regular list result. Manager
+   stays a navigation pin and does not win the default under a todo filter
+   (todo 3070, topic rename todo 4080).
 3. As a web user, I want each list row to show the title (first user
    message), timestamp, and badges for trace id, chat id, topic, skill, and
    routine, so that I can identify a chat's place in the session tree at a

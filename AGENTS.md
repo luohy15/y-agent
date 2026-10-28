@@ -338,7 +338,7 @@ By category (all entities get a Repository in `repository/` and a Service in `se
 exceptions noted):
 
 - **Identity / chat**: `user`, `chat`
-- **Tasks / time**: `todo`, `calendar_event`, `reminder`, `chat_wakeup` (todo 3655),
+- **Tasks / time**: `todo` (coordinator claim columns `leader_chat` / `leader_claimed_at` / `leader_state`, todo 4080), `calendar_event`, `reminder`, `chat_wakeup` (todo 3655),
   `trace_runtime_snapshot` (worker-written per-owner runtime evidence, todo 4070)
 - **Notes / knowledge graph**: `note`, `note_todo_relation`, `entity`,
   `entity_note_relation`, `entity_rss_relation`

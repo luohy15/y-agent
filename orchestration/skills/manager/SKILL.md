@@ -98,7 +98,7 @@ children (the `dev` coordinator dispatches to `plan` / `impl` / `review`). Manag
 of the tree and does not receive callbacks.
 
 **Typical flow**: user says "go work on this todo" → manager runs `y todo activate <id>` and
-`y chat --topic dev`.
+`y chat --topic leader --skill dev`.
 
 ## Dispatch procedure (manager-specific tightening)
 

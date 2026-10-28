@@ -266,7 +266,7 @@ receiving callbacks, or reporting another trace's results here.
 
 ```bash
 # First dispatch for todo 1900 (force a new chat, reuse nothing)
-y chat --topic dev -m "Look at todo 1900" --work-dir <path> --new ${=Y_TOPIC:+--from-topic $Y_TOPIC} --trace-id 1900
+y chat --topic leader --skill dev -m "Look at todo 1900" --work-dir <path> --new ${=Y_TOPIC:+--from-topic $Y_TOPIC} --trace-id 1900
 
 # Sending again within this trace: look up, then address explicitly
 y chat list --trace-id 1900
