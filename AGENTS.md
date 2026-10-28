@@ -351,11 +351,6 @@ exceptions noted):
   `user_preference` and is not one of these tables. `applied_effort` is filled
   from the transcript's top-level `assistant.effort` when the column is still
   null, and is never overwritten.
-- **Launch effort history** (todo 4067): `chat_launch`. One append-only row per
-  actual Claude Code spawn (not a Lambda tail handoff), snapshotting requested
-  and launch effort. `launched_at` is the worker clock immediately before the
-  detached start. A failed insert does not stop that launch. No trace payload
-  reads it (todo 4084 removed the per-session launch lines from trace detail).
 - **Session context analysis** (todo 3844): `chat_context_session`,
   `chat_context_request`, `chat_context_contributor` (one entity file
   `chat_context.py`). One unit per (chat, transcript session), replaced as a

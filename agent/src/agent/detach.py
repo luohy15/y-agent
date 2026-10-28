@@ -179,7 +179,6 @@ async def _start_detached_tmux(
     env: Optional[Dict[str, str]] = None,
     images: Optional[List[str]] = None,
     ssh_client=None,
-    launch_report: Optional[dict] = None,
 ) -> Optional[str]:
     """Shared skeleton for starting a detached tmux session over SSH.
 
@@ -243,8 +242,6 @@ async def _start_detached_tmux(
                 )
                 if spec.cleanup:
                     _ssh_exec(client, spec.cleanup())
-                if launch_report is not None:
-                    launch_report["tmux_acknowledged"] = False
                 return None
 
         # 3. Assemble tmux inner command
@@ -285,8 +282,6 @@ async def _start_detached_tmux(
             if spec.cleanup:
                 _ssh_exec(client, spec.cleanup())
             raise
-        if launch_report is not None:
-            launch_report["tmux_acknowledged"] = True
 
         # 5. Sniff initial stdout for session/thread id
         await asyncio.sleep(2)

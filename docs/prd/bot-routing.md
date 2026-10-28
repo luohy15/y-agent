@@ -382,22 +382,10 @@ nothing. An unsupported level is never mapped onto a nearby level or a
 different bot. The worker check stays in place for a declaration that changes
 after admission and before launch.
 
-Each actual `claude` spawn (fresh, resume, or continuation) records one
-append-only `chat_launch` row after `tmux new-session` returns. A failed
-spawn, including a missing work dir that never starts tmux, records nothing.
-A failed history insert is logged and does not stop the live process or its
-registration. `launched_at` is the worker clock taken immediately before the
-detached start, not the insert time and not process completion, so a request
-during the acknowledgement wait belongs to that launch. A Lambda tail handoff
-is not a launch. The row snapshots
-requested effort (the explicit input, or null) and launch effort (the argv
-level, or null when no flag was passed). Null launch effort is shown as
-"default", never as a level. Client-applied effort comes from the top-level
+Spawns are not recorded: the `chat_launch` history table was dropped (todo
+4086) once nothing read it. Client-applied effort comes from the top-level
 transcript `assistant.effort` and fills `chat_request_usage.applied_effort`
-only when that column is still null. The history is recorded for effort
-diagnosis only: no trace payload (authenticated or public share) returns it,
-and trace detail shows no per-launch lines (todo 4084). Query `chat_launch`
-directly when diagnosing effort.
+only when that column is still null. Trace view shows no per-launch lines.
 
 Seeds are conservative and owner-scoped. They stamp only a row whose model is
 still the model observed in the 2026-10-28 client/wire scan. They are not

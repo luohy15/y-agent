@@ -119,7 +119,6 @@ def init_tables():
     import storage.entity.model_usage_limit_observation  # noqa: F401
     import storage.entity.chat_model_activity  # noqa: F401
     import storage.entity.chat_request_usage  # noqa: F401
-    import storage.entity.chat_launch  # noqa: F401
     import storage.entity.chat_context  # noqa: F401
     import storage.entity.api_latency_event  # noqa: F401
     import storage.entity.api_latency_rollup  # noqa: F401

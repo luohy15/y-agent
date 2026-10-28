@@ -804,8 +804,6 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
         "last_message_id": last_message_id,
         "model": model,
         "messages": messages,
-        "requested_effort": reasoning_effort,
-        "launch_effort": reasoning_effort,
     }
 
 
@@ -866,9 +864,6 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
     launch_uuid = native_input_uuid(chat_id, f"launch:{chat.run_seq}:{input_ids[-1] if input_ids else 'none'}")
     from agent.mcp import launch as mcp_launch
     mcp_material = await asyncio.to_thread(mcp_launch.prepare, user_id, chat_id, chat.run_seq)
-    launch_report = {}
-    from storage.util import get_utc_iso8601_timestamp
-    launched_at = get_utc_iso8601_timestamp()
     try:
         session_id = await start_detached_ssh(
             cmd=params["cmd"],
@@ -880,34 +875,10 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
             images=params.get("images"),
             input_uuid=launch_uuid,
             mcp_material=mcp_material,
-            launch_report=launch_report,
         )
     except Exception:
         mcp_launch.end(mcp_material)
         raise
-    # tmux_acknowledged means the remote `tmux new-session` command returned.
-    # A parsed session_id, when present, is only an id sniffed from the first
-    # stdout lines. Neither one means the process later succeeded. A missing
-    # work dir returns without starting tmux and is not a launch. launched_at
-    # was taken on this worker immediately before start_detached_ssh, so a
-    # request during the ack wait still falls in this launch's window.
-    # The history row is best-effort: a failed insert must not end the grant
-    # or skip registration of a process that is already running.
-    if launch_report.get("tmux_acknowledged"):
-        from storage.service.chat_launch import record_spawn
-        try:
-            record_spawn(
-                user_id, chat_id, trace_id=trace_id, run_seq=chat.run_seq,
-                bot_name=bot_config.name, backend=effective_backend, model=params.get("model"),
-                requested_effort=params.get("requested_effort"),
-                launch_effort=params.get("launch_effort"),
-                input_message_ids=input_ids, launched_at=launched_at,
-            )
-        except Exception:
-            logger.exception(
-                "chat_launch insert failed after tmux ack chat_id={}; continuing without a history row",
-                chat_id,
-            )
     if mcp_material.warning:
         from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
         from storage.repository import chat as chat_repo

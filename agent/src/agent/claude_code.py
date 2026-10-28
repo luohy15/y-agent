@@ -999,7 +999,6 @@ async def start_detached_ssh(
     ssh_client=None,
     input_uuid: Optional[str] = None,
     mcp_material=None,
-    launch_report: Optional[dict] = None,
 ) -> Optional[str]:
     """Start `claude -p` in a detached tmux session on remote host.
 
@@ -1010,8 +1009,7 @@ async def start_detached_ssh(
 
     Returns the session_id parsed from the initial `system` event, else None.
     None is also returned when the work dir is missing and tmux was never
-    started. `launch_report["tmux_acknowledged"]` distinguishes those: True only
-    after `tmux new-session` returns. A parsed id is not process success.
+    started.
     """
     from agent.detach import _start_detached_tmux
     return await _start_detached_tmux(
@@ -1024,7 +1022,6 @@ async def start_detached_ssh(
         env=env,
         images=images,
         ssh_client=ssh_client,
-        launch_report=launch_report,
     )
 
 
