@@ -10,9 +10,11 @@ from storage.database.base import get_db
 from storage.repository import chat_wakeup as wakeup_repo
 from storage.repository import dev_release as release_repo
 from storage.repository import todo as todo_repo
+from storage.repository import trace_runtime as runtime_repo
 from storage.repository import entity_tag as tag_repo
 from storage.repository.entity_tag import normalize_tags
 from storage.service import telegram as telegram_service
+from storage.service.trace_runtime import derive_runtime
 from storage.util import get_utc_iso8601_timestamp, get_unix_timestamp
 
 _CHANGED_NOTE_PREFIX = "changed: "
@@ -95,6 +97,31 @@ def attach_pending_release_waiter(user_id: int, todos: List[Todo]) -> None:
     for todo in todos:
         todo.has_pending_release_waiter = (
             todo.todo_id in pending if todo.status == "active" else False
+        )
+
+
+def attach_runtime_evidence(user_id: int, todos: List[Todo], now_ms: Optional[int] = None) -> None:
+    """Set `runtime` for display on active rows (todo 4070).
+
+    One roles read plus one snapshot read per request, none when there is no
+    active row. The payload explains who is still working (session, child,
+    tmux job, unknown, or ended); it never changes status and is never proof
+    that a trace is only waiting. Every other status gets None.
+    """
+    active = [todo for todo in todos if todo.status == "active" and todo.todo_id]
+    if not active:
+        for todo in todos:
+            todo.runtime = None
+        return
+    now_ms = now_ms if now_ms is not None else get_unix_timestamp()
+    trace_ids = {todo.todo_id for todo in active}
+    with get_db() as session:
+        roles = runtime_repo.trace_runtime_roles(session, {user_id}, trace_ids)
+        snapshot = runtime_repo.get_snapshots(session, {user_id}).get(user_id)
+    for todo in todos:
+        todo.runtime = (
+            derive_runtime(roles.get((user_id, todo.todo_id)), snapshot, todo.todo_id, now_ms)
+            if todo.status == "active" and todo.todo_id else None
         )
 
 

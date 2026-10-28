@@ -81,14 +81,18 @@ entity + controller + service + CLI slices, and most have a web panel.
   already does; delivery leaves the chat SQL-running, which is itself
   evidence, and once the run finishes a delivered wakeup no longer suppresses.
   A wakeup stuck undelivered past the grace stops suppressing. Live
-  `<purpose>-<todo_id>` tmux jobs on the owner's default VM also count (todo
-  4063): exclude `cc-` sessions and dead panes; a non-shell/non-sleep current
-  command or a non-sleep descendant of the pane process counts, including
-  shell scripts. Idle prompts and bare sleep timers do not count (a timer
-  wrapped in a child shell does). Probe lazily once per candidate owner
-  without waking the VM or changing directory. Probe errors or missing
-  process output are unknown and suppress claims for that owner for the
-  pass (`tmux_unknown`); valid process output with no tmux panes is empty.
+  `<purpose>-<todo_id>` tmux jobs on the owner's default VM also count (todos
+  4063 / 4070): exclude `cc-` sessions and dead panes; a non-shell/non-sleep
+  current command or a non-sleep descendant of the pane process counts,
+  including shell scripts. Idle prompts and bare sleep timers do not count (a
+  timer wrapped in a child shell does). One refresher probes each owner once
+  per pass without waking the VM or changing directory and stores the result
+  in `trace_runtime_snapshot`; the decision path never probes and only a
+  snapshot from the same pass can prove the trace ended. Probe errors or
+  missing process output are unknown (`runtime_unknown`) and suppress claims;
+  valid process output with no tmux panes is empty. The todo list derives the
+  same `session | child | tmux | unknown | ended` evidence for its runtime
+  line.
 - **Note** — `note`, `note_todo_relation`, and `note_share` are host-kernel
   tables. A note has a `content_key` file pointer (relative to Y_AGENT_HOME) plus
   JSON `front_matter`; it is used for plan / requirement / decision / journal
@@ -330,7 +334,8 @@ By category (all entities get a Repository in `repository/` and a Service in `se
 exceptions noted):
 
 - **Identity / chat**: `user`, `chat`
-- **Tasks / time**: `todo`, `calendar_event`, `reminder`, `chat_wakeup` (todo 3655)
+- **Tasks / time**: `todo`, `calendar_event`, `reminder`, `chat_wakeup` (todo 3655),
+  `trace_runtime_snapshot` (worker-written per-owner runtime evidence, todo 4070)
 - **Notes / knowledge graph**: `note`, `note_todo_relation`, `entity`,
   `entity_note_relation`, `entity_rss_relation`
 - **Link / RSS**: `link`, `link_todo_relation`, `rss_feed`, `pipeline_lock` (RSS scrape

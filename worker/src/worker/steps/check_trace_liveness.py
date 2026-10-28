@@ -1,4 +1,4 @@
-"""Scheduled trace liveness watchdog (todo 3458 phase 4, todo 3506 S2).
+"""Scheduled trace liveness watchdog (todo 3458 phase 4, todo 3506 S2, todo 4070).
 
 Observation plus one conditional transition. An `active` trace with no live
 machine evidence becomes `awaiting` once, with a bounded fault detail folded
@@ -8,30 +8,35 @@ backstop. The pass only claims `active` todos (the query already excludes
 anything already in the awaiting inbox); it never touches progress or chats,
 and never enqueues work. Periodic orphan-running-chat maintenance is a
 separate step run by the scheduled dispatcher before this one.
+
+Since todo 4070, runtime evidence is probed once per owner by
+`refresh_trace_runtime` and stored in `trace_runtime_snapshot`; this pass and
+its under-lock recheck only read chat state and that store. They never probe
+tmux, and only a snapshot from this same pass can prove `ended`.
 """
 
 from typing import Optional
 
 from loguru import logger
-from sqlalchemy import case, func
 
-from agent.ec2_wake import is_vm_asleep
-from agent.vm_command import execute_vm_command
-from storage.service import vm_config as vm_service
 from storage.database.base import get_db
 from storage.entity.chat import ChatEntity
 from storage.entity.todo import TodoEntity
 from storage.repository import chat_wakeup as wakeup_repo
 from storage.repository import dev_release as dev_release_repo
+from storage.repository.trace_runtime import get_snapshots, trace_runtime_roles
 from storage.service import pipeline_lock as pipeline_lock_service
 from storage.service import todo as todo_service
+from storage.service.trace_runtime import derive_runtime
 from storage.util import get_unix_timestamp
 from worker.process_manager import get_process, get_running_processes
+from worker.steps.trace_runtime import refresh_trace_runtime
 
 LOCK_NAME = "check_trace_liveness"
 ZERO_CHAT_BACKSTOP_SECONDS = 24 * 60 * 60
 BATCH_SIZE = 200
 ERROR_TEXT_LIMIT = 1000
+SUPPRESSING_STATES = {"session", "child", "tmux"}
 
 
 def classify(*, live, chat_count, created_at_ms, now_ms) -> Optional[str]:
@@ -50,73 +55,6 @@ def classify(*, live, chat_count, created_at_ms, now_ms) -> Optional[str]:
     return "idle"
 
 
-PROBE_SCRIPT = (
-    "tmux list-panes -a -F '#{session_name}\t#{pane_dead}\t#{pane_pid}\t#{pane_current_command}' 2>/dev/null; "
-    "echo @@PS@@; ps -e -o pid=,ppid=,comm="
-)
-
-
-def _live_pane(cur, pane_pid, tree) -> bool:
-    if cur and cur.rsplit("/", 1)[-1] not in {"sh", "bash", "zsh", "fish", "dash", "sleep"}:
-        return True
-    pending, seen = [pane_pid], set()
-    while pending:
-        pid = pending.pop()
-        if pid in seen:
-            continue
-        seen.add(pid)
-        for child, command in tree.get(pid, []):
-            if command.rsplit("/", 1)[-1] != "sleep":
-                return True
-            pending.append(child)
-    return False
-
-
-def parse_probe(text: str) -> set[str] | None:
-    """A complete process snapshot distinguishes idle prompts from shell jobs."""
-    panes, marker, processes = text.partition("@@PS@@\n")
-    if not marker:
-        return None
-    tree, pids = {}, set()
-    for line in processes.splitlines():
-        fields = line.split(None, 2)
-        if len(fields) != 3 or not fields[0].isdigit() or not fields[1].isdigit():
-            continue
-        pid, parent, command = fields
-        pids.add(pid)
-        tree.setdefault(parent, []).append((pid, command))
-    if not pids:
-        return None
-    live = set()
-    for line in panes.splitlines():
-        fields = line.split("\t")
-        if len(fields) != 4:
-            continue
-        name, dead, pane_pid, command = fields
-        purpose, separator, todo_id = name.rpartition("-")
-        if dead != "0" or not separator or not purpose or not todo_id or name.startswith("cc-"):
-            continue
-        if _live_pane(command, pane_pid, tree if pane_pid in pids else {}):
-            live.add(todo_id)
-    return live
-
-
-async def _tmux_snapshot(user_id: int) -> set[str] | None:
-    """Read only this owner's default VM; unknown evidence must not claim faults."""
-    try:
-        vm = vm_service.get_config(user_id, "default")
-        if vm is None or is_vm_asleep(vm):
-            return set()
-        output = await execute_vm_command(
-            vm, ["sh", "-c", PROBE_SCRIPT],
-            work_dir="", wake=False, timeout=10, check=False,
-        )
-        return parse_probe(output)
-    except Exception:
-        logger.exception("check_trace_liveness: tmux snapshot unavailable: user_id={}", user_id)
-        return None
-
-
 def _process_snapshot():
     """Fully paginated running-process snapshot, keyed by owner. Raises when unavailable."""
     live_traces, live_chats = set(), set()
@@ -129,14 +67,6 @@ def _process_snapshot():
         if record.get("chat_id"):
             live_chats.add((user_id, record["chat_id"]))
     return live_traces, live_chats
-
-
-def _chat_aggregates(session, user_ids, trace_ids) -> dict:
-    rows = (session.query(ChatEntity.user_id, ChatEntity.trace_id, func.count(ChatEntity.id),
-                          func.sum(case((ChatEntity.status == "running", 1), else_=0)))
-            .filter(ChatEntity.user_id.in_(user_ids), ChatEntity.trace_id.in_(trace_ids))
-            .group_by(ChatEntity.user_id, ChatEntity.trace_id).all())
-    return {(r[0], r[1]): (r[2], int(r[3] or 0)) for r in rows}
 
 
 def _fault_detail(reason, chat_id, outcome, error_text) -> str:
@@ -160,17 +90,25 @@ def _assistant_text_from_entity(row) -> Optional[str]:
     return last.content if last and isinstance(last.content, str) else None
 
 
-def _claim_fault(todo, reason, tmux_live: set[str]) -> str:
+def _derive_for(session, user_id: int, todo_id: str, now_ms: int, pass_started_ms: int) -> dict:
+    roles = trace_runtime_roles(session, {user_id}, {todo_id}).get((user_id, todo_id))
+    snapshot = get_snapshots(session, {user_id}).get(user_id)
+    return derive_runtime(roles, snapshot, todo_id, now_ms, observed_after_ms=pass_started_ms)
+
+
+def _claim_fault(todo, reason, pass_started_ms: int) -> str:
     """One conditional claim under the todo lock; the shared notice hook sends on entry."""
     user_id, todo_id = todo.user_id, todo.todo_id
 
     def recheck(session, row):
-        # Reuse the pass snapshot: never perform VM I/O under the todo lock.
-        if todo_id in tmux_live:
+        # Re-read the roles and the snapshot inside the locked transaction:
+        # no network I/O crosses the todo lock.
+        now_ms = get_unix_timestamp()
+        if _derive_for(session, user_id, todo_id, now_ms, pass_started_ms)["state"] != "ended":
             return None
         if dev_release_repo.has_pending_waiter(session, user_id, todo_id):
             return None
-        if wakeup_repo.has_pending_wakeup(session, user_id, todo_id, get_unix_timestamp()):
+        if wakeup_repo.has_pending_wakeup(session, user_id, todo_id, now_ms):
             return None
         chats = (session.query(ChatEntity.chat_id, ChatEntity.status, ChatEntity.updated_at_unix)
                  .filter_by(user_id=user_id, trace_id=todo_id)
@@ -214,9 +152,14 @@ def _claim_fault(todo, reason, tmux_live: set[str]) -> str:
     return "claimed" if changed else "suppressed"
 
 
-async def run_pass(now_ms: Optional[int] = None) -> dict:
-    """One watchdog pass over every owner's active todos."""
+async def run_pass(now_ms: Optional[int] = None, pass_started_ms: Optional[int] = None) -> dict:
+    """One watchdog pass over every owner's active todos.
+
+    `pass_started_ms` is the refresh's observation timestamp: only a snapshot
+    written by this pass (at or after it) can prove `ended`.
+    """
     now_ms = now_ms or get_unix_timestamp()
+    pass_started_ms = pass_started_ms if pass_started_ms is not None else now_ms
     try:
         live_traces, live_chats = _process_snapshot()
     except Exception:
@@ -229,8 +172,7 @@ async def run_pass(now_ms: Optional[int] = None) -> dict:
                     .filter(ChatEntity.trace_id.isnot(None)).all())
         live_traces |= {(r.user_id, r.trace_id) for r in rows if (r.user_id, r.chat_id) in live_chats}
 
-    counts = dict(scanned=0, candidates=0, claimed=0, suppressed=0, failed=0, tmux_unknown=0)
-    tmux_snapshots = {}
+    counts = dict(scanned=0, candidates=0, claimed=0, suppressed=0, failed=0, runtime_unknown=0)
     last_id = 0
     while True:
         with get_db() as session:
@@ -242,30 +184,35 @@ async def run_pass(now_ms: Optional[int] = None) -> dict:
             if not todos:
                 break
             last_id = todos[-1].id
-            aggregates = _chat_aggregates(session, {t.user_id for t in todos}, {t.todo_id for t in todos})
-            wakeup_traces = wakeup_repo.pending_wakeup_traces(
-                session, {t.user_id for t in todos}, {t.todo_id for t in todos}, now_ms)
+            user_ids = {t.user_id for t in todos}
+            trace_ids = {t.todo_id for t in todos}
+            roles = trace_runtime_roles(session, user_ids, trace_ids)
+            snapshots = get_snapshots(session, user_ids)
+            wakeup_traces = wakeup_repo.pending_wakeup_traces(session, user_ids, trace_ids, now_ms)
         counts["scanned"] += len(todos)
         for todo in todos:
             key = (todo.user_id, todo.todo_id)
-            chat_count, running = aggregates.get(key, (0, 0))
+            runtime = derive_runtime(
+                roles.get(key), snapshots.get(todo.user_id), todo.todo_id, now_ms,
+                observed_after_ms=pass_started_ms,
+            )
+            if runtime["state"] in SUPPRESSING_STATES:
+                counts["suppressed"] += 1
+                continue
+            if runtime["state"] == "unknown":
+                counts["runtime_unknown"] += 1
+                continue
+            if key in live_traces or key in wakeup_traces:
+                continue
+            chat_count = (roles.get(key) or (0, 0, 0, 0))[0]
             reason = classify(
-                live=key in live_traces or running > 0 or key in wakeup_traces, chat_count=chat_count,
+                live=False, chat_count=chat_count,
                 created_at_ms=todo.created_at_unix, now_ms=now_ms,
             )
             if reason is None:
                 continue
             counts["candidates"] += 1
-            if todo.user_id not in tmux_snapshots:
-                tmux_snapshots[todo.user_id] = await _tmux_snapshot(todo.user_id)
-            tmux_live = tmux_snapshots[todo.user_id]
-            if tmux_live is None:
-                counts["tmux_unknown"] += 1
-                continue
-            if todo.todo_id in tmux_live:
-                counts["suppressed"] += 1
-                continue
-            outcome = _claim_fault(todo, reason, tmux_live)
+            outcome = _claim_fault(todo, reason, pass_started_ms)
             counts[outcome] += 1
     return {"status": "ok", "action": LOCK_NAME, **counts}
 
@@ -275,10 +222,13 @@ async def handle_check_trace_liveness() -> dict:
         logger.info("check_trace_liveness: lock held, skipping")
         return {"status": "skip", "action": LOCK_NAME, "reason": "lock held"}
     try:
-        result = await run_pass()
+        # One probe per owner, then the read-only decision, in the same lock.
+        pass_started_ms = get_unix_timestamp()
+        refresh = await refresh_trace_runtime(pass_started_ms)
+        result = await run_pass(now_ms=pass_started_ms, pass_started_ms=pass_started_ms)
         if result["status"] == "ok":
             pipeline_lock_service.record_success(LOCK_NAME)
-        logger.info("check_trace_liveness: {}", result)
-        return result
+        logger.info("check_trace_liveness: refresh={} result={}", refresh, result)
+        return {**result, "refresh": refresh}
     finally:
         pipeline_lock_service.release_lock(LOCK_NAME)

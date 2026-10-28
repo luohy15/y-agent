@@ -51,6 +51,8 @@ class Todo:
     # Read-only display metadata (todo 3793 / 3797). Not stored on the todo row.
     next_wakeup_at_unix: Optional[int] = None
     has_pending_release_waiter: bool = False
+    # Derived runtime evidence (todo 4070). Never read from a request payload.
+    runtime: Optional[Dict] = None
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'Todo':
@@ -85,6 +87,7 @@ class Todo:
             'awaiting_chat': self.awaiting_chat,
             'next_wakeup_at_unix': self.next_wakeup_at_unix,
             'has_pending_release_waiter': self.has_pending_release_waiter,
+            'runtime': self.runtime,
         }
         if self.desc is not None:
             result['desc'] = self.desc

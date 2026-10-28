@@ -90,6 +90,7 @@ async def list_todos(
         with todo_list_timing.stage("enrich"):
             todo_service.attach_next_wakeup(user_id, todos)
             todo_service.attach_pending_release_waiter(user_id, todos)
+            todo_service.attach_runtime_evidence(user_id, todos)
         with todo_list_timing.stage("to_dict"):
             result = [t.to_dict() for t in todos]
 
@@ -134,6 +135,7 @@ async def get_todo(request: Request, todo_id: str = Query(...)):
         raise HTTPException(status_code=404, detail="Todo not found")
     todo_service.attach_next_wakeup(user_id, [todo])
     todo_service.attach_pending_release_waiter(user_id, [todo])
+    todo_service.attach_runtime_evidence(user_id, [todo])
     result = todo.to_dict()
 
     dev_claim = todo_service.get_latest_marker(todo, "[dev-claim]")

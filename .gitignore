@@ -55,3 +55,6 @@ web/src/**/*.test.tsx
 .pytest_cache/
 web/test-results/
 web/playwright-report/
+
+# Generated build/test caches
+.cache/

@@ -423,6 +423,11 @@ y todo list --status awaiting
 - Every returned row carries `status` and `awaiting_chat` (explicit null
   when unset). `y todo get` renders `Reply in:` only when a pointer is set.
   Public DTOs omit the obsolete `awaiting` / `awaiting_until` fields.
+- Active rows in host list and detail also carry read-only `runtime`
+  (`todo 4070`): `{state, jobs, observed_at_unix, fresh_until_unix}` with
+  `state` one of `session`, `child`, `tmux`, `unknown`, `ended`. Non-active
+  rows carry null. It is derived on read, never accepted on write, and is
+  not part of the trace payload, public shares or the CLI.
 - The trace todo projection, both authenticated and public share, carries
   `status` and `awaiting_chat` so the host todo detail renders awaiting and,
   when set, the chat pointer without another request. The pointer is a
@@ -694,11 +699,12 @@ expressed as a branch:
   mapped back to the chat's persisted trace). A snapshot failure aborts the
   pass before any SQL read or write, because a partial snapshot is unknown,
   not empty. Active todos are read across all owners in keyset batches with
-  one grouped chat aggregate per batch (count, running count). Chat recency
+  one grouped chat aggregate per batch (count, running topic count, running
+  topic-less count, topic chat count). Chat recency
   is not an input. The under-lock recheck still orders chats by
   `updated_at_unix` descending so the notice pointer and outcome come from
-  the newest chat. Candidate owners also get a lazy cached live tmux pane
-  snapshot (todo 4063), described below.
+  the newest chat. Runtime evidence comes from the one stored per-owner
+  snapshot written by the refresher (todo 4070), described below.
 - **Publication queue is existing real dependency, not a todo flag.** Todo
   3493's park/unpark writes of `external` are removed. A same-owner trace's
   pending `dev_release_waiter` suppresses idle fault classification,
@@ -724,39 +730,68 @@ expressed as a branch:
   undelivered past due_at plus grace stops suppressing, so a stall in the
   delivery path itself is still caught, not hidden behind an unbounded wait.
   The maximum registrable horizon is 7 days.
-- **Live tmux job evidence (todo 4063).** A live pane on the owner's default
-  VM suppresses a fault when its session is named `<purpose>-<todo_id>`:
-  the suffix after the last hyphen must match the todo ID exactly, and names
-  beginning `cc-` are excluded because chat processes are already monitored.
-  `tmux list-panes -a` supplies session name, `pane_dead`, `pane_pid`, and
-  `pane_current_command`; the same probe reads `ps -e -o pid=,ppid=,comm=`.
-  A pane must have `pane_dead == 0` and either a current command basename
-  outside `sh`, `bash`, `zsh`, `fish`, `dash`, `sleep`, or a transitive
-  descendant of `pane_pid` whose command basename is not `sleep`.
-  This protects bash scripts and compound shell commands, not just direct
-  binaries. Paths are reduced to basenames for macOS ps output; a pane PID
-  absent from ps falls back to the current-command rule only.
-  Dead panes, idle prompts, bare sleep timers, wrong names and non-default
-  VMs provide no evidence. Accepted boundary: a timer wrapped in a child
-  shell (`sh -c "sleep 600; y chat ..."`) counts as live because its child
-  shell is not `sleep`; a bare typed sleep or typed sleep loop does not. After a job exits, ordinary idle detection resumes
-  on the next pass. Progress text and callbacks alone are not evidence.
-  The probe is lazy, once per candidate owner per pass, after the chat
-  snapshot, using only that owner's default VM config, never a fallback
-  owner's VM. No config or a sleeping VM means empty evidence; the VM is
-  never woken. The constant `sh -c` probe uses `work_dir=""`, `wake=False`,
-  `timeout=10`, `check=False`, so no configured working-directory change can
-  prevent it from running. It separates tmux and ps output with `@@PS@@`.
-  A missing marker or no parseable ps rows means unknown, not empty.
-  With a valid ps section, an empty tmux section means empty evidence
-  (including no tmux server or no tmux binary; tmux stderr is discarded).
-  Probe exceptions/timeouts also mean unknown: skip that owner's candidates for
-  this pass and count them in `tmux_unknown`, rather than falsely claim idle.
-  The under-lock recheck reuses the cached snapshot, with no network I/O
-  under the todo lock. Stale live evidence can delay a claim by one pass.
-  This does not authorize timers or replace a genuine completion callback.
-  A process waiting for Roy's input still requires the reporting session
-  to explicitly set awaiting.
+- **Runtime evidence: one probe per owner, one stored snapshot (todo 4070).**
+  A live pane on the owner's default VM counts as evidence when its session
+  is named `<purpose>-<todo_id>`: the suffix after the last hyphen must match
+  the todo ID exactly, and names beginning `cc-` are excluded because chat
+  processes are already monitored. `tmux list-panes -a` supplies session name,
+  `pane_dead`, `pane_pid`, and `pane_current_command`; the same probe reads
+  `ps -e -o pid=,ppid=,comm=`. A pane must have `pane_dead == 0` and either a
+  current command basename outside `sh`, `bash`, `zsh`, `fish`, `dash`,
+  `sleep`, or a transitive descendant of `pane_pid` whose command basename is
+  not `sleep`. This protects bash scripts and compound shell commands, not
+  just direct binaries. Paths are reduced to basenames for macOS ps output; a
+  pane PID absent from ps falls back to the current-command rule only. Dead
+  panes, idle prompts, bare sleep timers, wrong names and non-default VMs
+  provide no evidence. Accepted boundary: a timer wrapped in a child shell
+  (`sh -c "sleep 600; y chat ..."`) counts as live because its child shell is
+  not `sleep`; a bare typed sleep or typed sleep loop does not. Progress text
+  and callbacks alone are not evidence.
+  The decision path never probes. One refresher, `refresh_trace_runtime`,
+  probes every owner that has at least one active todo whose trace has no
+  SQL-running chat, exactly once per pass, and stores the result in the
+  host-owned kernel table `trace_runtime_snapshot`: one row per owner holding
+  `observed_at_unix`, `ok`, and `jobs` (`{todo_id: [session names]}`). The
+  table has no API, CLI or module-host write path; only the worker writes it.
+  Writes are monotonic on `observed_at_unix`, so an older or concurrent pass
+  can never replace newer evidence. A probe exception, timeout, missing
+  marker or no parseable ps rows stores `ok=false` with empty `jobs`; no VM
+  config or an asleep VM stores `ok=true` with empty `jobs`, and the VM is
+  never woken. A failed write is logged and counted without aborting the
+  other owners. The scheduled handler runs the refresher and then `run_pass`
+  inside the same pipeline lock, after the orphan sweep, so cleared chats are
+  not counted as running.
+  Display and decision share the pure `derive_runtime(roles, snapshot,
+  todo_id, now_ms, observed_after_ms)` derivation. `roles` comes from one
+  grouped query per owner over the trace's chats: a running chat with a topic
+  is `session`; a running chat without a topic is `child` when the trace also
+  has a topic chat, otherwise it is the `session` itself. With no running
+  chat, the snapshot must be valid (`ok` true, positive integer
+  `observed_at_unix`, `jobs` a dict of non-empty string lists) and fresh
+  (`observed_at <= now`, age at most ten minutes, and at or after
+  `observed_after_ms` when given). A valid fresh snapshot with names for the
+  todo is `tmux`; without names it is `ended`. Anything else is `unknown`.
+  The payload is `{state, jobs, observed_at_unix, fresh_until_unix}`.
+  `run_pass` binds `observed_after_ms` to the refresh's observation timestamp,
+  so only this pass's refresh can prove `ended`. `session`, `child` and
+  `tmux` suppress the claim; `unknown` skips the todo and is counted
+  `runtime_unknown`; `ended` still passes the process-record, pending waiter
+  and pending wakeup suppressors before the ordinary classifier runs. The
+  under-lock recheck re-reads the roles and the snapshot row with database
+  reads only (no network) and claims only on `ended` plus no other
+  suppressor; stale live evidence can delay a claim by one pass. This does
+  not authorize timers or replace a genuine completion callback. A process
+  waiting for Roy's input still requires the reporting session to explicitly
+  set awaiting.
+- **Display of runtime evidence (todo 4070).** Active rows in the todo list
+  and detail carry `runtime`, derived from the same store without
+  `observed_after_ms`; other statuses carry null. The trace payload, public
+  shares and the CLI do not. A missing, stale, future-dated or unknown
+  snapshot reads `unknown`, which proves neither running nor ended. Display
+  derives session evidence from SQL chat state, so a crashed run can read
+  `session` until the existing orphan sweep clears it (15-minute grace), and
+  a process record without a running chat can make the watchdog suppress
+  while display says the session ended; that errs safe.
 - **Claiming.** Each candidate goes through `claim_fault`: under the todo
   lock it re-reads the trace's chats, rejects any SQL-running chat, performs
   a consistent per-chat process read (owner matched; a running record
@@ -879,6 +914,12 @@ local/EC2 CLI, activate HR wording, then resume traffic. Existing browser
 tabs must refresh; reject obsolete payloads explicitly rather than silently
 ignoring them.
 
+Runtime evidence (todo 4070) adds one expand-only kernel table,
+`trace_runtime_snapshot`, created by
+`migration/4070_trace_runtime_snapshot.sql`. Apply that DDL before the host
+deploy: the refresher and the watchdog require it, while the module tolerates
+a missing `runtime` field. The table can stay on host rollback.
+
 ### Delivered limitations
 
 Recorded so they are not mistaken for regressions:
@@ -924,12 +965,16 @@ Recorded so they are not mistaken for regressions:
 
 Tests are local-only and untracked per repo convention.
 
-- **Tmux liveness (todo 4063)** covers a live child without a running chat,
-  exact suffix matching and owner isolation, dead panes, idle shells and
-  sleep exclusion, no-config/asleep/empty/unknown snapshots, no VM wake,
-  one lazy probe per candidate owner, no probe without candidates, and
-  cached evidence in the under-lock recheck. Existing registered-wakeup
-  batch/recheck tests remain PostgreSQL-backed.
+- **Tmux liveness (todo 4063, moved by todo 4070)** covers a live child
+  without a running chat, exact suffix matching and owner isolation, dead
+  panes, idle shells and sleep exclusion, no-config/asleep/empty/unknown
+  snapshots, no VM wake, and one probe per owner. **Runtime evidence (todo
+  4070)** covers the pure derivation matrix (session / child / tmux / ended /
+  unknown, freshness boundaries, future and pre-pass timestamps), monotonic
+  upsert, owner isolation, the decision path never probing, same-pass binding,
+  the locked recheck seeing a job that appeared after the pass read, and the
+  display read count. Existing registered-wakeup batch/recheck tests remain
+  PostgreSQL-backed.
 
 - **Awaiting status transitions** are table-driven over the service layer:
   all 25 explicit pairs; completed/deleted to awaiting as one atomic
