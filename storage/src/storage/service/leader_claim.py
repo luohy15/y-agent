@@ -111,8 +111,19 @@ def _conflict(owner: Optional[str], reason: str) -> None:
     raise LeaderClaimConflict(reason, owner=owner)
 
 
+def _holder(row) -> Optional[str]:
+    """Current holder from the columns, or from the legacy marker before any seed."""
+    if row.leader_state is not None:
+        return _owner(row)
+    seeded = legacy_view(_history_todo(row))
+    return seeded["chat_id"] if seeded["state"] == "claimed" else None
+
+
 def _claim_locked(session, row, chat_id: str, takeover_from: Optional[str]) -> str:
     _validate_chat(session, row, chat_id)
+    # The holder re-claiming (each leader turn) is a no-write resume, legacy rows included.
+    if _holder(row) == chat_id and takeover_from in (None, chat_id):
+        return "resumed"
     _seed(session, row)
     owner = _owner(row)
     if takeover_from:
