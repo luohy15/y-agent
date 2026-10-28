@@ -125,6 +125,19 @@ def validate_sessions(sessions) -> list[dict]:
     return clean
 
 
+_APPLIED_EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
+
+
+def _applied_effort(value):
+    """A known level, or None when the transcript omitted or garbled it."""
+    if not isinstance(value, str):
+        return None
+    normalized = value.lower()
+    if normalized not in _APPLIED_EFFORTS:
+        return None
+    return normalized
+
+
 def validate_row(row: dict, index: int, now: datetime | None = None):
     """Check one uploaded row. Returns (clean_row, None) or (None, rejection)."""
     now = now or _now()
@@ -162,6 +175,7 @@ def validate_row(row: dict, index: int, now: datetime | None = None):
         "requested_at": requested_at,
         "attribution": attribution,
         "trace_id": trace_id if attribution == "hint" else None,
+        "applied_effort": _applied_effort(row.get("applied_effort")),
     }
     if not isinstance(usage, dict) or not any(name in usage for name in COUNTERS):
         clean["usage_state"] = "missing"

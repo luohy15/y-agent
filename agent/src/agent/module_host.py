@@ -210,7 +210,7 @@ from storage.project_key import ProjectKeyError, normalize_project_key
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-BACKEND_CONTRACT_VERSION = 26
+BACKEND_CONTRACT_VERSION = 27
 
 # Wall-clock budget for the wake="nowait" readiness check (todo 3777).
 NOWAIT_BUDGET_SECONDS = 1.0
@@ -494,6 +494,11 @@ def bot_config_delete(user_id: int, name: str) -> bool:
 def bot_config_set_enabled(user_id: int, name: str, enabled: bool) -> bool:
     """Enable or disable a bot-config value; returns False when it did not exist."""
     return _bot_service(user_id).set_enabled(user_id, name, enabled)
+
+
+def bot_config_set_effort_capability(user_id: int, name: str, levels: Optional[list[str]], evidence: Optional[str]) -> bool:
+    """Declare configuration-bound effort levels, or clear with levels=None (v27)."""
+    return _bot_service(user_id).set_effort_capability(user_id, name, levels, evidence)
 
 
 def bot_config_rename(user_id: int, old_name: str, new_name: str) -> bool:

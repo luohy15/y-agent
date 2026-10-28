@@ -23,6 +23,9 @@ class BotConfigEntity(Base, BaseEntity):
     route_weight = Column(Float, nullable=True)
     enabled = Column(Boolean, nullable=False, default=True)
     ref_bot_name = Column(String, nullable=True)
+    effort_levels = Column(JSON, nullable=True)
+    effort_evidence = Column(Text, nullable=True)
+    effort_binding = Column(Text, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("user_id", "name"),

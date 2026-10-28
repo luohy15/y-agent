@@ -32,6 +32,20 @@ def set_enabled(user_id: int, name: str, enabled: bool) -> bool:
     return bot_repo.set_enabled(user_id, name, enabled)
 
 
+def set_effort_capability(user_id: int, name: str, levels: Optional[List[str]], evidence: Optional[str]) -> bool:
+    from storage.dto.bot import EFFORT_LEVELS
+
+    if levels is not None:
+        if (not isinstance(levels, list) or not levels
+                or any(not isinstance(level, str) or level not in EFFORT_LEVELS for level in levels)):
+            raise ValueError("effort levels must be a nonempty list of low, medium, high, xhigh, max")
+        if not isinstance(evidence, str) or not evidence.strip():
+            raise ValueError("effort capability requires evidence")
+        levels = list(dict.fromkeys(levels))
+        evidence = evidence.strip()
+    return bot_repo.set_effort_capability(user_id, name, levels, evidence)
+
+
 def delete_config(user_id: int, name: str) -> bool:
     if name == "default":
         return False

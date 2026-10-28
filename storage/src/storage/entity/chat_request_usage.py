@@ -27,12 +27,17 @@ class ChatRequestUsageEntity(Base, BaseEntity):
     cache_creation_tokens = Column(Integer, nullable=True)
     cache_read_tokens = Column(Integer, nullable=True)
     usage_state = Column(String, nullable=False)
+    applied_effort = Column(String, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("user_id", "request_id", name="uq_chat_request_usage"),
         CheckConstraint(
             "usage_state IN ('observed', 'missing')",
             name="ck_chat_request_usage_state",
+        ),
+        CheckConstraint(
+            "applied_effort IS NULL OR applied_effort IN ('low', 'medium', 'high', 'xhigh', 'max')",
+            name="ck_chat_request_usage_applied_effort",
         ),
         Index("ix_chat_request_usage_user_chat", "user_id", "chat_id"),
     )

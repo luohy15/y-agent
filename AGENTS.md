@@ -174,13 +174,13 @@ entity + controller + service + CLI slices, and most have a web panel.
   conventional `common` (vendored at publish). Rollback/activate change code only;
   delete removes deployed metadata/bytes, not source/tables. No worker half:
   deterministic work is `routine` `vm_command`; judgment stays chat dispatch.
-  Backend host contract (`agent.module_host`) is **v26** (todo 3627's v18 adds
+  Backend host contract (`agent.module_host`) is **v27** (todo 3627's v18 adds
   owner-bound no-wake VM execution; v19 / v20 are todos 3777 / 3781; v21 adds the
   maintainer-bound `mcp_*` connector capabilities of todo 3796; v22 is its round 2
   loopback OAuth start/complete; v23 adds the private photo object primitives,
   `published_module_json`, and module tag-carrier helpers of todo 3838; v24 adds
   Pillow / pillow-heif to the API runtime for the Photo module, todo 3879; v25 adds
-  optional `filenames` to `photo_authorize_get_batch` for attachment downloads, todo 3879; v26 adds owner-bound `dev_worktree_*` and pure `normalize_project_key` / `ProjectKeyError` exports, todo 3941). The tag module owns
+  optional `filenames` to `photo_authorize_get_batch` for attachment downloads, todo 3879; v26 adds owner-bound `dev_worktree_*` and pure `normalize_project_key` / `ProjectKeyError` exports, todo 3941; v27 adds request-owner-bound `bot_config_set_effort_capability`, todo 4067). The tag module owns
   `/api/module/tag/*`, the lazy `y tag` CLI, and the `artifact:tag` panel; the
   host retains the `entity_tag` projection, normalization, carrier sync and
   cleanup, resolver hydration (todo rows carry `updated_at_unix` for client
@@ -344,7 +344,14 @@ exceptions noted):
 - **Per-request transcript usage** (todo 3729): `chat_request_usage`. One row
   per attributed Claude Code request, uploaded from the VM transcript and keyed
   by `(user_id, request_id)`. Read per trace; the latest scan record stays in
-  `user_preference` and is not one of these tables.
+  `user_preference` and is not one of these tables. `applied_effort` is filled
+  from the transcript's top-level `assistant.effort` when the column is still
+  null, and is never overwritten.
+- **Launch effort history** (todo 4067): `chat_launch`. One append-only row per
+  actual Claude Code spawn (not a Lambda tail handoff), snapshotting requested
+  and launch effort. `launched_at` is the worker clock immediately before the
+  detached start. A failed insert does not stop that launch. Trace view reads
+  the newest 20 per chat; the public share payload does not.
 - **Session context analysis** (todo 3844): `chat_context_session`,
   `chat_context_request`, `chat_context_contributor` (one entity file
   `chat_context.py`). One unit per (chat, transcript session), replaced as a
@@ -414,7 +421,7 @@ Grouped by feature area:
 - `perplexity.py`, `openai_chat.py`, `xai_search.py` — inline single-shot (non-agentic)
   backends; `xai_search.py` serves both `xai_web` and `xai_x`
 - `config.py` — provider factory, bot/vm config resolution
-- `module_host.py` — backend host contract for modules (`BACKEND_CONTRACT_VERSION = 26`:
+- `module_host.py` — backend host contract for modules (`BACKEND_CONTRACT_VERSION = 27`:
   `session`, `run_vm_command` with work_dir/stdin, `cli_user_id`, external-table
   protocol, plus request-scoped `bot_config_*`, `chat_*` with optional
   `sort_by`/`sort_order`, `note_list_at_path`, owner-bound `note_*`, `tag_*`

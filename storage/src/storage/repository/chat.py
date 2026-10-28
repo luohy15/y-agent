@@ -525,6 +525,10 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
         return chat
 
 
+class EffortOnRunningChat(Exception):
+    """Explicit effort cannot join a run that has already started."""
+
+
 def accept_or_start_chat(user_id: int, chat_id: str, *, message=None,
                          human_reply=False, trace_id=None, topic=None, skill=None,
                          event_id=None, session=None):
@@ -565,6 +569,8 @@ def accept_or_start_chat(user_id: int, chat_id: str, *, message=None,
             raise ValueError("Chat identity changed during acceptance")
         chat = _entity_to_chat(row)
         already_running = chat.running
+        if message is not None and message.reasoning_effort and already_running:
+            raise EffortOnRunningChat("effort applies per launch; resend after the run ends")
         if message is not None:
             duplicate = event_id is not None and any(
                 existing.id == message.id for existing in chat.messages)

@@ -70,6 +70,7 @@ def _values(user_id: int, row: dict) -> dict:
         "requested_at": row["requested_at"],
         "usage_state": row["usage_state"],
         **{name: row.get(name) for name in COUNTERS},
+        "applied_effort": row.get("applied_effort"),
     }
 
 
@@ -99,6 +100,8 @@ def _merge_pending(pending: dict, row: dict) -> None:
         pending[name] = _larger(pending.get(name), row.get(name))
     if row["usage_state"] == "observed":
         pending["usage_state"] = "observed"
+    if pending.get("applied_effort") is None and row.get("applied_effort"):
+        pending["applied_effort"] = row["applied_effort"]
     pending["requested_at"] = row["requested_at"]
 
 
@@ -186,12 +189,12 @@ _PG_UPSERT = text(
     INSERT INTO chat_request_usage (
         user_id, request_id, session_id, chat_id, model, requested_at,
         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
-        usage_state, created_at, updated_at, created_at_unix, updated_at_unix
+        usage_state, applied_effort, created_at, updated_at, created_at_unix, updated_at_unix
     )
     SELECT
         :user_id, request_id, session_id, chat_id, model, requested_at,
         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
-        usage_state, :stamp, :stamp, :stamp_unix, :stamp_unix
+        usage_state, applied_effort, :stamp, :stamp, :stamp_unix, :stamp_unix
     FROM unnest(
         CAST(:request_id AS text[]),
         CAST(:session_id AS text[]),
@@ -202,11 +205,12 @@ _PG_UPSERT = text(
         CAST(:output_tokens AS int[]),
         CAST(:cache_creation_tokens AS int[]),
         CAST(:cache_read_tokens AS int[]),
-        CAST(:usage_state AS text[])
+        CAST(:usage_state AS text[]),
+        CAST(:applied_effort AS text[])
     ) AS incoming(
         request_id, session_id, chat_id, model, requested_at,
         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
-        usage_state
+        usage_state, applied_effort
     )
     ON CONFLICT (user_id, request_id) DO UPDATE SET
         input_tokens = GREATEST(
@@ -226,6 +230,7 @@ _PG_UPSERT = text(
               OR EXCLUDED.usage_state = 'observed'
             THEN 'observed' ELSE 'missing' END,
         requested_at = EXCLUDED.requested_at,
+        applied_effort = COALESCE(chat_request_usage.applied_effort, EXCLUDED.applied_effort),
         updated_at = :stamp,
         updated_at_unix = :stamp_unix
     WHERE chat_request_usage.session_id = EXCLUDED.session_id
@@ -240,6 +245,7 @@ _PG_UPSERT = text(
     bindparam("model", type_=ARRAY(String())),
     bindparam("requested_at", type_=ARRAY(String())),
     bindparam("usage_state", type_=ARRAY(String())),
+    bindparam("applied_effort", type_=ARRAY(String())),
     bindparam("input_tokens", type_=ARRAY(Integer())),
     bindparam("output_tokens", type_=ARRAY(Integer())),
     bindparam("cache_creation_tokens", type_=ARRAY(Integer())),
@@ -261,6 +267,7 @@ def _write_rows_pg(session, user_id: int, rows: list[dict]) -> set:
             "model": [row["model"] for row in rows],
             "requested_at": [row["requested_at"] for row in rows],
             "usage_state": [row["usage_state"] for row in rows],
+            "applied_effort": [row.get("applied_effort") for row in rows],
             **{name: [row.get(name) for row in rows] for name in COUNTERS},
         },
     ).all()
@@ -293,6 +300,7 @@ def _write_rows(session, dialect: str, user_id: int, rows: list[dict]) -> set:
                 **merge,
                 "usage_state": _observed(stored.usage_state, excluded.usage_state),
                 "requested_at": excluded.requested_at,
+                "applied_effort": func.coalesce(stored.applied_effort, excluded.applied_effort),
                 # A conflict-clause update skips ORM onupdate hooks.
                 "updated_at": get_utc_iso8601_timestamp(),
                 "updated_at_unix": get_unix_timestamp(),
@@ -344,6 +352,7 @@ def _apply(session, user_id: int, row: dict) -> dict:
                 **merge,
                 "usage_state": _observed(stored.usage_state, excluded.usage_state),
                 "requested_at": excluded.requested_at,
+                "applied_effort": func.coalesce(stored.applied_effort, excluded.applied_effort),
                 # A conflict-clause update skips ORM onupdate hooks.
                 "updated_at": get_utc_iso8601_timestamp(),
                 "updated_at_unix": get_unix_timestamp(),

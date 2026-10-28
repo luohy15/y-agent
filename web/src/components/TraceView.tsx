@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import useSWR from "swr";
 import { API, authFetch, clearToken, jsonFetcher as fetcher } from "../api";
 import { runHostCommand } from "../host/commands";
-import WaterfallChart, { type TraceChat } from "./WaterfallChart";
+import WaterfallChart, { type TraceChat, type TraceLaunchSummary } from "./WaterfallChart";
 import { statusBadgeClass } from "./badges";
 import SharePopover, { type ExistingShare } from "./SharePopover";
 import TraceTodoDetail, { type TodoInfo, type TodoPatch } from "./TraceTodoDetail";
@@ -101,6 +101,39 @@ function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
 
+/** One launch line. A null launch effort is "default", never a level. */
+export function formatLaunchLine(index: number, launch: TraceLaunchSummary): string {
+  const requested = launch.requested_effort || "-";
+  const launched = launch.launch_effort || "default";
+  const appliedEntries = Object.entries(launch.applied || {}).filter(([, count]) => count > 0);
+  const applied = appliedEntries.length
+    ? appliedEntries.map(([level, count]) => `${level}×${count}`).join(" ")
+    : "not ingested";
+  const bot = launch.bot_name || "-";
+  return `L${index} · ${bot} · requested ${requested} · launch ${launched} · applied ${applied} · provider unconfirmed`;
+}
+
+function sanitizeLaunches(value: unknown): TraceLaunchSummary[] {
+  return asArray<unknown>(value).slice(0, 20).flatMap((item) => {
+    const obj = asRecord(item);
+    if (!obj) return [];
+    const appliedRaw = asRecord(obj.applied);
+    const applied: Record<string, number> = {};
+    if (appliedRaw) {
+      for (const [level, count] of Object.entries(appliedRaw)) {
+        if (typeof count === "number" && count > 0) applied[level] = count;
+      }
+    }
+    return [{
+      bot_name: typeof obj.bot_name === "string" ? obj.bot_name : null,
+      requested_effort: typeof obj.requested_effort === "string" ? obj.requested_effort : null,
+      launch_effort: typeof obj.launch_effort === "string" ? obj.launch_effort : null,
+      applied,
+      provider: "unconfirmed",
+    }];
+  });
+}
+
 /** Normalize a trace payload so malformed fields cannot throw during render. */
 export function normalizeTraceData(raw: unknown): TraceChatsResponse | null {
   const obj = asRecord(raw);
@@ -116,7 +149,10 @@ export function normalizeTraceData(raw: unknown): TraceChatsResponse | null {
       }
     : null;
   return {
-    chats: asArray<TraceChat>(obj.chats),
+    chats: asArray<TraceChat>(obj.chats).map((chat) => ({
+      ...chat,
+      launches: sanitizeLaunches((chat as { launches?: unknown }).launches),
+    })),
     todo_name: typeof obj.todo_name === "string" ? obj.todo_name : null,
     todo_status: typeof obj.todo_status === "string" ? obj.todo_status : null,
     todo,
@@ -491,20 +527,31 @@ export default function TraceView({
                   const skill = (chat.skill && chat.skill.trim()) || chat.topic || "";
                   const label = chat.title || chat.chat_id;
                   return (
-                    <div key={chat.chat_id} className="flex items-center gap-2 min-w-0">
-                      <span className="text-[0.65rem] text-sol-base1 truncate min-w-0 flex-1" title={`${label} (#${chat.chat_id})`}>
-                        {skill ? `${skill} · ` : ""}{label}
-                        <span className="text-sol-base01 font-mono"> #{chat.chat_id.slice(-6)}</span>
-                      </span>
-                      <button
-                        type="button"
-                        className="shrink-0 text-[0.6rem] font-mono px-1.5 py-0.5 rounded cursor-pointer bg-sol-base02 text-sol-base01 hover:text-sol-base0"
-                        data-testid={`trace-context-${chat.chat_id}`}
-                        data-chat-id={chat.chat_id}
-                        onClick={() => openParticipantContext(chat.chat_id)}
-                      >
-                        Context
-                      </button>
+                    <div key={chat.chat_id}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-[0.65rem] text-sol-base1 truncate min-w-0 flex-1" title={`${label} (#${chat.chat_id})`}>
+                          {skill ? `${skill} · ` : ""}{label}
+                          <span className="text-sol-base01 font-mono"> #{chat.chat_id.slice(-6)}</span>
+                        </span>
+                        <button
+                          type="button"
+                          className="shrink-0 text-[0.6rem] font-mono px-1.5 py-0.5 rounded cursor-pointer bg-sol-base02 text-sol-base01 hover:text-sol-base0"
+                          data-testid={`trace-context-${chat.chat_id}`}
+                          data-chat-id={chat.chat_id}
+                          onClick={() => openParticipantContext(chat.chat_id)}
+                        >
+                          Context
+                        </button>
+                      </div>
+                      {(chat.launches || []).map((launch, index) => (
+                        <div
+                          key={`${chat.chat_id}-launch-${index}`}
+                          className="text-[0.65rem] font-mono text-sol-base1 truncate"
+                          data-testid={`trace-launch-${chat.chat_id}-${index + 1}`}
+                        >
+                          {formatLaunchLine(index + 1, launch)}
+                        </div>
+                      ))}
                     </div>
                   );
                 })}

@@ -132,6 +132,16 @@ def _is_meta(record: dict) -> bool:
     return bool(record.get("isMeta"))
 
 
+def _applied_effort(value):
+    """Top-level transcript ``assistant.effort``. Unknown values are omitted."""
+    if not isinstance(value, str):
+        return None
+    normalized = value.lower()
+    if normalized not in {"low", "medium", "high", "xhigh", "max"}:
+        return None
+    return normalized
+
+
 def _request_of(record: dict):
     """(request id, message) for a counted assistant record, else None."""
     if record.get("type") != "assistant":
@@ -209,6 +219,7 @@ def parse_file(path: Path) -> dict:
             "model": model if isinstance(model, str) else "",
             "requested_at": record.get("timestamp") or message.get("timestamp") or "",
             "usage": {name: usage.get(key) for name, key in COUNTERS.items()} if usage else None,
+            "applied_effort": _applied_effort(record.get("effort")),
         })
 
     segments = [{"hint": hint, "requests": {}} for hint in hints]
@@ -722,7 +733,8 @@ def _batches(session_id: str, rows: list[dict]) -> list[list[dict]]:
         payload = {"request_id": row["request_id"], "session_id": session_id,
                    "chat_id": row["chat_id"], "model": row["model"],
                    "requested_at": row["requested_at"], "usage": _usage(row["usage"]),
-                   "attribution": row.get("attribution"), "trace_id": row.get("trace_id")}
+                   "attribution": row.get("attribution"), "trace_id": row.get("trace_id"),
+                   "applied_effort": row.get("applied_effort")}
         if current and (len(current) >= MAX_ROWS or _size(current + [payload]) > MAX_BYTES):
             batches.append(current)
             current = []

@@ -36,17 +36,28 @@ REASONING_EFFORT_LEVELS = {"low", "medium", "high", "xhigh", "max"}
 SUPPORTED_REASONING_EFFORT_BACKENDS = {"claude_code"}
 
 
-def resolve_reasoning_effort(messages, backend: str) -> str | None:
-    """Resolve and validate the newest explicit per-turn effort override."""
-    reasoning_effort = None
-    for msg in trailing_user_messages(messages):
-        if msg.reasoning_effort is not None:
-            reasoning_effort = msg.reasoning_effort.lower()
+def explicit_launch_effort(messages) -> str | None:
+    """Newest explicit effort among this launch's inputs, or None.
 
+    Does not look at older turns and does not check the backend. Invalid text
+    still raises: an explicit value is never dropped silently.
+    """
+    reasoning_effort = None
+    for msg in messages:
+        if getattr(msg, "reasoning_effort", None) is not None:
+            reasoning_effort = str(msg.reasoning_effort).lower()
     if reasoning_effort is None:
         return None
     if reasoning_effort not in REASONING_EFFORT_LEVELS:
         raise ValueError(f"Unsupported reasoning effort '{reasoning_effort}'; expected low, medium, high, xhigh, or max")
+    return reasoning_effort
+
+
+def resolve_reasoning_effort(messages, backend: str) -> str | None:
+    """Resolve and validate the newest explicit effort among these messages."""
+    reasoning_effort = explicit_launch_effort(messages)
+    if reasoning_effort is None:
+        return None
     if backend not in SUPPORTED_REASONING_EFFORT_BACKENDS:
         raise ValueError(f"reasoning_effort is only supported for claude_code, not {backend}")
     return reasoning_effort
@@ -494,6 +505,28 @@ def _resolve_rebot_target(user_id: int, bot_name: str, tier: str, chat_id: str, 
     return requested
 
 
+def _declared_efforts(bot_config) -> list:
+    from storage.dto.bot import effective_effort_levels
+    return effective_effort_levels(bot_config)
+
+
+def _abort_unlaunched(chat, chat_id: str, user_id: int, exc: Exception) -> None:
+    """Stop a run that never spawned. Routing is left as it was."""
+    from storage.repository import chat as chat_repo
+    from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
+    error_text = f"Backend launch failed: {type(exc).__name__}: {exc}"
+
+    def fail_launch(current):
+        if current.running and current.run_seq == chat.run_seq:
+            current.running = False
+            current.messages.append(Message(
+                id=generate_message_id(), role="assistant", content=error_text,
+                timestamp=get_utc_iso8601_timestamp(), unix_timestamp=get_unix_timestamp(),
+            ))
+
+    chat_repo.mutate_chat_locked(chat_id, fail_launch, user_id=user_id)
+
+
 async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, topic: str = None, skill: str = None, backend: str = None, resume_5xx_retries: int = 0, run_seq: int = None, continuation_from_id: str = None, handled_input_ids=None) -> str:
     """Execute a chat round. Inline backends run in-process; claude_code detaches to tmux.
 
@@ -580,14 +613,30 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
         bot_name = chat.bot_name
         logger.info("Using bot_name from chat: {}", bot_name)
 
+    # Effort is taken from this launch's inputs, not the whole history, and is
+    # gated before routing is persisted. A failure here must not become the
+    # synthetic fallback bot.
+    selected_inputs = select_run_inputs(list(chat.messages), continuation_from_id, handled_input_ids)
+    try:
+        explicit_effort = explicit_launch_effort(selected_inputs)
+    except ValueError as exc:
+        _abort_unlaunched(chat, chat_id, user_id, exc)
+        raise
+
     # Guard bot resolution: a bad bot field/column (e.g. a new column not yet
     # migrated) must not crash the core chat chain. On any failure, fall back to
-    # a hand-built default bot so the conversation keeps running.
+    # a hand-built default bot so the conversation keeps running. Explicit effort
+    # is the exception: it fails the launch instead of running on a bot that
+    # was not asked for.
     try:
         if rebot:
             requested = _resolve_rebot_target(user_id, bot_name, bot_tier, chat_id, chat.bot_name)
+            if requested and explicit_effort and explicit_effort not in _declared_efforts(requested):
+                raise agent_config.EffortCapabilityError(explicit_effort, requested.name)
             requested_backend = (requested.backend or requested.api_type) if requested else None
             if not requested:
+                if explicit_effort:
+                    raise agent_config.EffortCapabilityError(explicit_effort, bot_name)
                 rebot = False
             elif chat.backend and requested_backend != chat.backend:
                 logger.warning(
@@ -606,8 +655,15 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
         if not rebot:
             bot_config = agent_config.resolve_bot_config(
                 user_id, bot_name, backend=chat.backend or backend, tier=bot_tier,
+                effort=explicit_effort,
             )
+        if explicit_effort and (bot_config.backend or bot_config.api_type) not in SUPPORTED_REASONING_EFFORT_BACKENDS:
+            unsupported = bot_config.backend or bot_config.api_type
+            raise ValueError(f"reasoning_effort is only supported for claude_code, not {unsupported}")
     except Exception as e:
+        if explicit_effort:
+            _abort_unlaunched(chat, chat_id, user_id, e)
+            raise
         # The fallback config below is synthetic, so it must never be persisted
         # as an accepted re-bot, no matter what later edits raise inside the try.
         rebot = False
@@ -644,7 +700,7 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
 
     effective_backend = bot_config.backend or bot_config.api_type
     try:
-        resolve_reasoning_effort(list(chat.messages), effective_backend)
+        resolve_reasoning_effort(selected_inputs, effective_backend)
         if _inline_runner(effective_backend):
             await _run_inline(chat, chat_id, user_id, bot_config, effective_backend,
                               post_hooks=post_hooks, trace_id=trace_id, topic=topic)
@@ -749,6 +805,8 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
         "last_message_id": last_message_id,
         "model": model,
         "messages": messages,
+        "requested_effort": reasoning_effort,
+        "launch_effort": reasoning_effort,
     }
 
 
@@ -809,6 +867,9 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
     launch_uuid = native_input_uuid(chat_id, f"launch:{input_ids[-1] if input_ids else 'none'}")
     from agent.mcp import launch as mcp_launch
     mcp_material = await asyncio.to_thread(mcp_launch.prepare, user_id, chat_id, chat.run_seq)
+    launch_report = {}
+    from storage.util import get_utc_iso8601_timestamp
+    launched_at = get_utc_iso8601_timestamp()
     try:
         session_id = await start_detached_ssh(
             cmd=params["cmd"],
@@ -820,10 +881,34 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
             images=params.get("images"),
             input_uuid=launch_uuid,
             mcp_material=mcp_material,
+            launch_report=launch_report,
         )
     except Exception:
         mcp_launch.end(mcp_material)
         raise
+    # tmux_acknowledged means the remote `tmux new-session` command returned.
+    # A parsed session_id, when present, is only an id sniffed from the first
+    # stdout lines. Neither one means the process later succeeded. A missing
+    # work dir returns without starting tmux and is not a launch. launched_at
+    # was taken on this worker immediately before start_detached_ssh, so a
+    # request during the ack wait still falls in this launch's window.
+    # The history row is best-effort: a failed insert must not end the grant
+    # or skip registration of a process that is already running.
+    if launch_report.get("tmux_acknowledged"):
+        from storage.service.chat_launch import record_spawn
+        try:
+            record_spawn(
+                user_id, chat_id, trace_id=trace_id, run_seq=chat.run_seq,
+                bot_name=bot_config.name, backend=effective_backend, model=params.get("model"),
+                requested_effort=params.get("requested_effort"),
+                launch_effort=params.get("launch_effort"),
+                input_message_ids=input_ids, launched_at=launched_at,
+            )
+        except Exception:
+            logger.exception(
+                "chat_launch insert failed after tmux ack chat_id={}; continuing without a history row",
+                chat_id,
+            )
     if mcp_material.warning:
         from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
         from storage.repository import chat as chat_repo

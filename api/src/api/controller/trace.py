@@ -105,6 +105,10 @@ async def get_trace_chats(request: Request, trace_id: str = Query(...)):
             "bot_name": bot_name,
             "segments": segments,
         })
+    from storage.service.chat_launch import view_for_chats
+    launch_views = view_for_chats(user_id, [chat["chat_id"] for chat in result_chats])
+    for chat in result_chats:
+        chat["launches"] = launch_views.get(chat["chat_id"], [])
 
     # Lookup todo info (trace_id = todo_id)
     todo_info = None

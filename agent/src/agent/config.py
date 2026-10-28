@@ -5,6 +5,7 @@ import os
 import random
 from typing import List, Optional
 
+from storage.dto.bot import effective_effort_levels
 from storage.entity.dto import BotConfig, VmConfig
 from storage.service import bot_config as bot_service
 from storage.service import vm_config as vm_service
@@ -13,6 +14,18 @@ from storage.service.user import get_default_user_id
 logger = logging.getLogger(__name__)
 
 _MAX_REF_DEPTH = 5
+
+
+class EffortCapabilityError(ValueError):
+    """An explicit effort has no declaring bot. Callers must not fall back."""
+
+    def __init__(self, effort: str, bot_name: str = None):
+        self.effort = effort
+        self.bot_name = bot_name
+        if bot_name:
+            super().__init__(f"bot {bot_name!r} does not declare reasoning effort {effort!r}")
+        else:
+            super().__init__(f"no runnable bot declares reasoning effort {effort!r}")
 
 
 def _effective_backend(bot_config: BotConfig) -> str:
@@ -87,7 +100,7 @@ def _universe(user_id: int) -> List[BotConfig]:
     ]
 
 
-def _candidates(universe: List[BotConfig], bot_name: str = None, backend: str = None, tier: str = None) -> List[BotConfig]:
+def _candidates(universe: List[BotConfig], bot_name: str = None, backend: str = None, tier: str = None, effort: str = None) -> List[BotConfig]:
     """Intersect the universe with the given filters.
 
     Filters combine with AND, not precedence: bot_name, backend, and tier
@@ -106,6 +119,8 @@ def _candidates(universe: List[BotConfig], bot_name: str = None, backend: str = 
             if tier_of(cfg) == tier
             and (getattr(cfg, "type", None) or "agent") != "model"
         ]
+    if effort:
+        result = [cfg for cfg in result if effort in effective_effort_levels(cfg)]
     return result
 
 
@@ -161,10 +176,10 @@ def _global_default(user_id: int) -> BotConfig:
 
 
 def _resolve_filters(user_id: int, universe: List[BotConfig], bot_name: str = None,
-                     backend: str = None, tier: str = None) -> Optional[BotConfig]:
+                     backend: str = None, tier: str = None, effort: str = None) -> Optional[BotConfig]:
     """Intersect the filters over the universe, without the tier2 fallback."""
     selected = _select(
-        _candidates(universe, bot_name=bot_name, backend=backend, tier=tier),
+        _candidates(universe, bot_name=bot_name, backend=backend, tier=tier, effort=effort),
         user_id=user_id if tier else None,
         tier=tier,
     )
@@ -192,7 +207,13 @@ def resolve_pinned_bot_config(user_id: int, bot_name: str, tier: str = None) -> 
     return _resolve_filters(user_id, _universe(user_id), bot_name, tier=tier)
 
 
-def resolve_bot_config(user_id: int, bot_name: str = None, backend: str = None, tier: str = None) -> BotConfig:
+def _require_declared(selected: Optional[BotConfig], effort: str, bot_name: str) -> None:
+    """A named bot is checked on its own. Never substitute another bot."""
+    if selected is None or effort not in effective_effort_levels(selected):
+        raise EffortCapabilityError(effort, bot_name)
+
+
+def resolve_bot_config(user_id: int, bot_name: str = None, backend: str = None, tier: str = None, effort: str = None) -> BotConfig:
     """Resolve a dispatch request to a bot config.
 
     Unified filter resolution (no precedence chain): bot_name / backend /
@@ -201,17 +222,39 @@ def resolve_bot_config(user_id: int, bot_name: str = None, backend: str = None, 
     weighted round-robin. No
     filters, or an empty intersection, re-resolves against the tier2 pool;
     an empty tier2 pool falls back to the user's global default bot.
+
+    Explicit effort changes the empty case: a name pin that does not declare
+    the level fails instead of switching, and an empty filtered pool fails
+    instead of falling through to an unfiltered tier2 or the global default.
+    No effort keeps the fallback above.
     """
     universe = _universe(user_id)
 
     if bot_name or backend or tier:
-        selected = _resolve_filters(user_id, universe, bot_name, backend, tier)
+        # A name pin is resolved first, then checked. Filtering the pool by
+        # effort would hide the pin and look like "no such bot".
+        selected = _resolve_filters(
+            user_id, universe, bot_name, backend, tier,
+            effort=None if bot_name else effort,
+        )
+        if bot_name and effort:
+            _require_declared(selected, effort, bot_name)
         if selected:
             return selected
+        if effort:
+            raise EffortCapabilityError(effort, bot_name)
         logger.warning(
             "No bot matched filters (bot_name=%s backend=%s tier=%s) for user_id=%s; falling back to tier2",
             bot_name, backend, tier, user_id,
         )
+    elif effort:
+        selected = _select(
+            _candidates(universe, tier="tier2", effort=effort),
+            user_id=user_id, tier="tier2",
+        )
+        if not selected:
+            raise EffortCapabilityError(effort)
+        return selected
 
     tier2 = _select(_candidates(universe, tier="tier2"), user_id=user_id, tier="tier2")
     if tier2:

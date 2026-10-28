@@ -319,12 +319,16 @@ async def post_send_message(req: SendMessageRequest, request: Request):
         vm_config = resolve_vm_config(user_id, req.vm_name, work_dir=work_dir)
         images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-upload", vm_config=vm_config)
 
-        chat = await chat_service.deliver_user_message(
-            user_id, chat, req.prompt, human_reply=True,
-            images=images, reasoning_effort=reasoning_effort,
-            bot_name=req.bot_name, bot_tier=req.bot_tier,
-            vm_name=req.vm_name, work_dir=work_dir, post_hooks=req.post_hooks,
-        )
+        from storage.repository.chat import EffortOnRunningChat
+        try:
+            chat = await chat_service.deliver_user_message(
+                user_id, chat, req.prompt, human_reply=True,
+                images=images, reasoning_effort=reasoning_effort,
+                bot_name=req.bot_name, bot_tier=req.bot_tier,
+                vm_name=req.vm_name, work_dir=work_dir, post_hooks=req.post_hooks,
+            )
+        except EffortOnRunningChat as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         return SendMessageResponse(chat_id=chat.id, trace_id=chat.trace_id)
 
     # Dispatch-shaped: cross-skill `y chat` targeting (formerly /notify).
@@ -380,13 +384,17 @@ async def post_send_message(req: SendMessageRequest, request: Request):
                 raise HTTPException(status_code=400, detail=f"work_dir mismatch: existing chat '{chat_id}' has work_dir '{existing_chat.work_dir}', got '{work_dir}'. Use --new to create a new chat with the new work_dir.")
             if not work_dir:
                 work_dir = existing_chat.work_dir
-        chat = await chat_service.deliver_dispatch(
-            user_id, existing_chat, req.prompt,
-            from_chat_id=req.from_chat_id, from_topic=req.from_topic,
-            images=images, reasoning_effort=reasoning_effort,
-            bot_name=req.bot_name, bot_tier=req.bot_tier,
-            work_dir=work_dir, trace_id=req.trace_id, topic=req.topic, skill=skill,
-        )
+        from storage.repository.chat import EffortOnRunningChat
+        try:
+            chat = await chat_service.deliver_dispatch(
+                user_id, existing_chat, req.prompt,
+                from_chat_id=req.from_chat_id, from_topic=req.from_topic,
+                images=images, reasoning_effort=reasoning_effort,
+                bot_name=req.bot_name, bot_tier=req.bot_tier,
+                work_dir=work_dir, trace_id=req.trace_id, topic=req.topic, skill=skill,
+            )
+        except EffortOnRunningChat as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         return SendMessageResponse(chat_id=chat.id, trace_id=req.trace_id)
 
     resume_candidate = None

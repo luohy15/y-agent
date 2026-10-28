@@ -449,7 +449,7 @@ def _interactive(
 @click.option('--from-chat-id', default=None, help='Caller chat ID. Precedence: explicit flag > $Y_CHAT_ID env var > unset')
 @click.option('--wait', is_flag=True, help='Block until the assistant reply is ready and print it (instead of just the chat_id)')
 @click.option('--wait-timeout', default=300, type=int, help='[--wait] Seconds to wait before falling back to the chat_id (default: 300)')
-@click.option('--at', default=None, help="Schedule a durable wakeup instead of sending now (todo 3655): requires --chat-id and -m, incompatible with --new/--topic/--skill/--wait/--image/-i/--work-dir/--bot/--tier. Accepts a relative offset (+30m, +2h, +1d, +90s) or ISO 8601 (naive values are read in the configured timezone). See also `y chat wakeup list|cancel`.")
+@click.option('--at', default=None, help="Schedule a durable wakeup instead of sending now (todo 3655): requires --chat-id and -m, incompatible with --new/--topic/--skill/--wait/--image/-i/--work-dir/--bot/--tier/--effort. Accepts a relative offset (+30m, +2h, +1d, +90s) or ISO 8601 (naive values are read in the configured timezone). See also `y chat wakeup list|cancel`.")
 # Interactive REPL (-i mode)
 @click.option('--interactive', '-i', is_flag=True, help='Open the interactive REPL')
 @click.option('--latest', '-l', is_flag=True, help='[interactive] Continue from the latest chat via the active chat module list route. This can fail when the module is unavailable; use -c for an explicit chat or -m for dispatch.')
@@ -521,11 +521,14 @@ def chat_group(
         incompatible = {
             '--new': force_new, '--topic': topic, '--skill': skill, '--wait': wait,
             '--image': images, '-i': interactive, '--work-dir': work_dir,
-            '--bot': bot, '--tier': tier,
+            '--bot': bot, '--tier': tier, '--effort': reasoning_effort,
         }
         conflicts = [flag for flag, value in incompatible.items() if value]
         if conflicts:
-            click.echo(f"Error: --at is incompatible with {', '.join(conflicts)}.", err=True)
+            message = f"--at is incompatible with {', '.join(conflicts)}."
+            if reasoning_effort:
+                raise click.UsageError(message)
+            click.echo(f"Error: {message}", err=True)
             raise SystemExit(2)
         _schedule_wakeup(
             message=message, chat_id=chat_id, at=at, trace_id=trace_id,

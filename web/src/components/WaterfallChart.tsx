@@ -6,6 +6,14 @@ export interface Segment {
   end_unix: number;
 }
 
+export interface TraceLaunchSummary {
+  bot_name?: string | null;
+  requested_effort?: string | null;
+  launch_effort?: string | null;
+  applied?: Record<string, number> | null;
+  provider?: string;
+}
+
 export interface TraceChat {
   chat_id: string;
   title: string;
@@ -14,6 +22,7 @@ export interface TraceChat {
   backend?: string;
   bot_name?: string;
   segments: Segment[];
+  launches?: TraceLaunchSummary[];
   // Populated by GET /api/trace/share only. Authenticated GET /api/trace/chats
   // omits bodies; the chat module fetches them on click.
   messages?: unknown[];

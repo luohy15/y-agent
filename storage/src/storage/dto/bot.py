@@ -1,3 +1,4 @@
+import hashlib
 from dataclasses import dataclass, asdict
 from typing import Dict, List, Optional
 
@@ -25,10 +26,17 @@ class BotConfig:
     route_weight: Optional[float] = None
     enabled: bool = True
     ref_bot_name: Optional[str] = None
+    effort_levels: Optional[List[str]] = None
+    effort_evidence: Optional[str] = None
+    effort_binding: Optional[str] = None
+
+    @property
+    def effort_stale(self) -> bool:
+        return self.effort_levels is not None and self.effort_binding != effort_binding(self)
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'BotConfig':
-        return cls(**data)
+        return cls(**{k: v for k, v in data.items() if k != "effort_stale"})
 
     def to_dict(self) -> Dict:
         result = {}
@@ -37,7 +45,27 @@ class BotConfig:
             # receiver can tell explicit False from a missing key.
             if v is not None or k == "enabled":
                 result[k] = v
+        result["effort_stale"] = self.effort_stale
         return result
+
+
+EFFORT_LEVELS = frozenset({"low", "medium", "high", "xhigh", "max"})
+
+
+def effort_binding(config) -> str:
+    """Bind a declaration to provider identity, not credentials or routing weight."""
+    identity = "|".join((
+        config.backend or config.api_type or "",
+        (config.model or "").strip(),
+        (config.base_url or "").strip().rstrip("/"),
+    ))
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()
+
+
+def effective_effort_levels(config) -> List[str]:
+    if config.effort_binding != effort_binding(config):
+        return []
+    return config.effort_levels or []
 
 
 def _is_openrouter_routed(bot_config) -> bool:

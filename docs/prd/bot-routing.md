@@ -333,6 +333,69 @@ inspectable and editable through the bot CLI, never memorized in instructions.
   verified operationally after config changes by resolving against the real
   database, not by unit tests.
 
+## Reasoning effort
+
+Explicit reasoning effort is a per-launch override. It is the newest explicit
+value among the inputs of that launch, not a sticky chat setting, and it cannot
+change while a process is already running. A message that carries effort into a
+running chat (including closeout) is refused before it is appended. The API
+returns 409 with "effort applies per launch; resend after the run ends". A
+message without effort still steers a running chat. `y chat --at` together with
+`--effort` is a CLI usage error, because a wakeup payload does not carry effort.
+
+Effort is gated by a capability declaration on `bot_config`: `effort_levels`,
+`effort_evidence`, and `effort_binding`. The binding is the sha256 of
+`{backend or api_type or empty}|{stripped model}|{stripped base_url without a
+trailing slash}`. It does not include the API key, tier, or route weight.
+Declared levels are effective only while the stored binding still matches the
+row. A model, base URL, or backend change makes the declaration stale. A name
+pin that points at another bot uses the target row's declaration. The only
+writer is `set_effort_capability`; a full bot-config update does not touch
+these columns. The host contract is v27:
+`bot_config_set_effort_capability(user_id, name, levels|None, evidence)`.
+Levels are a nonempty subset of low, medium, high, xhigh, and max, and evidence
+is required when levels are set. None clears the declaration.
+
+The gate runs only when effort is explicit, and it runs before routing is
+persisted. A fresh chat with no bot pin filters the candidate pool by the
+level. An empty pool is an error: there is no tier2 or default fallback. An
+existing chat bot, a `--bot` pin, or a re-bot target is checked on its own. If
+it does not declare the level, or the re-bot target does not resolve, the
+launch fails. The chat is not switched to another bot, and the previous bot is
+not kept running with the effort. The
+failure is a launch error (`running` false, assistant error text) and does not
+reach the synthetic fallback bot. No effort leaves candidate selection, weighted
+round-robin writes, and argv as they are today. An inline backend that is given
+effort still raises the existing "only supported for claude_code" error.
+
+Each actual `claude` spawn (fresh, resume, or continuation) records one
+append-only `chat_launch` row after `tmux new-session` returns. A failed
+spawn, including a missing work dir that never starts tmux, records nothing.
+A failed history insert is logged and does not stop the live process or its
+registration. `launched_at` is the worker clock taken immediately before the
+detached start, not the insert time and not process completion, so a request
+during the acknowledgement wait belongs to that launch. A Lambda tail handoff
+is not a launch. The row snapshots
+requested effort (the explicit input, or null) and launch effort (the argv
+level, or null when no flag was passed). Null launch effort is shown as
+"default", never as a level. Client-applied effort comes from the top-level
+transcript `assistant.effort` and fills `chat_request_usage.applied_effort`
+only when that column is still null. Trace view shows, for the authenticated
+payload only, the newest 20 launches per chat: requested, launch, applied
+counts in the launch's time window, and provider unconfirmed. The public share
+payload has no launches.
+
+Seeds are conservative and owner-scoped. They stamp only a row whose model is
+still the model observed in the 2026-10-28 client/wire scan. They are not
+provider confirmation, and they do not include xhigh, max, or fable. `--effort
+xhigh` fails closed until a declaration is recorded with evidence.
+
+Dispatch policy, kept in agent instructions rather than code: re-pass
+`--effort medium` on every mechanical leaf launch, including fix resumes.
+`xhigh` is only for a reasoning failure on a bot that declares it, one step per
+sub-task, inside the review round cap. Tool, credential, and VM errors do not
+escalate effort. `max` and `low` are used only when the user asks.
+
 ## Out of Scope
 
 - Per-topic or per-skill bot bindings: explicitly rejected as the

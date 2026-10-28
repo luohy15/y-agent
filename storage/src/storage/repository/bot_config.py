@@ -24,6 +24,9 @@ def _entity_to_dto(entity: BotConfigEntity) -> BotConfig:
         route_weight=entity.route_weight,
         enabled=entity.enabled if entity.enabled is not None else True,
         ref_bot_name=entity.ref_bot_name,
+        effort_levels=entity.effort_levels,
+        effort_evidence=entity.effort_evidence,
+        effort_binding=entity.effort_binding,
     )
 
 
@@ -76,6 +79,21 @@ def set_enabled(user_id: int, name: str, enabled: bool) -> bool:
         if entity.enabled == enabled:
             return True
         entity.enabled = enabled
+        session.flush()
+        return True
+
+
+def set_effort_capability(user_id: int, name: str, levels: Optional[List[str]], evidence: Optional[str]) -> bool:
+    from storage.dto.bot import effort_binding
+
+    with get_db() as session:
+        entity = (session.query(BotConfigEntity).filter_by(user_id=user_id, name=name)
+                  .with_for_update().first())
+        if entity is None:
+            return False
+        entity.effort_levels = levels
+        entity.effort_evidence = evidence if levels is not None else None
+        entity.effort_binding = effort_binding(entity) if levels is not None else None
         session.flush()
         return True
 
