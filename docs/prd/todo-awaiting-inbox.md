@@ -217,6 +217,11 @@ live work exists; enablement remains a separate rollout step.
     receipt already is, and I want that suppression to end on its own once
     the wakeup delivers or goes stale, so that a wakeup that never fires is
     still caught.
+34b. As a session waiting for a live `<purpose>-<todo_id>` tmux child on my
+    owner's default VM (todo 4063), I want the trace to stay active even when
+    no chat is running, and normal idle detection to return when that job
+    exits. Shell scripts and compound commands count through non-sleep
+    descendants; an idle prompt or bare sleep timer does not count.
 35. As Roy, I want an active todo older than twenty-four hours with zero
     chats to enter the inbox once as awaiting, so that a todo whose dispatch
     never happened is not invisible to a trace-level check.
@@ -692,7 +697,8 @@ expressed as a branch:
   one grouped chat aggregate per batch (count, running count). Chat recency
   is not an input. The under-lock recheck still orders chats by
   `updated_at_unix` descending so the notice pointer and outcome come from
-  the newest chat.
+  the newest chat. Candidate owners also get a lazy cached live tmux pane
+  snapshot (todo 4063), described below.
 - **Publication queue is existing real dependency, not a todo flag.** Todo
   3493's park/unpark writes of `external` are removed. A same-owner trace's
   pending `dev_release_waiter` suppresses idle fault classification,
@@ -718,19 +724,39 @@ expressed as a branch:
   undelivered past due_at plus grace stops suppressing, so a stall in the
   delivery path itself is still caught, not hidden behind an unbounded wait.
   The maximum registrable horizon is 7 days.
-- **Untracked tmux-only waits lose the old grace exemption for anything
-  that is not a pure time wait covered by a registered wakeup.** A detached
-  tmux job without a live existing process record, durable queue receipt, or
-  registered wakeup can be classified as idle even if its eventual callback
-  is configured. Progress text is not machine evidence. Do not promise that
-  merely naming tmux or setting a callback prevents this. Prefer
-  already-monitored execution for long tasks. An awaiting notice in this
-  case requests inspection, not proof the job died. Do not use fake running
-  flags, periodic progress heartbeats, pending status or new timeout flags
-  to hide it. If maintaining arbitrary tmux grace for a real long-running
-  job (not a pure time wait) is mandatory, that requires a separately
-  approved real process-liveness integration, not silently
-  restoring `external` under another name.
+- **Live tmux job evidence (todo 4063).** A live pane on the owner's default
+  VM suppresses a fault when its session is named `<purpose>-<todo_id>`:
+  the suffix after the last hyphen must match the todo ID exactly, and names
+  beginning `cc-` are excluded because chat processes are already monitored.
+  `tmux list-panes -a` supplies session name, `pane_dead`, `pane_pid`, and
+  `pane_current_command`; the same probe reads `ps -e -o pid=,ppid=,comm=`.
+  A pane must have `pane_dead == 0` and either a current command basename
+  outside `sh`, `bash`, `zsh`, `fish`, `dash`, `sleep`, or a transitive
+  descendant of `pane_pid` whose command basename is not `sleep`.
+  This protects bash scripts and compound shell commands, not just direct
+  binaries. Paths are reduced to basenames for macOS ps output; a pane PID
+  absent from ps falls back to the current-command rule only.
+  Dead panes, idle prompts, bare sleep timers, wrong names and non-default
+  VMs provide no evidence. Accepted boundary: a timer wrapped in a child
+  shell (`sh -c "sleep 600; y chat ..."`) counts as live because its child
+  shell is not `sleep`; a bare typed sleep or typed sleep loop does not. After a job exits, ordinary idle detection resumes
+  on the next pass. Progress text and callbacks alone are not evidence.
+  The probe is lazy, once per candidate owner per pass, after the chat
+  snapshot, using only that owner's default VM config, never a fallback
+  owner's VM. No config or a sleeping VM means empty evidence; the VM is
+  never woken. The constant `sh -c` probe uses `work_dir=""`, `wake=False`,
+  `timeout=10`, `check=False`, so no configured working-directory change can
+  prevent it from running. It separates tmux and ps output with `@@PS@@`.
+  A missing marker or no parseable ps rows means unknown, not empty.
+  With a valid ps section, an empty tmux section means empty evidence
+  (including no tmux server or no tmux binary; tmux stderr is discarded).
+  Probe exceptions/timeouts also mean unknown: skip that owner's candidates for
+  this pass and count them in `tmux_unknown`, rather than falsely claim idle.
+  The under-lock recheck reuses the cached snapshot, with no network I/O
+  under the todo lock. Stale live evidence can delay a claim by one pass.
+  This does not authorize timers or replace a genuine completion callback.
+  A process waiting for Roy's input still requires the reporting session
+  to explicitly set awaiting.
 - **Claiming.** Each candidate goes through `claim_fault`: under the todo
   lock it re-reads the trace's chats, rejects any SQL-running chat, performs
   a consistent per-chat process read (owner matched; a running record
@@ -897,6 +923,13 @@ Recorded so they are not mistaken for regressions:
 ## Testing Decisions
 
 Tests are local-only and untracked per repo convention.
+
+- **Tmux liveness (todo 4063)** covers a live child without a running chat,
+  exact suffix matching and owner isolation, dead panes, idle shells and
+  sleep exclusion, no-config/asleep/empty/unknown snapshots, no VM wake,
+  one lazy probe per candidate owner, no probe without candidates, and
+  cached evidence in the under-lock recheck. Existing registered-wakeup
+  batch/recheck tests remain PostgreSQL-backed.
 
 - **Awaiting status transitions** are table-driven over the service layer:
   all 25 explicit pairs; completed/deleted to awaiting as one atomic

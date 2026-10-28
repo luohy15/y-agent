@@ -15,6 +15,9 @@ from typing import Optional
 from loguru import logger
 from sqlalchemy import case, func
 
+from agent.ec2_wake import is_vm_asleep
+from agent.vm_command import execute_vm_command
+from storage.service import vm_config as vm_service
 from storage.database.base import get_db
 from storage.entity.chat import ChatEntity
 from storage.entity.todo import TodoEntity
@@ -45,6 +48,73 @@ def classify(*, live, chat_count, created_at_ms, now_ms) -> Optional[str]:
             return None
         return "backstop" if now_ms - created_at_ms >= ZERO_CHAT_BACKSTOP_SECONDS * 1000 else None
     return "idle"
+
+
+PROBE_SCRIPT = (
+    "tmux list-panes -a -F '#{session_name}\t#{pane_dead}\t#{pane_pid}\t#{pane_current_command}' 2>/dev/null; "
+    "echo @@PS@@; ps -e -o pid=,ppid=,comm="
+)
+
+
+def _live_pane(cur, pane_pid, tree) -> bool:
+    if cur and cur.rsplit("/", 1)[-1] not in {"sh", "bash", "zsh", "fish", "dash", "sleep"}:
+        return True
+    pending, seen = [pane_pid], set()
+    while pending:
+        pid = pending.pop()
+        if pid in seen:
+            continue
+        seen.add(pid)
+        for child, command in tree.get(pid, []):
+            if command.rsplit("/", 1)[-1] != "sleep":
+                return True
+            pending.append(child)
+    return False
+
+
+def parse_probe(text: str) -> set[str] | None:
+    """A complete process snapshot distinguishes idle prompts from shell jobs."""
+    panes, marker, processes = text.partition("@@PS@@\n")
+    if not marker:
+        return None
+    tree, pids = {}, set()
+    for line in processes.splitlines():
+        fields = line.split(None, 2)
+        if len(fields) != 3 or not fields[0].isdigit() or not fields[1].isdigit():
+            continue
+        pid, parent, command = fields
+        pids.add(pid)
+        tree.setdefault(parent, []).append((pid, command))
+    if not pids:
+        return None
+    live = set()
+    for line in panes.splitlines():
+        fields = line.split("\t")
+        if len(fields) != 4:
+            continue
+        name, dead, pane_pid, command = fields
+        purpose, separator, todo_id = name.rpartition("-")
+        if dead != "0" or not separator or not purpose or not todo_id or name.startswith("cc-"):
+            continue
+        if _live_pane(command, pane_pid, tree if pane_pid in pids else {}):
+            live.add(todo_id)
+    return live
+
+
+async def _tmux_snapshot(user_id: int) -> set[str] | None:
+    """Read only this owner's default VM; unknown evidence must not claim faults."""
+    try:
+        vm = vm_service.get_config(user_id, "default")
+        if vm is None or is_vm_asleep(vm):
+            return set()
+        output = await execute_vm_command(
+            vm, ["sh", "-c", PROBE_SCRIPT],
+            work_dir="", wake=False, timeout=10, check=False,
+        )
+        return parse_probe(output)
+    except Exception:
+        logger.exception("check_trace_liveness: tmux snapshot unavailable: user_id={}", user_id)
+        return None
 
 
 def _process_snapshot():
@@ -90,11 +160,14 @@ def _assistant_text_from_entity(row) -> Optional[str]:
     return last.content if last and isinstance(last.content, str) else None
 
 
-def _claim_fault(todo, reason) -> str:
+def _claim_fault(todo, reason, tmux_live: set[str]) -> str:
     """One conditional claim under the todo lock; the shared notice hook sends on entry."""
     user_id, todo_id = todo.user_id, todo.todo_id
 
     def recheck(session, row):
+        # Reuse the pass snapshot: never perform VM I/O under the todo lock.
+        if todo_id in tmux_live:
+            return None
         if dev_release_repo.has_pending_waiter(session, user_id, todo_id):
             return None
         if wakeup_repo.has_pending_wakeup(session, user_id, todo_id, get_unix_timestamp()):
@@ -141,7 +214,7 @@ def _claim_fault(todo, reason) -> str:
     return "claimed" if changed else "suppressed"
 
 
-def run_pass(now_ms: Optional[int] = None) -> dict:
+async def run_pass(now_ms: Optional[int] = None) -> dict:
     """One watchdog pass over every owner's active todos."""
     now_ms = now_ms or get_unix_timestamp()
     try:
@@ -156,7 +229,8 @@ def run_pass(now_ms: Optional[int] = None) -> dict:
                     .filter(ChatEntity.trace_id.isnot(None)).all())
         live_traces |= {(r.user_id, r.trace_id) for r in rows if (r.user_id, r.chat_id) in live_chats}
 
-    counts = dict(scanned=0, candidates=0, claimed=0, suppressed=0, failed=0)
+    counts = dict(scanned=0, candidates=0, claimed=0, suppressed=0, failed=0, tmux_unknown=0)
+    tmux_snapshots = {}
     last_id = 0
     while True:
         with get_db() as session:
@@ -182,7 +256,16 @@ def run_pass(now_ms: Optional[int] = None) -> dict:
             if reason is None:
                 continue
             counts["candidates"] += 1
-            outcome = _claim_fault(todo, reason)
+            if todo.user_id not in tmux_snapshots:
+                tmux_snapshots[todo.user_id] = await _tmux_snapshot(todo.user_id)
+            tmux_live = tmux_snapshots[todo.user_id]
+            if tmux_live is None:
+                counts["tmux_unknown"] += 1
+                continue
+            if todo.todo_id in tmux_live:
+                counts["suppressed"] += 1
+                continue
+            outcome = _claim_fault(todo, reason, tmux_live)
             counts[outcome] += 1
     return {"status": "ok", "action": LOCK_NAME, **counts}
 
@@ -192,7 +275,7 @@ async def handle_check_trace_liveness() -> dict:
         logger.info("check_trace_liveness: lock held, skipping")
         return {"status": "skip", "action": LOCK_NAME, "reason": "lock held"}
     try:
-        result = run_pass()
+        result = await run_pass()
         if result["status"] == "ok":
             pipeline_lock_service.record_success(LOCK_NAME)
         logger.info("check_trace_liveness: {}", result)

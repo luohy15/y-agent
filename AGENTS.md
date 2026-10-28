@@ -80,7 +80,15 @@ entity + controller + service + CLI slices, and most have a web panel.
   `has_pending_wakeup` recheck), the same way a pending `dev_release_waiter`
   already does; delivery leaves the chat SQL-running, which is itself
   evidence, and once the run finishes a delivered wakeup no longer suppresses.
-  A wakeup stuck undelivered past the grace stops suppressing.
+  A wakeup stuck undelivered past the grace stops suppressing. Live
+  `<purpose>-<todo_id>` tmux jobs on the owner's default VM also count (todo
+  4063): exclude `cc-` sessions and dead panes; a non-shell/non-sleep current
+  command or a non-sleep descendant of the pane process counts, including
+  shell scripts. Idle prompts and bare sleep timers do not count (a timer
+  wrapped in a child shell does). Probe lazily once per candidate owner
+  without waking the VM or changing directory. Probe errors or missing
+  process output are unknown and suppress claims for that owner for the
+  pass (`tmux_unknown`); valid process output with no tmux panes is empty.
 - **Note** — `note`, `note_todo_relation`, and `note_share` are host-kernel
   tables. A note has a `content_key` file pointer (relative to Y_AGENT_HOME) plus
   JSON `front_matter`; it is used for plan / requirement / decision / journal
