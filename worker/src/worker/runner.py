@@ -863,7 +863,7 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
     from agent.input_ledger import COMPLETED, SUBMITTED, native_input_uuid
 
     input_ids = params["input_ids"]
-    launch_uuid = native_input_uuid(chat_id, f"launch:{input_ids[-1] if input_ids else 'none'}")
+    launch_uuid = native_input_uuid(chat_id, f"launch:{chat.run_seq}:{input_ids[-1] if input_ids else 'none'}")
     from agent.mcp import launch as mcp_launch
     mcp_material = await asyncio.to_thread(mcp_launch.prepare, user_id, chat_id, chat.run_seq)
     launch_report = {}

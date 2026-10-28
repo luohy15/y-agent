@@ -282,6 +282,8 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             ssh_client=client,
             check_steer_fn=steer_fn,
             input_ledger=ledger,
+            launch_input_uuid=next((native_uuid for native_uuid, ids in ledger.groups.items()
+                                    if proc.get("scope_first_id") in ids), None),
             pending_result=_load_json_field(proc, "pending_result") or None,
             pending_context_usage=_load_json_field(proc, "pending_context_usage") or None,
         )

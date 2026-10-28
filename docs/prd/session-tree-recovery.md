@@ -322,6 +322,12 @@ callback is a message that was refused, not a handoff that exists.
   adds no second retry layer, because a retry that re-runs an agent's work can
   duplicate commits, deploys, and todo mutations.
 
+- A launch input dropped as a duplicate (a terminal lifecycle event without
+  queued/started acknowledgment or a result) is an execution error, not live
+  work. The single 5xx/429 resume uses a fresh run-scoped input identity;
+  Lambda handoffs retain the existing identity. Folded steer inputs are excluded
+  from this launch-only guard. This adds no time-based idle heuristic.
+
 - **`stalled` is the chat-says-running-but-nothing-is-behind-it case**: no live
   process record or lease for a chat still flagged running. Recovery for a
   stalled edge marks the chat idle (the same correction the launch-failure path

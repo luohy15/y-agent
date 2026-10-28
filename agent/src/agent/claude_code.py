@@ -27,7 +27,7 @@ from loguru import logger
 
 from storage.entity.dto import Message, VmConfig
 from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
-from agent.input_ledger import InputLedger, native_input_uuid
+from agent.input_ledger import InputLedger, SUBMITTED, native_input_uuid
 from agent.poll_loop import PollLoop
 
 if TYPE_CHECKING:
@@ -1041,6 +1041,7 @@ async def tail_ssh_output(
     input_ledger: Optional[InputLedger] = None,
     pending_result: Optional[dict] = None,
     pending_context_usage: Optional[dict] = None,
+    launch_input_uuid: Optional[str] = None,
 ) -> dict:
     """Tail a detached claude-code process's stdout file via SSH.
 
@@ -1270,6 +1271,13 @@ async def tail_ssh_output(
                             context_usage = observed
                     if obj.get("type") == "command_lifecycle":
                         with steer_lock:
+                            launch_ids = ledger.groups.get(launch_input_uuid, [])
+                            dropped_launch = (
+                                obj.get("command_uuid") == launch_input_uuid
+                                and obj.get("state") in ("completed", "cancelled", "discarded", "refused")
+                                and result_data is None and launch_ids
+                                and all(ledger.state_of(mid) == SUBMITTED for mid in launch_ids)
+                            )
                             # A newly started command needs a result from that
                             # turn, not a result cached from an earlier turn.
                             # Folded inputs complete before their turn's result.
@@ -1277,6 +1285,16 @@ async def tail_ssh_output(
                                     and obj.get("command_uuid") in ledger.groups):
                                 result_data = None
                             ledger.observe_lifecycle(obj)
+                            if dropped_launch:
+                                # A lone terminal launch event means no turn ran.
+                                # ACKNOWLEDGED survives handoffs; folded steers
+                                # may legitimately complete without their own start.
+                                result_data = {
+                                    "is_error": True,
+                                    "result": "Claude Code dropped the launch input as already processed (duplicate input uuid); no turn ran",
+                                }
+                                _teardown_locked()
+                                return "dropped_launch"
                             if result_data is not None and _try_finish_turn():
                                 return None
                         continue
