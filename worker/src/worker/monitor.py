@@ -695,7 +695,10 @@ def _latest_complete_request(result_data: dict, observed_usage: dict):
 
 
 def _apply_claude_usage(fresh, result_data: dict, observed_usage: dict = None):
-    fresh.context_usage_source = None
+    # NULL provenance is the only legacy fallback signal. Unknown and
+    # average-only closeouts keep an explicit marker so a later decision
+    # cannot revive an older stored request.
+    fresh.context_usage_source = "unknown"
     if not isinstance(result_data, dict):
         return
 

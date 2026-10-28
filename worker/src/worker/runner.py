@@ -680,8 +680,18 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
     resolved_tier = agent_config.tier_of(bot_config)
     logger.info("Resolved bot config: name={} backend={} model={} tier={}", bot_config.name, bot_config.backend or bot_config.api_type, bot_config.model, resolved_tier)
 
-    from storage.service.resume_gate import evaluate
-    refusal = evaluate(user_id, chat)
+    from storage.service.resume_gate import effective_limit, evaluate, limit_bounds, resolve_measurement
+    measurement = None
+    if chat.backend == "claude_code" and chat.external_id:
+        pending_ids = [message.id for message in selected_inputs if getattr(message, "id", None)]
+        boundary_reliable = all(getattr(message, "id", None) for message in selected_inputs)
+        current_limit, _pending_limit = limit_bounds(user_id, chat)
+        applicable = current_limit is not None or effective_limit(bot_config) is not None
+        measurement = resolve_measurement(
+            user_id, chat, pending_input_ids=pending_ids, limit_applicable=applicable,
+            boundary_reliable=boundary_reliable,
+        )
+    refusal = evaluate(user_id, chat, measurement=measurement)
     if refusal:
         error = RuntimeError(f"chat_read_only:{refusal.reason}: {refusal}")
         _abort_unlaunched(chat, chat_id, user_id, error)
@@ -716,7 +726,8 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
                                post_hooks=post_hooks, trace_id=trace_id, role=role,
                                resume_5xx_retries=resume_5xx_retries,
                                continuation_from_id=continuation_from_id,
-                               handled_input_ids=handled_input_ids)
+                               handled_input_ids=handled_input_ids,
+                               measurement=measurement)
         return "detached"
     except Exception as e:
         logger.exception("Detached backend launch failed for chat {}: {}", chat_id, e)
@@ -737,7 +748,7 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
 def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None,
                               work_dir: str = None, trace_id: str = None, role: str = None,
                               continuation_from_id: str = None,
-                              handled_input_ids=None) -> dict:
+                              handled_input_ids=None, measurement=None) -> dict:
     """Extract prompt, build cmd/env/cwd for claude-code. Returns dict with all params needed to run."""
     messages = list(chat.messages)
 
@@ -757,7 +768,11 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
     if resume:
         from storage.service.resume_gate import evaluate
 
-        refusal = evaluate(user_id, chat, bot_config=bot_config)
+        refusal = evaluate(
+            user_id, chat, bot_config=bot_config, measurement=measurement,
+            pending_input_ids=[message.id for message in selected_inputs if message.id],
+            boundary_reliable=all(message.id for message in selected_inputs),
+        )
         if refusal:
             raise RuntimeError(f"chat_read_only:{refusal.reason}: {refusal}")
 
@@ -827,7 +842,7 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
                            post_hooks: list = None, trace_id: str = None,
                            role: str = None, resume_5xx_retries: int = 0,
                            continuation_from_id: str = None,
-                           handled_input_ids=None) -> None:
+                           handled_input_ids=None, measurement=None) -> None:
     """Start claude-code as a detached tmux process on EC2.
 
     Called from run_chat after chat loading, trace setup, and running flag are done.
@@ -849,7 +864,8 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
                                         vm_name=vm_name, work_dir=work_dir,
                                         trace_id=trace_id, role=role,
                                         continuation_from_id=continuation_from_id,
-                                        handled_input_ids=handled_input_ids)
+                                        handled_input_ids=handled_input_ids,
+                                        measurement=measurement)
 
     if not params["prompt"]:
         logger.error("No user message found in chat {}", chat_id)

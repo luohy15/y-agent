@@ -2,6 +2,8 @@
 
 import os
 import shlex
+from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from storage.dto.chat import Chat
 
@@ -30,6 +32,22 @@ def measure(chat: Chat):
     return chat.prompt_tokens()
 
 
+@dataclass(frozen=True)
+class Measurement:
+    """One decision's trusted prompt size. `tokens` is None when it is unknown."""
+
+    tokens: int | None
+    source: str
+    request_id: str | None = None
+    session_id: str | None = None
+    requested_at: str | None = None
+
+
+UNKNOWN = Measurement(None, "unknown")
+_BOUNDARY_UNKNOWN = object()
+_PROMPT_COUNTERS = ("input_tokens", "cache_read_tokens", "cache_creation_tokens")
+
+
 def effective_limit(bot_config):
     if bot_config is None:
         return None
@@ -41,38 +59,157 @@ def effective_limit(bot_config):
     return limit if limit > 0 else None
 
 
-def resolve_limit(user_id: int, chat: Chat, bot_name=None, bot_tier=None):
+def pick_limit(current_limit, pending_limit, measured):
+    """Current bot wins when it is already over its limit; otherwise the tighter one."""
+    if current_limit is not None and measured is not None and measured >= current_limit:
+        return current_limit
+    limits = [value for value in (current_limit, pending_limit) if value is not None]
+    return min(limits) if limits else None
+
+
+def limit_bounds(user_id: int, chat: Chat, bot_name=None, bot_tier=None):
+    """Current and pending limits. No usage read, so admission can do this before the lock."""
     from agent.config import _resolve_named, resolve_pinned_bot_config
 
     if chat.backend != "claude_code" or not chat.external_id:
-        return None
+        return None, None
     current = _resolve_named(user_id, chat.bot_name, backend=chat.backend)
     current_limit = effective_limit(current)
-    measured = measure(chat)
-    if current_limit is not None and measured is not None and measured >= current_limit:
-        return current_limit
-    config = None
+    pending_limit = None
     if bot_name and bot_name != chat.bot_name:
         config = resolve_pinned_bot_config(user_id, bot_name, bot_tier)
         if config and (config.backend or config.api_type) != chat.backend:
             config = None
-    if config is None:
-        config = current
-    pending_limit = effective_limit(config)
-    limits = [limit for limit in (current_limit, pending_limit) if limit is not None]
-    return min(limits) if limits else None
+        if config is None:
+            config = current
+        pending_limit = effective_limit(config)
+    return current_limit, pending_limit
 
 
-def evaluate(user_id: int, chat: Chat, bot_name=None, bot_tier=None, *, bot_config=None):
+def resolve_limit(user_id: int, chat: Chat, bot_name=None, bot_tier=None, *, measured=None):
+    current_limit, pending_limit = limit_bounds(user_id, chat, bot_name, bot_tier)
+    if measured is None:
+        measured = measure(chat)
+    return pick_limit(current_limit, pending_limit, measured)
+
+
+def _parse_requested_at(value):
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _message_floor(chat: Chat, pending_input_ids, boundary_reliable: bool):
+    """Latest persisted user-message time, excluding this launch's pending inputs.
+
+    Millisecond `unix_timestamp` values match the chat DTO. A missing or
+    non-integer stamp makes the boundary unreliable. Refusal notices are
+    assistant messages and do not count.
+    """
+    if not boundary_reliable:
+        return _BOUNDARY_UNKNOWN
+    pending = {item for item in (pending_input_ids or ()) if item}
+    latest = None
+    for msg in chat.messages or []:
+        if getattr(msg, "role", None) != "user":
+            continue
+        if getattr(msg, "id", None) in pending:
+            continue
+        stamp = getattr(msg, "unix_timestamp", None)
+        if isinstance(stamp, bool) or not isinstance(stamp, int):
+            return _BOUNDARY_UNKNOWN
+        if latest is None or stamp > latest:
+            latest = stamp
+    if latest is None:
+        return None
+    try:
+        return datetime.fromtimestamp(latest / 1000, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return _BOUNDARY_UNKNOWN
+
+
+def _row_measurement(rows, floor, now, session_id: str, chat_id: str):
+    """Validate the newest row only. The second row exists to detect a tie."""
+    from storage.service.chat_request_usage import REQUESTED_AT_FUTURE, _counter
+
+    if not rows:
+        return UNKNOWN
+    parsed = [_parse_requested_at(getattr(row, "requested_at", None)) for row in rows]
+    if any(item is None for item in parsed) or (len(parsed) > 1 and parsed[0] == parsed[1]):
+        return UNKNOWN
+    newest = rows[0]
+    if getattr(newest, "session_id", None) != session_id or getattr(newest, "chat_id", None) != chat_id:
+        return UNKNOWN
+    when = parsed[0]
+    if when > now + REQUESTED_AT_FUTURE or floor is _BOUNDARY_UNKNOWN or (floor is not None and when < floor):
+        return UNKNOWN
+    if getattr(newest, "usage_state", None) != "observed":
+        return UNKNOWN
+    counters = []
+    for name in _PROMPT_COUNTERS:
+        value = _counter(getattr(newest, name, None))
+        if value is None:
+            return UNKNOWN
+        counters.append(value)
+    request_id = getattr(newest, "request_id", None)
+    if not isinstance(request_id, str) or not request_id:
+        return UNKNOWN
+    if floor is not None and when == floor:
+        from loguru import logger
+
+        logger.info("resume_gate freshness boundary equal at stored timestamp precision")
+    return Measurement(sum(counters), "request_usage", request_id, session_id, when.isoformat())
+
+
+def resolve_measurement(user_id: int, chat: Chat, *, session=None, pending_input_ids=None,
+                        live_steer: bool = False, limit_applicable: bool = True,
+                        boundary_reliable: bool = True, now=None):
+    """Trusted prompt evidence for one decision, or unknown. At most one usage read."""
+    if live_steer or not limit_applicable or chat.backend != "claude_code" or not chat.external_id:
+        return UNKNOWN
+    source = chat.context_usage_source
+    if source == "main_request":
+        tokens = chat.prompt_tokens()
+        return Measurement(tokens, "main_request") if tokens is not None else UNKNOWN
+    if source is not None:
+        return UNKNOWN
+    floor = _message_floor(chat, pending_input_ids, boundary_reliable)
+    if floor is _BOUNDARY_UNKNOWN:
+        return UNKNOWN
+    from storage.repository import chat_request_usage as usage_repo
+
+    rows = usage_repo.latest_session_rows(user_id, chat.id, chat.external_id, session=session)
+    if rows is None:
+        return UNKNOWN
+    return _row_measurement(rows, floor, now or datetime.now(timezone.utc), chat.external_id, chat.id)
+
+
+def evaluate(user_id: int, chat: Chat, bot_name=None, bot_tier=None, *, bot_config=None,
+             measurement=None, pending_input_ids=None, session=None, boundary_reliable: bool = True):
     """Evaluate a resume, including worker launches whose reservation is running."""
     if chat.backend != "claude_code" or not chat.external_id:
         return None
+    if measurement is None:
+        if bot_config is not None:
+            applicable = effective_limit(bot_config) is not None
+        else:
+            current_limit, pending_limit = limit_bounds(user_id, chat, bot_name, bot_tier)
+            applicable = current_limit is not None or pending_limit is not None
+        measurement = resolve_measurement(
+            user_id, chat, session=session, pending_input_ids=pending_input_ids,
+            limit_applicable=applicable, boundary_reliable=boundary_reliable,
+        )
     limit = (effective_limit(bot_config) if bot_config is not None
-             else resolve_limit(user_id, chat, bot_name, bot_tier))
-    measured = measure(chat)
-    if limit is None or measured is None or measured < limit:
+             else resolve_limit(user_id, chat, bot_name, bot_tier, measured=measurement.tokens))
+    if limit is None or measurement.tokens is None or measurement.tokens < limit:
         return None
-    return ChatReadOnly(measured, limit, build_handoff(user_id, chat))
+    return ChatReadOnly(measurement.tokens, limit, build_handoff(user_id, chat))
 
 
 def append_refusal_notice(user_id: int, chat_id: str, event_id: str, refusal: ChatReadOnly):

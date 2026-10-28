@@ -61,7 +61,7 @@ def build_handoff_reminder(chat: Chat, ratio: float) -> str:
     )
 
 
-def maybe_append_handoff_reminder(chat: Chat, content: str, resume_limit=None) -> str:
+def maybe_append_handoff_reminder(chat: Chat, content: str, resume_limit=None, measured=None) -> str:
     """Append a handoff reminder to `content` when `chat` is over threshold.
 
     No-op when: usage is unknown (ratio is None), usage is at/under the
@@ -70,7 +70,8 @@ def maybe_append_handoff_reminder(chat: Chat, content: str, resume_limit=None) -
     batch, see plan-2951 I2).
     """
     if resume_limit is not None:
-        measured = chat.prompt_tokens()
+        if measured is None:
+            measured = chat.prompt_tokens()
         if measured is None or measured < resume_limit * 0.8:
             return content
         reminder = (
@@ -456,10 +457,13 @@ async def accept_user_message(
     `event_id` makes the append idempotent for a retried server-side event and
     is the message id, so a redelivery finds it already present.
     """
-    resume_limit = resume_gate.resolve_limit(
+    current_limit, pending_limit = resume_gate.limit_bounds(
         user_id, chat, _ignored.get("bot_name"), _ignored.get("bot_tier"),
     )
-    msg_content = maybe_append_handoff_reminder(chat, content, resume_limit=resume_limit)
+    if current_limit is None and pending_limit is None:
+        msg_content = maybe_append_handoff_reminder(chat, content)
+    else:
+        msg_content = content
     msg_dict = {
         "role": "user",
         "content": msg_content,
@@ -479,7 +483,8 @@ async def accept_user_message(
         chat, already_running = chat_repo.accept_or_start_chat(
             user_id, chat.id, message=user_msg, human_reply=human_reply,
             trace_id=trace_id, role=role, skill=skill,
-            event_id=event_id, session=session, resume_limit=resume_limit,
+            event_id=event_id, session=session,
+            current_limit=current_limit, pending_limit=pending_limit,
         )
     except resume_gate.ChatReadOnly as exc:
         exc.handoff = resume_gate.build_handoff(user_id, chat)

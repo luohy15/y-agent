@@ -9,7 +9,7 @@ The check and the write share one lock, so two concurrent writers cannot both
 decide the row is new and then merge into each other.
 """
 
-from sqlalchemy import Integer, String, bindparam, case, func, literal, select, text
+from sqlalchemy import DateTime, Integer, String, bindparam, case, cast, desc, func, literal, select, text
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -455,3 +455,77 @@ def turns_for_chats(user_id: int, chat_ids: list[str]) -> dict[str, int]:
             .group_by(ChatModelActivityEntity.chat_id)
         ).all()
     return {chat_id: int(turns) for chat_id, turns in grouped}
+
+
+# Local to the surrounding transaction. 250ms bounds this lookup only; the caller
+# restores the previous timeout before releasing the savepoint.
+_LOOKUP_TIMEOUT = "250ms"
+
+
+def latest_session_rows_stmt():
+    """Newest two rows for one owner, chat, and session. No usage_state prefilter.
+
+    Timestamp cast keeps chronological order when fractional precision differs.
+    `request_id` only stabilizes the pair; a tie is rejected by the caller.
+    """
+    requested_at = cast(ChatRequestUsageEntity.requested_at, DateTime(timezone=True))
+    return (
+        select(
+            ChatRequestUsageEntity.request_id,
+            ChatRequestUsageEntity.session_id,
+            ChatRequestUsageEntity.chat_id,
+            ChatRequestUsageEntity.requested_at,
+            ChatRequestUsageEntity.usage_state,
+            ChatRequestUsageEntity.input_tokens,
+            ChatRequestUsageEntity.cache_read_tokens,
+            ChatRequestUsageEntity.cache_creation_tokens,
+        )
+        .where(
+            ChatRequestUsageEntity.user_id == bindparam("user_id"),
+            ChatRequestUsageEntity.chat_id == bindparam("chat_id"),
+            ChatRequestUsageEntity.session_id == bindparam("session_id"),
+        )
+        .order_by(desc(requested_at), ChatRequestUsageEntity.request_id.asc())
+        .limit(2)
+    )
+
+
+def read_latest_session_rows(session, user_id: int, chat_id: str, session_id: str):
+    """One bounded read inside a savepoint. None means the lookup failed closed.
+
+    A statement error rolls the savepoint back so the caller's transaction stays
+    usable. Restoring the previous timeout is required: releasing the savepoint
+    would otherwise keep the 250ms limit for the rest of that transaction.
+    """
+    from loguru import logger
+
+    nested = session.begin_nested()
+    try:
+        previous = session.execute(text("SELECT current_setting('statement_timeout')")).scalar()
+        session.execute(
+            text("SELECT set_config('statement_timeout', :timeout, true)"),
+            {"timeout": _LOOKUP_TIMEOUT},
+        )
+        rows = list(session.execute(
+            latest_session_rows_stmt(),
+            {"user_id": user_id, "chat_id": chat_id, "session_id": session_id},
+        ).all())
+        session.execute(
+            text("SELECT set_config('statement_timeout', :timeout, true)"),
+            {"timeout": previous if previous else "0"},
+        )
+        nested.commit()
+        return rows
+    except Exception:
+        # If rollback itself fails, propagate it rather than continue an aborted transaction.
+        nested.rollback()
+        logger.warning("resume_gate request_usage lookup failed: request_usage_lookup_failed")
+        return None
+
+
+def latest_session_rows(user_id: int, chat_id: str, session_id: str, session=None):
+    """Read with the caller's transaction, or a short read of our own."""
+    if session is not None:
+        return read_latest_session_rows(session, user_id, chat_id, session_id)
+    with get_db() as owned:
+        return read_latest_session_rows(owned, user_id, chat_id, session_id)
