@@ -1,3 +1,11 @@
+---
+title: Bot Dispatch and Tier Routing
+type: prd
+project: y-agent
+feature: bot-routing
+status: active
+---
+
 # Bot Dispatch and Tier Routing
 
 ## Problem Statement
@@ -367,6 +375,12 @@ failure is a launch error (`running` false, assistant error text) and does not
 reach the synthetic fallback bot. No effort leaves candidate selection, weighted
 round-robin writes, and argv as they are today. An inline backend that is given
 effort still raises the existing "only supported for claude_code" error.
+
+The same check runs at admission, before any message is appended and before
+any chat is created. The API answers 422 with the check's detail and writes
+nothing. An unsupported level is never mapped onto a nearby level or a
+different bot. The worker check stays in place for a declaration that changes
+after admission and before launch.
 
 Each actual `claude` spawn (fresh, resume, or continuation) records one
 append-only `chat_launch` row after `tmux new-session` returns. A failed

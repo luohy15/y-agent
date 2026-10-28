@@ -174,6 +174,21 @@ def _deliver_attached_images_to_telegram(user_id: int, chat, target, image_paths
 REASONING_EFFORT_LEVELS = {"low", "medium", "high", "xhigh", "max"}
 
 
+def _admit_launch_effort(user_id: int, effort: Optional[str], *, chat=None, bot_name: Optional[str] = None, bot_tier: Optional[str] = None) -> None:
+    """Reject an effort the launch bot cannot run before any chat write.
+
+    A running chat never reaches this check: effort on a live run is already
+    refused with 409 before the message is appended.
+    """
+    if effort is None or (chat is not None and getattr(chat, "running", False)):
+        return
+    from agent.config import EffortCapabilityError, preflight_launch_effort
+    try:
+        preflight_launch_effort(user_id, effort, chat=chat, bot_name=bot_name, bot_tier=bot_tier)
+    except (EffortCapabilityError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 def _normalize_reasoning_effort(reasoning_effort: Optional[str]) -> Optional[str]:
     if reasoning_effort is None:
         return None
@@ -216,6 +231,11 @@ async def get_bot_options(request: Request):
 @router.post("")
 async def post_create_chat(req: CreateChatRequest, request: Request):
     user_id = _get_user_id(request)
+    # Reject an unsupported effort before image upload or any chat write.
+    _admit_launch_effort(
+        user_id, _normalize_reasoning_effort(req.reasoning_effort),
+        bot_name=req.bot_name, bot_tier=req.bot_tier,
+    )
     # Caller-supplied ids: single attempt, ChatIdCollision → 409.
     # Generated ids: create_chat retries allocate+insert on race (no pre-mint).
     from agent.config import resolve_vm_config
@@ -315,6 +335,8 @@ async def post_send_message(req: SendMessageRequest, request: Request):
             if not work_dir:
                 work_dir = chat.work_dir
 
+        _admit_launch_effort(user_id, reasoning_effort, chat=chat, bot_name=req.bot_name, bot_tier=req.bot_tier)
+
         from agent.config import resolve_vm_config
         vm_config = resolve_vm_config(user_id, req.vm_name, work_dir=work_dir)
         images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-upload", vm_config=vm_config)
@@ -361,6 +383,10 @@ async def post_send_message(req: SendMessageRequest, request: Request):
         chat_service.validate_dispatch_target(existing_chat, topic=req.topic, force_new=req.force_new)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    _admit_launch_effort(
+        user_id, reasoning_effort, chat=existing_chat, bot_name=req.bot_name, bot_tier=req.bot_tier,
+    )
 
     def _dispatch_content(to_chat_id: str) -> str:
         return chat_service.dispatch_content(

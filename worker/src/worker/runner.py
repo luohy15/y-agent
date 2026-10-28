@@ -32,7 +32,7 @@ ARTIFACT_PLACEHOLDERS = {
 
 
 REASONING_EFFORT_LEVELS = {"low", "medium", "high", "xhigh", "max"}
-SUPPORTED_REASONING_EFFORT_BACKENDS = {"claude_code"}
+SUPPORTED_REASONING_EFFORT_BACKENDS = agent_config.SUPPORTED_REASONING_EFFORT_BACKENDS
 
 
 def explicit_launch_effort(messages) -> str | None:

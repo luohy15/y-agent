@@ -19,13 +19,22 @@ _MAX_REF_DEPTH = 5
 class EffortCapabilityError(ValueError):
     """An explicit effort has no declaring bot. Callers must not fall back."""
 
-    def __init__(self, effort: str, bot_name: str = None):
+    def __init__(self, effort: str, bot_name: str = None, declared: Optional[List[str]] = None):
         self.effort = effort
         self.bot_name = bot_name
+        self.declared = declared
         if bot_name:
-            super().__init__(f"bot {bot_name!r} does not declare reasoning effort {effort!r}")
+            message = f"bot {bot_name!r} does not declare reasoning effort {effort!r}"
         else:
-            super().__init__(f"no runnable bot declares reasoning effort {effort!r}")
+            message = f"no runnable bot declares reasoning effort {effort!r}"
+        if declared is not None:
+            shown = ", ".join(declared) if declared else "none"
+            message += f" (declared: {shown})"
+        super().__init__(message)
+
+
+# Claude Code is the only backend that accepts a launch effort flag.
+SUPPORTED_REASONING_EFFORT_BACKENDS = {"claude_code"}
 
 
 def _effective_backend(bot_config: BotConfig) -> str:
@@ -193,6 +202,23 @@ def _resolve_filters(user_id: int, universe: List[BotConfig], bot_name: str = No
     return selected
 
 
+def _resolve_named(user_id: int, bot_name: str, backend: str = None, tier: str = None) -> Optional[BotConfig]:
+    """Resolve one named bot the way resolve_bot_config does, without round-robin.
+
+    A backend or tier filter disables pointer deref. Zero or several matches
+    stay unresolved, so effort admission cannot pick a substitute.
+    """
+    matches = _candidates(_universe(user_id), bot_name=bot_name, backend=backend, tier=tier)
+    if len(matches) == 1:
+        return matches[0]
+    if backend or tier or matches:
+        return None
+    pinned = bot_service.get_config(user_id, bot_name)
+    if pinned and pinned.ref_bot_name and pinned.enabled:
+        return _deref_bot_config(user_id, pinned)
+    return None
+
+
 def resolve_pinned_bot_config(user_id: int, bot_name: str, tier: str = None) -> Optional[BotConfig]:
     """Resolve an explicit bot-name pin, or None when the pin does not resolve.
 
@@ -262,6 +288,60 @@ def resolve_bot_config(user_id: int, bot_name: str = None, backend: str = None, 
 
     logger.warning("Empty tier2 pool for user_id=%s; falling back to default bot", user_id)
     return _global_default(user_id)
+
+
+def preflight_launch_effort(user_id: int, effort: str = None, *, chat=None, bot_name: str = None, bot_tier: str = None, backend: str = None) -> None:
+    """Refuse an explicit effort this launch cannot run, without routing writes.
+
+    Same decision as the worker gate: a re-bot target, a sticky or pinned bot,
+    or the filtered pool. None returns before any bot read. A pool is admissible
+    only when the filtered candidates are non-empty and either exactly one or
+    any has a positive route weight. Never calls select_weighted_round_robin.
+    """
+    if effort is None:
+        return
+
+    def reject_undeclared(selected: Optional[BotConfig], name: str) -> None:
+        if selected is not None and effort in effective_effort_levels(selected):
+            return
+        if selected is None:
+            raise EffortCapabilityError(effort, name)
+        raise EffortCapabilityError(effort, selected.name, declared=effective_effort_levels(selected))
+
+    def reject_unsupported(selected: BotConfig) -> None:
+        unsupported = _effective_backend(selected)
+        if unsupported not in SUPPORTED_REASONING_EFFORT_BACKENDS:
+            raise ValueError(f"reasoning_effort is only supported for claude_code, not {unsupported}")
+
+    chat_bot = getattr(chat, "bot_name", None) if chat is not None else None
+    chat_backend = getattr(chat, "backend", None) if chat is not None else None
+    if chat_bot and bot_name and bot_name != chat_bot:
+        target = resolve_pinned_bot_config(user_id, bot_name, tier=bot_tier)
+        reject_undeclared(target, bot_name)
+        target_backend = _effective_backend(target)
+        if chat_backend and target_backend != chat_backend:
+            own = _resolve_named(user_id, chat_bot, backend=chat_backend or backend, tier=bot_tier)
+            reject_undeclared(own, chat_bot)
+            reject_unsupported(own)
+            return
+        reject_unsupported(target)
+        return
+
+    pin = chat_bot or bot_name
+    if pin:
+        selected = _resolve_named(user_id, pin, backend=chat_backend or backend, tier=bot_tier)
+        reject_undeclared(selected, pin)
+        reject_unsupported(selected)
+        return
+
+    pool_backend = chat_backend or backend
+    pool_tier = bot_tier if (bot_tier or pool_backend) else "tier2"
+    candidates = _candidates(_universe(user_id), backend=pool_backend, tier=pool_tier, effort=effort)
+    viable = bool(candidates) and (
+        len(candidates) == 1 or any(cfg.route_weight and cfg.route_weight > 0 for cfg in candidates)
+    )
+    if not viable:
+        raise EffortCapabilityError(effort)
 
 
 def resolve_vm_config(user_id: int, vm_name: str = None, work_dir: str = None) -> VmConfig:
