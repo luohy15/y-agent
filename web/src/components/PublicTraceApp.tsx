@@ -229,7 +229,7 @@ export default function PublicTraceApp() {
   }
 
   const selectedChat = data.chats.find((c) => c.chat_id === selectedChatId);
-  const skills = [...new Set(data.chats.map((c) => (c.skill && c.skill.trim()) || c.topic).filter(Boolean))];
+  const skills = [...new Set(data.chats.map((c) => (c.skill && c.skill.trim()) || c.role || "").filter(Boolean))];
 
   const modeBtnClass = (active: boolean) =>
     `p-1.5 sm:p-1 rounded cursor-pointer ${active ? "text-sol-base1 bg-sol-base02" : "text-sol-base01 hover:text-sol-base1"}`;

@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 import { API, jsonFetcher as fetcher } from "../api";
-import { TRACE_BADGE, CHAT_BADGE, topicBadgeClass, topicLabel } from "./badges";
+import { TRACE_BADGE, CHAT_BADGE, topicBadgeClass, roleLabel } from "./badges";
 import { formatDateTime } from "../utils/formatTime";
 import { ListEmpty, ListError, ListLoading } from "./ListStates";
 
@@ -11,7 +11,7 @@ interface Chat {
   title?: string;
   created_at?: string;
   updated_at?: string;
-  topic?: string;
+  role?: string;
   trace_id?: string;
   routine_id?: string;
   routine_name?: string;
@@ -47,7 +47,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   const [search, setSearch] = useState("");
   const [spinning, setSpinning] = useState(false);
   const [internalTraceId, setInternalTraceId] = useState("");
-  const [topicFilter, setTopicFilter] = useState("");
+  const [roleFilter, setRoleFilter] = useState("");
   const [skillFilter, setSkillFilter] = useState("");
   const [botFilter, setBotFilter] = useState("");
   const [internalRoutineName, setInternalRoutineName] = useState("");
@@ -56,7 +56,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   const routineName = externalRoutineName || internalRoutineName;
   const queryParam = search.trim() ? `&query=${encodeURIComponent(search.trim())}` : "";
   const traceIdParam = traceId.trim() ? `&trace_id=${encodeURIComponent(traceId.trim())}` : "";
-  const topicParam = topicFilter.trim() ? `&topic=${encodeURIComponent(topicFilter.trim())}` : "";
+  const roleParam = roleFilter.trim() ? `&role=${encodeURIComponent(roleFilter.trim())}` : "";
   const skillParam = skillFilter.trim() ? `&skill=${encodeURIComponent(skillFilter.trim())}` : "";
   const botParam = botFilter.trim() ? `&bot_name=${encodeURIComponent(botFilter.trim())}` : "";
   const routineNameParam = routineName.trim() ? `&routine_name=${encodeURIComponent(routineName.trim())}` : "";
@@ -66,14 +66,14 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   const getKey = (pageIndex: number, previousPageData: Chat[] | null) => {
     if (!isLoggedIn) return null;
     if (previousPageData && previousPageData.length < PAGE_SIZE) return null; // reached end
-    return `${API}/api/module/chat/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}${queryParam}${traceIdParam}${topicParam}${skillParam}${botParam}${routineNameParam}${routineOnlyParam}${statusParam}`;
+    return `${API}/api/module/chat/list?offset=${pageIndex * PAGE_SIZE}&limit=${PAGE_SIZE}${queryParam}${traceIdParam}${roleParam}${skillParam}${botParam}${routineNameParam}${routineOnlyParam}${statusParam}`;
   };
 
   const { data, error, isLoading, size, setSize, isValidating, mutate } = useSWRInfinite<Chat[]>(getKey, fetcher);
 
   // Separate fetch for pinned manager chat (always visible)
   const { data: pinnedManagerData, mutate: mutatePinnedManager } = useSWR<Chat[]>(
-    isLoggedIn ? `${API}/api/module/chat/list?offset=0&limit=1&topic=manager` : null,
+    isLoggedIn ? `${API}/api/module/chat/list?offset=0&limit=1&role=manager` : null,
     fetcher,
   );
   const pinnedManager = pinnedManagerData?.[0] ?? null;
@@ -102,7 +102,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   // Reset pagination when search or filter changes
   useEffect(() => {
     setSize(1);
-  }, [search, traceId, externalTraceId, topicFilter, skillFilter, botFilter, externalRoutineName, internalRoutineName, routineOnly, statusFilter, setSize]);
+  }, [search, traceId, externalTraceId, roleFilter, skillFilter, botFilter, externalRoutineName, internalRoutineName, routineOnly, statusFilter, setSize]);
 
   // Revalidate when parent signals a chat completed
   useEffect(() => {
@@ -116,10 +116,10 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   // takes over) and lets the reset-pagination effect refetch the filtered list.
   // Under hideFilters the filter row (and its clear ✕ buttons) is not rendered, so a
   // badge-set internal filter would be stuck with no UI to clear it (and would collapse
-  // a trace-bound list to a single topic/skill); make every badge presentational-only
+  // a trace-bound list to a single role/skill); make every badge presentational-only
   // in that mode by no-op'ing the setters.
   const filterByTrace = (id: string) => { if (hideFilters) return; if (onClearTraceId) onClearTraceId(); setInternalTraceId(id); };
-  const filterByTopic = (t: string) => { if (hideFilters) return; setTopicFilter(t); };
+  const filterByRole = (t: string) => { if (hideFilters) return; setRoleFilter(t); };
   const filterBySkill = (s: string) => { if (hideFilters) return; setSkillFilter(s); };
   const filterByBot = (name: string) => { if (hideFilters) return; setBotFilter(name); };
   const filterByRoutine = (name: string) => { if (hideFilters) return; if (onClearRoutineName) onClearRoutineName(); setInternalRoutineName(name); };
@@ -155,7 +155,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                     sel ? "ring-1 ring-sol-blue bg-sol-base02/50" : ""
                   }`}
                 >
-                  {(firstTraceId || c.chat_id || c.topic) && (
+                  {(firstTraceId || c.chat_id || c.role) && (
                     <div className="flex items-center gap-1 mb-0.5">
                       {firstTraceId && (
                         <button
@@ -174,8 +174,8 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                         <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                         {c.chat_id.slice(0, 8)}
                       </button>
-                      {c.topic && <span className={`text-[0.55rem] truncate ${topicBadgeClass(c.topic)}`}>{topicLabel(c.topic)}</span>}
-                      {c.skill && c.skill !== c.topic && <span className="inline-flex items-center px-1 py-0.5 rounded font-mono font-medium shrink-0 text-[0.55rem] bg-sol-base01/20 text-sol-base01">{c.skill}</span>}
+                      {c.role && <span className={`text-[0.55rem] truncate ${topicBadgeClass(c.role)}`}>{roleLabel(c.role)}</span>}
+                      {c.skill && c.skill !== c.role && <span className="inline-flex items-center px-1 py-0.5 rounded font-mono font-medium shrink-0 text-[0.55rem] bg-sol-base01/20 text-sol-base01">{c.skill}</span>}
                     </div>
                   )}
                   <div className="flex items-center gap-1.5">
@@ -201,7 +201,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
   return (
     <div className="h-full bg-sol-base03 flex flex-col text-xs sm:text-[0.65rem]">
       {!hideFilters && (
-        // Filter row inputs: search, trace_id (todo), topic, routine, skill, bot, status. routine_id
+        // Filter row inputs: search, trace_id (todo), role, routine, skill, bot, status. routine_id
         // can be typed directly here or supplied externally via the routineId prop (e.g.
         // chat.setRoutineFilter); either way it renders in the routine input with a
         // clear button. Row badges also set these filters on click (filterBy* helpers).
@@ -245,16 +245,16 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
             <div className="relative w-24">
               <input
                 type="text"
-                placeholder="Topic..."
-                value={topicFilter}
-                onChange={(e) => setTopicFilter(e.target.value)}
+                placeholder="Role..."
+                value={roleFilter}
+                onChange={(e) => setRoleFilter(e.target.value)}
                 className="y-field w-full px-2 py-1 rounded"
               />
-              {topicFilter && (
+              {roleFilter && (
                 <button
-                  onClick={() => setTopicFilter("")}
+                  onClick={() => setRoleFilter("")}
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-sol-base01 hover:text-sol-base1 cursor-pointer"
-                  title="Clear topic filter"
+                  title="Clear role filter"
                 >
                   ✕
                 </button>
@@ -387,7 +387,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                     sel ? "ring-1 ring-sol-blue bg-sol-base02/50" : ""
                   }`}
                 >
-                  {(firstTraceId || c.chat_id || c.topic) && (
+                  {(firstTraceId || c.chat_id || c.role) && (
                     <div className="flex items-center gap-1 mb-0.5">
                       {firstTraceId && (
                         <button
@@ -406,16 +406,16 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                         <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                         {c.chat_id.slice(0, 8)}
                       </button>
-                      {c.topic && (
+                      {c.role && (
                         <button
-                          onClick={(e) => { e.stopPropagation(); filterByTopic(c.topic!); }}
-                          className={`text-[0.55rem] truncate cursor-pointer ${topicBadgeClass(c.topic)}`}
-                          title={`Filter by topic ${c.topic}`}
+                          onClick={(e) => { e.stopPropagation(); filterByRole(c.role!); }}
+                          className={`text-[0.55rem] truncate cursor-pointer ${topicBadgeClass(c.role)}`}
+                          title={`Filter by role ${c.role}`}
                         >
-                          {topicLabel(c.topic)}
+                          {roleLabel(c.role)}
                         </button>
                       )}
-                      {c.skill && c.skill !== c.topic && (
+                      {c.skill && c.skill !== c.role && (
                         <button
                           onClick={(e) => { e.stopPropagation(); filterBySkill(c.skill!); }}
                           className="inline-flex items-center px-1 py-0.5 rounded font-mono font-medium shrink-0 text-[0.55rem] bg-sol-base01/20 text-sol-base01 cursor-pointer"

@@ -10,6 +10,7 @@ export interface TraceChat {
   chat_id: string;
   title: string;
   topic: string;
+  role?: string;
   skill?: string;
   backend?: string;
   bot_name?: string;
@@ -63,7 +64,7 @@ function generateTicks(minTs: number, maxTs: number): number[] {
 }
 
 function skillKey(c: TraceChat): string {
-  return (c.skill && c.skill.trim()) || (c.topic && c.topic.trim()) || "unknown";
+  return (c.skill && c.skill.trim()) || (c.role && c.role.trim()) || "unknown";
 }
 
 interface SkillGroup {

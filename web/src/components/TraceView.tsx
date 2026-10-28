@@ -488,7 +488,7 @@ export default function TraceView({
             {!publicMode && traceChats.length > 0 && (
               <div className="mt-2 space-y-0.5" data-testid="trace-context-links">
                 {traceChats.map((chat) => {
-                  const skill = (chat.skill && chat.skill.trim()) || chat.topic || "";
+                  const skill = (chat.skill && chat.skill.trim()) || chat.role || "";
                   const label = chat.title || chat.chat_id;
                   return (
                     <div key={chat.chat_id}>

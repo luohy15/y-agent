@@ -67,9 +67,9 @@ export function topicBadgeClass(topic: string) {
   return `${BADGE_BASE} ${c.bg} ${c.text}`;
 }
 
-/** Display label. Legacy coordinator topic ``dev`` renders as ``leader``; the filter still uses the raw topic. */
-export function topicLabel(topic: string): string {
-  return topic === "dev" ? "leader" : topic;
+/** Display only closed system roles. */
+export function roleLabel(role: string): string {
+  return role === "manager" || role === "leader" ? role : "";
 }
 
 // --- Status badge (todo status) ---
