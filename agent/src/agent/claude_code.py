@@ -502,6 +502,23 @@ def _is_context_usage(value) -> bool:
     return any(counts)
 
 
+def restore_context_usage(value):
+    if value is None:
+        return None
+    keys = ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
+    if isinstance(value, dict) and all(
+        isinstance(value.get(key), int) and not isinstance(value[key], bool) and value[key] >= 0
+        for key in keys
+    ) and sum(value[key] for key in keys) > 0:
+        return value
+    return {"state": "unknown"}
+
+
+def reduce_context_usage(previous, event):
+    observed = _context_usage_from_assistant(event)
+    return previous if observed is None else observed
+
+
 def _context_usage_from_assistant(event: dict):
     """Return one complete main-model request, or None for a partial event.
 
@@ -511,22 +528,24 @@ def _context_usage_from_assistant(event: dict):
     input tokens. Side-model requests (title, memory, classification) are not
     part of this stream.
     """
-    message = event.get("message") if isinstance(event, dict) else None
+    if not isinstance(event, dict) or event.get("type") != "assistant":
+        return None
+    message = event.get("message")
     if not isinstance(message, dict) or message.get("model") == "<synthetic>":
         return None
     # A subagent request is not the main session's live context.
     if event.get("parent_tool_use_id"):
         return None
     usage = message.get("usage")
-    if not _is_context_usage(usage):
-        return None
-    if "cache_read_input_tokens" not in usage and "cache_creation_input_tokens" not in usage:
-        return None
-    observed = {key: int(usage.get(key) or 0) for key in _CONTEXT_USAGE_KEYS}
+    if not isinstance(usage, dict):
+        return {"state": "unknown"}
+    # Preserve missing counters instead of turning partial usage into a measured
+    # request. A newer unknown request must also invalidate an older measurement.
+    observed = {key: usage[key] for key in _CONTEXT_USAGE_KEYS if key in usage}
     model = message.get("model")
     if isinstance(model, str) and model:
         observed["model"] = model
-    return observed
+    return restore_context_usage(observed)
 
 
 def _result_event_resume_refused(result_data: Optional[Dict]) -> bool:
@@ -1084,7 +1103,7 @@ async def tail_ssh_output(
     # Latest complete main-model request seen by any tail of this run. A Lambda
     # handoff resumes from the saved line offset, so the finishing invocation
     # may not see it again; result.usage only carries the launch total.
-    context_usage = pending_context_usage if _is_context_usage(pending_context_usage) else None
+    context_usage = restore_context_usage(pending_context_usage)
     session_id = None
     launch_model = result_data.get("model") if isinstance(result_data, dict) else None
     if not isinstance(launch_model, str):
@@ -1263,9 +1282,7 @@ async def tail_ssh_output(
                     if obj.get("type") == "assistant":
                         # Record and fall through. The converter below is what
                         # persists the assistant text, thinking, and tool call.
-                        observed = _context_usage_from_assistant(obj)
-                        if observed is not None:
-                            context_usage = observed
+                        context_usage = reduce_context_usage(context_usage, obj)
                     if obj.get("type") == "command_lifecycle":
                         with steer_lock:
                             launch_ids = ledger.groups.get(launch_input_uuid, [])

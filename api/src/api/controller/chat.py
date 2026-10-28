@@ -349,6 +349,8 @@ async def post_send_message(req: SendMessageRequest, request: Request):
                 bot_name=req.bot_name, bot_tier=req.bot_tier,
                 vm_name=req.vm_name, work_dir=work_dir, post_hooks=req.post_hooks,
             )
+        except chat_service.resume_gate.ChatReadOnly as exc:
+            raise HTTPException(status_code=409, detail=exc.detail()) from exc
         except EffortOnRunningChat as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return SendMessageResponse(chat_id=chat.id, trace_id=chat.trace_id)
@@ -419,6 +421,8 @@ async def post_send_message(req: SendMessageRequest, request: Request):
                 bot_name=req.bot_name, bot_tier=req.bot_tier,
                 work_dir=work_dir, trace_id=req.trace_id, topic=req.topic, skill=skill,
             )
+        except chat_service.resume_gate.ChatReadOnly as exc:
+            raise HTTPException(status_code=409, detail=exc.detail()) from exc
         except EffortOnRunningChat as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return SendMessageResponse(chat_id=chat.id, trace_id=req.trace_id)
@@ -682,6 +686,9 @@ async def get_chat_detail(chat_id: str = Query(...), request: Request = None):
     result = {
         "chat_id": chat.id,
     }
+    refusal = None if chat.running else chat_service.resume_gate.evaluate(user_id, chat)
+    if refusal:
+        result["resume_gate"] = {"read_only": True, **refusal.detail()}
     if chat.work_dir:
         result["work_dir"] = chat.work_dir
     if chat.topic:

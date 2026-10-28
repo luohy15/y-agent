@@ -395,6 +395,13 @@ async def deliver_grant(waiter: DevReleaseWaiter, user_id: int) -> str:
         release_repo.mark_delivery(waiter.project_key, waiter.waiter_id,
                                    state="sent", enqueue_needed=False)
         return "sent"
+    except chat_service.resume_gate.ChatReadOnly as exc:
+        release_repo.mark_delivery(
+            waiter.project_key, waiter.waiter_id, state="failed", enqueue_needed=False,
+            error=f"chat_read_only:{exc.reason}",
+        )
+        chat_service.resume_gate.append_refusal_notice(user_id, waiter.chat_id, waiter.event_id, exc)
+        return "failed"
     except Exception as exc:  # noqa: BLE001 - recorded, retried by the recovery pass
         logger.warning("[dev-release] grant wakeup deferred waiter={} error={}",
                        waiter.waiter_id, exc)

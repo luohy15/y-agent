@@ -680,6 +680,13 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
     resolved_tier = agent_config.tier_of(bot_config)
     logger.info("Resolved bot config: name={} backend={} model={} tier={}", bot_config.name, bot_config.backend or bot_config.api_type, bot_config.model, resolved_tier)
 
+    from storage.service.resume_gate import evaluate
+    refusal = evaluate(user_id, chat)
+    if refusal:
+        error = RuntimeError(f"chat_read_only:{refusal.reason}: {refusal}")
+        _abort_unlaunched(chat, chat_id, user_id, error)
+        raise error
+
     # Persist routing identity. A chat's backend is fixed for the lifetime of the
     # chat so changing the user's default bot does not move existing conversations
     # between agent backends. bot_name / tier are set on the first run and then
@@ -747,6 +754,12 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
     # Build session_id / resume
     session_id = chat.external_id
     resume = bool(session_id) and chat.work_dir == cwd
+    if resume:
+        from storage.service.resume_gate import evaluate
+
+        refusal = evaluate(user_id, chat, bot_config=bot_config)
+        if refusal:
+            raise RuntimeError(f"chat_read_only:{refusal.reason}: {refusal}")
 
     # Build cmd
     if resume and session_id:

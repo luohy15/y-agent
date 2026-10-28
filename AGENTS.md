@@ -393,6 +393,7 @@ Grouped by feature area:
 - **Tasks / notes**: `todo.py`, `reminder.py`, `calendar_event.py`, `note.py`
   (five host share routes and sharing helpers only), `entity.py`,
   `entity_note_relation.py`, `entity_rss_relation.py`
+- **Chat resume gate** (todo 4092): admission and worker block resumed long-context Opus chats with a structured `chat_read_only` handoff; `bot_config.resume_context_limit` overrides `Y_AGENT_OPUS_RESUME_CONTEXT_LIMIT` (100000, 0 disables), and warning starts at 80%.
 - **Content pipelines**: `link.py`, `link_todo_relation.py`, `rss_feed.py`, `email.py`,
   `english_correction.py`, `english_word.py` (`/english/vocab`),
   `model_usage.py` (spend rows, the latest limit snapshot,

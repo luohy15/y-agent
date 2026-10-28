@@ -17,6 +17,7 @@ class BotConfigEntity(Base, BaseEntity):
     openrouter_config = Column(JSON, nullable=True)
     prompts = Column(JSON, nullable=True)
     max_tokens = Column(Integer, nullable=True)
+    resume_context_limit = Column(Integer, nullable=True)
     custom_api_path = Column(String, nullable=True)
     tier = Column(String, nullable=True)
     type = Column(String, nullable=True)

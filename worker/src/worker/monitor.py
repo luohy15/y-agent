@@ -615,7 +615,7 @@ def _usage_iterations(result_data: dict):
     iterations = usage.get("iterations")
     if not isinstance(iterations, list):
         return []
-    return [entry for entry in iterations if isinstance(entry, dict)]
+    return [entry if isinstance(entry, dict) else {"state": "unknown"} for entry in iterations]
 
 
 def _context_window_for_usage(result_data: dict, usage: dict):
@@ -694,6 +694,7 @@ def _latest_complete_request(result_data: dict, observed_usage: dict):
 
 
 def _apply_claude_usage(fresh, result_data: dict, observed_usage: dict = None):
+    fresh.context_usage_source = None
     if not isinstance(result_data, dict):
         return
 
@@ -714,6 +715,13 @@ def _apply_claude_usage(fresh, result_data: dict, observed_usage: dict = None):
             _int_value(entry.get("cacheCreationInputTokens")) for _, entry in entries
         )
 
+    iterations = _usage_iterations(result_data)
+    request = iterations[-1] if iterations else observed_usage
+    if isinstance(request, dict) and all(
+        isinstance(request.get(key), int) and not isinstance(request[key], bool) and request[key] >= 0
+        for key in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
+    ) and any(request.get(key, 0) for key in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")):
+        fresh.context_usage_source = "main_request"
     latest = _latest_complete_request(result_data, observed_usage)
     if latest is None:
         return

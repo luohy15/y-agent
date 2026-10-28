@@ -139,6 +139,13 @@ async def deliver_wakeup(wakeup: ChatWakeup, user_id: int) -> str:
             row.enqueue_needed = False
             row.last_error = None
         return "delivered"
+    except chat_service.resume_gate.ChatReadOnly as exc:
+        wakeup_repo.mark_delivery(
+            user_id, wakeup.wakeup_id, state="failed", enqueue_needed=False,
+            error=f"chat_read_only:{exc.reason}", attempt=True,
+        )
+        chat_service.resume_gate.append_refusal_notice(user_id, wakeup.chat_id, wakeup.wakeup_id, exc)
+        return "failed"
     except Exception as exc:  # noqa: BLE001 - recorded, retried by the scheduled pass
         logger.warning("[chat-wakeup] delivery deferred wakeup={} error={}", wakeup.wakeup_id, exc)
         wakeup_repo.mark_delivery(

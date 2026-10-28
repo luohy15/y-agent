@@ -531,7 +531,7 @@ class EffortOnRunningChat(Exception):
 
 def accept_or_start_chat(user_id: int, chat_id: str, *, message=None,
                          human_reply=False, trace_id=None, topic=None, skill=None,
-                         event_id=None, session=None):
+                         event_id=None, session=None, resume_limit=None):
     """Lock todo before chat; append/start and conditional resume commit together.
 
     Explicit non-root trace conflicts fail before mutation (todo 3458), replacing
@@ -569,6 +569,13 @@ def accept_or_start_chat(user_id: int, chat_id: str, *, message=None,
             raise ValueError("Chat identity changed during acceptance")
         chat = _entity_to_chat(row)
         already_running = chat.running
+        if message is not None and not already_running and resume_limit is not None:
+            from storage.service.resume_gate import ChatReadOnly, measure
+
+            measured = measure(chat)
+            if (chat.backend == "claude_code" and chat.external_id
+                    and measured is not None and measured >= resume_limit):
+                raise ChatReadOnly(measured, resume_limit)
         if message is not None and message.reasoning_effort and already_running:
             raise EffortOnRunningChat("effort applies per launch; resend after the run ends")
         if message is not None:

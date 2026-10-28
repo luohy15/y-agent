@@ -9,6 +9,7 @@ from loguru import logger
 
 from storage.entity.dto import Chat, Message, trailing_user_messages
 from storage.repository import chat as chat_repo
+from storage.service import resume_gate
 from storage.repository.chat import ChatSummary
 
 from storage.repository.chat import ChatIdCollision
@@ -60,7 +61,7 @@ def build_handoff_reminder(chat: Chat, ratio: float) -> str:
     )
 
 
-def maybe_append_handoff_reminder(chat: Chat, content: str) -> str:
+def maybe_append_handoff_reminder(chat: Chat, content: str, resume_limit=None) -> str:
     """Append a handoff reminder to `content` when `chat` is over threshold.
 
     No-op when: usage is unknown (ratio is None), usage is at/under the
@@ -68,23 +69,34 @@ def maybe_append_handoff_reminder(chat: Chat, content: str) -> str:
     non-user message) already carries the marker (one reminder per pending
     batch, see plan-2951 I2).
     """
-    ratio = chat.context_usage_ratio()
-    if ratio is None:
-        return content
-
-    threshold_tokens = min(
-        chat.context_window * CONTEXT_HANDOFF_RATIO,
-        CONTEXT_HANDOFF_ABSOLUTE_TOKENS,
-    )
-    if chat.used_tokens() <= threshold_tokens:
-        return content
+    if resume_limit is not None:
+        measured = chat.prompt_tokens()
+        if measured is None or measured < resume_limit * 0.8:
+            return content
+        reminder = (
+            f"{HANDOFF_REMINDER_MARKER} Latest prompt: {measured:,} tokens. "
+            f"This chat becomes read-only for new turns at {resume_limit:,} tokens. "
+            "Record durable state in the todo and associated notes now and plan a fresh continuation. "
+            "If a parent is awaiting your result, callback with that state instead of self-restarting."
+        )
+    else:
+        ratio = chat.context_usage_ratio()
+        if ratio is None:
+            return content
+        threshold_tokens = min(
+            chat.context_window * CONTEXT_HANDOFF_RATIO,
+            CONTEXT_HANDOFF_ABSOLUTE_TOKENS,
+        )
+        if chat.used_tokens() <= threshold_tokens:
+            return content
+        reminder = build_handoff_reminder(chat, ratio)
 
     for msg in trailing_user_messages(chat.messages):
         msg_content = msg.content if isinstance(msg.content, str) else str(msg.content)
         if HANDOFF_REMINDER_MARKER in msg_content:
             return content
 
-    return f"{content}\n\n{build_handoff_reminder(chat, ratio)}"
+    return f"{content}\n\n{reminder}"
 
 
 async def list_chats(
@@ -448,7 +460,10 @@ async def accept_user_message(
     `event_id` makes the append idempotent for a retried server-side event and
     is the message id, so a redelivery finds it already present.
     """
-    msg_content = maybe_append_handoff_reminder(chat, content)
+    resume_limit = resume_gate.resolve_limit(
+        user_id, chat, _ignored.get("bot_name"), _ignored.get("bot_tier"),
+    )
+    msg_content = maybe_append_handoff_reminder(chat, content, resume_limit=resume_limit)
     msg_dict = {
         "role": "user",
         "content": msg_content,
@@ -464,11 +479,15 @@ async def accept_user_message(
         msg_dict["source"] = source
     user_msg = Message.from_dict(msg_dict)
 
-    chat, already_running = chat_repo.accept_or_start_chat(
-        user_id, chat.id, message=user_msg, human_reply=human_reply,
-        trace_id=trace_id, topic=topic, skill=skill,
-        event_id=event_id, session=session,
-    )
+    try:
+        chat, already_running = chat_repo.accept_or_start_chat(
+            user_id, chat.id, message=user_msg, human_reply=human_reply,
+            trace_id=trace_id, topic=topic, skill=skill,
+            event_id=event_id, session=session, resume_limit=resume_limit,
+        )
+    except resume_gate.ChatReadOnly as exc:
+        exc.handoff = resume_gate.build_handoff(user_id, chat)
+        raise
     if session is None:
         clear_attention_on_reply(user_id, chat.id)
     else:
@@ -545,7 +564,7 @@ async def deliver_user_message(
     acceptance = await accept_user_message(
         user_id, chat, content, human_reply=human_reply, images=images,
         reasoning_effort=reasoning_effort, source=source, event_id=event_id,
-        trace_id=trace_id, topic=topic, skill=skill,
+        trace_id=trace_id, topic=topic, skill=skill, bot_name=bot_name, bot_tier=bot_tier,
     )
     if not acceptance.already_running:
         enqueue_chat_run(

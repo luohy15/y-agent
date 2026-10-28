@@ -33,7 +33,7 @@ class ChatWakeupEntity(Base, BaseEntity):
     __table_args__ = (
         UniqueConstraint("user_id", "wakeup_id", name="uq_chat_wakeup_id"),
         CheckConstraint(
-            "status IN ('pending', 'accepted', 'delivered', 'cancelled')",
+            "status IN ('pending', 'accepted', 'delivered', 'cancelled', 'failed')",
             name="ck_chat_wakeup_status",
         ),
         CheckConstraint("delivery_attempts >= 0", name="ck_chat_wakeup_attempts"),

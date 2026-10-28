@@ -125,9 +125,9 @@ def mark_delivery(user_id: int, wakeup_id: str, *, state: str,
     with delivery_transaction(user_id, wakeup_id) as (session, row):
         if row is None:
             return None
-        if row.status in ("cancelled", "delivered"):
+        if row.status in ("cancelled", "delivered", "failed"):
             return _entity_to_dto(session, row)
-        if state == "delivered" or (state == "accepted" and row.status == "pending"):
+        if state in ("delivered", "failed") or (state == "accepted" and row.status == "pending"):
             row.status = state
         if enqueue_needed is not None:
             row.enqueue_needed = enqueue_needed

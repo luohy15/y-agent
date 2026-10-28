@@ -6,7 +6,7 @@ import httpx
 from pathlib import Path
 from typing import Optional
 
-from yagent.api_client import api_request
+from yagent.api_client import api_request, _http_error_detail
 from yagent.chat.stream_client import stream_chat
 from yagent.display_manager import DisplayManager
 from yagent.input_manager import InputManager
@@ -312,12 +312,7 @@ def _fire_and_forget(
         else:
             click.echo(data["chat_id"])
     except httpx.HTTPStatusError as e:
-        detail = ""
-        try:
-            detail = e.response.json().get("detail", "")
-        except Exception:
-            detail = e.response.text
-        click.echo(f"Error: {detail}", err=True)
+        click.echo(f"Error: {_http_error_detail(e.response)}", err=True)
         raise SystemExit(1) from e
 
 
@@ -358,12 +353,7 @@ def _schedule_wakeup(
         data = resp.json()
         click.echo(f"{data['wakeup_id']} due {utc_to_local(due_at)}")
     except httpx.HTTPStatusError as e:
-        detail = ""
-        try:
-            detail = e.response.json().get("detail", "")
-        except Exception:
-            detail = e.response.text
-        click.echo(f"Error: {detail}", err=True)
+        click.echo(f"Error: {_http_error_detail(e.response)}", err=True)
         raise SystemExit(1) from e
 
 

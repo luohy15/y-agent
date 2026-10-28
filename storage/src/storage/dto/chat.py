@@ -161,6 +161,7 @@ class Chat:
     cache_read_input_tokens: Optional[int] = None
     cache_creation_input_tokens: Optional[int] = None
     context_window: Optional[int] = None
+    context_usage_source: Optional[str] = None
     # Cumulative modelUsage for this session. Its scope follows the CLI:
     # current launch on 2.1.259, prior launches included on 2.1.280. Spend
     # only, never a context estimate.
@@ -203,6 +204,7 @@ class Chat:
             cache_read_input_tokens=data.get('cache_read_input_tokens'),
             cache_creation_input_tokens=data.get('cache_creation_input_tokens'),
             context_window=data.get('context_window'),
+            context_usage_source=data.get('context_usage_source'),
             cumulative_input_tokens=data.get('cumulative_input_tokens'),
             cumulative_output_tokens=data.get('cumulative_output_tokens'),
             cumulative_cache_read_input_tokens=data.get('cumulative_cache_read_input_tokens'),
@@ -264,6 +266,8 @@ class Chat:
             result['cache_creation_input_tokens'] = self.cache_creation_input_tokens
         if self.context_window is not None:
             result['context_window'] = self.context_window
+        if self.context_usage_source is not None:
+            result['context_usage_source'] = self.context_usage_source
         if self.cumulative_input_tokens is not None:
             result['cumulative_input_tokens'] = self.cumulative_input_tokens
         if self.cumulative_output_tokens is not None:
@@ -273,6 +277,14 @@ class Chat:
         if self.cumulative_cache_creation_input_tokens is not None:
             result['cumulative_cache_creation_input_tokens'] = self.cumulative_cache_creation_input_tokens
         return result
+
+    def prompt_tokens(self) -> Optional[int]:
+        if self.context_usage_source != "main_request":
+            return None
+        counters = (self.input_tokens, self.cache_read_input_tokens, self.cache_creation_input_tokens)
+        if any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in counters):
+            return None
+        return sum(counters)
 
     def used_tokens(self) -> int:
         return (

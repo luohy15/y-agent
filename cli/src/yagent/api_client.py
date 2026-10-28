@@ -139,7 +139,11 @@ def _http_error_detail(resp: httpx.Response) -> str:
     try:
         body = resp.json()
         if isinstance(body, dict) and "detail" in body:
-            return str(body["detail"])
+            detail = body["detail"]
+            if isinstance(detail, dict) and detail.get("code") == "chat_read_only":
+                command = (detail.get("handoff") or {}).get("command")
+                return str(detail.get("message", "Chat is read-only")) + (f"\n{command}" if command else "")
+            return str(detail)
     except Exception:
         pass
     return (resp.text or "")[:200]

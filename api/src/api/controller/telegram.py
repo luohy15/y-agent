@@ -393,6 +393,8 @@ async def _handle_routed_message(telegram_chat_id, telegram_user_id, target_chat
             skill=target_chat.skill, backend=target_chat.backend,
             work_dir=target_chat.work_dir,
         )
+    except chat_service.resume_gate.ChatReadOnly as exc:
+        await _send_message(telegram_chat_id, f"{exc} Continue from the web, or use /clear then resend to start a new manager chat.")
     except Exception as e:
         logger.exception("_handle_routed_message: failed to deliver: {}", e)
     return {"ok": True}
@@ -429,6 +431,8 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
                 images=images, source="telegram", human_reply=True,
                 topic=topic, work_dir=chat.work_dir,
             )
+        except chat_service.resume_gate.ChatReadOnly as exc:
+            await _send_message(telegram_chat_id, f"{exc} Use /clear then resend, or continue from the web.")
         except Exception as e:
             logger.exception("_handle_message: failed to deliver: {}", e)
         return {"ok": True}
