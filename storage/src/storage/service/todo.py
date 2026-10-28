@@ -2,6 +2,7 @@
 
 import ast
 import re
+from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 from loguru import logger
 from storage.entity.dto import Todo, TodoHistoryEntry
@@ -14,7 +15,7 @@ from storage.repository import trace_runtime as runtime_repo
 from storage.repository import entity_tag as tag_repo
 from storage.repository.entity_tag import normalize_tags
 from storage.service import telegram as telegram_service
-from storage.service.trace_runtime import derive_runtime
+from storage.service.trace_runtime import derive_runtime, machine_wait_live
 from storage.util import get_utc_iso8601_timestamp, get_unix_timestamp
 
 _CHANGED_NOTE_PREFIX = "changed: "
@@ -120,7 +121,8 @@ def attach_runtime_evidence(user_id: int, todos: List[Todo], now_ms: Optional[in
         snapshot = runtime_repo.get_snapshots(session, {user_id}).get(user_id)
     for todo in todos:
         todo.runtime = (
-            derive_runtime(roles.get((user_id, todo.todo_id)), snapshot, todo.todo_id, now_ms)
+            derive_runtime(roles.get((user_id, todo.todo_id)), snapshot, todo.todo_id, now_ms,
+                           machine_wait=todo.machine_wait)
             if todo.status == "active" and todo.todo_id else None
         )
 
@@ -268,6 +270,7 @@ def _pointer_chat(session, row, chat_id: str) -> None:
 def _status_side_effects(row, fields, status: str) -> None:
     if fields.get("status") == row.status:
         return
+    fields["machine_wait"] = None
     fields["completed_at"] = get_utc_iso8601_timestamp() if status == "completed" else None
     if status != "awaiting":
         fields["awaiting_chat"] = None
@@ -460,6 +463,41 @@ def update_todo(user_id: int, todo_id: str, **fields) -> Optional[Todo]:
     return _maybe_notice(user_id, todo_id, todo, entered)
 
 
+def set_machine_wait(user_id: int, todo_id: str, on: str, chat_id: str,
+                     until: Optional[int] = None) -> Optional[Todo]:
+    if not isinstance(on, str) or not on.strip() or len(on) > 120:
+        raise ValueError("on must be non-empty and at most 120 characters")
+    if not isinstance(chat_id, str) or not chat_id.strip():
+        raise ValueError("chat_id is required")
+
+    def apply(session, row):
+        from storage.entity.chat import ChatEntity
+
+        if row.status != "active":
+            raise ValueError("machine wait requires an active todo")
+        now = get_unix_timestamp()
+        deadline = now + 6 * 60 * 60 * 1000 if until is None else until
+        if type(deadline) is not int or not now < deadline <= now + 24 * 60 * 60 * 1000:
+            raise ValueError("until must be in the future and at most 24 hours away")
+        if not session.query(ChatEntity.id).filter_by(
+            user_id=row.user_id, chat_id=chat_id, trace_id=row.todo_id,
+        ).first():
+            raise ValueError("chat_id must name a same-owner, same-trace chat")
+        return _transition_locked(session, row, {"machine_wait": {
+            "on": on.strip(), "chat_id": chat_id, "since": now, "until": deadline,
+        }}, action="waiting")
+
+    return todo_repo.mutate_todo(user_id, todo_id, apply)
+
+
+def clear_machine_wait_locked(session, row) -> bool:
+    return _transition_locked(session, row, {"machine_wait": None}, action="wait cleared")
+
+
+def clear_machine_wait(user_id: int, todo_id: str) -> Optional[Todo]:
+    return todo_repo.mutate_todo(user_id, todo_id, clear_machine_wait_locked)
+
+
 def pin_todo(user_id: int, todo_id: str, pinned: bool) -> Optional[Todo]:
     return todo_repo.mutate_todo(user_id, todo_id, lambda session, row: _transition_locked(
         session, row, {"pinned": pinned}, action="pinned" if pinned else "unpinned"))
@@ -526,10 +564,16 @@ def claim_fault(user_id: int, todo_id: str, *, expected_updated_at_unix: int, re
     def apply(session, row):
         if row.status != "active" or row.updated_at_unix != expected_updated_at_unix:
             return False
+        wait = row.machine_wait
+        if machine_wait_live(wait, get_unix_timestamp()):
+            return False
         outcome = recheck(session, row)
         if outcome is None:
             return False
         detail, pointer_chat_id = outcome
+        if wait:
+            lapsed = datetime.fromtimestamp(wait["until"] / 1000, tz=timezone.utc).isoformat()
+            detail = f'Declared machine wait "{wait["on"]}" lapsed at {lapsed} with no callback.'
         claimed["detail"] = detail
         return _await_locked(session, row, pointer_chat_id, extra_note=detail)
 

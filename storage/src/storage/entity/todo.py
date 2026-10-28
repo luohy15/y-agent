@@ -17,6 +17,7 @@ class TodoEntity(Base, BaseEntity):
     priority = Column(String, nullable=True)
     status = Column(String, nullable=False, default="pending")
     awaiting_chat = Column(String, nullable=True)
+    machine_wait = Column(JSON, nullable=True)
     progress = Column(Text, nullable=True)
     completed_at = Column(String, nullable=True)
     pinned = Column(Boolean, default=False)

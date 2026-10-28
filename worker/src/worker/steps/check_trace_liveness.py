@@ -42,7 +42,7 @@ LOCK_NAME = "check_trace_liveness"
 ZERO_CHAT_BACKSTOP_SECONDS = 24 * 60 * 60
 BATCH_SIZE = 200
 ERROR_TEXT_LIMIT = 1000
-SUPPRESSING_STATES = {"session", "child", "tmux"}
+SUPPRESSING_STATES = {"session", "child", "tmux", "wait"}
 
 
 def classify(*, live, chat_count, created_at_ms, now_ms) -> Optional[str]:
@@ -214,7 +214,7 @@ async def run_pass(now_ms: Optional[int] = None, pass_started_ms: Optional[int] 
     while True:
         with get_db() as session:
             todos = (session.query(TodoEntity.id, TodoEntity.user_id, TodoEntity.todo_id, TodoEntity.name,
-                                   TodoEntity.status,
+                                   TodoEntity.status, TodoEntity.machine_wait,
                                    TodoEntity.updated_at_unix, TodoEntity.created_at_unix)
                      .filter(TodoEntity.status == "active", TodoEntity.id > last_id)
                      .order_by(TodoEntity.id.asc()).limit(BATCH_SIZE).all())
@@ -231,7 +231,7 @@ async def run_pass(now_ms: Optional[int] = None, pass_started_ms: Optional[int] 
             key = (todo.user_id, todo.todo_id)
             runtime = derive_runtime(
                 roles.get(key), snapshots.get(todo.user_id), todo.todo_id, now_ms,
-                observed_after_ms=pass_started_ms,
+                observed_after_ms=pass_started_ms, machine_wait=todo.machine_wait,
             )
             if runtime["state"] in SUPPRESSING_STATES:
                 counts["suppressed"] += 1

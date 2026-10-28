@@ -62,6 +62,7 @@ entity + controller + service + CLI slices, and most have a web panel.
   to root topics never invoke the LLM. `POST /api/chat/notify` was removed
   outright (todo 3167): every CLI install upgrades in lockstep with the API, so
   no compatibility alias was kept.
+- **Declared machine wait (todo 4100)**: `y todo wait <id> --on <dependency> --chat <id> [--until +6h]` stores bounded `todo.machine_wait` on active work, suppresses all automatic awaiting claims until lapse, and clears on a real status change, a new accepted message into the declaring chat, or `--clear`; the human awaiting inbox is unchanged.
 - **Role**: every chat has an optional closed `role` (`manager` or `leader`).
   Manager is the singleton root conversation; leader identifies coordinators.
   Skill-only sessions are role-free and resume by chat ID. Legacy topic inputs

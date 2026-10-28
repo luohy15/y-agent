@@ -38,8 +38,14 @@ def _valid_jobs(value):
     return value
 
 
+def machine_wait_live(machine_wait, now_ms: int) -> bool:
+    return (isinstance(machine_wait, dict)
+            and type(machine_wait.get("until")) is int
+            and now_ms < machine_wait["until"])
+
+
 def derive_runtime(roles, snapshot, todo_id: str, now_ms: int,
-                   observed_after_ms: Optional[int] = None) -> dict:
+                   observed_after_ms: Optional[int] = None, machine_wait=None) -> dict:
     """One active todo's runtime evidence.
 
     `roles` is `(chat_count, running_role, running_roleless, role_chats)`.
@@ -67,11 +73,10 @@ def derive_runtime(roles, snapshot, todo_id: str, now_ms: int,
         and now_ms - observed <= RUNTIME_FRESH_MS
         and (observed_after_ms is None or observed >= observed_after_ms)
     )
+    if fresh and jobs.get(todo_id):
+        return _payload("tmux", sorted(jobs[todo_id]), observed, observed + RUNTIME_FRESH_MS)
+    if machine_wait_live(machine_wait, now_ms):
+        return {"state": "wait", "on": machine_wait["on"], "until_unix": machine_wait["until"]}
     if not fresh:
         return _payload("unknown", observed_at_unix=observed)
-
-    fresh_until = observed + RUNTIME_FRESH_MS
-    names = jobs.get(todo_id)
-    if names:
-        return _payload("tmux", sorted(names), observed, fresh_until)
-    return _payload("ended", (), observed, fresh_until)
+    return _payload("ended", (), observed, observed + RUNTIME_FRESH_MS)

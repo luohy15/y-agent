@@ -66,9 +66,9 @@ awaiting. Dedicated `y todo await` / `y todo resume` commands and
 
 Drop the reason enum and the `external` machine-wait plus its deadline field.
 Machine waits remain `active`, not in the human inbox. Existing durable
-machine evidence, rather than a todo flag, tells the watchdog that silence is
-expected. Untracked tmux-only waits lose the old grace exemption; that
-limitation is explicit below.
+machine evidence and a bounded `machine_wait` declaration tell automatic
+fault writers that silence is expected. The declaration is an active display
+sub-state, not a new status or a human inbox entry.
 
 Any accepted human message in a bound non-root trace chat auto-resumes
 awaiting to active. A callback, server notice, plain dispatch or process
@@ -428,7 +428,8 @@ y todo list --status awaiting
   Public DTOs omit the obsolete `awaiting` / `awaiting_until` fields.
 - Active rows in host list and detail also carry read-only `runtime`
   (`todo 4070`): `{state, jobs, observed_at_unix, fresh_until_unix}` with
-  `state` one of `session`, `child`, `tmux`, `unknown`, `ended`. Non-active
+  `state` one of `session`, `child`, `tmux`, `wait`, `unknown`, `ended` (`wait`
+  uses the payload described under Declared machine wait). Non-active
   rows carry null. It is derived on read, never accepted on write, and is
   not part of the trace payload, public shares or the CLI.
 - The trace todo projection, both authenticated and public share, carries
@@ -476,6 +477,48 @@ y todo list --status awaiting
   writer, including Roy's own context-menu click or a fault claim, triggers
   the DM. A failed send never raises and never undoes the durable inbox row.
   No exactly-once promise.
+
+### Declared machine wait
+
+`y todo wait <id> --on "<dependency>" --chat <chat_id> [--until <+Nm|+Nh|ISO>]`
+declares a bounded dependency without changing `status=active`.
+`y todo wait <id> --clear` clears it. `POST /api/todo/wait` accepts
+`{todo_id, on, chat_id, until?}` (absolute milliseconds) or `{todo_id, clear: true}`.
+The nullable JSON column `todo.machine_wait` stores `{on, chat_id, since, until}`;
+all IDs are public strings. List/detail payloads carry this field.
+
+The owner-locked writer requires active status, a nonempty `on` of at most
+120 characters, and a same-owner, same-trace callback chat. The default deadline
+is six hours; it must be strictly in the future and at most 24 hours away.
+A declaration replaces an earlier wait. Clear cannot combine with declaration
+fields. History records `waiting` / `wait cleared`; neither sends an owner DM.
+This is not permission to schedule a wakeup, poll, or omit a completion callback.
+
+Every actual status change clears the declaration, including explicit awaiting.
+An active-to-active no-op keeps it. An accepted new message into the declaring
+chat clears it atomically with acceptance, regardless of human/dispatch provenance;
+another chat, a duplicate delivery or a worker start does not. This does not change
+human-only awaiting auto-resume semantics.
+
+All automatic awaiting writers share `claim_fault`: a live declaration suppresses
+under the todo lock before the caller's recheck. Once the deadline lapses, normal
+evidence checks apply; a successful fault claim clears the wait and reports
+`Declared machine wait "<on>" lapsed at <iso> with no callback.` Unknown snapshot
+or other live evidence still suppresses. The watchdog batch counts a live wait as
+suppressed. No timer is created and no automatic continuation is dispatched.
+
+Display precedence is session, child, tmux, declared wait, then snapshot
+unknown/ended. The wait runtime payload is `{state: "wait", on, until_unix}`.
+The todo module shows `Waiting on <on> · until HH:MM`; `y todo get` shows
+`Waiting: <on> until <local time> (chat <id>)`. An expired declaration falls
+through to snapshot runtime evidence. Status filters and kanban columns stay
+unchanged. A real user decision still requires explicit awaiting, even with a job
+running.
+
+Apply expand-only `migration/4100_todo_machine_wait.sql` before the host deploy.
+Old UI readers may omit the unknown `wait` runtime state until the todo module
+is published. Keeping the column on rollback is safe, but old host fault writers
+do not honor declarations; stop relying on waits before rolling the host back.
 
 ### Registered wakeup indicator
 
@@ -971,9 +1014,9 @@ Recorded so they are not mistaken for regressions:
   failed evidence) holds either way.
 - **Silent trace-less death.** A chat with no topic, parent, or trace ends
   with the unread mark only.
-- **Untracked tmux waits.** Dropping `external` means a detached tmux job
-  without a live process record or durable queue receipt can be classified
-  idle. An awaiting notice then requests inspection, not proof of death.
+- **Untracked machine jobs.** Jobs outside the default-VM tmux probe need
+  other live evidence or a bounded machine-wait declaration. Without either,
+  an awaiting notice requests inspection, not proof of death.
 - **Pre-existing TypeScript errors.** Host typecheck reports one unrelated
   error (`TerminalView.tsx`); the module SDK typecheck reports pre-existing
   errors under the todo UI. None were expanded into this delivery.
@@ -994,6 +1037,13 @@ Recorded so they are not mistaken for regressions:
 ## Testing Decisions
 
 Tests are local-only and untracked per repo convention.
+
+- **Declared machine waits** cover DTO/repository round-trips without internal IDs,
+  owner/trace and active-only validation, default and boundary deadlines, replace/
+  clear history, status cleanup versus no-op retention, all three automatic fault
+  paths, lapse text, accepted-message clearing versus another chat or run-entry,
+  runtime precedence, API validation and CLI request/deadline parsing. Mocked
+  local suites forbid database connections; database concurrency is post-deploy only.
 
 - **Tmux liveness (todo 4063, moved by todo 4070)** covers a live child
   without a running chat, exact suffix matching and owner isolation, dead
@@ -1109,9 +1159,8 @@ Tests are local-only and untracked per repo convention.
   one pointer; leaf sessions are expected to route questions through their
   parent, so one question per trace at a time is the contract. Widen to a
   list only if it is observed to collide.
-- **A generic machine-wait framework or live-process fencing for arbitrary
-  tmux jobs.** Dropping `external` accepts the untracked-tmux limitation
-  unless a separately approved process-liveness integration lands.
+- **Live-process fencing or callback synthesis for arbitrary machine jobs.**
+  The bounded declaration does not register, start or supervise a process.
 - **Persisted dispatch edges, callback quarantine, synthesized recovery
   callbacks, and the `y trace` operator surface**: owned by the
   [session-tree-recovery](session-tree-recovery.md) PRD. That PRD's

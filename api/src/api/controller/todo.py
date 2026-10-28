@@ -4,7 +4,7 @@ from typing import List, Optional, Literal
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, StrictInt
 
 from storage import todo_list_timing
 from storage.service import todo as todo_service
@@ -171,6 +171,35 @@ async def update_todo(req: UpdateTodoRequest, request: Request):
         raise HTTPException(status_code=400, detail="No fields to update")
     try:
         todo = await asyncio.to_thread(todo_service.update_todo, user_id, req.todo_id, **fields)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not todo:
+        raise HTTPException(status_code=404, detail="Todo not found")
+    return todo.to_dict()
+
+
+class MachineWaitRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    todo_id: str
+    on: Optional[str] = None
+    chat_id: Optional[str] = None
+    until: Optional[StrictInt] = None
+    clear: bool = False
+
+
+@router.post("/wait")
+async def machine_wait(req: MachineWaitRequest, request: Request):
+    user_id = _get_user_id(request)
+    try:
+        if req.clear:
+            if req.model_fields_set & {"on", "chat_id", "until"}:
+                raise ValueError("clear cannot be combined with on, chat_id or until")
+            todo = await asyncio.to_thread(todo_service.clear_machine_wait, user_id, req.todo_id)
+        else:
+            todo = await asyncio.to_thread(
+                todo_service.set_machine_wait, user_id, req.todo_id, req.on, req.chat_id, req.until,
+            )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not todo:

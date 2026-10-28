@@ -1,4 +1,7 @@
+from datetime import datetime, timezone
+
 import click
+from yagent.time_util import utc_to_local
 from yagent.api_client import api_request
 from yagent.commands.todo.wakeup_text import release_slot_label, wakeup_label
 
@@ -24,6 +27,10 @@ def todo_get(todo_id):
     click.echo(f"ID:        {todo['todo_id']}")
     click.echo(f"Name:      {todo['name']}")
     click.echo(f"Status:    {todo['status']}")
+    wait = todo.get('machine_wait')
+    if todo['status'] == 'active' and wait:
+        until = utc_to_local(datetime.fromtimestamp(wait['until'] / 1000, tz=timezone.utc).isoformat())
+        click.echo(f"Waiting:   {wait['on']} until {until} (chat {wait['chat_id']})")
     click.echo(f"Priority:  {todo.get('priority') or '-'}")
     click.echo(f"Due:       {todo.get('due_date') or '-'}")
     label = wakeup_label(todo)

@@ -583,7 +583,7 @@ def accept_or_start_chat(user_id: int, chat_id: str, *, message=None,
     A supplied session makes acceptance part of the durable sender's transaction.
     """
     from storage.repository.todo import lock_todo
-    from storage.service.todo import resume_locked
+    from storage.service.todo import clear_machine_wait_locked, resume_locked
     from storage.util import get_utc_iso8601_timestamp
 
     with (nullcontext(session) if session is not None else get_db()) as session:
@@ -661,6 +661,9 @@ def accept_or_start_chat(user_id: int, chat_id: str, *, message=None,
         row.json_content = json.dumps(chat.to_dict())
         row.title = _extract_title(chat)
         row.search_text = _extract_search_text(chat)
+        if (message is not None and not duplicate and todo is not None
+                and todo.machine_wait and todo.machine_wait.get("chat_id") == chat_id):
+            clear_machine_wait_locked(session, todo)
         if human_reply and todo is not None and todo.status == "awaiting":
             resume_locked(session, todo)
         session.flush()
