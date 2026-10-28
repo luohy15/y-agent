@@ -11,7 +11,7 @@ def stop_chat(chat_id: str):
         resp = api_request("POST", "/api/chat/stop", json={"chat_id": chat_id})
     except Exception as e:
         click.echo(f"Error: {e}")
-        raise click.Abort()
+        raise click.Abort() from e
 
     data = {}
     try:

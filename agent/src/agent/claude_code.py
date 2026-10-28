@@ -21,7 +21,7 @@ import re
 import threading
 from pathlib import Path
 from urllib.parse import urlparse
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
 
 from loguru import logger
 
@@ -29,6 +29,9 @@ from storage.entity.dto import Message, VmConfig
 from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
 from agent.input_ledger import InputLedger, native_input_uuid
 from agent.poll_loop import PollLoop
+
+if TYPE_CHECKING:
+    from agent.detach import DetachBackendSpec
 
 
 # Per-read inactivity timeout for one-shot SSH commands (`_ssh_exec`).
@@ -349,7 +352,7 @@ def convert_history_session(jsonl_lines: List[str]) -> Tuple[List[Message], Opti
 
 def _iso_to_unix_ms(iso_str: str) -> int:
     """Convert ISO 8601 timestamp to unix milliseconds."""
-    from datetime import datetime, timezone
+    from datetime import datetime
     try:
         # Handle 'Z' suffix
         s = iso_str.replace("Z", "+00:00")

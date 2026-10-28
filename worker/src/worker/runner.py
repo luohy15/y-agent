@@ -8,11 +8,10 @@ import threading
 from loguru import logger
 
 from agent.telegram_delivery import send_telegram_photo_reference
-from storage.entity.dto import BotConfig, Message, _throughput_enabled, trailing_user_messages
+from storage.entity.dto import BotConfig, Message, trailing_user_messages
 from storage.service import chat as chat_service
 
 import agent.config as agent_config
-from agent.ec2_wake import ensure_and_touch_vm
 
 
 # Roles an inline (non-agentic) backend accepts in its request body.
@@ -944,12 +943,13 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
         logger.exception("register_process failed for chat {} (session_id={}): {}", chat_id, session_id, e)
         from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
         from storage.repository import chat as chat_repo
+        failure_message = f"Process registration failed: {type(e).__name__}: {str(e)}. The backend session may have started but cannot be monitored."
         def fail_registration(current):
             if current.running and current.run_seq == chat.run_seq:
                 current.running = False
                 current.messages.append(Message(
                     id=generate_message_id(), role="assistant",
-                    content=f"Process registration failed: {type(e).__name__}: {str(e)}. The backend session may have started but cannot be monitored.",
+                    content=failure_message,
                     timestamp=get_utc_iso8601_timestamp(), unix_timestamp=get_unix_timestamp(),
                 ))
         chat_repo.mutate_chat_locked(chat_id, fail_registration, user_id=user_id)

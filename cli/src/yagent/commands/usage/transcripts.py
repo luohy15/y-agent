@@ -21,7 +21,6 @@ import json
 import os
 import re
 import socket
-import sys
 import tempfile
 import time
 from contextlib import contextmanager
@@ -57,10 +56,10 @@ def _state_lock(state_file: Path):
             try:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 break
-            except BlockingIOError:
+            except BlockingIOError as e:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    raise click.ClickException("transcript state lock timed out; nothing scanned")
+                    raise click.ClickException("transcript state lock timed out; nothing scanned") from e
                 time.sleep(min(0.1, remaining))
         try:
             yield

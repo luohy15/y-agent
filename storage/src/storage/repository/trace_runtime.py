@@ -5,7 +5,7 @@ claim decision; the writers are the scheduled `refresh_trace_runtime` and the
 session-end reconcile's per-owner probe (todo 4077).
 """
 
-from typing import Dict, Iterable, Optional, Set, Tuple
+from typing import Dict, Iterable, Tuple
 
 from sqlalchemy import and_, case, func, or_
 from sqlalchemy.dialects.postgresql import insert as pg_insert

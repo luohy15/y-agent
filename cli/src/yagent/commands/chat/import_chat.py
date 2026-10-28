@@ -73,7 +73,7 @@ def import_chats(file_path: str, verbose: bool = False):
     chat_repo._write_chats(updated_chats)
 
     # Print statistics
-    click.echo(f"Import completed:")
+    click.echo("Import completed:")
     click.echo(f"  New chats: {new_count}")
     click.echo(f"  Existing chats: {existing_count}")
     click.echo(f"  Replaced chats: {replaced_count}")

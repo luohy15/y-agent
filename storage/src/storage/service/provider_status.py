@@ -420,7 +420,9 @@ def overview(provider: str = ANTHROPIC_PROVIDER, *, now: datetime | None = None)
 
 
 def incidents(provider: str, start: datetime, end: datetime, limit: int) -> dict:
-    _require_provider(provider); _require_range(start, end); _require_limit(limit, 100)
+    _require_provider(provider)
+    _require_range(start, end)
+    _require_limit(limit, 100)
     return {"provider": provider, "incidents": [_incident_dict(row) for row in repo.list_incidents(provider, start, end, limit)]}
 
 
@@ -433,7 +435,9 @@ def incident(provider: str, source_id: str) -> dict:
 
 
 def history(provider: str, start: datetime, end: datetime, limit: int) -> dict:
-    _require_provider(provider); _require_range(start, end); _require_limit(limit, 500)
+    _require_provider(provider)
+    _require_range(start, end)
+    _require_limit(limit, 500)
     transitions = repo.list_component_transitions(provider, start, end, limit)
     return {"provider": provider, "coverage_start": _iso(start), "coverage_end": _iso(end), "coverage_limited": repo.overview(provider) is None, "component_events": [{"component_source_id": row.component_source_id, "component_name": row.component_name, "status": row.status, "source_timestamp": _iso(row.source_timestamp), "observed_at": _iso(row.observed_at)} for row in transitions]}
 

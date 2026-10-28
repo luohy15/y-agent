@@ -7,7 +7,7 @@ from storage.entity.note import NoteEntity
 from storage.entity.entity_tag import EntityTagEntity
 from storage.dto.note import Note
 from storage.database.base import get_db
-from storage.util import apply_time_filter, generate_id
+from storage.util import apply_time_filter
 
 
 def _entity_to_dto(entity: NoteEntity) -> Note:

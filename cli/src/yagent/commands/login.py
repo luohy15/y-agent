@@ -81,7 +81,7 @@ def login(token, email, no_browser):
     server = HTTPServer(("localhost", port), _CallbackHandler)
 
     login_url = f"{web_url}?auth_redirect={callback_url}"
-    click.echo(f"Opening browser for login...")
+    click.echo("Opening browser for login...")
     click.echo(f"If the browser doesn't open, visit: {login_url}")
     webbrowser.open(login_url)
 

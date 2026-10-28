@@ -24,7 +24,7 @@ import hashlib
 import os
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Annotated, Optional
 
 import boto3
 from botocore.exceptions import ClientError
@@ -307,10 +307,10 @@ def _is_upload(value) -> bool:
 @router.post("/publish")
 async def publish(
     request: Request,
-    file: Optional[UploadFile] = File(None),
+    file: Annotated[Optional[UploadFile], File()] = None,
     module_id: str = Form(...),
     sha256: Optional[str] = Form(None),
-    api_file: Optional[UploadFile] = File(None),
+    api_file: Annotated[Optional[UploadFile], File()] = None,
     api_sha256: Optional[str] = Form(None),
     label: Optional[str] = Form(None),
     icon: Optional[str] = Form(None),

@@ -29,7 +29,7 @@ def pdf_parse(input_pdf: Path, output: Path | None):
     try:
         doc = pymupdf.open(str(input_pdf))
     except Exception as e:
-        raise click.ClickException(f"Failed to open PDF: {e}")
+        raise click.ClickException(f"Failed to open PDF: {e}") from e
 
     try:
         if doc.is_encrypted and not doc.authenticate(""):
@@ -41,7 +41,7 @@ def pdf_parse(input_pdf: Path, output: Path | None):
         try:
             markdown = pymupdf4llm.to_markdown(doc)
         except Exception as e:
-            raise click.ClickException(f"Failed to parse PDF: {e}")
+            raise click.ClickException(f"Failed to parse PDF: {e}") from e
     finally:
         doc.close()
 

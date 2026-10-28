@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Optional
 from storage.entity.dto import Message, BotConfig
 from rich.console import Console
 from rich.markdown import Markdown

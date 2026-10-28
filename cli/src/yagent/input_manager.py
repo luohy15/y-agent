@@ -1,6 +1,5 @@
-import sys
 import pyperclip
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 from prompt_toolkit import prompt
 from rich.console import Console
 from storage.entity.dto import Message

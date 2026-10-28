@@ -1132,7 +1132,7 @@ def get_trace_chat_status(user_id: int, trace_ids: list) -> dict:
         rows = (session.query(
                     ChatEntity.trace_id,
                     func.max(case((ChatEntity.status == "running", 1), else_=0)).label("has_running"),
-                    func.max(case((ChatEntity.unread == True, 1), else_=0)).label("has_unread"),
+                    func.max(case((ChatEntity.unread.is_(True), 1), else_=0)).label("has_unread"),
                 )
                 .filter_by(user_id=user_id)
                 .filter(ChatEntity.trace_id.in_(trace_ids))

@@ -1,21 +1,13 @@
+from api import env_bootstrap as env_bootstrap
+
 import json
 import os
 import uvicorn
-from dotenv import load_dotenv
-from storage.global_config import load_global_config
-
-load_dotenv()
-load_global_config()
 from contextlib import asynccontextmanager
 from typing import Any
 from fastapi import APIRouter, FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-
-
-class UnicodeJSONResponse(JSONResponse):
-    def render(self, content: Any) -> bytes:
-        return json.dumps(content, ensure_ascii=False).encode("utf-8")
 
 from api.controller.auth import router as auth_router
 from api.controller.chat import router as chat_router
@@ -54,6 +46,12 @@ from api.middleware.auth import AuthMiddleware
 from api.middleware.api_latency import ApiLatencyMiddleware
 from api.middleware.provider_status_access_log import install_provider_status_access_log_filter
 from api.middleware.mcp_access_log import install_mcp_access_log_filter
+
+
+class UnicodeJSONResponse(JSONResponse):
+    def render(self, content: Any) -> bytes:
+        return json.dumps(content, ensure_ascii=False).encode("utf-8")
+
 
 install_provider_status_access_log_filter()
 install_mcp_access_log_filter()

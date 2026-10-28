@@ -46,7 +46,7 @@ async def list_worktrees(
     try:
         worktrees = wt_service.list_worktrees(user_id, status=status, limit=limit)
     except DevWorktreeRequestError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     return [w.to_dict() for w in worktrees]
 
 

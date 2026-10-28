@@ -407,15 +407,17 @@ def _metrics(rows: list, source: str) -> dict:
         durations = [float(row.duration_ms) for row in rows]
         count = len(rows)
         errors = sum(1 for row in rows if _is_error(row))
-        percentile = lambda value: _exact_percentile(durations, value)
+        def percentile(value):
+            return _exact_percentile(durations, value)
     else:
         count = sum(row.request_count for row in rows)
         errors = sum(row.error_count for row in rows)
         histogram = _merge_histograms(row.histogram for row in rows)
         observed_max = max((row.duration_max_ms for row in rows), default=None)
-        percentile = lambda value: _histogram_percentile(
-            histogram, value, observed_max=observed_max
-        )
+        def percentile(value):
+            return _histogram_percentile(
+                histogram, value, observed_max=observed_max
+            )
     return {
         "request_count": count,
         "error_count": errors,

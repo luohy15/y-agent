@@ -27,7 +27,7 @@ def trace_unshare(share_id: Optional[str], trace_id: Optional[str]):
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 click.echo(f"No share found for trace {trace_id}")
-                raise click.Abort()
+                raise click.Abort() from e
             raise
 
     try:
@@ -36,5 +36,5 @@ def trace_unshare(share_id: Optional[str], trace_id: Optional[str]):
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:
             click.echo(f"Share {share_id} not found")
-            raise click.Abort()
+            raise click.Abort() from e
         raise

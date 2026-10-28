@@ -53,10 +53,10 @@ def _parse_time_filter_input(value: str, tz: Optional[str] = None) -> tuple[date
     try:
         dt = datetime.strptime(value, _TIME_FILTER_DATE_FMT).replace(tzinfo=local_tz)
         return dt.astimezone(timezone.utc), True
-    except ValueError:
+    except ValueError as e:
         raise ValueError(
             f"Cannot parse date/datetime: {value!r} (expected YYYY-MM-DD or YYYY-MM-DDTHH:MM[:SS])"
-        )
+        ) from e
 
 
 def _emit_time_filter_value(dt: datetime, field_type: str):

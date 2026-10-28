@@ -72,7 +72,7 @@ class SSHPool:
 
     def close_all(self):
         """Close all pooled connections."""
-        for key, client in self._clients.items():
+        for client in self._clients.values():
             try:
                 client.close()
             except Exception:

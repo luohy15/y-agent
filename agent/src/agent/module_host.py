@@ -205,7 +205,7 @@ from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional
 
 from sqlalchemy.orm import Session
 
-from storage.project_key import ProjectKeyError, normalize_project_key
+from storage.project_key import ProjectKeyError as ProjectKeyError, normalize_project_key as normalize_project_key
 
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig

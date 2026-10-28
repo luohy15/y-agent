@@ -70,8 +70,8 @@ def decode_send_image_upload(upload: ImageUploadLike, *, prefix: str) -> tuple[s
         raise HTTPException(status_code=400, detail="unsupported image extension")
     try:
         data = base64.b64decode(upload.content_base64, validate=True)
-    except (binascii.Error, ValueError):
-        raise HTTPException(status_code=400, detail="invalid image_uploads content_base64")
+    except (binascii.Error, ValueError) as e:
+        raise HTTPException(status_code=400, detail="invalid image_uploads content_base64") from e
     if len(data) > _MAX_IMAGE_UPLOAD_BYTES:
         raise HTTPException(status_code=400, detail="image upload exceeds 10 MB")
 

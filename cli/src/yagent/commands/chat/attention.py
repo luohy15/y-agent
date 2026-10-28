@@ -31,7 +31,7 @@ def chat_attention(chat_id: str | None, clear: bool):
         except Exception:
             detail = e.response.text
         click.echo(f"Error: {detail}", err=True)
-        raise SystemExit(1)
+        raise SystemExit(1) from e
 
     if clear:
         click.echo(f"cleared attention on chat {chat_id}")

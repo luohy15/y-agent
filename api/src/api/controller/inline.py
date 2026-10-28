@@ -94,7 +94,7 @@ async def inline(req: InlineRequest, request: Request) -> InlineResponse:
             timeout=INLINE_TIMEOUT,
         )
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"LLM request failed: {e}")
+        raise HTTPException(status_code=502, detail=f"LLM request failed: {e}") from e
 
     result = (result or "").strip()
     await _persist_inline_chat(user_id, bot_config, user_content, result)

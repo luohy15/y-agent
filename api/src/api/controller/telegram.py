@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from storage.repository.user import get_user_by_telegram_id, bind_telegram_id, unbind_telegram_id
-from storage.repository.chat import find_latest_chat_by_topic, find_latest_chat_by_trace_id, save_chat as repo_save_chat
+from storage.repository.chat import find_latest_chat_by_topic, find_latest_chat_by_trace_id
 from storage.service.telegram import resolve_target
 from storage.entity.dto import Message
 from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp, get_telegram_bot_token, send_telegram_message, send_telegram_photo_bytes
@@ -360,7 +360,7 @@ async def _handle_clear(telegram_chat_id, telegram_user_id):
 
 
 async def _handle_routed_message(telegram_chat_id, telegram_user_id, target_chat_id: str, text: str, images: Optional[List[str]] = None):
-    """Route a Telegram message to an explicit chat by id.
+    r"""Route a Telegram message to an explicit chat by id.
 
     Triggered when the DM matches `^/<6hex>\s+...`. Looks up the chat scoped
     to the bound user (so a stranger's chat id resolves as 'not found'), then

@@ -104,7 +104,7 @@ def update_dashboard():
         lines.append("")
         lines.append("| Time | Action | Task | Note |")
         lines.append("|------|--------|------|------|")
-        for ts, action, name, tid, note in recent_ops:
+        for ts, action, name, _tid, note in recent_ops:
             note_str = note or ""
             lines.append(f"| {ts} | {action} | {name} | {note_str} |")
     else:

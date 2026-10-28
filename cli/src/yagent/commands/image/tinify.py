@@ -88,7 +88,7 @@ def image_tinify(inputs, output, in_place):
             source = tinify.from_file(str(src))
             source.to_file(str(dst))
         except tinify.Error as e:
-            raise click.ClickException(f"Tinify failed for {src}: {e}")
+            raise click.ClickException(f"Tinify failed for {src}: {e}") from e
 
         size_out = dst.stat().st_size
         total_in += size_in

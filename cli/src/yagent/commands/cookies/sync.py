@@ -141,7 +141,7 @@ def cookies_sync(domains: tuple[str, ...], browser: str, profile: str | None):
         click.echo("yt-dlp not found; falling back to browser_cookie3 (may miss signed-in cookies, ignores --profile)", err=True)
         raw_cookies = _browser_cookie3_to_netscape(browser, domains)
     except Exception as exc:
-        raise click.ClickException(f"yt-dlp cookie export failed: {exc}")
+        raise click.ClickException(f"yt-dlp cookie export failed: {exc}") from exc
 
     for domain in domains:
         cookies_txt = _filter_netscape(raw_cookies, domain)

@@ -573,7 +573,7 @@ def link_fetch(url: str, page: int, lang: str, json_output: bool, link_id: str |
                     "error": str(e),
                 }))
                 return
-            raise click.ClickException(str(e))
+            raise click.ClickException(str(e)) from e
         if json_output:
             click.echo(json.dumps({
                 "status": "done",
@@ -622,7 +622,7 @@ def link_fetch(url: str, page: int, lang: str, json_output: bool, link_id: str |
                 "error": str(e),
             }))
             return
-        raise click.ClickException(str(e))
+        raise click.ClickException(str(e)) from e
 
     if json_output:
         click.echo(json.dumps({

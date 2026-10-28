@@ -189,4 +189,4 @@ def unassoc_link(activity_id, todo):
     if data.get("deleted"):
         click.echo(f"Removed association between activity {activity_id} and todo {todo}")
     else:
-        click.echo(f"Association not found")
+        click.echo("Association not found")

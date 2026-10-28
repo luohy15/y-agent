@@ -134,7 +134,7 @@ def _pick_by_weight(bots: List[BotConfig]) -> Optional[BotConfig]:
     eligible = [(cfg, cfg.route_weight) for cfg in bots if cfg.route_weight and cfg.route_weight > 0]
     if not eligible:
         return None
-    choices, raw_weights = zip(*eligible)
+    choices, raw_weights = zip(*eligible, strict=True)
     total = sum(raw_weights)
     weights = [w / total for w in raw_weights]
     return random.choices(choices, weights=weights, k=1)[0]

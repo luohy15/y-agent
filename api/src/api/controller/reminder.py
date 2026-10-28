@@ -79,7 +79,7 @@ async def create_reminder(req: CreateReminderRequest, request: Request):
             calendar_event_id=req.calendar_event_id,
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     return reminder.to_dict()
 
 
@@ -92,7 +92,7 @@ async def update_reminder(req: UpdateReminderRequest, request: Request):
     try:
         reminder = reminder_service.update_reminder(user_id, req.reminder_id, **fields)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     if not reminder:
         raise HTTPException(status_code=404, detail="Reminder not found")
     return reminder.to_dict()

@@ -140,4 +140,4 @@ def _ensure_common(pkg_name: str, slug: str) -> None:
     # finds it via normal package attribute lookup after relative import setup.
     parent = sys.modules.get(pkg_name)
     if parent is not None:
-        setattr(parent, "common", mod)
+        parent.common = mod

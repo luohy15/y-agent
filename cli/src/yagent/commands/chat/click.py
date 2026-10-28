@@ -14,6 +14,12 @@ from yagent.time_util import resolve_due_at, utc_to_local
 from yagent.util.images import stage_image_path
 from yagent.commands.module._local import import_local_cli
 from yagent.commands.module._paths import source_dir
+from .import_chat import import_chats
+from .import_claude import import_claude
+from .stop import stop_chat
+from .attach import attach_images
+from .attention import chat_attention
+from .wakeup import chat_wakeup_group
 
 
 class ChatHybridGroup(click.Group):
@@ -203,7 +209,7 @@ def _validate_skill_name(skill: str) -> None:
         raise click.BadParameter(
             f"cannot read installed skills under {skills_root}: {exc}",
             param_hint="'--skill'",
-        )
+        ) from exc
     if skill in installed:
         return
     raise click.BadParameter(
@@ -312,7 +318,7 @@ def _fire_and_forget(
         except Exception:
             detail = e.response.text
         click.echo(f"Error: {detail}", err=True)
-        raise SystemExit(1)
+        raise SystemExit(1) from e
 
 
 def _schedule_wakeup(
@@ -332,7 +338,7 @@ def _schedule_wakeup(
         due_at = resolve_due_at(at)
     except ValueError as exc:
         click.echo(f"Error: {exc}", err=True)
-        raise SystemExit(2)
+        raise SystemExit(2) from exc
 
     if not trace_id:
         trace_id = os.environ.get('Y_TRACE_ID') or None
@@ -358,7 +364,7 @@ def _schedule_wakeup(
         except Exception:
             detail = e.response.text
         click.echo(f"Error: {detail}", err=True)
-        raise SystemExit(1)
+        raise SystemExit(1) from e
 
 
 def _interactive(
@@ -569,13 +575,6 @@ def chat_group(
     click.echo(ctx.get_help())
     raise SystemExit(2)
 
-
-from .import_chat import import_chats
-from .import_claude import import_claude
-from .stop import stop_chat
-from .attach import attach_images
-from .attention import chat_attention
-from .wakeup import chat_wakeup_group
 
 chat_group.add_command(chat_wakeup_group)
 chat_group.add_command(import_chats)

@@ -67,8 +67,8 @@ def validate_batch_id(value):
     try:
         if str(uuid.UUID(value)) != value:
             raise ValueError()
-    except (ValueError, TypeError, AttributeError):
-        raise UploadError("The upload batch ID must be a canonical UUID.")
+    except (ValueError, TypeError, AttributeError) as e:
+        raise UploadError("The upload batch ID must be a canonical UUID.") from e
     return value
 
 
@@ -91,8 +91,8 @@ def authorize(public_user_id, *, batch_id, filename, size_bytes, checksum_sha256
         digest = base64.b64decode(checksum_sha256_b64, validate=True)
         if len(digest) != 32 or base64.b64encode(digest).decode() != checksum_sha256_b64:
             raise ValueError()
-    except (ValueError, binascii.Error):
-        raise UploadError("The file checksum must be a Base64 SHA-256 digest.")
+    except (ValueError, binascii.Error) as e:
+        raise UploadError("The file checksum must be a Base64 SHA-256 digest.") from e
     if not dest_dir or "\0" in dest_dir or (work_dir is not None and "\0" in work_dir):
         raise UploadError("Choose a valid upload destination directory.")
     owner = resolve_owner(public_user_id)
@@ -109,8 +109,8 @@ def authorize(public_user_id, *, batch_id, filename, size_bytes, checksum_sha256
             ExpiresIn=POST_TTL_SECONDS)
     except UploadError:
         raise
-    except Exception:
-        raise UploadError("Upload authorization failed. Try again.", 503)
+    except Exception as e:
+        raise UploadError("Upload authorization failed. Try again.", 503) from e
     row = repo.create(owner, upload_id=upload_id, batch_id=batch_id, vm_name=vm_name,
                       work_dir=work_dir if work_dir is not None else (vm.work_dir or ""),
                       dest_dir=dest_dir, filename=filename, size_bytes=size_bytes,
@@ -160,8 +160,8 @@ def retry_upload(public_user_id, upload_id):
         head = head_version(s3_client(), row)
     except Exception as exc:
         if is_absent(exc):
-            raise UploadError(STAGED_EXPIRED, 409)
-        raise UploadError("The staged copy could not be checked. Try again shortly.", 503)
+            raise UploadError(STAGED_EXPIRED, 409) from exc
+        raise UploadError("The staged copy could not be checked. Try again shortly.", 503) from exc
     if not valid_head(row, head):
         raise UploadError("The staged copy failed verification. Select the file again.", 409)
     row = repo.retry(owner, upload_id, get_unix_timestamp())

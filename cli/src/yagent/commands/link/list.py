@@ -40,11 +40,11 @@ def link_list(query, on, from_, to, created_on, created_from, created_to,
         click.echo("No links found")
         return
 
-    for l in links:
+    for link in links:
         local_tz = _get_configured_tz()
-        time = datetime.fromtimestamp(l["timestamp"] / 1000, tz=local_tz).strftime("%H:%M")
-        title = l.get("title") or "-"
+        time = datetime.fromtimestamp(link["timestamp"] / 1000, tz=local_tz).strftime("%H:%M")
+        title = link.get("title") or "-"
         if show_id:
-            click.echo(f"[{time}] ({l['activity_id']}) {title} {l['base_url']}")
+            click.echo(f"[{time}] ({link['activity_id']}) {title} {link['base_url']}")
         else:
-            click.echo(f"[{time}] {title} {l['base_url']}")
+            click.echo(f"[{time}] {title} {link['base_url']}")

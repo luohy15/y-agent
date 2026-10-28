@@ -79,10 +79,10 @@ def resolve_due_at(at: str) -> str:
     probe = value.replace("Z", "+00:00") if value.endswith("Z") else value
     try:
         dt = datetime.fromisoformat(probe)
-    except ValueError:
+    except ValueError as e:
         raise ValueError(
             f"Cannot parse --at value: {at!r}. Use +<N>{{s,m,h,d}} (e.g. +30m) or ISO 8601."
-        )
+        ) from e
     if dt.tzinfo is None:
         # Naive: delegate to local_to_utc for the configured-timezone reading.
         return local_to_utc(value)

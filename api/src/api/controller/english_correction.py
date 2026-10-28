@@ -242,13 +242,13 @@ async def refine_text(req: RefineRequest, request: Request) -> RefineResponse:
             timeout=INLINE_TIMEOUT,
         )
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"LLM request failed: {e}")
+        raise HTTPException(status_code=502, detail=f"LLM request failed: {e}") from e
 
     try:
         payload = _parse_refine_json(raw or "")
         changed, corrected, categories, explanation = _normalize_refine_result(original, payload)
     except (ValueError, json.JSONDecodeError, TypeError) as e:
-        raise HTTPException(status_code=502, detail=f"LLM parse failed: {e}")
+        raise HTTPException(status_code=502, detail=f"LLM parse failed: {e}") from e
 
     correction_id = None
     if changed:

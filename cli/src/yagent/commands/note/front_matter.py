@@ -170,7 +170,7 @@ def rewrite_front_matter_tags(text, mapping):
         if values != old_tags:
             raise FrontMatterError("tags flow items do not round-trip to the parsed value")
         kept, seen = [], set()
-        for raw_item, value in zip(raw_items, values):
+        for raw_item, value in zip(raw_items, values, strict=True):
             if not isinstance(value, str):
                 kept.append(raw_item.strip())
                 continue
@@ -207,7 +207,7 @@ def rewrite_front_matter_tags(text, mapping):
         if values != old_tags:
             raise FrontMatterError("tags block items do not round-trip to the parsed value")
         kept_lines, seen = [], set()
-        for (_, item), value in zip(item_lines, values):
+        for (_, item), value in zip(item_lines, values, strict=True):
             if not isinstance(value, str):
                 kept_lines.append(f"{item.group('indent')}- {item.group('token')}")
                 continue

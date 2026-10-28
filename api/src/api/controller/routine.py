@@ -104,7 +104,7 @@ async def create_routine(req: CreateRoutineRequest, request: Request):
             vm_name=req.vm_name,
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     return routine.to_dict()
 
 
@@ -117,7 +117,7 @@ async def update_routine(req: UpdateRoutineRequest, request: Request):
     try:
         routine = routine_service.update_routine(user_id, req.routine_id, **fields)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     if not routine:
         raise HTTPException(status_code=404, detail="Routine not found")
     return routine.to_dict()
@@ -156,7 +156,7 @@ async def run_routine(req: RoutineIdRequest, request: Request):
     try:
         chat_id = routine_service.fire_routine(user_id, req.routine_id)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"fire_routine failed: {e}")
+        raise HTTPException(status_code=500, detail=f"fire_routine failed: {e}") from e
     return {"ok": True, "chat_id": chat_id}

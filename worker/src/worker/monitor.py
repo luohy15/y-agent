@@ -217,9 +217,7 @@ def _turn_message_patch(fresh) -> dict:
 async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadline_at: float, ssh_pool=None):
     """Tail a single detached process and handle completion."""
     from agent.config import resolve_vm_config
-    from storage.entity.dto import Message
     from storage.service import chat as chat_service
-    from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
 
     backend_type = proc.get("backend_type", "claude_code")
     vm_name = proc["vm_name"]

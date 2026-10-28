@@ -104,7 +104,7 @@ async def _scrape_to_xml(client: httpx.AsyncClient, feed) -> Optional[bytes]:
 
     try:
         items = extract_scrape_items(feed, html)
-    except Exception as e:
+    except Exception:
         logger.exception("fetch_rss_xml feed={} parse error", feed.rss_feed_id)
         raise
 

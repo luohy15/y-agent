@@ -46,8 +46,8 @@ async def google_login(req: GoogleLoginRequest):
             google_requests.Request(),
             GOOGLE_CLIENT_ID,
         )
-    except ValueError:
-        raise HTTPException(status_code=401, detail="Invalid Google ID token")
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail="Invalid Google ID token") from e
 
     email = idinfo.get("email")
     if not email:

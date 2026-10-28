@@ -25,4 +25,4 @@ async def run_command(request: Request, vm_name: str = Query(None), work_dir: st
         result = await execute_vm_command(vm_config, ["bash", "-c", cmd], timeout=300)
         return {"output": result}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e

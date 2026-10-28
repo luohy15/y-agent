@@ -3,7 +3,6 @@ import os
 from pathlib import Path
 from typing import List, Optional
 
-import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
@@ -153,7 +152,7 @@ async def list_links(
         updated_on=updated_on, updated_from=updated_from, updated_to=updated_to,
         tz=tz,
     )
-    return [l.to_dict() for l in links]
+    return [link.to_dict() for link in links]
 
 
 @router.post("")
@@ -175,7 +174,7 @@ async def visit_link(req: VisitLinkRequest, request: Request):
 @router.post("/batch")
 async def batch_create_links(req: BatchCreateLinksRequest, request: Request):
     user_id = _get_user_id(request)
-    count = link_service.add_links_batch(user_id, [l.model_dump() for l in req.links])
+    count = link_service.add_links_batch(user_id, [link.model_dump() for link in req.links])
     return {"count": count}
 
 
@@ -354,7 +353,7 @@ async def _call_tldr_bot(user_id: int, content: str, title: Optional[str], url: 
             timeout=TLDR_TIMEOUT,
         )
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"LLM request failed: {e}")
+        raise HTTPException(status_code=502, detail=f"LLM request failed: {e}") from e
     return (result or "").strip()
 
 

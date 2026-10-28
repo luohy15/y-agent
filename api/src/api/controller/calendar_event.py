@@ -86,7 +86,7 @@ async def create_event(req: CreateEventRequest, request: Request):
             timezone=req.timezone,
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     return event.to_dict()
 
 
@@ -99,7 +99,7 @@ async def update_event(req: UpdateEventRequest, request: Request):
     try:
         event = event_service.update_event(user_id, req.event_id, **fields)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
     return event.to_dict()

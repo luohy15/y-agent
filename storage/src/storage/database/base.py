@@ -7,15 +7,15 @@ from typing import Optional
 from dotenv import load_dotenv
 from storage.global_config import load_global_config
 
-load_dotenv()
-load_global_config()
-
 from contextvars import ContextVar
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker, Session
 from storage.entity.base import Base
+
+load_dotenv()
+load_global_config()
 
 
 _engine: Optional[Engine] = None

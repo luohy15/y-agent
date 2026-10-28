@@ -374,10 +374,10 @@ def save_link_fetch(
         return _row_to_dto(activity, link)
 
 
-def _batch_generate_long_ids(n: int, existing: Set[str] = set()) -> List[str]:
+def _batch_generate_long_ids(n: int, existing: Optional[Set[str]] = None) -> List[str]:
     """Pre-generate n unique long IDs, avoiding collisions with existing set."""
     ids: List[str] = []
-    seen = set(existing)
+    seen = set(existing or ())
     while len(ids) < n:
         new_id = generate_long_id()
         if new_id not in seen:
@@ -408,7 +408,7 @@ def save_links_batch(user_id: int, links: List[dict]) -> int:
         existing_links = session.query(LinkEntity).filter(
             LinkEntity.base_url.in_(list(base_url_map.keys()))
         ).all()
-        link_by_base_url: dict[str, LinkEntity] = {l.base_url: l for l in existing_links}
+        link_by_base_url: dict[str, LinkEntity] = {link.base_url: link for link in existing_links}
 
         # 3. Batch load existing activities by user+timestamp for dedup
         existing_activities = session.query(LinkActivityEntity.timestamp).filter(
@@ -490,9 +490,9 @@ def get_links_with_latest_activity(user_id: int, link_ids: List[str]) -> List[di
     from sqlalchemy import func
     with get_db() as session:
         links = session.query(LinkEntity).filter(LinkEntity.link_id.in_(link_ids)).all()
-        link_id_to_entity = {l.link_id: l for l in links}
+        link_id_to_entity = {link.link_id: link for link in links}
         # Get latest activity_id per link (by internal id)
-        link_internal_ids = [l.id for l in links]
+        link_internal_ids = [link.id for link in links]
         activity_rows = (
             session.query(
                 LinkActivityEntity.link_id,
@@ -733,7 +733,7 @@ def list_pending_downloads(limit: int, max_fails: int = 5) -> List[dict]:
             .all()
         )
         if link_rows:
-            link_internal_ids = [l.id for l in link_rows]
+            link_internal_ids = [link.id for link in link_rows]
             act_user_rows = (
                 session.query(
                     LinkActivityEntity.link_id,

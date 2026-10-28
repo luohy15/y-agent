@@ -72,8 +72,8 @@ def validate_object_id(value: str) -> str:
     try:
         if str(uuid.UUID(value)) != value:
             raise ValueError()
-    except (ValueError, TypeError, AttributeError):
-        raise PhotoStoreError("The photo id must be a canonical UUID.")
+    except (ValueError, TypeError, AttributeError) as e:
+        raise PhotoStoreError("The photo id must be a canonical UUID.") from e
     return value
 
 
@@ -97,8 +97,8 @@ def validate_sha256_b64(checksum: str) -> str:
         digest = base64.b64decode(checksum, validate=True)
         if len(digest) != 32 or base64.b64encode(digest).decode("ascii") != checksum:
             raise ValueError()
-    except (ValueError, binascii.Error):
-        raise PhotoStoreError("The file checksum must be a Base64 SHA-256 digest.")
+    except (ValueError, binascii.Error) as e:
+        raise PhotoStoreError("The file checksum must be a Base64 SHA-256 digest.") from e
     return checksum
 
 

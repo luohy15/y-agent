@@ -46,7 +46,6 @@ def build_artifact(slug: str) -> dict:
     out = build_out_dir(slug)
     out.mkdir(parents=True, exist_ok=True)
 
-    build_js = sdk / "build.mjs"
     # Pass paths relative to the SDK cwd so esbuild embeds stable relative
     # comments regardless of where the user invoked `y module publish`.
     src_rel = os.path.relpath(ui_dir(slug), sdk)

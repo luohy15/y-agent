@@ -44,7 +44,7 @@ async def _collect(refresh: bool) -> dict:
 
     providers = []
     errors = []
-    for source, result in zip(sources, results):
+    for source, result in zip(sources, results, strict=True):
         if isinstance(result, Exception):
             logger.warning("y usage limits: reader {} raised: {}", source, result)
             errors.append({"origin": source, "error": "transport_error"})

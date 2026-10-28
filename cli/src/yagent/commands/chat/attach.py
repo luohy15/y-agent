@@ -1,5 +1,4 @@
 import os
-from pathlib import Path
 
 import click
 import httpx
@@ -37,6 +36,6 @@ def attach_images(images: tuple[str, ...], chat_id: str | None):
         except Exception:
             detail = e.response.text
         click.echo(f"Error: {detail}", err=True)
-        raise SystemExit(1)
+        raise SystemExit(1) from e
 
     click.echo(f"attached {data.get('count', len(images))} image(s) to chat {chat_id}")

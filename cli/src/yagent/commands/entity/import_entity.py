@@ -39,7 +39,7 @@ def import_single(filepath):
     type_ = _derive_type(front_matter)
     if not type_:
         type_ = "person"
-        click.echo(f"  warn: no 'type' in front matter, defaulting to 'person'", err=True)
+        click.echo("  warn: no 'type' in front matter, defaulting to 'person'", err=True)
 
     payload = {"name": name, "type": type_}
     if front_matter:

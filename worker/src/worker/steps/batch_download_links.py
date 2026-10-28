@@ -76,7 +76,7 @@ async def _load_feed_indexes(pending: list[dict]) -> dict:
     if not feed_ids:
         return {}
     pairs = await asyncio.gather(*(_index_feed(feed_id) for feed_id in feed_ids))
-    return dict(zip(feed_ids, pairs))
+    return dict(zip(feed_ids, pairs, strict=True))
 
 
 async def _download_one(item: dict, timeout: int, feed_indexes: dict | None = None) -> str:

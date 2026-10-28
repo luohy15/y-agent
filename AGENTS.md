@@ -533,7 +533,7 @@ public share routes (`/api/chat/share/*`, `/api/trace/share/*`) and
 # Install CLI (links the workspace into a tool venv)
 uv tool install --force -e ./cli
 
-# Lint the six Python members (root ruff.toml; legacy baseline shrinks only)
+# Lint the six Python members (root ruff.toml; no per-file ignores)
 uvx ruff@0.17.3 check
 
 # Dev API server
@@ -610,7 +610,7 @@ y file export-pdf <md> [-o <pdf>]
 
 ## Conventions
 
-- Python: Ruff (`uvx ruff@0.17.3 check`, root `ruff.toml`) lints the six workspace members. The marked legacy baseline shrinks only: do not add per-file ignores for new code, and do not reformat. Follow existing style. Minimum 3.11.
+- Python: Ruff (`uvx ruff@0.17.3 check`, root `ruff.toml`) lints the six workspace members. Do not add per-file ignores or new noqa comments, and do not reformat. Follow existing style. Minimum 3.11.
 - Tests are local-only and untracked. Run `uv run python -m unittest discover -s tests`
   per Python package or `npm run test` in `web`; fresh clones have no test files.
 - Frontend: TypeScript strict, TailwindCSS utility classes, Solarized light/dark
