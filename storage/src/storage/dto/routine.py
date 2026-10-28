@@ -10,6 +10,7 @@ class Routine:
     message: str = ""
     description: Optional[str] = None
     target_topic: Optional[str] = None
+    target_role: Optional[str] = None
     target_skill: Optional[str] = None
     work_dir: Optional[str] = None
     backend: Optional[str] = None
@@ -35,6 +36,7 @@ class Routine:
             message=data.get('message', ''),
             description=data.get('description'),
             target_topic=data.get('target_topic'),
+            target_role=data.get('target_role'),
             target_skill=data.get('target_skill'),
             work_dir=data.get('work_dir'),
             backend=data.get('backend'),
@@ -63,6 +65,8 @@ class Routine:
         }
         if self.description is not None:
             result['description'] = self.description
+        if self.target_role is not None:
+            result['target_role'] = self.target_role
         if self.target_topic is not None:
             result['target_topic'] = self.target_topic
         if self.target_skill is not None:

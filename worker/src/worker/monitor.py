@@ -11,6 +11,7 @@ import re
 import time
 
 from loguru import logger
+from storage.role import legacy_topic_to_role, validate_role
 
 from agent.input_ledger import COMPLETED, InputLedger
 from worker.process_manager import (
@@ -410,7 +411,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                 chat_service.send_chat_message(
                     chat_id, user_id=user_id, bot_name=proc.get("bot_name"),
                     vm_name=proc.get("vm_name"), work_dir=proc.get("work_dir"),
-                    trace_id=proc.get("trace_id"), topic=proc.get("topic"),
+                    trace_id=proc.get("trace_id"), role=validate_role(proc.get("role") or legacy_topic_to_role(proc.get("topic"))),
                     backend=backend_type, run_seq=run_seq,
                 )
                 complete_current_process(chat_id, proc, result["status"])
@@ -769,7 +770,7 @@ async def _relaunch_claude_code_turn(chat_id: str, user_id: int, proc: dict, bac
         work_dir=proc.get("work_dir"),
         post_hooks=post_hooks,
         trace_id=proc.get("trace_id"),
-        topic=proc.get("topic"),
+        role=validate_role(proc.get("role") or legacy_topic_to_role(proc.get("topic"))),
         backend=backend,
         resume_5xx_retries=resume_5xx_retries,
         run_seq=run_seq,
@@ -834,7 +835,7 @@ async def _handle_timeout(chat_id: str, proc: dict, ssh_pool=None):
 
     from worker.death_delivery import current_run
     owner_chat = await chat_service.get_chat(proc["user_id"], chat_id)
-    if (not owner_chat or (owner_chat.topic != "manager" and owner_chat.trace_id != proc.get("trace_id"))
+    if (not owner_chat or (owner_chat.role != "manager" and owner_chat.trace_id != proc.get("trace_id"))
             or not current_run(chat_id, proc)):
         return
 

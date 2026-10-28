@@ -6,7 +6,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 from dataclasses import dataclass
 
 from loguru import logger
-from sqlalchemy import func, or_, text
+from sqlalchemy import and_, case, func, or_, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import defer, load_only
 
@@ -15,6 +15,7 @@ from storage.entity.user import UserEntity  # noqa: F401 - needed for ChatEntity
 from storage.entity.dto import Chat
 from storage.database.base import get_db
 from storage.util import apply_time_filter
+from storage.role import ROOT_ROLE, ROLES, effective_role, legacy_topic_to_role, validate_role
 
 
 # Closed sort surface for list_chats (todo 3152). Defaults preserve the
@@ -68,6 +69,7 @@ class ChatSummary:
     created_at: str
     updated_at: str
     topic: str = ""
+    role: str = ""
     skill: str = ""
     trace_id: str = ""
     routine_id: str = ""
@@ -91,6 +93,20 @@ class ResumeCandidateRow:
     updated_at_unix: int
 
 
+def effective_role_expr(role):
+    """Indexed predicate equivalent to effective_role for a requested role."""
+    validate_role(role)
+    if role is None:
+        return ~or_(*(effective_role_expr(value) for value in sorted(ROLES)))
+    legacy_topics = [value for value in (*sorted(ROLES), "dev")
+                     if legacy_topic_to_role(value) == role]
+    return and_(
+        or_(ChatEntity.topic.is_(None), ~ChatEntity.topic.like("%-archived")),
+        or_(and_(ChatEntity.role.isnot(None), ChatEntity.role == role),
+            and_(ChatEntity.role.is_(None), ChatEntity.topic.isnot(None), ChatEntity.topic.in_(legacy_topics))),
+    )
+
+
 def _entity_to_chat(entity: ChatEntity) -> Chat:
     """Hydrate the Chat DTO from `json_content`, then apply the promoted columns.
 
@@ -111,6 +127,8 @@ def _entity_to_chat(entity: ChatEntity) -> Chat:
     chat = Chat.from_dict(json.loads(entity.json_content))
     # Unconditional: NULL means "no resumable session", not "not promoted yet".
     chat.external_id = entity.external_id or None
+    chat.role = effective_role(entity.role, entity.topic)
+    chat.topic = entity.topic
     if entity.trace_id is not None:
         chat.trace_id = entity.trace_id
     if entity.backend is not None:
@@ -133,6 +151,7 @@ async def list_chats(
     offset: int = 0,
     trace_id: Optional[str] = None,
     topic: Optional[str] = None,
+    role: Optional[str] = None,
     skill: Optional[str] = None,
     tier: Optional[str] = None,
     bot_name: Optional[str] = None,
@@ -153,6 +172,8 @@ async def list_chats(
     sort_by: Optional[str] = None,
     sort_order: Optional[str] = None,
 ) -> List[ChatSummary]:
+    if role is not None and role not in ROLES:
+        return []
     sort_by, sort_order = resolve_chat_list_order(sort_by, sort_order)
     with get_db() as session:
         q = (
@@ -168,6 +189,7 @@ async def list_chats(
                     ChatEntity.created_at_unix,
                     ChatEntity.updated_at_unix,
                     ChatEntity.topic,
+                    ChatEntity.role,
                     ChatEntity.skill,
                     ChatEntity.trace_id,
                     ChatEntity.routine_id,
@@ -196,6 +218,8 @@ async def list_chats(
             ))
         if trace_id:
             q = q.filter(ChatEntity.trace_id == trace_id)
+        if role:
+            q = q.filter(effective_role_expr(role))
         if topic:
             q = q.filter(ChatEntity.topic == topic)
         if skill:
@@ -268,6 +292,7 @@ async def list_chats(
                 created_at=row.created_at or "",
                 updated_at=row.updated_at or "",
                 topic=row.topic or "",
+                role=effective_role(row.role, row.topic) or "",
                 skill=row.skill or "",
                 trace_id=row.trace_id or "",
                 routine_id=row.routine_id or "",
@@ -328,6 +353,7 @@ def _insert_chat_sync(user_id: int, chat: Chat) -> Chat:
         raise ChatIdCollision(user_id, chat.id)
 
     chat.update_time = get_utc_iso8601_timestamp()
+    chat.topic = chat.role
     content = json.dumps(chat.to_dict())
     title = _extract_title(chat)
     search_text = _extract_search_text(chat)
@@ -341,7 +367,8 @@ def _insert_chat_sync(user_id: int, chat: Chat) -> Chat:
         bot_name=chat.bot_name,
         tier=chat.tier,
         origin_chat_id=chat.origin_chat_id,
-        topic=chat.topic,
+        role=chat.role,
+        topic=chat.role,
         skill=chat.skill,
         trace_id=chat.trace_id,
         routine_id=chat.routine_id,
@@ -352,7 +379,7 @@ def _insert_chat_sync(user_id: int, chat: Chat) -> Chat:
     try:
         with get_db() as session:
             from storage.repository.todo import lock_todo
-            if chat.trace_id and chat.topic != "manager":
+            if chat.trace_id and chat.role != ROOT_ROLE:
                 lock_todo(session, user_id, chat.trace_id)
             session.add(entity)
     except IntegrityError as exc:
@@ -450,6 +477,10 @@ def _resolve_immutable_field(entity: ChatEntity, chat: Chat, field: str):
     """
     entity_val = getattr(entity, field)
     chat_val = getattr(chat, field)
+    # NULL is authoritative for roles: a released manager must stay released.
+    # Roles are assigned on insertion and cleared by release_role, never by saves or acceptance.
+    if field == "role":
+        return entity_val
     if entity_val is None:
         return chat_val
     if chat_val is None or chat_val == entity_val:
@@ -498,12 +529,13 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
             entity.backend = _resolve_immutable_field(entity, chat, "backend")
             entity.bot_name = _resolve_routing_field(entity, chat, "bot_name")
             entity.tier = _resolve_routing_field(entity, chat, "tier")
-            entity.topic = _resolve_immutable_field(entity, chat, "topic")
             entity.skill = _resolve_immutable_field(entity, chat, "skill")
             entity.trace_id = _resolve_immutable_field(entity, chat, "trace_id")
             entity.routine_id = _resolve_immutable_field(entity, chat, "routine_id")
             entity.status = status
         else:
+            chat.topic = chat.role
+            content = json.dumps(chat.to_dict())
             entity = ChatEntity(
                 user_id=user_id,
                 chat_id=chat.id,
@@ -513,7 +545,8 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
                 bot_name=chat.bot_name,
                 tier=chat.tier,
                 origin_chat_id=chat.origin_chat_id,
-                topic=chat.topic,
+                role=chat.role,
+                topic=chat.role,
                 skill=chat.skill,
                 trace_id=chat.trace_id,
                 routine_id=chat.routine_id,
@@ -530,7 +563,7 @@ class EffortOnRunningChat(Exception):
 
 
 def accept_or_start_chat(user_id: int, chat_id: str, *, message=None,
-                         human_reply=False, trace_id=None, topic=None, skill=None,
+                         human_reply=False, trace_id=None, role=None, skill=None,
                          event_id=None, session=None, resume_limit=None):
     """Lock todo before chat; append/start and conditional resume commit together.
 
@@ -553,19 +586,21 @@ def accept_or_start_chat(user_id: int, chat_id: str, *, message=None,
     from storage.util import get_utc_iso8601_timestamp
 
     with (nullcontext(session) if session is not None else get_db()) as session:
-        identity = session.query(ChatEntity.trace_id, ChatEntity.topic).filter_by(
+        identity = session.query(ChatEntity.trace_id, ChatEntity.role, ChatEntity.topic).filter_by(
             user_id=user_id, chat_id=chat_id).first()
         if identity is None:
             raise ValueError("Chat not found")
-        if trace_id and identity.trace_id and trace_id != identity.trace_id and identity.topic != "manager":
+        if trace_id and identity.trace_id and trace_id != identity.trace_id and effective_role(identity.role, identity.topic) != ROOT_ROLE:
             raise ValueError("Chat trace_id mismatch")
-        effective_topic = identity.topic or topic
-        effective_trace = identity.trace_id or (trace_id if effective_topic != "manager" else None)
+        # Roles are create-time identity. A queued stale manager launch must
+        # not reclaim a singleton role that has since been released.
+        resolved_role = effective_role(identity.role, identity.topic)
+        effective_trace = identity.trace_id or (trace_id if resolved_role != ROOT_ROLE else None)
         todo = (lock_todo(session, user_id, effective_trace)
-                if effective_trace and effective_topic != "manager" else None)
+                if effective_trace and resolved_role != ROOT_ROLE else None)
         row = (session.query(ChatEntity).filter_by(user_id=user_id, chat_id=chat_id)
                .populate_existing().with_for_update().first())
-        if row is None or (row.trace_id, row.topic) != (identity.trace_id, identity.topic):
+        if row is None or (row.trace_id, row.role, row.topic) != (identity.trace_id, identity.role, identity.topic):
             raise ValueError("Chat identity changed during acceptance")
         chat = _entity_to_chat(row)
         already_running = chat.running
@@ -584,8 +619,8 @@ def accept_or_start_chat(user_id: int, chat_id: str, *, message=None,
             if not duplicate:
                 chat.messages.append(message)
         chat.trace_id = effective_trace
-        chat.topic = effective_topic
-        chat.skill = chat.skill or skill or (effective_topic if effective_topic != "manager" else None)
+        chat.role = resolved_role
+        chat.skill = chat.skill or skill or (resolved_role if resolved_role != ROOT_ROLE else None)
         if message is not None and not already_running:
             # Idle acceptance is what reserves the next run, and it owns exactly
             # one queue send for it. A send into a busy chat reserves nothing:
@@ -596,7 +631,6 @@ def accept_or_start_chat(user_id: int, chat_id: str, *, message=None,
             chat.interrupted = False
         chat.update_time = get_utc_iso8601_timestamp()
         row.trace_id = effective_trace
-        row.topic = effective_topic
         row.skill = chat.skill
         row.status = "running"
         row.json_content = json.dumps(chat.to_dict())
@@ -666,7 +700,7 @@ def close_out_chat_run(user_id: int, chat_id: str, *, trace_id=None, handled_ids
         lock_todo(session, user_id, trace_id)
         row = (session.query(ChatEntity).filter_by(user_id=user_id, chat_id=chat_id)
                .populate_existing().with_for_update().first())
-        if row is None or (row.topic != "manager" and row.trace_id != trace_id):
+        if row is None or (effective_role(row.role, row.topic) != ROOT_ROLE and row.trace_id != trace_id):
             return None, [], None
         chat = _entity_to_chat(row)
         receipt = chat.closeout_receipt or {}
@@ -727,7 +761,6 @@ def _write_chat_to_row(entity: ChatEntity, chat: Chat) -> None:
     entity.backend = _resolve_immutable_field(entity, chat, "backend")
     entity.bot_name = _resolve_routing_field(entity, chat, "bot_name")
     entity.tier = _resolve_routing_field(entity, chat, "tier")
-    entity.topic = _resolve_immutable_field(entity, chat, "topic")
     entity.skill = _resolve_immutable_field(entity, chat, "skill")
     entity.trace_id = _resolve_immutable_field(entity, chat, "trace_id")
     entity.routine_id = _resolve_immutable_field(entity, chat, "routine_id")
@@ -866,11 +899,11 @@ def stop_orphan_running_chat(user_id: int, chat_id: str, cutoff_unix: int, is_li
     from storage.util import get_utc_iso8601_timestamp
 
     with get_db() as session:
-        identity = session.query(ChatEntity.trace_id, ChatEntity.topic).filter_by(
+        identity = session.query(ChatEntity.trace_id, ChatEntity.role, ChatEntity.topic).filter_by(
             user_id=user_id, chat_id=chat_id).first()
         if identity is None:
             return False
-        if identity.trace_id and identity.topic != "manager":
+        if identity.trace_id and effective_role(identity.role, identity.topic) != ROOT_ROLE:
             lock_todo(session, user_id, identity.trace_id)
         row = (session.query(ChatEntity).filter_by(user_id=user_id, chat_id=chat_id)
                .populate_existing().with_for_update().first())
@@ -908,20 +941,19 @@ def list_trace_ids(user_id: int, limit: int = 50, offset: int = 0, trace_id: str
         ]
 
 
-def release_topic(user_id: int, topic: str, except_chat_id: Optional[str] = None) -> int:
-    """Rename `topic` to f'{topic}-archived' on all chats matching (user_id, topic),
-    except `except_chat_id`. Returns the affected row count.
-
-    Used to enforce single-owner semantics for root topics (e.g. 'manager') when a
-    new chat is about to claim that topic. Direct UPDATE so `_resolve_immutable_field`
-    in `_save_chat_*_sync` doesn't apply — otherwise an in-flight worker holding a
-    stale DTO with the old topic could silently re-acquire it on its next save.
-    """
+def release_role(user_id: int, role: str, except_chat_id: Optional[str] = None) -> int:
+    """Release effective managers, retaining old-host archival semantics."""
+    if role != ROOT_ROLE:
+        raise ValueError("Only the manager role is singleton")
     with get_db() as session:
-        q = session.query(ChatEntity).filter_by(user_id=user_id, topic=topic)
+        q = session.query(ChatEntity).filter(
+            ChatEntity.user_id == user_id, effective_role_expr(role))
         if except_chat_id:
             q = q.filter(ChatEntity.chat_id != except_chat_id)
-        return q.update({"topic": f"{topic}-archived"})
+        return q.update({"role": None, "topic": case(
+            (ChatEntity.topic == ROOT_ROLE, "manager-archived"),
+            else_=ChatEntity.topic,
+        )}, synchronize_session=False)
 
 
 def rename_bot_name(user_id: int, old_name: str, new_name: str) -> int:
@@ -929,7 +961,7 @@ def rename_bot_name(user_id: int, old_name: str, new_name: str) -> int:
     (user_id, bot_name). Returns the affected row count.
 
     Direct UPDATE so the rename lands on every row in one statement without
-    loading and re-saving each chat. Unlike `release_topic` above, this does not
+    loading and re-saving each chat. Unlike `release_role` above, this does not
     protect the new name: `bot_name` is a routing field (`_resolve_routing_field`),
     so an in-flight worker holding a stale DTO can write the old name back on its
     next save, after which resolution for that one chat degrades to the tier2
@@ -965,6 +997,7 @@ def find_resume_candidate_row(
         metadata_rows = (session.query(
                     ChatEntity.id,
                     ChatEntity.topic,
+                    ChatEntity.role,
                     ChatEntity.status,
                     ChatEntity.updated_at,
                     ChatEntity.updated_at_unix,
@@ -1001,6 +1034,7 @@ def find_resume_candidate_row(
             row = ChatEntity(
                 id=metadata.id,
                 topic=metadata.topic,
+                role=metadata.role,
                 external_id=metadata.external_id,
                 trace_id=metadata.trace_id,
                 backend=metadata.backend,
@@ -1023,11 +1057,11 @@ def find_resume_candidate_row(
         return None
 
 
-def find_chat_by_topic_and_trace(user_id: int, topic: str, trace_id: str) -> Optional[Chat]:
-    """Find a chat with the given topic and trace_id."""
+def find_chat_by_role_and_trace(user_id: int, role: str, trace_id: str) -> Optional[Chat]:
+    """Find a chat with the given role and trace_id."""
     with get_db() as session:
         row = (session.query(ChatEntity)
-               .filter_by(user_id=user_id, topic=topic, trace_id=trace_id)
+               .filter_by(user_id=user_id, trace_id=trace_id).filter(effective_role_expr(role))
                .order_by(ChatEntity.updated_at_unix.desc())
                .first())
         if row:
@@ -1038,11 +1072,11 @@ def find_chat_by_topic_and_trace(user_id: int, topic: str, trace_id: str) -> Opt
         return None
 
 
-def find_chat_by_topic(user_id: int, topic: str) -> Optional[Chat]:
-    """Find the most recent chat with the given topic (ignoring trace_id)."""
+def find_chat_by_role(user_id: int, role: str) -> Optional[Chat]:
+    """Find the most recent chat with the given role (ignoring trace_id)."""
     with get_db() as session:
         row = (session.query(ChatEntity)
-               .filter_by(user_id=user_id, topic=topic)
+               .filter_by(user_id=user_id).filter(effective_role_expr(role))
                .order_by(ChatEntity.updated_at_unix.desc())
                .first())
         if row:
@@ -1062,7 +1096,7 @@ def find_chats_with_messages_by_trace_id(user_id: int, trace_id: str) -> list:
                 .order_by(ChatEntity.created_at_unix.asc())
                 .all())
         return [
-            (row.chat_id, row.title or "", row.topic or "", row.skill or "", row.backend or "", row.bot_name or "", row.json_content)
+            (row.chat_id, row.title or "", row.topic or "", effective_role(row.role, row.topic) or "", row.skill or "", row.backend or "", row.bot_name or "", row.json_content)
             for row in rows
         ]
 
@@ -1082,6 +1116,7 @@ def find_chats_by_trace_id(user_id: int, trace_id: str) -> List[ChatSummary]:
                 created_at=row.created_at or "",
                 updated_at=row.updated_at or "",
                 topic=row.topic or "",
+                role=effective_role(row.role, row.topic) or "",
                 skill=row.skill or "",
                 routine_id=row.routine_id or "",
                 backend=row.backend or "",
@@ -1096,14 +1131,11 @@ def find_chats_by_trace_id(user_id: int, trace_id: str) -> List[ChatSummary]:
         ]
 
 
-def find_latest_chat_by_topic(user_id: int, topic: Optional[str]) -> Optional[Chat]:
-    """Find the most recent chat for a given topic (or topic IS NULL when topic=None)."""
+def find_latest_chat_by_role(user_id: int, role: Optional[str]) -> Optional[Chat]:
+    """Find the most recent chat for a given role (or role IS NULL when role=None)."""
     with get_db() as session:
         q = session.query(ChatEntity).filter_by(user_id=user_id)
-        if topic is None:
-            q = q.filter(ChatEntity.topic.is_(None))
-        else:
-            q = q.filter_by(topic=topic)
+        q = q.filter(effective_role_expr(role))
         row = q.order_by(ChatEntity.updated_at_unix.desc()).first()
         if not row:
             return None

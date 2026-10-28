@@ -14,7 +14,6 @@ router = APIRouter(prefix="/inline")
 # speaks OpenAI's /chat/completions shape; pick a bot whose base_url is
 # compatible (OpenRouter, OpenAI itself, Google's OpenAI-compat endpoint…).
 INLINE_BOT_NAME = "inline"
-INLINE_TOPIC = "inline"
 INLINE_MAX_TOKENS = 2000
 INLINE_TIMEOUT = 30.0
 
@@ -62,8 +61,7 @@ async def _persist_inline_chat(user_id: int, bot_config, user_content: str, resu
             ],
             backend="openai",
             bot_name=bot_config.name,
-            topic=INLINE_TOPIC,
-            skill=INLINE_TOPIC,
+            skill="inline",
         )
 
     await chat_service.insert_generated_chat(user_id, build)

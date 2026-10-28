@@ -16,6 +16,7 @@ from typing import List, Optional
 from loguru import logger
 
 from storage.dto.routine import Routine
+from storage.role import validate_role
 from storage.repository import routine as routine_repo
 from storage.util import generate_id, generate_message_id, get_unix_timestamp, get_utc_iso8601_timestamp
 
@@ -85,6 +86,7 @@ def add_routine(
     schedule: str,
     message: Optional[str] = None,
     description: Optional[str] = None,
+    target_role: Optional[str] = None,
     target_topic: Optional[str] = None,
     target_skill: Optional[str] = None,
     work_dir: Optional[str] = None,
@@ -95,6 +97,7 @@ def add_routine(
     command: Optional[List[str]] = None,
     vm_name: Optional[str] = None,
 ) -> Routine:
+    validate_role(target_role)
     _validate_routine_payload(action, message, command)
     routine = Routine(
         routine_id=generate_id(),
@@ -102,6 +105,7 @@ def add_routine(
         schedule=schedule,
         message=message or "",
         description=description,
+        target_role=target_role,
         target_topic=target_topic,
         target_skill=target_skill,
         work_dir=work_dir,
@@ -124,6 +128,7 @@ def update_routine(user_id: int, routine_id: str, **fields) -> Optional[Routine]
     for key, value in fields.items():
         if hasattr(routine, key):
             setattr(routine, key, value)
+    validate_role(routine.target_role)
     _validate_routine_payload(routine.action, routine.message, routine.command)
     return routine_repo.save_routine(user_id, routine)
 
@@ -330,8 +335,8 @@ def fire_routine(user_id: int, routine_id: str) -> str:
             create_time=timestamp,
             update_time=timestamp,
             messages=[user_msg],
-            topic=routine.target_topic,
-            skill=routine.target_skill,
+            role=routine.target_role,
+            skill=routine.target_skill or ("leader" if routine.target_role == "leader" else None),
             backend=routine.backend,
             work_dir=routine.work_dir,
             routine_id=routine.routine_id,
@@ -340,14 +345,16 @@ def fire_routine(user_id: int, routine_id: str) -> str:
 
     chat = chat_service._insert_generated_chat_sync(user_id, build)
     chat_id = chat.id
+    if chat.role == "manager":
+        chat_service.chat_repo.release_role(user_id, "manager", except_chat_id=chat_id)
 
     try:
         chat_service.send_chat_message(
             chat_id,
             user_id=user_id,
             work_dir=routine.work_dir,
-            topic=routine.target_topic,
-            skill=routine.target_skill,
+            role=routine.target_role,
+            skill=routine.target_skill or ("leader" if routine.target_role == "leader" else None),
             backend=routine.backend,
         )
     except Exception:

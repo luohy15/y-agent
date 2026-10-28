@@ -12,8 +12,8 @@ from storage.repository.todo import mutate_todo
 from storage.service.todo import _transition_locked, get_latest_marker
 from storage.util import get_utc_iso8601_timestamp
 
-# New coordinator chats use topic "leader". Readers still accept legacy "dev".
-COORDINATOR_TOPICS = ("leader", "dev")
+from storage.role import COORDINATOR_ROLE
+from storage.repository.chat import effective_role_expr
 MAX_HANDOFF = 1000
 _CLAIM_RE = re.compile(r"\[dev-claim\] (CLAIM|RELEASE|TAKEOVER) chat=(\S+)")
 
@@ -77,7 +77,7 @@ def _validate_chat(session, row, chat_id: str) -> None:
         raise LeaderClaimInvalid("chat_id is required")
     from storage.entity.chat import ChatEntity
     chat = (
-        session.query(ChatEntity.topic)
+        session.query(effective_role_expr(COORDINATOR_ROLE).label("is_leader")).select_from(ChatEntity)
         .filter_by(user_id=row.user_id, chat_id=chat_id, trace_id=row.todo_id)
         .first()
     )
@@ -85,8 +85,8 @@ def _validate_chat(session, row, chat_id: str) -> None:
         raise LeaderClaimInvalid(
             f"chat {chat_id!r} is not a chat of this account in trace {row.todo_id!r}"
         )
-    if chat.topic == "manager":
-        raise LeaderClaimInvalid("a root-topic chat cannot hold the leader claim")
+    if not chat.is_leader:
+        raise LeaderClaimInvalid("only a leader-role chat can hold the leader claim")
 
 
 def _seed(session, row) -> None:

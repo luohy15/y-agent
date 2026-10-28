@@ -16,7 +16,7 @@ session tree) would have no transport.
 ## Solution
 
 A chat is a durable, per-user conversation record: an ordered message list
-plus identity metadata (topic, skill, trace id, backend, bot, work dir) and a
+plus identity metadata (role, skill, trace id, backend, bot, work dir) and a
 derived status (running / interrupted / idle). All surfaces converge on the
 same lifecycle: the API persists the user message and marks the chat running
 synchronously, then enqueues a task; an async worker resolves the bot
@@ -59,16 +59,14 @@ mode (`-i`) serves a human at a terminal.
    `todo:<id>`, I also want the newest `leader` chat for that trace pinned
    directly below manager, so that I can jump straight to whichever session
    is actually coordinating that todo (this second pin does not apply to the
-   left activity-bar panel or to an unfiltered list). A legacy `dev`-topic
-   chat still pins when that trace has no `leader` chat. The badge shows
-   `leader` for both. When that right-drawer `todo:` filter is applied,
+   left activity-bar panel or to an unfiltered list). Migrated legacy `dev` chats have role `leader` and use the same pin. When that right-drawer `todo:` filter is applied,
    default selection follows the rendered eligible order rather than an
    independent "newest regular list row" pick: if the leader pin is shown,
    select that chat; otherwise select the first regular list result. Manager
    stays a navigation pin and does not win the default under a todo filter
-   (todo 3070, topic rename todo 4080).
+   (todo 3070, role rename todo 4080).
 3. As a web user, I want each list row to show the title (first user
-   message), timestamp, and badges for trace id, chat id, topic, skill, and
+   message), timestamp, and badges for trace id, chat id, role, skill, and
    routine, so that I can identify a chat's place in the session tree at a
    glance.
 4. As a web user, I want a running spinner, an interrupted icon, and one
@@ -95,7 +93,7 @@ mode (`-i`) serves a human at a terminal.
    | Term | Filters by |
    |------|------------|
    | `todo:<id>` | todo / trace id |
-   | `topic:<name>` | topic |
+   | `role:<name>` | role |
    | `skill:<name>` | skill |
    | `bot:<name>` | bot |
    | `routine:<name>` / `routine:"Name With Spaces"` | routine name |
@@ -119,7 +117,7 @@ mode (`-i`) serves a human at a terminal.
 6. As a web user, I want clicking a row badge to write that badge's value as
    the matching `key:value` term in the query input (replacing any earlier
    term for that key, and auto-quoting the value when it contains whitespace),
-   so that I can pivot from one chat to all its trace / topic / skill / bot /
+   so that I can pivot from one chat to all its trace / role / skill / bot /
    routine siblings in one click.
 7. As a web user, I want infinite-scroll pagination, so that old chats load
    on demand instead of slowing the initial view.
@@ -225,44 +223,25 @@ mode (`-i`) serves a human at a terminal.
 26. As an agent session, I want `y chat -m` to return immediately after the
     message is accepted, printing only the target chat id, so that dispatching
     a subtask never blocks my own turn.
-27. As an agent session, I want to address a dispatch by topic (named
-    persistent address), by explicit chat id, or by skill (anonymous session),
-    each independently optional, so that one command covers named, direct, and
-    ephemeral targets.
-27a. As an agent session, I want `--trace-id` and `--from-topic` to resolve
-     from `$Y_TRACE_ID` / `$Y_TOPIC` when the flag is omitted or empty, so
-     that a dispatched child inherits its parent's trace context without the
-     caller re-templating environment variables into every command (todo
-     3597 / A1). Precedence is nonempty explicit flag > nonempty env var >
-     terminal default (absent for trace id, the literal `manager` for
-     from-topic), matching the pre-existing `--from-chat-id` / `$Y_CHAT_ID`
-     behavior. Resolution happens at invocation, not at CLI process import,
-     so a value exported between two `y chat` calls in the same shell is
-     honored on the next call.
-28. As an agent session, I want a topic dispatch that carries a trace id to
-    resume that topic's existing chat for the same trace, so that one trace
-    maps to one chat per topic.
-29. As an agent session, I want `--new` to force a fresh chat even when the
-    same trace's topic dispatch would otherwise resume an existing chat, so
-    that I can deliberately start a new phase chat under an ongoing trace.
-    Target resolution is a topic **+ trace** join (`find_chat_by_topic_and_trace`),
-    never a topic-only lookup, so a dispatch that carries a genuinely new
-    trace id cannot resume a different trace's chat regardless of `--new`;
-    the flag's only effect is on same-trace re-dispatch (todo 3597 / A8
-    corrects an earlier "prevents cross-trace leakage" framing that had
-    diagnosed the wrong mechanism).
-29a. As an agent session creating a phase chat, I want `y chat` to note a
-     possible non-running resume target when the same trace, skill, and live
-     registered worktree already have one, so that I can avoid an accidental
-     duplicate.
-     The note is advisory because retirement and handoff state are not stored:
-     the requested chat is still created, stdout stays the chat id, and
-     `--fresh` suppresses only the stderr note when a new phase is deliberate.
+27. As an agent session, I want to address a dispatch by closed system role
+    (`manager` or `leader`), explicit chat id, or skill, independently.
+    A role-free skill session has no named persistent address.
+27a. `--from-role` resolves from the explicit flag, then `Y_ROLE`, then the
+     legacy mapping of `Y_TOPIC`. Only a human terminal with no `Y_CHAT_ID`
+     defaults to manager. A role-free child omits `from:` so callbacks are not
+     mistaken for top-level manager reports. Trace inheritance is unchanged.
+28. A role + trace dispatch resumes that role's chat for the same trace.
+    Role-free sessions continue only with `--chat-id`, including callers of
+    the deprecated `--topic hr` alias. Skill names do not provide resume keys.
+29. `--new` forces a new chat. Resolution is explicit chat id, then role +
+    trace unless forced new, then creation. An explicit role mismatch fails.
+    Legacy `--topic` maps manager to manager, leader/dev to leader, and other
+    names to a default skill with no role. Explicit role and skill win.
 30. As an agent session, I want the dispatch to stamp a machine-readable
     metadata prefix (`[trace:... from:... to:... from_chat:... to_chat:...]`)
     onto the delivered message, so that the receiver can identify the trace
     and reply address without extra lookups.
-31. As an agent session, I want callbacks to a root topic (manager) rejected
+31. As an agent session, I want callbacks to a root role (manager) rejected
     at the API with a clear error, so that a conversation inbox is never
     treated as a function-call return address.
 32. As an agent session, I want a one-shot query to use `--wait` and get the
@@ -296,7 +275,7 @@ mode (`-i`) serves a human at a terminal.
      instead of silently producing a session with no skill loaded on the
      receiving end (todo 3597 / A5). This is a caller-local preflight, not
      proof of remote capability: it does not validate an omitted skill,
-     topic-inferred skill selection, project/plugin skills, or an
+     role-inferred skill selection, project/plugin skills, or an
      unsynchronized remote installation.
 
 ### CLI: interactive and query
@@ -334,8 +313,8 @@ mode (`-i`) serves a human at a terminal.
 44. As a user, I want follow-up turns to resume the backend's native session
     (via the stored external session id, only when the work dir still
     matches), so that the agent keeps its full context across turns.
-45. As a user, I want a chat created with a skill (defaulting to the topic
-    for non-root topics) to have that skill force-loaded at session start, so
+45. As a user, I want a chat created with a skill (defaulting to the role
+    for non-root roles) to have that skill force-loaded at session start, so
     that a dispatched session always runs with its intended capability set.
 46. As a user, I want every event the running backend emits appended to the
     chat as it happens, so that all surfaces (web SSE, CLI polling, trace
@@ -351,12 +330,12 @@ mode (`-i`) serves a human at a terminal.
     limit via lease handoff between worker invocations, so that a turn's
     length is bounded by the task, not the infrastructure.
 50. As a user, I want a completed turn to mark the chat unread and deliver
-    the reply to the chat's bound Telegram topic (if any), so that I learn of
+    the reply to the chat's bound Telegram role (if any), so that I learn of
     completion without watching the screen.
 51. As a user, I want simple query backends (Perplexity, plain OpenAI-style
     chat) to run inline in the worker without a VM subprocess, so that
     one-shot questions stay cheap and fast.
-52. As an operator, I want chat identity fields (topic, skill, trace id,
+52. As an operator, I want chat identity fields (role, skill, trace id,
     backend) immutable once set, with mutation attempts logged and refused,
     so that a chat's place in the session tree cannot drift. Bot name and
     tier are excluded: they are routing state that follows the bot each run
@@ -511,8 +490,8 @@ mode (`-i`) serves a human at a terminal.
   site: `POST /api/chat/message`'s dispatch-shaped and non-dispatch arms, and
   both Telegram sites (routed message, DM append). The DM-append site absorbs
   the former manager-only "steer a busy root chat" special case: since the
-  primitive's already-running check is topic-agnostic, a busy chat on *any*
-  topic now steers instead of enqueueing a parallel run, not just `manager`
+  primitive's already-running check is role-agnostic, a busy chat on *any*
+  role now steers instead of enqueueing a parallel run, not just `manager`
   (a deliberate behavior change, not just a refactor). The prior duplication
   (`/message` and `/notify` each re-implementing this body, plus three more
   copies in `telegram.py`) collapsed to one primitive; the former `/notify`'s
@@ -521,24 +500,17 @@ mode (`-i`) serves a human at a terminal.
   primitive raises domain errors only, never `HTTPException`; HTTP-shaped
   target resolution (404/400/409) stays in the controller.
 - **A request is dispatch-shaped iff it carries any of `trace_id` /
-  `from_topic` / `from_chat_id` / `topic` / `skill` / `force_new`.** Only
+  `from_role` / `from_chat_id` / `role` / `skill` / `force_new` (or legacy topic aliases).** Only
   dispatch-shaped requests to `POST /api/chat/message` get the
-  `[trace:… to_chat:…]` prefix, root-topic rejection, topic/skill stamping on
+  `[trace:… to_chat:…]` prefix, root-role rejection, role/skill stamping on
   a fresh chat, and may create a chat without an explicit `chat_id`.
   Non-dispatch requests (web send, `y chat -i`) require `chat_id` and behave
-  exactly as the pre-unification `/message` route always did. The CLI always
-  sends `from_topic`, resolved (todo 3597 / A1) from an explicit
-  `--from-topic` flag, else `$Y_TOPIC`, else the literal `manager`, so every
-  `y chat` dispatch stays dispatch-shaped even with no trace, parent, topic,
-  or skill. Dispatch-shaped target resolution order: explicit chat id
-  (404 if missing, 400 on topic mismatch, owner-scoped lookup so a chat owned
-  by someone else 404s identically to a missing one — closing a pre-3167 gap
-  where the explicit-`chat_id` arm used an unscoped lookup) > topic + trace
-  lookup (resume the trace's existing chat for that topic unless `--new`) >
-  create a new chat. Skill defaults to the topic for non-root topics; explicit
-  `--skill` overrides. A new chat claiming a topic without a trace id is a
-  root claim and releases the topic from any previous holder (singleton root
-  topic).
+  exactly as the pre-unification `/message` route always did. The CLI
+  sends supplied canonical `role` / `from_role` and transition aliases `topic` /
+  `from_topic` for version skew. The API prefers explicit canonical fields.
+  Sender identity follows story 27a; role-free sessions omit `from:`.
+  Target resolution follows stories 28 and 29. Only manager creation releases
+  prior effective manager roles and archives their manager topic mirrors.
 - **CLI-local closed-choice validation, confined to the `-m` dispatch path
   (todo 3597 / A4, A5).** `--tier` is `click.Choice(['tier0', 'tier1',
   'tier2', 'tier3'])`, exact spelling, case-sensitive; an invalid value fails
@@ -556,13 +528,13 @@ mode (`-i`) serves a human at a terminal.
   Python skill-discovery helper, so the CLI owns a small local directory
   scan rather than calling into one. It is a caller-local preflight, not
   proof that the receiving process can actually load the skill: an omitted
-  `--skill`, topic-inferred skill selection, project/plugin skills, and an
+  `--skill`, role-inferred skill selection, project/plugin skills, and an
   unsynchronized remote installation remain unverified.
-- **Trace/topic dispatch env precedence, confined to the `-m` dispatch path
-  (todo 3597 / A1).** `--trace-id`, `--from-topic`, and the pre-existing
+- **Trace/role dispatch env precedence, confined to the `-m` dispatch path
+  (todo 3597 / A1).** `--trace-id`, `--from-role`, and the pre-existing
   `--from-chat-id` all resolve as nonempty explicit flag > nonempty
-  environment value (`$Y_TRACE_ID` / `$Y_TOPIC` / `$Y_CHAT_ID`) > terminal
-  default (absent / the literal `manager` / absent). Resolution happens
+  environment value (`$Y_TRACE_ID` / `$Y_ROLE` / `$Y_CHAT_ID`) > terminal
+  default (absent / `manager` only outside an agent session / absent). Resolution happens
   inside `_fire_and_forget` at invocation time, not as a static Click option
   default, so a value exported between two `y chat` calls in the same
   process is honored on the next call; an empty string is treated as unset,
@@ -590,13 +562,13 @@ mode (`-i`) serves a human at a terminal.
   repointed at `/api/chat/message` (field renamed `message` → `prompt` to
   match) in the same change that deleted the route, rather than staging a
   deprecation window.
-- **Root-topic callback rejection** is enforced at the API on the resolved
-  target chat's topic, with the `--new` escape hatch only for starting a fresh
-  root session. The root topic set is currently the single hard-coded name
+- **Root-role callback rejection** is enforced at the API on the resolved
+  target chat's role, with the `--new` escape hatch only for starting a fresh
+  root session. The root role set is currently the single hard-coded name
   `manager`.
 - **Trace metadata rides in-band**: a dispatch-shaped `/api/chat/message`
   request prefixes the message with
-  `[trace:<id> from:<topic> to:<topic> from_chat:<id> to_chat:<id>]`
+  `[trace:<id> from:<role> to:<role> from_chat:<id> to_chat:<id>]`
   (omitting absent parts) rather than using a side channel, so any backend
   sees the routing context as plain text. The same context is exported to the
   subprocess as environment variables.
@@ -651,9 +623,11 @@ mode (`-i`) serves a human at a terminal.
     handle, whatever the column currently holds: the refusal names the id it
     rejected, so persisting it would resurrect a dead handle into a column
     cleared out of band (by migration SQL) while the turn was in flight.
-- **Identity immutability**: backend, topic, skill, trace id, and routine id
+- **Identity immutability**: backend, skill, trace id, and routine id
   are write-once at the repository layer; later saves keep the existing value
-  and log a warning on attempted mutation. Bot name and tier are deliberately
+  and log a warning on attempted mutation. Role is assigned only at insertion
+  and cleared by manager release. Saves and acceptance never assign its column;
+  reads derive the effective role using the transition mapping. Bot name and tier are deliberately
   not in that set (todo 2930): they record which bot a run used, and a
   same-backend bot change accepted by the worker must be persisted, so the
   repository takes the new value and only refuses to let an unset one clear
@@ -672,7 +646,7 @@ mode (`-i`) serves a human at a terminal.
   silently overwrite an existing conversation or its running VM session.
   Caller-supplied ids are single-attempt only and surface as HTTP 409 on
   `POST /api/chat`. Re-dispatching an existing chat under a different
-  trace/topic/skill is legitimate; the worker logs a loud mismatch warning
+  trace/role/skill is legitimate; the worker logs a loud mismatch warning
   with both values and keeps the persisted identity (write-once). Historical
   overwrite damage is unrecoverable for lost messages; identity-column repair
   is a maintainer-only SQL step, never automatic.
@@ -776,8 +750,8 @@ mode (`-i`) serves a human at a terminal.
 ## Testing Decisions
 
 - Test external behavior at the seams, not the internals: the dispatch-shaped
-  `/api/chat/message` resolution matrix (chat id vs topic+trace vs new,
-  `--new`, topic mismatch, root-topic rejection, work-dir mismatch) via
+  `/api/chat/message` resolution matrix (chat id vs role+trace vs new,
+  `--new`, role mismatch, root-role rejection, work-dir mismatch) via
   API-level tests with a stubbed queue — prior art exists as an API test
   suite for the former `/notify` route (todo 3167 repoints it at the unified
   handler).
@@ -863,10 +837,10 @@ mode (`-i`) serves a human at a terminal.
 - **Spend/usage accounting**: owned by the bot-usage PRD. The per-chat
   context-usage badge (session token counts) is in scope here; the historical
   spend time series is not.
-- **Telegram surface specifics** (forum topic binding, webhook routing,
+- **Telegram surface specifics** (forum role binding, webhook routing,
   markdown conversion, image reference delivery): adjacent subsystem; this
   PRD covers only that a completed turn delivers the reply to the chat's
-  bound topic.
+  bound role.
 - **Module migration**: chat browsing and the whole message renderer are the
   `chat` module's `panel` / `detail` / `shell` surfaces; the chat runtime (table,
   worker, Telegram, conversational routes) stays host. See
@@ -877,7 +851,7 @@ mode (`-i`) serves a human at a terminal.
 - **Recovery of a stalled session-tree branch** (persisted parent→child
   dispatch edges, missing/misrouted callback detection, scheduled recovery and
   escalation, callback quarantine): owned by the session-tree-recovery PRD. This
-  PRD keeps the notify contract itself — target resolution order, root-topic
+  PRD keeps the notify contract itself — target resolution order, root-role
   callback rejection, in-band trace metadata, identity immutability — and that
   feature adds edge creation plus two accept-time validation rules at the same
   boundary without changing resolution.
@@ -889,9 +863,34 @@ mode (`-i`) serves a human at a terminal.
   roll over a chat by itself.
 - **Handoff reminder wording and per-role handoff mechanics**: the handoff
   reminder text is role-agnostic in code (`build_handoff_reminder`, no branching on
-  chat.topic / chat.skill) and defers classification (callback vs.
+  chat.role / chat.skill) and defers classification (callback vs.
   self-restart) to the session itself, per the AGENTS.md "Context handoff"
   playbook owned by the `hr` skill (todo 2976). This PRD owns only the
   mechanism: when the reminder fires, where it is appended, and idempotency.
 - **Chat import** (`y chat import`, `import-claude`) and the legacy pandoc
   HTML export: maintenance utilities, not part of the core contract.
+
+## Closed system roles and transition compatibility
+
+`chat.role` is nullable and closed to `manager` and `leader`. Effective role ignores archived topics, otherwise prefers the SQL role, then
+maps legacy topic. Save/accept/start never backfill the SQL role. Inserts mirror
+roles into topic for old-host compatibility; manager replacement clears role
+and archives manager topics so a released session cannot be resurrected.
+The same rule applies to `routine.target_role` and `chat_wakeup.from_role`.
+Manager is a singleton per account, delivers automatic replies to Telegram,
+and keeps its existing manager bootstrap. Leader defaults to the leader skill.
+A role-free chat loads only an explicit skill. Inline chats have no role.
+
+Deprecated API/CLI topic inputs remain until separately authorized removal.
+One shared legacy mapping translates manager to manager, leader/dev to leader,
+and all other topics to no role. Legacy dispatch topics also default the skill
+when no canonical role or explicit skill is supplied. Worker queue ingress,
+DynamoDB process recovery, and durable wakeup delivery use this mapping for
+pre-deploy records. Workers export `Y_ROLE` and the transition mirror `Y_TOPIC=<role>`.
+
+Prefix keys remain `[trace: from: to: from_chat: to_chat:]`; values of `from:`
+and `to:` are roles and absent roles are omitted. Backend host contract v28
+adds the role field and list filter. Browser SDK v31 color helpers retain their
+names. Legacy non-role topics remain historical metadata. Role topics support old/new
+coexistence until separately authorized removal. No drain timer or backfill run
+is needed for correctness. Rollback modules first, then web, then host.

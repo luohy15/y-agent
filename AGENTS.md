@@ -52,18 +52,22 @@ entity + controller + service + CLI slices, and most have a web panel.
   `from_chat` / `from_topic`. Participants are registered in `run_chat`; TraceView renders
   the waterfall. `trace_share` makes a trace publicly viewable (optionally with a password).
 - **Notify (cross-skill)** — `y chat -m "..."` (fire-and-forget, default top-level
-  mode) dispatches a message to a topic (skill) via the single union route
+  mode) dispatches a message by role, skill or chat ID via the single union route
   `POST /api/chat/message`. A request is dispatch-shaped when it carries any of
-  `trace_id` / `from_topic` / `from_chat_id` / `topic` / `skill` / `force_new`;
-  only dispatch-shaped requests get the `[trace:… to_chat:…]` prefix, root-topic
+  `trace_id` / `from_role` / `from_chat_id` / `role` / `skill` / `force_new`
+  (or the deprecated `topic` / `from_topic` aliases);
+  only dispatch-shaped requests get the `[trace:… to_chat:…]` prefix, root-role
   rejection, and may create a chat without `chat_id`. Default target is the DM
   (manager). Trace/from meta is attached on send; short-circuited callbacks back
   to root topics never invoke the LLM. `POST /api/chat/notify` was removed
   outright (todo 3167): every CLI install upgrades in lockstep with the API, so
   no compatibility alias was kept.
-- **Topic** — every chat has an optional `topic` (named persistent address). The
-  conventional root topic is `manager`; the API rejects dispatch callbacks aimed at
-  root topics (they are conversations, not function calls).
+- **Role**: every chat has an optional closed `role` (`manager` or `leader`).
+  Manager is the singleton root conversation; leader identifies coordinators.
+  Skill-only sessions are role-free and resume by chat ID. Legacy topic inputs
+  map manager to manager, leader/dev to leader, and other names to skills.
+  Historical non-role topics remain unchanged. Transition writes mirror roles;
+  runtime manager replacement retains the manager-archived rename.
 - **Scheduled chat wakeup (todo 3655)** — `chat_wakeup` kernel table: a durable,
   owner-scoped alternative to a tmux sleep timer for a pure time wait. `y chat
   --chat-id <id> -m "..." --at <+Ns/m/h/d | ISO8601>` registers a wakeup (rejects
@@ -143,10 +147,10 @@ entity + controller + service + CLI slices, and most have a web panel.
   types ignored before any command/chat write; the former forum group and its
   `tg_topic` binding table are retired). Inbound reply / selected-quote context
   is prepended as a `> ` blockquote. Only the manager session
-  (`chat.topic == "manager"`) gets automatic DM delivery (final replies,
+  (`chat.role == "manager"`) gets automatic DM delivery (final replies,
   pre-run mirrors, immediate image attachments); non-manager sessions have no
   Telegram reply path, their detail surface is web. Markdown → HTML
-  conversion, root-topic callbacks short-circuited at the API layer. Web-only
+  conversion, root-role callbacks short-circuited at the API layer. Web-only
   artifact fences are stripped to `[chart]` / `[diagram]` / `[svg]`
   placeholders before Telegram delivery. See
   [`docs/prd/telegram-delivery.md`](docs/prd/telegram-delivery.md).
@@ -178,7 +182,7 @@ entity + controller + service + CLI slices, and most have a web panel.
   conventional `common` (vendored at publish). Rollback/activate change code only;
   delete removes deployed metadata/bytes, not source/tables. No worker half:
   deterministic work is `routine` `vm_command`; judgment stays chat dispatch.
-  Backend host contract (`agent.module_host`) is **v27** (todo 3627's v18 adds
+  Backend host contract (`agent.module_host`) is **v28** (todo 3627's v18 adds
   owner-bound no-wake VM execution; v19 / v20 are todos 3777 / 3781; v21 adds the
   maintainer-bound `mcp_*` connector capabilities of todo 3796; v22 is its round 2
   loopback OAuth start/complete; v23 adds the private photo object primitives,
@@ -322,7 +326,7 @@ The repo no longer contains an in-process agent loop — the worker shells out.
 - **Steer** — mid-conversation user messages are delivered to a running session. In
   detach mode they go through a `tail -f` stdin pipe. `y chat stop` is the explicit
   interrupt path; an interrupt watchdog thread also fires during LLM waits.
-- **Context monitor** — per-chat token usage is tracked; when a root-topic session
+- **Context monitor** — per-chat token usage is tracked; when a root-role session
   crosses 50% context or 50 turns, it auto-restarts in a fresh chat with a short
   summary.
 - **Tools** — `agent/tools/` holds shims for `bash`, `file_read/write/edit`, `local_exec`,
@@ -421,7 +425,7 @@ Grouped by feature area:
 - `perplexity.py`, `openai_chat.py`, `xai_search.py` — inline single-shot (non-agentic)
   backends; `xai_search.py` serves both `xai_web` and `xai_x`
 - `config.py` — provider factory, bot/vm config resolution
-- `module_host.py` — backend host contract for modules (`BACKEND_CONTRACT_VERSION = 27`:
+- `module_host.py` — backend host contract for modules (`BACKEND_CONTRACT_VERSION = 28`:
   `session`, `run_vm_command` with work_dir/stdin, `cli_user_id`, external-table
   protocol, plus request-scoped `bot_config_*`, `chat_*` with optional
   `sort_by`/`sort_order`, `note_list_at_path`, owner-bound `note_*`, `tag_*`
@@ -551,7 +555,7 @@ cd worker && uv run celery -A worker.celery_app worker --loglevel=info
 cd web && npm run build
 
 # Cross-skill notify (--topic / --skill / --chat-id are all independently optional)
-y chat -m "..." [--topic <name>] [--skill <name>] [--chat-id <id>] [--bot <name>] [--trace-id ...] [--from-topic ...]
+y chat -m "..." [--role <manager|leader>] [--skill <name>] [--chat-id <id>] [--bot <name>] [--trace-id ...] [--from-role ...]
 # Interactive REPL — same `y chat` command with -i
 y chat -i [-c <id>] [-l] [-b <bot>] [-p "one-off prompt"]
 
@@ -623,9 +627,9 @@ y file export-pdf <md> [-o <pdf>]
   a migration that rewrites one of these columns, check that the read path
   honours it — and that NULL means what the migration intends it to mean.
 - All tool_calls use OpenAI format internally; providers convert to native format.
-- Cross-skill communication: `y chat --topic <name> -m "..."` (fire-and-forget,
+- Cross-skill communication: `y chat --role <manager|leader> -m "..."` (fire-and-forget,
   the default top-level mode of `y chat`; all flags independently optional) with
-  trace context auto-propagation via env vars (`Y_TRACE_ID`, `Y_TOPIC`).
+  trace context auto-propagation via env vars (`Y_TRACE_ID`, `Y_ROLE`).
 - Global config: `~/.y-agent/config.toml` (preferred) or `.env` loaded from
   `Y_AGENT_HOME`. Key vars: `DATABASE_URL`, `JWT_SECRET_KEY`, `SQS_QUEUE_URL`,
   `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `GOOGLE_CLIENT_ID`,
@@ -692,3 +696,12 @@ Audit checklist (run quarterly):
 - [ ] `Notable Subsystems` has an entry for every new cross-cutting feature?
 - [ ] `Commands` section — every snippet still runs?
 - [ ] README `Capabilities` and `Install / Run` still match reality?
+
+### Role transition (todo 4091)
+
+Backend contract v28 adds `role` to chat rows and a role list filter. Routing,
+claims, Telegram eligibility and runtime classification use roles exclusively.
+`--topic`, `--from-topic`, and routine `--target-topic` are hidden deprecated
+aliases. CLI sends canonical fields plus transition aliases for old APIs;
+workers export `Y_ROLE` plus the `Y_TOPIC` transition mirror. Old queued bodies, process records and wakeups
+map legacy role topics through `storage.role`. No automatic migration runs.

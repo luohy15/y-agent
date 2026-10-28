@@ -8,13 +8,14 @@ from loguru import logger
 from worker.celery_app import app
 from worker.monitor import _monitor_loop
 from worker.runner import run_chat
+from storage.role import legacy_topic_to_role, validate_role
 
 
 async def _run_chat_with_monitor(chat_id, bot_name, bot_tier, user_id, vm_name, work_dir,
-                                  post_hooks, trace_id, topic, skill, backend, run_seq):
+                                  post_hooks, trace_id, role, skill, backend, run_seq):
     result = await run_chat(
         user_id, chat_id, bot_name=bot_name, bot_tier=bot_tier, vm_name=vm_name, work_dir=work_dir,
-        post_hooks=post_hooks, trace_id=trace_id, topic=topic, skill=skill, backend=backend,
+        post_hooks=post_hooks, trace_id=trace_id, role=role, skill=skill, backend=backend,
         run_seq=run_seq,
     )
     if result in ("detached", "continuation"):
@@ -23,12 +24,13 @@ async def _run_chat_with_monitor(chat_id, bot_name, bot_tier, user_id, vm_name, 
 
 
 @app.task(name="worker.tasks.process_chat")
-def process_chat(chat_id: str, bot_name: str = None, bot_tier: str = None, user_id: int = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, topic: str = None, skill: str = None, backend: str = None, run_seq: int = None):
+def process_chat(chat_id: str, bot_name: str = None, bot_tier: str = None, user_id: int = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, role: str = None, skill: str = None, backend: str = None, run_seq: int = None, topic: str = None):
     """Run the agent loop for a chat."""
     try:
+        role = validate_role(role or legacy_topic_to_role(topic))
         asyncio.run(_run_chat_with_monitor(
             chat_id, bot_name, bot_tier, user_id, vm_name, work_dir,
-            post_hooks, trace_id, topic, skill, backend, run_seq,
+            post_hooks, trace_id, role, skill, backend, run_seq,
         ))
         logger.info("Finished chat {}", chat_id)
     except Exception as e:

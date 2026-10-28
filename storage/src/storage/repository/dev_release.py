@@ -458,12 +458,14 @@ def _validate_coordinator(session, user_id: int, trace_id: str, chat_id: str) ->
     Chat *state* is deliberately not consulted: idle or running says nothing
     about whether the coordinator may own the publication.
     """
-    chat = (session.query(ChatEntity.topic)
+    from storage.repository.chat import effective_role_expr
+
+    chat = (session.query(effective_role_expr("manager").label("is_manager")).select_from(ChatEntity)
             .filter_by(user_id=user_id, chat_id=chat_id, trace_id=trace_id).first())
     if chat is None:
         return f"chat {chat_id!r} is not a chat of this account in trace {trace_id!r}"
-    if chat.topic == "manager":
-        return "a root-topic chat cannot be a publication coordinator"
+    if chat.is_manager:
+        return "a root-role chat cannot be a publication coordinator"
     todo = session.query(TodoEntity.id).filter_by(user_id=user_id, todo_id=trace_id).first()
     if todo is None:
         return f"trace {trace_id!r} has no todo for this account"

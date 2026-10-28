@@ -84,7 +84,7 @@ extended by this feature.
    child chat, resumed the trace's existing chat for that topic, or appended to
    a running child, so that no dispatch shape is invisible to recovery.
 4. As a dispatcher, I want dispatches with no parent (a human sending from the
-   web UI, a routine firing, a root-topic conversation) to create no edge, so
+   web UI, a routine firing, a root-role conversation) to create no edge, so
    that recovery only ever fires where something is genuinely waiting.
 5. As a parent session, I want the edge to default to expecting a callback, so
    that the failure the feature exists to catch (a callback that never comes) is
@@ -182,7 +182,7 @@ extended by this feature.
 30. As an operator, I want a quarantined callback to never be delivered
     automatically, so that the system's guess never substitutes for my judgment
     on a message it already found suspicious.
-31. As a user, I want the existing root-topic callback rejection preserved, and
+31. As a user, I want the existing root-role callback rejection preserved, and
     its rejected message quarantined like any other, so that an accidental
     callback to `manager` is visible rather than merely refused.
 32. As a user, I want all edge and quarantine reads and writes scoped to the
@@ -375,7 +375,7 @@ callback is a message that was refused, not a handoff that exists.
 
 - **Rejection means quarantine, not discard.** A new `dispatch_quarantine`
   record stores the full message, sender chat, intended target, declared trace,
-  and reason. The existing root-topic callback rejection keeps its current 400
+  and reason. The existing root-role callback rejection keeps its current 400
   and its current error text and additionally quarantines the message. Nothing
   in quarantine is ever delivered automatically; an operator names a target chat
   explicitly to release one.
@@ -466,7 +466,7 @@ table-driven over states and evidence rather than transcript fixtures.
 - **Mid-turn message delivery mechanics** (steer claim/drain, kill-and-resume,
   exactly-once into a live session): owned by the chat-steer PRD. This PRD
   assumes a delivered message is a delivered message.
-- **Dispatch target resolution, root-topic rejection semantics, chat identity
+- **Dispatch target resolution, root-role rejection semantics, chat identity
   immutability, and the notify request contract**: owned by the chat-core PRD.
   This feature adds edge creation and two validation rules at that boundary and
   changes nothing else about resolution. Boundary recorded in both PRDs.

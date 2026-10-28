@@ -137,8 +137,9 @@ class Chat:
     origin_chat_id: Optional[str] = None
     origin_message_id: Optional[str] = None
     selected_message_id: Optional[str] = None  # messages form a tree; this selects the active leaf node for retry/branching
-    topic: Optional[str] = None  # named persistent address (e.g. "dev", "hr")
-    skill: Optional[str] = None  # capability the session loads (independent of topic)
+    topic: Optional[str] = None  # inert legacy metadata
+    role: Optional[str] = None
+    skill: Optional[str] = None  # capability the session loads (independent of role)
     trace_id: Optional[str] = None
     routine_id: Optional[str] = None  # set when chat was fired by a routine
     work_dir: Optional[str] = None
@@ -189,6 +190,7 @@ class Chat:
             origin_message_id=data.get('origin_message_id') or data.get('selected_message_id'),
             selected_message_id=data.get('selected_message_id'),
             topic=data.get('topic'),
+            role=data.get('role'),
             skill=data.get('skill'),
             trace_id=data.get('trace_id'),
             routine_id=data.get('routine_id'),
@@ -234,6 +236,8 @@ class Chat:
             result['origin_message_id'] = self.origin_message_id
         if self.selected_message_id is not None:
             result['selected_message_id'] = self.selected_message_id
+        if self.role is not None:
+            result['role'] = self.role
         if self.topic is not None:
             result['topic'] = self.topic
         if self.skill is not None:

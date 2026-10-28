@@ -20,7 +20,7 @@ from storage.util import get_unix_timestamp
 from worker.steps.check_trace_liveness import claim_idle_trace
 from worker.steps.trace_runtime import probe_owner
 
-ROOT_TOPIC = "manager"
+ROOT_ROLE = "manager"
 REASON = "session_end"
 
 
@@ -30,14 +30,14 @@ def should_reconcile(chat) -> bool:
     Root chats carry queue traces, not a trace this turn owns; a chat without a
     persisted trace has nothing to reconcile.
     """
-    return bool((chat.trace_id or "").strip()) and chat.topic != ROOT_TOPIC
+    return bool((chat.trace_id or "").strip()) and chat.role != ROOT_ROLE
 
 
 async def reconcile_session_end(user_id: int, chat) -> dict:
     """Reconcile one normally completed turn's trace. Never raises."""
     trace_id = (chat.trace_id or "").strip()
     if not should_reconcile(chat):
-        return {"status": "skip", "reason": "root topic" if trace_id else "no trace"}
+        return {"status": "skip", "reason": "root role" if trace_id else "no trace"}
 
     todo = todo_service.get_todo(user_id, trace_id)
     if todo is None:

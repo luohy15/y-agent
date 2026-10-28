@@ -196,15 +196,15 @@ def _hook_save_plan_to_todo(chat, hook: dict, user_id: int) -> None:
 def _resolve_telegram_target(chat, user_id: int):
     """Resolve Telegram target for a chat. Returns (bot_token, tg_chat_id) or None.
 
-    Only the manager topic (the owner's DM) is eligible for automatic
+    Only the manager role (the owner's DM) is eligible for automatic
     session-reply delivery. Non-manager named sessions and anonymous chats
     never route here; their detail surface is web, not Telegram.
     """
     from storage.service.telegram import resolve_target
 
-    if chat.topic != "manager":
+    if chat.role != "manager":
         return None
-    return resolve_target(user_id, topic=chat.topic)
+    return resolve_target(user_id, role=chat.role)
 
 
 _send_telegram_photo_reference = send_telegram_photo_reference
@@ -310,7 +310,7 @@ def _send_telegram_user_message(chat, user_id: int, vm_config=None, ssh_client=N
 
 
 def _send_telegram_reply(chat, user_id: int, trace_id: str = None, vm_config=None, ssh_client=None) -> bool:
-    """Send assistant reply to Telegram, routing by topic."""
+    """Send assistant reply to Telegram, routing by role."""
     from storage.util import send_telegram_message
 
     target = _resolve_telegram_target(chat, user_id)
@@ -358,11 +358,11 @@ def _send_telegram_reply(chat, user_id: int, trace_id: str = None, vm_config=Non
                 sent_count += 1
                 delivered_now.append(image_path)
         changed = _append_delivered_images(target_message, delivered_now) if target_message is not None else False
-        logger.info("telegram reply: sent {} photos to topic={} tg_chat_id={}", sent_count, chat.topic, tg_chat_id)
+        logger.info("telegram reply: sent {} photos to role={} tg_chat_id={}", sent_count, chat.role, tg_chat_id)
         return changed
     elif reply_text and not had_images_before_filter:
         send_telegram_message(bot_token, tg_chat_id, strip_artifact_fences_for_telegram(reply_text))
-        logger.info("telegram reply: sent to topic={} tg_chat_id={}", chat.topic, tg_chat_id)
+        logger.info("telegram reply: sent to role={} tg_chat_id={}", chat.role, tg_chat_id)
     return False
 
 
@@ -402,7 +402,7 @@ def _inline_runner(backend: str):
 
 async def _run_inline(chat, chat_id: str, user_id: int, bot_config, backend: str,
                       post_hooks: list = None, trace_id: str = None,
-                      topic: str = None) -> None:
+                      role: str = None) -> None:
     """Run one turn on an inline backend and close the chat out.
 
     perplexity, openai and the xai_* search backends differ only in the
@@ -430,7 +430,7 @@ async def _run_inline(chat, chat_id: str, user_id: int, bot_config, backend: str
             lambda msg: message_callback(chat_id, msg),
             chat_id=chat_id,
             trace_id=trace_id,
-            topic=topic,
+            role=role,
         )
     except Exception as e:
         # run_chat's handler only appends its error message while the chat is
@@ -526,7 +526,7 @@ def _abort_unlaunched(chat, chat_id: str, user_id: int, exc: Exception) -> None:
     chat_repo.mutate_chat_locked(chat_id, fail_launch, user_id=user_id)
 
 
-async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, topic: str = None, skill: str = None, backend: str = None, resume_5xx_retries: int = 0, run_seq: int = None, continuation_from_id: str = None, handled_input_ids=None) -> str:
+async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, role: str = None, skill: str = None, backend: str = None, resume_5xx_retries: int = 0, run_seq: int = None, continuation_from_id: str = None, handled_input_ids=None) -> str:
     """Execute a chat round. Inline backends run in-process; claude_code detaches to tmux.
 
     bot_name, user_id, vm_name, work_dir, and post_hooks are passed from the queue message.
@@ -570,7 +570,7 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
         trace_id = chat.trace_id
         logger.info("Using trace_id from chat: {}", trace_id)
 
-    # Persist trace context on the chat. Root-topic chats (today: 'manager')
+    # Persist trace context on the chat. Root-role chats (today: 'manager')
     # deliberately don't carry a trace_id: a root is a long-lived inbox that
     # participates in many traces over its lifetime, so binding it to a single
     # trace would be wrong. The data model has one trace_id column per chat, so
@@ -578,9 +578,9 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
     # per-message metadata instead. A proper many-to-many chat↔trace table is
     # the right long-term shape but is deferred (see plan-1876 §4).
     chat, _ = chat_repo.accept_or_start_chat(
-        user_id, chat_id, trace_id=trace_id, topic=topic, skill=skill,
+        user_id, chat_id, trace_id=trace_id, role=role, skill=skill,
     )
-    topic = chat.topic
+    role = chat.role
     skill = chat.skill
     if chat.interrupted:
         chat_repo.mutate_chat_locked(
@@ -709,11 +709,11 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
         resolve_reasoning_effort(selected_inputs, effective_backend)
         if _inline_runner(effective_backend):
             await _run_inline(chat, chat_id, user_id, bot_config, effective_backend,
-                              post_hooks=post_hooks, trace_id=trace_id, topic=topic)
+                              post_hooks=post_hooks, trace_id=trace_id, role=role)
             return "done"
         await _start_detached(chat, chat_id, user_id, bot_config,
                                vm_name=vm_name, work_dir=work_dir,
-                               post_hooks=post_hooks, trace_id=trace_id, topic=topic,
+                               post_hooks=post_hooks, trace_id=trace_id, role=role,
                                resume_5xx_retries=resume_5xx_retries,
                                continuation_from_id=continuation_from_id,
                                handled_input_ids=handled_input_ids)
@@ -735,7 +735,7 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
 
 
 def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None,
-                              work_dir: str = None, trace_id: str = None, topic: str = None,
+                              work_dir: str = None, trace_id: str = None, role: str = None,
                               continuation_from_id: str = None,
                               handled_input_ids=None) -> dict:
     """Extract prompt, build cmd/env/cwd for claude-code. Returns dict with all params needed to run."""
@@ -799,8 +799,9 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
         env["Y_CHAT_ID"] = chat_id
     if trace_id:
         env["Y_TRACE_ID"] = trace_id
-    if topic:
-        env["Y_TOPIC"] = topic
+    if role:
+        env["Y_ROLE"] = role
+        env["Y_TOPIC"] = role  # transition mirror for old sessions/tools
     if last_message_id:
         env["Y_MESSAGE_ID"] = last_message_id
 
@@ -824,7 +825,7 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
 async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
                            vm_name: str = None, work_dir: str = None,
                            post_hooks: list = None, trace_id: str = None,
-                           topic: str = None, resume_5xx_retries: int = 0,
+                           role: str = None, resume_5xx_retries: int = 0,
                            continuation_from_id: str = None,
                            handled_input_ids=None) -> None:
     """Start claude-code as a detached tmux process on EC2.
@@ -846,7 +847,7 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
 
     params = _build_claude_code_params(chat, chat_id, user_id, bot_config,
                                         vm_name=vm_name, work_dir=work_dir,
-                                        trace_id=trace_id, topic=topic,
+                                        trace_id=trace_id, role=role,
                                         continuation_from_id=continuation_from_id,
                                         handled_input_ids=handled_input_ids)
 
@@ -909,7 +910,7 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
     try:
         register_process(
             chat_id=chat_id, user_id=user_id, vm_name=params["vm_config"].name,
-            bot_name=bot_config.name, trace_id=trace_id, topic=topic,
+            bot_name=bot_config.name, trace_id=trace_id, role=role,
             post_hooks=post_hooks, work_dir=cwd, session_id=session_id,
             backend_type=effective_backend,
             initial_msg_count=len(chat.messages),

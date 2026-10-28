@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from storage.repository.user import get_user_by_telegram_id, bind_telegram_id, unbind_telegram_id
-from storage.repository.chat import find_latest_chat_by_topic, find_latest_chat_by_trace_id
+from storage.repository.chat import find_latest_chat_by_role, find_latest_chat_by_trace_id
 from storage.service.telegram import resolve_target
 from storage.entity.dto import Message
 from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp, get_telegram_bot_token, send_telegram_message, send_telegram_photo_bytes
@@ -238,7 +238,7 @@ async def telegram_webhook(request: Request):
         return {"ok": True}
 
     # Explicit chat routing: `/{chat_id} <message>` targets a specific chat
-    # instead of the default topic. Matched before the default route so the
+    # instead of the default role. Matched before the default route so the
     # prefix wins over the manager-DM fallback.
     route_match = _TG_ROUTE_PREFIX_RE.match(text)
     if route_match:
@@ -347,7 +347,7 @@ async def _handle_unbind(telegram_chat_id, telegram_user_id):
 
 async def _handle_clear(telegram_chat_id, telegram_user_id):
     """Start a new session. The Telegram group is retired, so /clear always
-    restarts the manager session — there is no per-topic forum branch left."""
+    restarts the manager session — there is no per-role forum branch left."""
     user = get_user_by_telegram_id(telegram_user_id)
     if not user:
         await _send_message(telegram_chat_id, "Please /bind your account first.")
@@ -389,7 +389,7 @@ async def _handle_routed_message(telegram_chat_id, telegram_user_id, target_chat
         await chat_service.deliver_user_message(
             user.id, target_chat, text,
             images=images, source="telegram", human_reply=True,
-            trace_id=target_chat.trace_id, topic=target_chat.topic,
+            trace_id=target_chat.trace_id, role=target_chat.role,
             skill=target_chat.skill, backend=target_chat.backend,
             work_dir=target_chat.work_dir,
         )
@@ -410,17 +410,17 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
 
     logger.info("_handle_message: found user id={} email={}", user.id, user.email)
 
-    # The Telegram group is retired: a DM always targets the manager topic.
-    topic = 'manager'
+    # The Telegram group is retired: a DM always targets the manager role.
+    role = 'manager'
 
-    # Find or create chat for this topic
-    chat = find_latest_chat_by_topic(user.id, topic)
+    # Find or create chat for this role
+    chat = find_latest_chat_by_role(user.id, role)
     logger.info("_handle_message: existing chat={}", chat.id if chat else None)
 
     if chat:
         # Append to an existing chat — deliver_user_message steers (append,
         # no enqueue) when the chat is already mid-turn, and enqueues when
-        # idle, uniformly across every topic including root ('manager'). Same
+        # idle, uniformly across every role including root ('manager'). Same
         # catch-all as _handle_routed_message: an uncaught failure here would
         # escape the webhook handler and make Telegram retry the update,
         # appending a duplicate user message on top of the one already saved.
@@ -429,7 +429,7 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
             await chat_service.deliver_user_message(
                 user.id, chat, text,
                 images=images, source="telegram", human_reply=True,
-                topic=topic, work_dir=chat.work_dir,
+                role=role, work_dir=chat.work_dir,
             )
         except chat_service.resume_gate.ChatReadOnly as exc:
             await _send_message(telegram_chat_id, f"{exc} Use /clear then resend, or continue from the web.")
@@ -460,22 +460,22 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
             create_time=timestamp,
             update_time=timestamp,
             messages=[user_msg],
-            topic=topic,
+            role=role,
             running=True,
         )
 
     chat = await chat_service.insert_generated_chat(user.id, build)
     chat_id = chat.id
 
-    # Singleton root topic: a Telegram DM creates a fresh root chat (no trace),
-    # so release any prior holder of the same topic. Normally a no-op because
-    # this branch only runs when find_latest_chat_by_topic returned None, but
+    # Singleton root role: a Telegram DM creates a fresh root chat (no trace),
+    # so release any prior holder of the same role. Normally a no-op because
+    # this branch only runs when find_latest_chat_by_role returned None, but
     # the call hardens the invariant against future code changes.
-    released = chat_repo.release_topic(user.id, topic, except_chat_id=chat_id)
+    released = chat_repo.release_role(user.id, role, except_chat_id=chat_id)
     if released:
-        logger.info("Released topic '{}' from {} previous chat(s) on Telegram new chat by user {}", topic, released, user.id)
+        logger.info("Released role '{}' from {} previous chat(s) on Telegram new chat by user {}", role, released, user.id)
 
-    # Queue for processing — pass topic so runner knows where to route replies.
+    # Queue for processing — pass role so runner knows where to route replies.
     # work_dir is forwarded so the worker resumes the existing claude-code
     # session under the same cwd it was created in (fresh chats from /clear
     # stay with work_dir=None, which lets the runner assign the default VM
@@ -485,7 +485,7 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
         send_chat_message(
             chat_id,
             user_id=user.id,
-            topic=topic,
+            role=role,
             work_dir=chat.work_dir,
         )
     except Exception as e:

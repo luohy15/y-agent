@@ -97,7 +97,7 @@ async def run_openai(
     message_callback: Callable[[Message], None],
     chat_id: str = None,
     trace_id: str = None,
-    topic: str = None,
+    role: str = None,
 ) -> dict:
     """Call OpenAI-compatible chat completions and emit one assistant Message."""
     content, response_data = await openai_chat_completion(list(messages), bot_config)

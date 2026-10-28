@@ -14,7 +14,7 @@ Telegram is the mobile surface for y-agent: the owner dispatches and reads
 session results from their phone without opening the web app. Before this
 feature, Telegram delivery was split across two mechanisms — a DM to the
 owner's `user.telegram_id`, and a per-topic forum group where each named
-session (`chat.topic`) got its own bound thread and its own automatic replies,
+session (`chat.role`) got its own bound thread and its own automatic replies,
 photos, and pre-run mirrors. The forum group added an inbound attack surface
 (group messages reachable the same code paths as private ones), a second
 binding table (`tg_topic`) with no relationship to the session-topic registry,
@@ -25,15 +25,15 @@ became the primary way Roy read a non-manager session's outcome.
 
 ## Solution
 
-Only the manager session (`chat.topic == "manager"`, the owner's DM) is
+Only the manager session (`chat.role == "manager"`, the owner's DM) is
 eligible for automatic Telegram delivery: final replies, pre-run message
 mirrors, and immediate image attachments. A non-manager named session or an
 anonymous chat gets no automatic Telegram push — its outcome lives in web
 persistence, unread state, and existing parent-callback / todo-inbox
 mechanics, not a Telegram message. This is a narrowing of transport
-*eligibility*, not a change to session addressing: `chat.topic` as a named
+*eligibility*, not a change to session addressing: `chat.role` as a named
 dispatch address (`y chat --topic dev`), DTO round-trip, topic/trace lookup,
-root-topic singleton behavior, and manager-callback rejection are a completely
+root-role singleton behavior, and manager-callback rejection are a completely
 separate concern (owned by [chat-core](chat-core.md)) and are untouched here.
 
 Terminal delivery (error/timeout) for a non-manager or anonymous chat routes
@@ -86,7 +86,7 @@ best-effort drop.
 5. As a user, I want a message sent into the (retired) Telegram group to be
    silently ignored, so that no stray input reaches bind/unbind/chat-write
    code paths.
-6. As an operator, I want `chat.topic` as a named dispatch address to be
+6. As an operator, I want `chat.role` as a named dispatch address to be
    completely unaffected by this change, so that `y chat --topic dev` and
    trace/topic lookup keep working exactly as before.
 7. As a user, I want a Telegram reply or a selected quote to arrive as a `> `
@@ -96,8 +96,8 @@ best-effort drop.
 
 ## Out of Scope
 
-- `chat.topic` as a named session-dispatch address, DTO round-trip,
-  topic/trace resolution, root-topic singleton, trace prefixes, and manager
+- `chat.role` as a named session-dispatch address, DTO round-trip,
+  topic/trace resolution, root-role singleton, trace prefixes, and manager
   callback rejection — owned by [chat-core](chat-core.md).
 - Rerouting non-manager sessions' replies to the manager DM, attribution
   headers, or a web-link formatter for DM-mixed content. Roy explicitly

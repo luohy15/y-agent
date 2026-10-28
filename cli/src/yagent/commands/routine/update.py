@@ -3,6 +3,7 @@ import shlex
 import click
 
 from yagent.api_client import api_request
+from storage.role import legacy_topic_to_role
 
 
 @click.command('update')
@@ -13,13 +14,14 @@ from yagent.api_client import api_request
 @click.option('--message', default=None, help='New message body')
 @click.option('--command', default=None, help='New shell command to run on the VM, shlex-split to argv (--action vm-command)')
 @click.option('--vm-name', default=None, help='New VM to run --command on (--action vm-command only)')
-@click.option('--topic', 'target_topic', default=None, help='New target topic')
+@click.option('--target-role', type=click.Choice(['manager', 'leader']), default=None, help='Target system role')
+@click.option('--target-topic', '--topic', 'target_topic', default=None, hidden=True)
 @click.option('--skill', 'target_skill', default=None, help='New target skill')
 @click.option('--work-dir', default=None, help='New work_dir')
 @click.option('--backend', default=None, type=click.Choice(['claude_code']), help='New agent backend')
 @click.option('--desc', 'description', default=None, help='New description')
 @click.option('--guard', default=None, help="Pre-fire guard (module:func dotted path); pass '' to detach")
-def routine_update(routine_id, name, schedule, action, message, command, vm_name, target_topic, target_skill, work_dir, backend, description, guard):
+def routine_update(routine_id, name, schedule, action, message, command, vm_name, target_role, target_topic, target_skill, work_dir, backend, description, guard):
     """Update a routine."""
     body = {"routine_id": routine_id}
     if name is not None:
@@ -35,7 +37,14 @@ def routine_update(routine_id, name, schedule, action, message, command, vm_name
     if vm_name is not None:
         body["vm_name"] = vm_name
     if target_topic is not None:
-        body["target_topic"] = target_topic
+        click.echo("warning: --target-topic/--topic is deprecated; use --target-role or --skill", err=True)
+        if target_role is None:
+            target_role = legacy_topic_to_role(target_topic)
+            if target_role is None and not target_skill:
+                target_skill = target_topic or None
+    if target_role is not None:
+        body["target_role"] = target_role
+        body["target_topic"] = target_role
     if target_skill is not None:
         body["target_skill"] = target_skill
     if work_dir is not None:

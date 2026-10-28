@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from yagent.api_client import api_request, _http_error_detail
+from storage.role import legacy_topic_to_role, validate_role
 from yagent.chat.stream_client import stream_chat
 from yagent.display_manager import DisplayManager
 from yagent.input_manager import InputManager
@@ -199,7 +200,7 @@ def _validate_skill_name(skill: str) -> None:
 
     This is a caller-local preflight (exact match against `~/.agents/skills`
     directory names), not proof of remote/runtime capability: it does not
-    verify project/plugin skills, topic-inferred skills, or unsynchronized
+    verify project/plugin skills, role-inferred skills, or unsynchronized
     remote installations.
     """
     skills_root = Path.home() / '.agents' / 'skills'
@@ -235,17 +236,27 @@ def _resume_candidate_note(trace_id: Optional[str], candidate: dict) -> str:
     )
 
 
+def _caller_role(explicit):
+    value = explicit or os.environ.get("Y_ROLE") or legacy_topic_to_role(os.environ.get("Y_TOPIC"))
+    if not value and not os.environ.get("Y_CHAT_ID"):
+        value = "manager"
+    try:
+        return validate_role(value)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
 def _fire_and_forget(
     message: str,
     images: tuple[str, ...],
-    topic: Optional[str],
+    role: Optional[str],
     skill: Optional[str],
     chat_id: Optional[str],
     work_dir: Optional[str],
     trace_id: Optional[str],
     force_new: bool,
     fresh: bool,
-    from_topic: Optional[str],
+    from_role: Optional[str],
     from_chat_id: Optional[str],
     bot: Optional[str],
     bot_tier: Optional[str],
@@ -258,9 +269,9 @@ def _fire_and_forget(
     With ``wait`` set, block until the assistant reply is ready and print its
     content instead of just the chat_id.
 
-    Precedence for ``trace_id`` / ``from_topic`` / ``from_chat_id`` is:
+    Precedence for ``trace_id`` / ``from_role`` / ``from_chat_id`` is:
     nonempty explicit flag > nonempty environment value (``Y_TRACE_ID`` /
-    ``Y_TOPIC`` / ``Y_CHAT_ID``) > terminal default (absent / ``'manager'`` /
+    ``Y_ROLE`` / ``Y_CHAT_ID``) > terminal default (absent / ``'manager'`` /
     absent). Resolved here, at invocation time, not as a static option
     default, so a value exported after process start is still honored.
     """
@@ -269,22 +280,23 @@ def _fire_and_forget(
 
     if not trace_id:
         trace_id = os.environ.get('Y_TRACE_ID') or None
-    if not from_topic:
-        from_topic = os.environ.get('Y_TOPIC') or 'manager'
+    from_role = _caller_role(from_role)
     if not from_chat_id:
         from_chat_id = os.environ.get('Y_CHAT_ID')
 
     payload = {
         "prompt": message,
         "force_new": force_new,
-        "from_topic": from_topic,
     }
+    if from_role:
+        payload.update(from_role=from_role, from_topic=from_role)
     if fresh:
         payload["fresh"] = True
     if images:
         payload["images"] = [stage_image_path(image) for image in images]
-    if topic:
-        payload["topic"] = topic
+    if role:
+        payload["role"] = role
+        payload["topic"] = role
     if skill:
         payload["skill"] = skill
     if chat_id:
@@ -321,12 +333,12 @@ def _schedule_wakeup(
     chat_id: str,
     at: str,
     trace_id: Optional[str],
-    from_topic: Optional[str],
+    from_role: Optional[str],
     from_chat_id: Optional[str],
 ):
     """POST a durable wakeup registration to /api/chat/wakeup (todo 3655).
 
-    Same trace_id / from_topic / from_chat_id precedence as `_fire_and_forget`:
+    Same trace_id / from_role / from_chat_id precedence as `_fire_and_forget`:
     nonempty explicit flag > nonempty environment value > terminal default.
     """
     try:
@@ -337,12 +349,13 @@ def _schedule_wakeup(
 
     if not trace_id:
         trace_id = os.environ.get('Y_TRACE_ID') or None
-    if not from_topic:
-        from_topic = os.environ.get('Y_TOPIC') or 'manager'
+    from_role = _caller_role(from_role)
     if not from_chat_id:
         from_chat_id = os.environ.get('Y_CHAT_ID')
 
-    payload = {"chat_id": chat_id, "message": message, "due_at": due_at, "from_topic": from_topic}
+    payload = {"chat_id": chat_id, "message": message, "due_at": due_at}
+    if from_role:
+        payload.update(from_role=from_role, from_topic=from_role)
     if trace_id:
         payload["trace_id"] = trace_id
     if from_chat_id:
@@ -435,17 +448,19 @@ def _interactive(
 # Fire-and-forget (default top-level mode)
 @click.option('--message', '-m', default=None, help='Message to send (fire-and-forget)')
 @click.option('--image', 'images', multiple=True, type=str, help='Image path or URL to attach. Repeat for multiple images.')
-@click.option('--topic', default=None, help='Target topic (named persistent address)')
-@click.option('--skill', default=None, help='Skill to load on the target chat (defaults to topic for non-manager topics)')
+@click.option('--role', type=click.Choice(['manager', 'leader']), default=None, help='Target system role')
+@click.option('--topic', default=None, hidden=True)
+@click.option('--skill', default=None, help='Skill to load on the target chat (defaults to role for non-manager roles)')
 @click.option('--work-dir', default=None, help='Working directory for the chat')
 @click.option('--trace-id', default=None, help='Trace ID. Precedence: explicit flag > $Y_TRACE_ID env var > unset')
 @click.option('--new', 'force_new', is_flag=True, help='Force create a new chat instead of resuming existing one')
 @click.option('--fresh', is_flag=True, help='Suppress the possible same-trace resume-target lookup and note')
-@click.option('--from-topic', default=None, help="Caller topic name. Precedence: explicit flag > $Y_TOPIC env var > 'manager'")
+@click.option('--from-topic', default=None, hidden=True)
+@click.option('--from-role', type=click.Choice(['manager', 'leader']), default=None, help="Caller role: flag > $Y_ROLE > legacy $Y_TOPIC; manager only outside a session")
 @click.option('--from-chat-id', default=None, help='Caller chat ID. Precedence: explicit flag > $Y_CHAT_ID env var > unset')
 @click.option('--wait', is_flag=True, help='Block until the assistant reply is ready and print it (instead of just the chat_id)')
 @click.option('--wait-timeout', default=300, type=int, help='[--wait] Seconds to wait before falling back to the chat_id (default: 300)')
-@click.option('--at', default=None, help="Schedule a durable wakeup instead of sending now (todo 3655): requires --chat-id and -m, incompatible with --new/--topic/--skill/--wait/--image/-i/--work-dir/--bot/--tier/--effort. Accepts a relative offset (+30m, +2h, +1d, +90s) or ISO 8601 (naive values are read in the configured timezone). See also `y chat wakeup list|cancel`.")
+@click.option('--at', default=None, help="Schedule a durable wakeup instead of sending now (todo 3655): requires --chat-id and -m, incompatible with --new/--role/--skill/--wait/--image/-i/--work-dir/--bot/--tier/--effort. Accepts a relative offset (+30m, +2h, +1d, +90s) or ISO 8601 (naive values are read in the configured timezone). See also `y chat wakeup list|cancel`.")
 # Interactive REPL (-i mode)
 @click.option('--interactive', '-i', is_flag=True, help='Open the interactive REPL')
 @click.option('--latest', '-l', is_flag=True, help='[interactive] Continue from the latest chat via the active chat module list route. This can fail when the module is unavailable; use -c for an explicit chat or -m for dispatch.')
@@ -456,16 +471,18 @@ def _interactive(
 @click.pass_context
 def chat_group(
     ctx,
+    topic: Optional[str],
+    from_topic: Optional[str],
     chat_id: Optional[str],
     message: Optional[str],
     images: tuple[str, ...],
-    topic: Optional[str],
+    role: Optional[str],
     skill: Optional[str],
     work_dir: Optional[str],
     trace_id: Optional[str],
     force_new: bool,
     fresh: bool,
-    from_topic: Optional[str],
+    from_role: Optional[str],
     from_chat_id: Optional[str],
     wait: bool,
     wait_timeout: int,
@@ -484,8 +501,8 @@ def chat_group(
     \b
       Fire-and-forget (default — like the old `y notify`):
         y chat -m "..."                          fresh anonymous chat
-        y chat --topic dev -m "..."              named-address chat
-        y chat --topic dev --skill review -m "." topic + explicit skill
+        y chat --role leader -m "..."              coordinator chat
+        y chat --role leader --skill review -m "." role + explicit skill
         y chat --skill dev -m "..."              anonymous chat with skill
         y chat --chat-id <id> -m "..."           continue an existing chat
         y chat --chat-id <id> -b opus -m "..."   continue it on another bot
@@ -510,12 +527,23 @@ def chat_group(
     if ctx.invoked_subcommand is not None:
         return
 
+    if topic is not None:
+        click.echo("warning: --topic is deprecated; use --role or --skill", err=True)
+        if role is None:
+            role = legacy_topic_to_role(topic)
+            if role is None and not skill:
+                skill = topic or None
+    if from_topic is not None:
+        click.echo("warning: --from-topic is deprecated; use --from-role", err=True)
+        if from_role is None:
+            from_role = legacy_topic_to_role(from_topic)
+
     if at is not None:
         if message is None or chat_id is None:
             click.echo("Error: --at requires both --chat-id and -m.", err=True)
             raise SystemExit(2)
         incompatible = {
-            '--new': force_new, '--topic': topic, '--skill': skill, '--wait': wait,
+            '--new': force_new, '--role': role, '--skill': skill, '--wait': wait,
             '--image': images, '-i': interactive, '--work-dir': work_dir,
             '--bot': bot, '--tier': tier, '--effort': reasoning_effort,
         }
@@ -528,7 +556,7 @@ def chat_group(
             raise SystemExit(2)
         _schedule_wakeup(
             message=message, chat_id=chat_id, at=at, trace_id=trace_id,
-            from_topic=from_topic, from_chat_id=from_chat_id,
+            from_role=from_role, from_chat_id=from_chat_id,
         )
         return
 
@@ -540,14 +568,14 @@ def chat_group(
         _fire_and_forget(
             message=message,
             images=images,
-            topic=topic,
+            role=role,
             skill=skill,
             chat_id=chat_id,
             work_dir=work_dir,
             trace_id=trace_id,
             force_new=force_new,
             fresh=fresh,
-            from_topic=from_topic,
+            from_role=from_role,
             from_chat_id=from_chat_id,
             bot=bot,
             bot_tier=tier,

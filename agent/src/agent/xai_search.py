@@ -119,7 +119,7 @@ async def run_xai_search(
     message_callback: Callable[[Message], None],
     chat_id: str = None,
     trace_id: str = None,
-    topic: str = None,
+    role: str = None,
 ) -> dict:
     """Call xAI /responses with a search tool and emit one assistant Message."""
     api_key = (bot_config.api_key or "").strip()

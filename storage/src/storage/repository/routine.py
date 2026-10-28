@@ -3,6 +3,7 @@
 from typing import List, Optional
 from storage.entity.routine import RoutineEntity
 from storage.dto.routine import Routine
+from storage.role import legacy_topic_to_role
 from storage.database.base import get_db
 from storage.util import apply_time_filter
 
@@ -15,6 +16,7 @@ def _entity_to_dto(entity: RoutineEntity) -> Routine:
         message=entity.message,
         description=entity.description,
         target_topic=entity.target_topic,
+        target_role=entity.target_role or legacy_topic_to_role(entity.target_topic),
         target_skill=entity.target_skill,
         work_dir=entity.work_dir,
         backend=entity.backend,
@@ -96,7 +98,9 @@ def save_routine(user_id: int, routine: Routine) -> Routine:
             name=routine.name,
             description=routine.description,
             schedule=routine.schedule,
-            target_topic=routine.target_topic,
+            target_role=routine.target_role,
+            target_topic=routine.target_role or (
+                routine.target_topic if legacy_topic_to_role(routine.target_topic) is None else None),
             target_skill=routine.target_skill,
             message=routine.message,
             work_dir=routine.work_dir,

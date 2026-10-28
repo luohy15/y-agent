@@ -6,7 +6,8 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator, model_validator
+from storage.role import legacy_topic_to_role, validate_role
 from sse_starlette.sse import EventSourceResponse
 
 from storage.service import bot_config as bot_service
@@ -70,14 +71,34 @@ class SendMessageRequest(BaseModel):
     reasoning_effort: Optional[str] = None
     # Dispatch-shaped fields (cross-skill `y chat` targeting/trace). A request
     # carrying any of these is dispatch-shaped: see `_is_dispatch_shaped`.
-    topic: Optional[str] = None
+    topic: Optional[str] = None  # deprecated input alias
+    role: Optional[str] = None
     skill: Optional[str] = None
     trace_id: Optional[str] = None
-    from_topic: Optional[str] = None
+    from_topic: Optional[str] = None  # deprecated input alias
+    from_role: Optional[str] = None
     from_chat_id: Optional[str] = None
     force_new: Optional[bool] = False
     fresh: Optional[bool] = False
     resume_work: Optional[bool] = None
+
+
+    @field_validator("role", "from_role")
+    @classmethod
+    def check_roles(cls, value):
+        return validate_role(value)
+
+    @model_validator(mode="after")
+    def map_legacy_topics(self):
+        if self.topic is not None:
+            logger.warning("Deprecated chat topic input; use role or skill")
+            if "role" not in self.model_fields_set:
+                self.role = legacy_topic_to_role(self.topic)
+                if self.role is None and not self.skill:
+                    self.skill = self.topic or None
+        if "from_role" not in self.model_fields_set:
+            self.from_role = legacy_topic_to_role(self.from_topic)
+        return self
 
 
 class SendMessageResponse(BaseModel):
@@ -134,13 +155,13 @@ def _resolve_attach_vm_config(user_id: int, chat, vm_name: Optional[str]):
 
 
 def _deliver_attached_images_to_telegram(user_id: int, chat, target, image_paths: List[str], vm_name: Optional[str] = None) -> List[str]:
-    if not image_paths or chat.topic != "manager":
+    if not image_paths or chat.role != "manager":
         return []
 
     from storage.service.telegram import resolve_target
     from agent.telegram_delivery import send_telegram_photo_reference
 
-    telegram_target = resolve_target(user_id, topic=chat.topic)
+    telegram_target = resolve_target(user_id, role=chat.role)
     if not telegram_target:
         return []
 
@@ -266,13 +287,13 @@ async def post_create_chat(req: CreateChatRequest, request: Request):
 def _is_dispatch_shaped(req: SendMessageRequest) -> bool:
     """A request is dispatch-shaped iff it carries any cross-skill targeting/trace field.
 
-    Dispatch-shaped requests get the `[trace:... to_chat:...]` prefix, root-topic
-    rejection, topic/skill stamping, and may create a chat without an explicit
+    Dispatch-shaped requests get the `[trace:... to_chat:...]` prefix, root-role
+    rejection, role/skill stamping, and may create a chat without an explicit
     chat_id. Non-dispatch requests (web send, `y chat -i`) require chat_id and
     behave exactly like the pre-unification `/message` route.
     """
     return bool(
-        req.trace_id or req.from_topic or req.from_chat_id or req.topic
+        req.trace_id or req.from_role or req.from_chat_id or req.role or req.topic or req.from_topic
         or req.skill or req.force_new
     )
 
@@ -290,12 +311,12 @@ def _reject_pasted_trace_prefix(prompt: str) -> None:
         )
 
 
-def _resolve_skill(skill: Optional[str], topic: Optional[str]) -> Optional[str]:
-    """Skill defaults to topic for non-root topics; explicit skill overrides."""
+def _resolve_skill(skill: Optional[str], role: Optional[str]) -> Optional[str]:
+    """Skill defaults to role for non-root roles; explicit skill overrides."""
     if skill:
         return skill
-    if topic and topic != "manager":
-        return topic
+    if role and role != "manager":
+        return role
     return None
 
 
@@ -306,8 +327,8 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     Non-dispatch-shaped requests behave exactly like the pre-unification
     `/message` route (chat_id required, no prefix, owner-scoped lookup).
     Dispatch-shaped requests behave like the former `/notify` route (target
-    resolution by chat_id > topic+trace > new, trace-prefix injection,
-    root-topic rejection, topic/skill stamping) but now share the single
+    resolution by chat_id > role+trace > new, trace-prefix injection,
+    root-role rejection, role/skill stamping) but now share the single
     `deliver_user_message` accept-body primitive instead of duplicating it.
     """
     user_id = _get_user_id(request)
@@ -357,9 +378,9 @@ async def post_send_message(req: SendMessageRequest, request: Request):
 
     # Dispatch-shaped: cross-skill `y chat` targeting (formerly /notify).
     _reject_pasted_trace_prefix(req.prompt)
-    skill = _resolve_skill(req.skill, req.topic)
+    skill = _resolve_skill(req.skill, req.role)
 
-    # Resolve target chat: explicit chat_id > topic+trace lookup > new.
+    # Resolve target chat: explicit chat_id > role+trace lookup > new.
     # Do not pre-mint a generated id: create_chat retries allocate+insert, and
     # the final id must land in the to_chat: prefix (built after create).
     existing_chat = None
@@ -368,21 +389,21 @@ async def post_send_message(req: SendMessageRequest, request: Request):
         existing_chat = await chat_service.get_chat(user_id, req.chat_id)
         if not existing_chat:
             raise HTTPException(status_code=404, detail=f"chat_id '{req.chat_id}' not found")
-        if req.topic and existing_chat.topic and existing_chat.topic != req.topic:
+        if req.role and existing_chat.role != req.role:
             raise HTTPException(
                 status_code=400,
-                detail=f"topic mismatch: chat '{req.chat_id}' belongs to topic '{existing_chat.topic}', got '{req.topic}'. Use --new to create a new chat, or omit --chat-id to let the system find the right one."
+                detail=f"role mismatch: chat '{req.chat_id}' belongs to role '{existing_chat.role}', got '{req.role}'. Use --new to create a new chat, or omit --chat-id to let the system find the right one."
             )
         chat_id = req.chat_id
-    elif req.topic and req.trace_id and not req.force_new:
-        from storage.repository.chat import find_chat_by_topic_and_trace
-        found = find_chat_by_topic_and_trace(user_id, req.topic, req.trace_id)
+    elif req.role and req.trace_id and not req.force_new:
+        from storage.repository.chat import find_chat_by_role_and_trace
+        found = find_chat_by_role_and_trace(user_id, req.role, req.trace_id)
         if found:
             chat_id = found.id
             existing_chat = await chat_service.get_chat(user_id, chat_id)
 
     try:
-        chat_service.validate_dispatch_target(existing_chat, topic=req.topic, force_new=req.force_new)
+        chat_service.validate_dispatch_target(existing_chat, role=req.role, force_new=req.force_new)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -392,8 +413,8 @@ async def post_send_message(req: SendMessageRequest, request: Request):
 
     def _dispatch_content(to_chat_id: str) -> str:
         return chat_service.dispatch_content(
-            req.prompt, to_chat_id, trace_id=req.trace_id, from_topic=req.from_topic,
-            topic=req.topic, from_chat_id=req.from_chat_id,
+            req.prompt, to_chat_id, trace_id=req.trace_id, from_role=req.from_role,
+            role=req.role, from_chat_id=req.from_chat_id,
         )
 
     vm_work_dir = req.work_dir or (existing_chat.work_dir if existing_chat else None)
@@ -416,10 +437,10 @@ async def post_send_message(req: SendMessageRequest, request: Request):
         try:
             chat = await chat_service.deliver_dispatch(
                 user_id, existing_chat, req.prompt,
-                from_chat_id=req.from_chat_id, from_topic=req.from_topic,
+                from_chat_id=req.from_chat_id, from_role=req.from_role,
                 images=images, reasoning_effort=reasoning_effort,
                 bot_name=req.bot_name, bot_tier=req.bot_tier,
-                work_dir=work_dir, trace_id=req.trace_id, topic=req.topic, skill=skill,
+                work_dir=work_dir, trace_id=req.trace_id, role=req.role, skill=skill,
             )
         except chat_service.resume_gate.ChatReadOnly as exc:
             raise HTTPException(status_code=409, detail=exc.detail()) from exc
@@ -450,27 +471,27 @@ async def post_send_message(req: SendMessageRequest, request: Request):
             create_time=get_utc_iso8601_timestamp(),
             update_time=get_utc_iso8601_timestamp(),
             messages=[user_msg],
-            topic=req.topic,
-            trace_id=req.trace_id if req.topic != "manager" else None,
+            role=req.role,
+            trace_id=req.trace_id if req.role != "manager" else None,
             skill=skill,
             running=True,
         )
         return chat
 
-    # Use insert_generated_chat so topic/skill/running land on the first write
+    # Use insert_generated_chat so role/skill/running land on the first write
     # and the allocate+insert race is retried (plan 3131 D3).
     chat = await chat_service.insert_generated_chat(user_id, build)
     chat_id = chat.id
 
-    # Singleton root topic: a new chat claiming a topic without a trace_id is a
-    # root chat (e.g. fresh manager session). Release the topic from any other
-    # chat that still holds it so (user_id, topic) has a single owner.
-    if req.topic and not req.trace_id:
-        released = chat_repo.release_topic(user_id, req.topic, except_chat_id=chat_id)
+    # Singleton root role: a new chat claiming a role without a trace_id is a
+    # root chat (e.g. fresh manager session). Release the role from any other
+    # chat that still holds it so (user_id, role) has a single owner.
+    if req.role == "manager":
+        released = chat_repo.release_role(user_id, req.role, except_chat_id=chat_id)
         if released:
-            logger.info("Released topic '{}' from {} previous chat(s) on new claim by {}", req.topic, released, chat_id)
+            logger.info("Released role '{}' from {} previous chat(s) on new claim by {}", req.role, released, chat_id)
 
-    send_chat_message(chat_id, bot_name=req.bot_name, bot_tier=req.bot_tier, user_id=user_id, work_dir=work_dir, trace_id=req.trace_id, topic=req.topic, skill=skill)
+    send_chat_message(chat_id, bot_name=req.bot_name, bot_tier=req.bot_tier, user_id=user_id, work_dir=work_dir, trace_id=req.trace_id, role=req.role, skill=skill)
 
     return SendMessageResponse(
         chat_id=chat_id,
@@ -691,6 +712,7 @@ async def get_chat_detail(chat_id: str = Query(...), request: Request = None):
         result["resume_gate"] = {"read_only": True, **refusal.detail()}
     if chat.work_dir:
         result["work_dir"] = chat.work_dir
+    result["role"] = chat.role
     if chat.topic:
         result["topic"] = chat.topic
     if chat.skill:
@@ -852,7 +874,19 @@ class CreateChatWakeupRequest(BaseModel):
     due_at: str
     trace_id: Optional[str] = None
     from_chat_id: Optional[str] = None
-    from_topic: Optional[str] = None
+    from_topic: Optional[str] = None  # deprecated input alias
+    from_role: Optional[str] = None
+
+    @field_validator("from_role")
+    @classmethod
+    def check_from_role(cls, value):
+        return validate_role(value)
+
+    @model_validator(mode="after")
+    def map_legacy_from_topic(self):
+        if "from_role" not in self.model_fields_set:
+            self.from_role = legacy_topic_to_role(self.from_topic)
+        return self
 
 
 class CancelChatWakeupRequest(BaseModel):
@@ -869,7 +903,8 @@ async def post_create_chat_wakeup(req: CreateChatWakeupRequest, request: Request
     try:
         wakeup = await wakeup_service.create_wakeup(
             user_id, req.chat_id, req.message, req.due_at,
-            trace_id=req.trace_id, from_chat_id=req.from_chat_id, from_topic=req.from_topic,
+            trace_id=req.trace_id, from_chat_id=req.from_chat_id, from_role=req.from_role,
+            from_topic=req.from_topic,
         )
     except ChatWakeupInvalid as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

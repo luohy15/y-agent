@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from storage.repository.chat import find_chats_by_trace_id, find_chats_with_messages_by_trace_id
-from storage.service.leader_claim import COORDINATOR_TOPICS
+from storage.role import COORDINATOR_ROLE
 from storage.util import generate_id
 
 router = APIRouter(prefix="/trace")
@@ -78,7 +78,7 @@ def preferred_trace_chat(chats):
     """
     if not chats:
         return None
-    coordinator = next((chat for chat in chats if chat.topic in COORDINATOR_TOPICS), None)
+    coordinator = next((chat for chat in chats if chat.role == COORDINATOR_ROLE), None)
     return coordinator or chats[0]
 
 
@@ -87,8 +87,7 @@ async def get_latest_chat(request: Request, trace_id: str = Query(...)):
     """Get the latest chat_id for a trace.
 
     Prefers the newest coordinator chat (`leader`, then legacy `dev`) so this
-    agrees with the right drawer's pin, which queries `topic=leader` and falls
-    back to `topic=dev`. Otherwise the newest chat overall.
+    agrees with the right drawer's pin, which queries `role=leader`. Otherwise the newest chat overall.
     """
     user_id = _get_user_id(request)
     chats = find_chats_by_trace_id(user_id, trace_id)
@@ -102,7 +101,7 @@ async def get_trace_chats(request: Request, trace_id: str = Query(...)):
     user_id = _get_user_id(request)
     chats = find_chats_with_messages_by_trace_id(user_id, trace_id)
     result_chats = []
-    for chat_id, title, topic, skill, backend, bot_name, json_content in chats:
+    for chat_id, title, topic, role, skill, backend, bot_name, json_content in chats:
         messages = json.loads(json_content).get("messages", []) if json_content else []
         segments = _extract_segments(messages)
         # Message bodies are served by the chat module. This authenticated
@@ -112,6 +111,7 @@ async def get_trace_chats(request: Request, trace_id: str = Query(...)):
             "chat_id": chat_id,
             "title": title,
             "topic": topic,
+            "role": role,
             "skill": skill,
             "backend": backend,
             "bot_name": bot_name,
@@ -349,13 +349,14 @@ async def get_share(share_id: str = Query(...), password: Optional[str] = Query(
 
     chats = find_chats_with_messages_by_trace_id(user_id, trace_id)
     result_chats = []
-    for chat_id, title, topic, skill, backend, bot_name, json_content in chats:
+    for chat_id, title, topic, role, skill, backend, bot_name, json_content in chats:
         messages = json.loads(json_content).get("messages", []) if json_content else []
         segments = _extract_segments(messages)
         result_chats.append({
             "chat_id": chat_id,
             "title": title,
             "topic": topic,
+            "role": role,
             "skill": skill,
             "backend": backend,
             "bot_name": bot_name,

@@ -112,14 +112,14 @@ def build_handoff(user_id: int, chat: Chat) -> dict:
     if paths:
         prompt += "\nNotes: " + ", ".join(paths)
     args = ["y", "chat", "--new"]
-    for flag, value in (("--trace-id", chat.trace_id), ("--topic", chat.topic),
+    for flag, value in (("--trace-id", chat.trace_id), ("--role", chat.role),
                         ("--skill", chat.skill), ("--work-dir", chat.work_dir),
                         ("--bot", chat.bot_name)):
         if value:
             args.extend((flag, value))
     args.extend(("-m", prompt))
     return {
-        "source_chat_id": chat.id, "trace_id": chat.trace_id, "topic": chat.topic,
+        "source_chat_id": chat.id, "trace_id": chat.trace_id, "topic": chat.topic, "role": chat.role,
         "skill": chat.skill, "work_dir": chat.work_dir, "bot_name": chat.bot_name,
         "todo_id": chat.trace_id, "progress": progress, "note_paths": paths,
         "prompt": prompt, "command": shlex.join(args),

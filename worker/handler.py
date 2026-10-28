@@ -73,6 +73,8 @@ async def _process_record(body: dict) -> str:
 
     Returns 'done', 'detached', or 'continuation'.
     """
+    from storage.role import legacy_topic_to_role, validate_role
+
     task_type = body.get("task_type", "chat")
 
     if task_type == "trigger_batch_download":
@@ -96,7 +98,7 @@ async def _process_record(body: dict) -> str:
         work_dir=body.get("work_dir"),
         post_hooks=body.get("post_hooks"),
         trace_id=body.get("trace_id"),
-        topic=body.get("topic"),
+        role=validate_role(body.get("role") or legacy_topic_to_role(body.get("topic"))),
         skill=body.get("skill"),
         backend=body.get("backend"),
         run_seq=body.get("run_seq"),

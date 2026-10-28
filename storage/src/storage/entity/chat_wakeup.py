@@ -22,6 +22,7 @@ class ChatWakeupEntity(Base, BaseEntity):
     trace_id = Column(String, nullable=False)
     from_chat_id = Column(String, nullable=True)
     from_topic = Column(String, nullable=True)
+    from_role = Column(String, nullable=True)
     message = Column(Text, nullable=False)
     due_at_unix = Column(BigInteger, nullable=False)
 
@@ -32,6 +33,7 @@ class ChatWakeupEntity(Base, BaseEntity):
 
     __table_args__ = (
         UniqueConstraint("user_id", "wakeup_id", name="uq_chat_wakeup_id"),
+        CheckConstraint("from_role IN ('manager', 'leader')", name="ck_chat_wakeup_from_role"),
         CheckConstraint(
             "status IN ('pending', 'accepted', 'delivered', 'cancelled', 'failed')",
             name="ck_chat_wakeup_status",

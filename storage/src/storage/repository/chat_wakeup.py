@@ -10,6 +10,7 @@ from sqlalchemy import func
 
 from storage.database.base import get_db
 from storage.dto.chat_wakeup import ChatWakeup
+from storage.role import legacy_topic_to_role
 from storage.entity.chat_wakeup import ChatWakeupEntity
 from storage.entity.user import UserEntity
 from storage.util import get_unix_timestamp
@@ -37,6 +38,7 @@ def _entity_to_dto(session, row: ChatWakeupEntity) -> ChatWakeup:
         status=row.status,
         from_chat_id=row.from_chat_id,
         from_topic=row.from_topic,
+        from_role=row.from_role,
         enqueue_needed=row.enqueue_needed,
         delivery_attempts=row.delivery_attempts or 0,
         last_error=row.last_error,
@@ -49,12 +51,14 @@ def _entity_to_dto(session, row: ChatWakeupEntity) -> ChatWakeup:
 
 def create_wakeup(user_id: int, wakeup_id: str, chat_id: str, trace_id: str, message: str,
                   due_at_unix: int, *, from_chat_id: Optional[str] = None,
-                  from_topic: Optional[str] = None) -> ChatWakeup:
+                  from_role: Optional[str] = None, from_topic: Optional[str] = None) -> ChatWakeup:
     with get_db() as session:
         entity = ChatWakeupEntity(
             user_id=user_id, wakeup_id=wakeup_id, chat_id=chat_id, trace_id=trace_id,
             message=message, due_at_unix=due_at_unix, from_chat_id=from_chat_id,
-            from_topic=from_topic, status="pending",
+            from_role=from_role,
+            from_topic=from_role or (from_topic if legacy_topic_to_role(from_topic) is None else None),
+            status="pending",
         )
         session.add(entity)
         session.flush()

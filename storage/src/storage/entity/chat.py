@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey, UniqueConstraint, text
+from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey, UniqueConstraint, CheckConstraint, Index, text
 from .base import Base, BaseEntity
 
 
@@ -15,6 +15,7 @@ class ChatEntity(Base, BaseEntity):
     tier = Column(String, nullable=True, index=True)
     origin_chat_id = Column(String, nullable=True, index=True)
     topic = Column(String, nullable=True, index=True)
+    role = Column(String, nullable=True)
     skill = Column(String, nullable=True, index=True)
     trace_id = Column(String, nullable=True, index=True)
     routine_id = Column(String, nullable=True, index=True)
@@ -30,4 +31,7 @@ class ChatEntity(Base, BaseEntity):
 
     __table_args__ = (
         UniqueConstraint("user_id", "chat_id"),
+        CheckConstraint("role IN ('manager', 'leader')", name="ck_chat_role"),
+        Index("ix_chat_user_role_trace", "user_id", "role", "trace_id",
+              postgresql_where=text("role IS NOT NULL")),
     )

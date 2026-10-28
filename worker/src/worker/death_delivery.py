@@ -3,6 +3,7 @@ import json
 import re
 
 from loguru import logger
+from storage.role import effective_role
 
 from storage.service import chat as chat_service
 from worker.process_manager import get_process, get_running_processes
@@ -46,7 +47,7 @@ async def persist_terminal(chat_id, proc, result, outcome="error"):
         lock_todo(session, proc["user_id"], proc.get("trace_id"))
         row = session.query(ChatEntity).filter_by(
             user_id=proc["user_id"], chat_id=chat_id).with_for_update().first()
-        if (not row or (row.topic != "manager" and row.trace_id != proc.get("trace_id"))
+        if (not row or (effective_role(row.role, row.topic) != "manager" and row.trace_id != proc.get("trace_id"))
                 or not current_run(chat_id, proc)):
             return None
         from worker.process_manager import complete_current_process
@@ -80,28 +81,28 @@ async def deliver_death(chat_id, proc, outcome, error):
 
     user_id = proc["user_id"]
     chat = await chat_service.get_chat(user_id, chat_id)
-    if (not chat or (chat.topic != "manager" and chat.trace_id != proc.get("trace_id")) or chat.running
+    if (not chat or (chat.role != "manager" and chat.trace_id != proc.get("trace_id")) or chat.running
             or not current_run(chat_id, proc)):
         return "obsolete"
     chat_service.mark_chat_completion_unread(user_id, chat_id)
     prefix = f"Trace {chat.trace_id or 'unknown'}, child {chat_id}: observed {outcome}."
     error_text = str(error or "No error detail available.")[:1800]
     text = f"{prefix} {error_text}"
-    if chat.topic == "manager":
+    if chat.role == "manager":
         try:
-            target = resolve_target(user_id, topic=chat.topic)
+            target = resolve_target(user_id, role=chat.role)
             if target and send_telegram_message_checked(target[0], target[1], text):
-                return "topic"
+                return "role"
         except Exception:
-            logger.warning("Death topic delivery failed: chat_id={}", chat_id)
+            logger.warning("Death role delivery failed: chat_id={}", chat_id)
     else:
         target_id = parent_id(chat)
         parent = await chat_service.get_chat(user_id, target_id) if target_id else None
-        if parent and parent.trace_id == chat.trace_id and parent.topic != "manager":
+        if parent and parent.trace_id == chat.trace_id and parent.role != "manager":
             try:
                 await chat_service.deliver_dispatch(
                     user_id, parent, text, trace_id=chat.trace_id,
-                    from_chat_id=chat_id, from_topic=chat.topic, topic=parent.topic,
+                    from_chat_id=chat_id, from_role=chat.role, role=parent.role,
                     work_dir=parent.work_dir,
                 )
                 return "parent"

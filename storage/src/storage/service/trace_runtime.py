@@ -42,17 +42,17 @@ def derive_runtime(roles, snapshot, todo_id: str, now_ms: int,
                    observed_after_ms: Optional[int] = None) -> dict:
     """One active todo's runtime evidence.
 
-    `roles` is `(chat_count, running_topic, running_topicless, topic_chats)`.
-    A running topic chat is the session; a running topic-less chat is a child
-    when the trace also has a topic chat, otherwise it is the session itself.
+    `roles` is `(chat_count, running_role, running_roleless, role_chats)`.
+    A running role chat is the session; a running role-less chat is a child
+    when the trace also has a role chat, otherwise it is the session itself.
     With no running chat, only a valid, fresh snapshot can say `tmux` or
     `ended`; everything else is `unknown`.
     """
-    _chat_count, running_topic, running_topicless, topic_chats = roles or (0, 0, 0, 0)
-    if running_topic > 0:
+    _chat_count, running_role, running_roleless, role_chats = roles or (0, 0, 0, 0)
+    if running_role > 0:
         return _payload("session")
-    if running_topicless > 0:
-        return _payload("child" if topic_chats > 0 else "session")
+    if running_roleless > 0:
+        return _payload("child" if role_chats > 0 else "session")
 
     snap = snapshot if isinstance(snapshot, dict) else {}
     observed = snap.get("observed_at_unix")

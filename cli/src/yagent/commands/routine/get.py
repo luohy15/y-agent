@@ -22,8 +22,8 @@ def routine_get(routine_id):
         click.echo(f"Command:   {' '.join(r.get('command') or [])}")
         click.echo(f"VM Name:   {r.get('vm_name') or '(default)'}")
     else:
-        if r.get('target_topic'):
-            click.echo(f"Topic:     {r['target_topic']}")
+        if r.get('target_role'):
+            click.echo(f"Role:     {r['target_role']}")
         if r.get('target_skill'):
             click.echo(f"Skill:     {r['target_skill']}")
         if r.get('work_dir'):

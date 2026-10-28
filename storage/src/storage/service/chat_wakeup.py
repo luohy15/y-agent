@@ -13,6 +13,7 @@ from typing import List, Optional
 from loguru import logger
 
 from storage.dto.chat_wakeup import ChatWakeup
+from storage.role import legacy_topic_to_role
 from storage.repository import chat_wakeup as wakeup_repo
 from storage.util import generate_id, get_unix_timestamp
 
@@ -42,7 +43,7 @@ def _parse_due_at(due_at: str) -> int:
 
 async def create_wakeup(user_id: int, chat_id: str, message: str, due_at: str, *,
                         trace_id: Optional[str] = None, from_chat_id: Optional[str] = None,
-                        from_topic: Optional[str] = None) -> ChatWakeup:
+                        from_role: Optional[str] = None, from_topic: Optional[str] = None) -> ChatWakeup:
     from storage.service import chat as chat_service
 
     if not (message or "").strip():
@@ -69,7 +70,7 @@ async def create_wakeup(user_id: int, chat_id: str, message: str, due_at: str, *
 
     return wakeup_repo.create_wakeup(
         user_id, generate_id(), chat_id, chat.trace_id, message, due_at_unix,
-        from_chat_id=from_chat_id, from_topic=from_topic,
+        from_chat_id=from_chat_id, from_role=from_role, from_topic=from_topic,
     )
 
 
@@ -119,7 +120,7 @@ async def deliver_wakeup(wakeup: ChatWakeup, user_id: int) -> str:
                 # them all back, so cancellation cannot win after an append.
                 acceptance = await chat_service.accept_dispatch(
                     user_id, chat, row.message,
-                    from_chat_id=row.from_chat_id, from_topic=row.from_topic,
+                    from_chat_id=row.from_chat_id, from_role=row.from_role or legacy_topic_to_role(row.from_topic),
                     trace_id=row.trace_id, event_id=row.wakeup_id, session=session,
                 )
                 row.status = "accepted"

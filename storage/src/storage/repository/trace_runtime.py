@@ -7,11 +7,12 @@ session-end reconcile's per-owner probe (todo 4077).
 
 from typing import Dict, Iterable, Tuple
 
-from sqlalchemy import and_, case, func, or_
+from sqlalchemy import and_, case, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from storage.database.base import get_db
 from storage.entity.chat import ChatEntity
+from storage.repository.chat import effective_role_expr
 from storage.entity.trace_runtime_snapshot import TraceRuntimeSnapshotEntity
 from storage.util import get_utc_iso8601_timestamp, get_unix_timestamp
 
@@ -79,26 +80,26 @@ def get_snapshots(session, user_ids: Iterable[int]) -> Dict[int, dict]:
 
 
 def trace_runtime_roles(session, user_ids: Iterable[int], trace_ids: Iterable[str]) -> Dict[Tuple[int, str], Tuple[int, int, int, int]]:
-    """Chat evidence per (owner, trace): `(chat_count, running_topic,
-    running_topicless, topic_chats)` in one grouped read.
+    """Chat evidence per (owner, trace): `(chat_count, running_role,
+    running_roleless, role_chats)` in one grouped read.
 
-    `running_topic` / `running_topicless` are SQL-running chats with / without a
-    topic. `topic_chats` counts every chat that has a topic, so a running
-    topic-less chat on a trace that also has a coordinator reads as a child.
+    `running_role` / `running_roleless` are SQL-running chats with / without a
+    role. `role_chats` counts every chat that has a role, so a running
+    role-less chat on a trace that also has a coordinator reads as a child.
     """
     user_ids, trace_ids = set(user_ids), set(trace_ids)
     if not user_ids or not trace_ids:
         return {}
-    has_topic = and_(ChatEntity.topic.isnot(None), ChatEntity.topic != "")
-    no_topic = or_(ChatEntity.topic.is_(None), ChatEntity.topic == "")
+    has_role = ~effective_role_expr(None)
+    no_role = effective_role_expr(None)
     rows = (
         session.query(
             ChatEntity.user_id,
             ChatEntity.trace_id,
             func.count(ChatEntity.id),
-            func.sum(case((and_(ChatEntity.status == "running", has_topic), 1), else_=0)),
-            func.sum(case((and_(ChatEntity.status == "running", no_topic), 1), else_=0)),
-            func.sum(case((has_topic, 1), else_=0)),
+            func.sum(case((and_(ChatEntity.status == "running", has_role), 1), else_=0)),
+            func.sum(case((and_(ChatEntity.status == "running", no_role), 1), else_=0)),
+            func.sum(case((has_role, 1), else_=0)),
         )
         .filter(ChatEntity.user_id.in_(user_ids), ChatEntity.trace_id.in_(trace_ids))
         .group_by(ChatEntity.user_id, ChatEntity.trace_id)

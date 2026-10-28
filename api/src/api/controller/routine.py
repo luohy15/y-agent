@@ -1,7 +1,8 @@
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator, model_validator
+from storage.role import legacy_topic_to_role, validate_role
 
 from storage.service import routine as routine_service
 
@@ -12,12 +13,31 @@ def _get_user_id(request: Request) -> int:
     return request.state.user_id
 
 
-class CreateRoutineRequest(BaseModel):
+class RoutineRoleRequest(BaseModel):
+    target_role: Optional[str] = None
+    target_topic: Optional[str] = None  # deprecated input alias
+    target_skill: Optional[str] = None
+
+    @field_validator("target_role")
+    @classmethod
+    def check_role(cls, value):
+        return validate_role(value)
+
+    @model_validator(mode="after")
+    def map_legacy_topic(self):
+        if "target_role" not in self.model_fields_set and self.target_topic is not None:
+            self.target_role = legacy_topic_to_role(self.target_topic)
+            if self.target_role is None and not self.target_skill:
+                self.target_skill = self.target_topic or None
+        return self
+
+
+class CreateRoutineRequest(RoutineRoleRequest):
     name: str
     schedule: str
     message: Optional[str] = None
     description: Optional[str] = None
-    target_topic: Optional[str] = None
+    target_role: Optional[str] = None
     target_skill: Optional[str] = None
     work_dir: Optional[str] = None
     backend: Optional[str] = None
@@ -28,13 +48,13 @@ class CreateRoutineRequest(BaseModel):
     vm_name: Optional[str] = None
 
 
-class UpdateRoutineRequest(BaseModel):
+class UpdateRoutineRequest(RoutineRoleRequest):
     routine_id: str
     name: Optional[str] = None
     schedule: Optional[str] = None
     message: Optional[str] = None
     description: Optional[str] = None
-    target_topic: Optional[str] = None
+    target_role: Optional[str] = None
     target_skill: Optional[str] = None
     work_dir: Optional[str] = None
     backend: Optional[str] = None
@@ -93,7 +113,8 @@ async def create_routine(req: CreateRoutineRequest, request: Request):
             req.schedule,
             req.message,
             description=req.description,
-            target_topic=req.target_topic,
+            target_role=req.target_role,
+            target_topic=req.target_topic if legacy_topic_to_role(req.target_topic) is None else None,
             target_skill=req.target_skill,
             work_dir=req.work_dir,
             backend=req.backend,
@@ -111,7 +132,9 @@ async def create_routine(req: CreateRoutineRequest, request: Request):
 @router.post("/update")
 async def update_routine(req: UpdateRoutineRequest, request: Request):
     user_id = _get_user_id(request)
-    fields = {k: v for k, v in req.model_dump(exclude={"routine_id"}).items() if v is not None}
+    fields = {k: v for k, v in req.model_dump(exclude={"routine_id", "target_topic"}).items() if v is not None}
+    if "target_role" in req.model_fields_set:
+        fields["target_role"] = req.target_role
     if not fields:
         raise HTTPException(status_code=400, detail="No fields to update")
     try:

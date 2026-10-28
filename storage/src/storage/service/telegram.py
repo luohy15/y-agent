@@ -8,12 +8,12 @@ from storage.repository.user import get_user_by_id
 from storage.util import get_telegram_bot_token, send_telegram_message_checked
 
 
-def resolve_target(user_id: int, topic: Optional[str] = None) -> Optional[Tuple[str, int]]:
+def resolve_target(user_id: int, role: Optional[str] = None) -> Optional[Tuple[str, int]]:
     """Resolve a Telegram delivery target for a user.
 
-    Only topic in (None, '', 'manager') resolves, to the user's DM via
-    user.telegram_id. Any other topic name is rejected outright — the
-    Telegram group is retired, so a non-manager topic never falls through to
+    Only role in (None, '', 'manager') resolves, to the user's DM via
+    user.telegram_id. Any other role name is rejected outright — the
+    Telegram group is retired, so a non-manager role never falls through to
     DM; it simply has no Telegram delivery.
 
     Returns (bot_token, tg_chat_id) or None if no valid target.
@@ -22,8 +22,8 @@ def resolve_target(user_id: int, topic: Optional[str] = None) -> Optional[Tuple[
     if not bot_token:
         return None
 
-    if topic and topic != 'manager':
-        logger.debug("telegram: topic '{}' is not eligible for Telegram delivery", topic)
+    if role and role != 'manager':
+        logger.debug("telegram: role '{}' is not eligible for Telegram delivery", role)
         return None
 
     user = get_user_by_id(user_id)

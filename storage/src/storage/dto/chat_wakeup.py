@@ -15,6 +15,7 @@ class ChatWakeup:
     status: str = "pending"
     from_chat_id: Optional[str] = None
     from_topic: Optional[str] = None
+    from_role: Optional[str] = None
     enqueue_needed: Optional[bool] = None
     delivery_attempts: int = 0
     last_error: Optional[str] = None
@@ -38,6 +39,8 @@ class ChatWakeup:
         }
         if self.from_chat_id is not None:
             result['from_chat_id'] = self.from_chat_id
+        if self.from_role is not None:
+            result['from_role'] = self.from_role
         if self.from_topic is not None:
             result['from_topic'] = self.from_topic
         if self.enqueue_needed is not None:

@@ -210,7 +210,8 @@ from storage.project_key import ProjectKeyError as ProjectKeyError, normalize_pr
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-BACKEND_CONTRACT_VERSION = 27
+# v28: chat rows expose role and chat_list accepts the closed role filter.
+BACKEND_CONTRACT_VERSION = 28
 
 # Wall-clock budget for the wake="nowait" readiness check (todo 3777).
 NOWAIT_BUDGET_SECONDS = 1.0
@@ -536,6 +537,7 @@ async def chat_list(
     offset: int = 0,
     trace_id: Optional[str] = None,
     topic: Optional[str] = None,
+    role: Optional[str] = None,
     skill: Optional[str] = None,
     tier: Optional[str] = None,
     bot_name: Optional[str] = None,
@@ -572,6 +574,7 @@ async def chat_list(
         offset=offset,
         trace_id=trace_id,
         topic=topic,
+        role=role,
         skill=skill,
         tier=tier,
         bot_name=bot_name,
@@ -599,6 +602,7 @@ async def chat_list(
             "created_at": chat.created_at,
             "updated_at": chat.updated_at,
             "topic": chat.topic,
+            "role": chat.role,
             "skill": chat.skill,
             "trace_id": chat.trace_id,
             "routine_id": chat.routine_id,

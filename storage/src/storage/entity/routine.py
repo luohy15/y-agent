@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey, UniqueConstraint, JSON, text
+from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey, UniqueConstraint, CheckConstraint, JSON, text
 from sqlalchemy.dialects.postgresql import JSONB
 from .base import Base, BaseEntity
 
@@ -21,6 +21,7 @@ class RoutineEntity(Base, BaseEntity):
     # (runs routine.command argv on routine.vm_name via the host contract)
     action = Column(String, nullable=False, server_default=text("'chat'"))
     target_topic = Column(String, nullable=True)
+    target_role = Column(String, nullable=True)
     target_skill = Column(String, nullable=True)
     message = Column(Text, nullable=False)
     work_dir = Column(String, nullable=True)
@@ -41,4 +42,5 @@ class RoutineEntity(Base, BaseEntity):
 
     __table_args__ = (
         UniqueConstraint("user_id", "routine_id"),
+        CheckConstraint("target_role IN ('manager', 'leader')", name="ck_routine_target_role"),
     )

@@ -45,7 +45,7 @@ def build_handoff_reminder(chat: Chat, ratio: float) -> str:
 
     Wording is grounded in the AGENTS.md "Context handoff" playbook (todo 2976):
     it defers the parent-vs-self-restart classification to the session itself
-    rather than branching on chat.topic / chat.skill here, since the session
+    rather than branching on chat.role / chat.skill here, since the session
     knows its own tree position better than the send pipeline does.
     """
     pct = round(ratio * 100)
@@ -106,6 +106,7 @@ async def list_chats(
     offset: int = 0,
     trace_id: Optional[str] = None,
     topic: Optional[str] = None,
+    role: Optional[str] = None,
     skill: Optional[str] = None,
     tier: Optional[str] = None,
     bot_name: Optional[str] = None,
@@ -128,7 +129,7 @@ async def list_chats(
 ) -> List[ChatSummary]:
     return await chat_repo.list_chats(
         user_id,
-        limit=limit, query=query, offset=offset, trace_id=trace_id, topic=topic,
+        limit=limit, query=query, offset=offset, trace_id=trace_id, topic=topic, role=role,
         skill=skill, tier=tier, bot_name=bot_name, status=status, routine_id=routine_id, routine_name=routine_name,
         routine_only=routine_only, tag=tag,
         on=on, from_=from_, to=to,
@@ -263,21 +264,16 @@ async def create_chat(user_id: int, messages: List[Message], external_id: Option
 async def restart_manager_session(user_id: int) -> Chat:
     """Create a fresh manager session with its standard bootstrap message."""
     timestamp = get_utc_iso8601_timestamp()
-    chat = await create_chat(
-        user_id,
+    chat = await insert_generated_chat(user_id, lambda chat_id: Chat(
+        id=chat_id, create_time=timestamp, update_time=timestamp,
+        role="manager", running=True,
         messages=[Message(
-            id=generate_message_id(),
-            role="user",
-            content="load manager skill",
-            timestamp=timestamp,
-            unix_timestamp=get_unix_timestamp(),
+            id=generate_message_id(), role="user", content="load manager skill",
+            timestamp=timestamp, unix_timestamp=get_unix_timestamp(),
         )],
-    )
-    chat.topic = "manager"
-    chat.running = True
-    await chat_repo.save_chat_by_id(chat)
-    chat_repo.release_topic(user_id, "manager", except_chat_id=chat.id)
-    send_chat_message(chat.id, user_id=user_id, topic="manager")
+    ))
+    chat_repo.release_role(user_id, "manager", except_chat_id=chat.id)
+    send_chat_message(chat.id, user_id=user_id, role="manager")
     return chat
 
 
@@ -375,14 +371,14 @@ def save_messages_sync(chat_id: str, messages: List[Message]) -> Chat:
     return _save_chat_by_id_sync(chat)
 
 
-def validate_dispatch_target(chat, *, topic=None, force_new=False):
-    if (chat and chat.topic == "manager") or (not chat and topic == "manager" and not force_new):
-        raise ValueError("Root topic 'manager' does not accept notify callbacks. Use --new to start a fresh manager session.")
+def validate_dispatch_target(chat, *, role=None, force_new=False):
+    if (chat and chat.role == "manager") or (not chat and role == "manager" and not force_new):
+        raise ValueError("Root role 'manager' does not accept notify callbacks. Use --new to start a fresh manager session.")
 
 
-def dispatch_content(content: str, to_chat_id: str, *, trace_id=None, from_topic=None,
-                     topic=None, from_chat_id=None) -> str:
-    fields = (("trace", trace_id), ("from", from_topic), ("to", topic),
+def dispatch_content(content: str, to_chat_id: str, *, trace_id=None, from_role=None,
+                     role=None, from_chat_id=None) -> str:
+    fields = (("trace", trace_id), ("from", from_role), ("to", role),
               ("from_chat", from_chat_id), ("to_chat", to_chat_id))
     return f"[{' '.join(f'{key}:{value}' for key, value in fields if value)}]\n{content}"
 
@@ -401,33 +397,33 @@ class DispatchAcceptance:
     already_running: bool
 
 
-def _dispatch_body(chat: Chat, content: str, *, from_chat_id, from_topic, kwargs) -> str:
+def _dispatch_body(chat: Chat, content: str, *, from_chat_id, from_role, kwargs) -> str:
     """Validate the dispatch target and build the trace-prefixed body."""
     validate_dispatch_target(chat)
     trace_id = kwargs.get("trace_id")
     if trace_id and chat.trace_id and trace_id != chat.trace_id:
         raise ValueError("Chat trace_id mismatch")
-    return dispatch_content(content, chat.id, trace_id=trace_id, from_topic=from_topic,
-                            topic=kwargs.get("topic"), from_chat_id=from_chat_id)
+    return dispatch_content(content, chat.id, trace_id=trace_id, from_role=from_role,
+                            role=chat.role, from_chat_id=from_chat_id)
 
 
 async def deliver_dispatch(user_id: int, chat: Chat, content: str, *, from_chat_id=None,
-                           from_topic=None, **kwargs) -> Chat:
+                           from_role=None, **kwargs) -> Chat:
     return await deliver_user_message(
         user_id, chat,
-        _dispatch_body(chat, content, from_chat_id=from_chat_id, from_topic=from_topic,
+        _dispatch_body(chat, content, from_chat_id=from_chat_id, from_role=from_role,
                        kwargs=kwargs),
         **kwargs,
     )
 
 
 async def accept_dispatch(user_id: int, chat: Chat, content: str, *, from_chat_id=None,
-                          from_topic=None, **kwargs) -> DispatchAcceptance:
+                          from_role=None, **kwargs) -> DispatchAcceptance:
     """The accept half of `deliver_dispatch`, for a sender that owes the worker
     enqueue separately (durable grant wakeups, todo 3493)."""
     return await accept_user_message(
         user_id, chat,
-        _dispatch_body(chat, content, from_chat_id=from_chat_id, from_topic=from_topic,
+        _dispatch_body(chat, content, from_chat_id=from_chat_id, from_role=from_role,
                        kwargs=kwargs),
         **kwargs,
     )
@@ -445,7 +441,7 @@ async def accept_user_message(
     event_id: Optional[str] = None,
     session=None,
     trace_id: Optional[str] = None,
-    topic: Optional[str] = None,
+    role: Optional[str] = None,
     skill: Optional[str] = None,
     **_ignored,
 ) -> DispatchAcceptance:
@@ -482,7 +478,7 @@ async def accept_user_message(
     try:
         chat, already_running = chat_repo.accept_or_start_chat(
             user_id, chat.id, message=user_msg, human_reply=human_reply,
-            trace_id=trace_id, topic=topic, skill=skill,
+            trace_id=trace_id, role=role, skill=skill,
             event_id=event_id, session=session, resume_limit=resume_limit,
         )
     except resume_gate.ChatReadOnly as exc:
@@ -505,7 +501,7 @@ def enqueue_chat_run(
     work_dir: Optional[str] = None,
     post_hooks: Optional[list] = None,
     trace_id: Optional[str] = None,
-    topic: Optional[str] = None,
+    role: Optional[str] = None,
     skill: Optional[str] = None,
     backend: Optional[str] = None,
     **_ignored,
@@ -525,7 +521,7 @@ def enqueue_chat_run(
         work_dir=work_dir,
         post_hooks=post_hooks,
         trace_id=trace_id,
-        topic=topic,
+        role=role,
         skill=skill,
         backend=backend,
     )
@@ -546,7 +542,7 @@ async def deliver_user_message(
     work_dir: Optional[str] = None,
     post_hooks: Optional[list] = None,
     trace_id: Optional[str] = None,
-    topic: Optional[str] = None,
+    role: Optional[str] = None,
     skill: Optional[str] = None,
     backend: Optional[str] = None,
     event_id: Optional[str] = None,
@@ -564,13 +560,13 @@ async def deliver_user_message(
     acceptance = await accept_user_message(
         user_id, chat, content, human_reply=human_reply, images=images,
         reasoning_effort=reasoning_effort, source=source, event_id=event_id,
-        trace_id=trace_id, topic=topic, skill=skill, bot_name=bot_name, bot_tier=bot_tier,
+        trace_id=trace_id, role=role, skill=skill, bot_name=bot_name, bot_tier=bot_tier,
     )
     if not acceptance.already_running:
         enqueue_chat_run(
             acceptance.chat, user_id=user_id, bot_name=bot_name, bot_tier=bot_tier,
             vm_name=vm_name, work_dir=work_dir, post_hooks=post_hooks,
-            trace_id=trace_id, topic=topic, skill=skill, backend=backend,
+            trace_id=trace_id, role=role, skill=skill, backend=backend,
         )
     return acceptance.chat
 
@@ -646,7 +642,7 @@ def _get_celery_app():
     return app
 
 
-def send_chat_message(chat_id: str, bot_name: str = None, bot_tier: str = None, user_id: int = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, topic: str = None, skill: str = None, backend: str = None, run_seq: int = None):
+def send_chat_message(chat_id: str, bot_name: str = None, bot_tier: str = None, user_id: int = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, role: str = None, skill: str = None, backend: str = None, run_seq: int = None):
     """Send a message to trigger the worker for a chat.
 
     Uses SQS when SQS_QUEUE_URL is set (production/Lambda).
@@ -667,8 +663,9 @@ def send_chat_message(chat_id: str, bot_name: str = None, bot_tier: str = None, 
         payload["post_hooks"] = post_hooks
     if trace_id:
         payload["trace_id"] = trace_id
-    if topic:
-        payload["topic"] = topic
+    if role:
+        payload["role"] = role
+        payload["topic"] = role
     if skill:
         payload["skill"] = skill
     if backend:
@@ -686,7 +683,7 @@ def send_chat_message(chat_id: str, bot_name: str = None, bot_tier: str = None, 
         return
 
     app = _get_celery_app()
-    app.send_task("worker.tasks.process_chat", args=[chat_id], kwargs={"bot_name": bot_name, "bot_tier": bot_tier, "user_id": user_id, "vm_name": vm_name, "work_dir": work_dir, "post_hooks": post_hooks, "trace_id": trace_id, "topic": topic, "skill": skill, "backend": backend, "run_seq": run_seq})
+    app.send_task("worker.tasks.process_chat", args=[chat_id], kwargs={"bot_name": bot_name, "bot_tier": bot_tier, "user_id": user_id, "vm_name": vm_name, "work_dir": work_dir, "post_hooks": post_hooks, "trace_id": trace_id, "role": role, "topic": role, "skill": skill, "backend": backend, "run_seq": run_seq})
 
 
 async def delete_chat(user_id: int, chat_id: str) -> bool:
