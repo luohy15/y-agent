@@ -164,7 +164,7 @@ entity + controller + service + CLI slices, and most have a web panel.
   together only when the canonical checkout HEAD equals that live origin/main tip, verifies hashes and schema preflight, creates one immutable
   `module_version`, and moves the active pointer. API dispatches
   `/api/module/<slug>/*` via a lazy hash-verified per-version sub-app. Web loader
-  keeps the `@y/host` browser contract (**v18**), integrity check, and error
+  keeps the `@y/host` browser contract (**v31**), integrity check, and error
   boundary, and mounts required `panel`, optional `detail`, and optional `shell`
   (centre column; one claimant, lowest slug wins). `module_version.ui_surfaces`
   records claims; only `shell` is enforced from the column. Publish is gated on
@@ -591,7 +591,7 @@ y dev release waiters [--all-projects] [--limit <n>]
 # Modules. Canonical source is code/y-module/<slug>/ (module.json + ui/index.tsx;
 # API/CLI/data optional). Domain CLI groups resolve lazily from that source —
 # use `y <slug> --help` for the authoritative command list.
-y module create <slug> [--label <text>] [--icon <key>] [--force] [--no-register]
+y module create <slug> --icon <key|file.svg> [--label <text>] [--force] [--no-register]
 y module list
 y module versions <slug>
 y module schema-sql <slug>  # print DDL only; migrations are maintainer-applied SQL

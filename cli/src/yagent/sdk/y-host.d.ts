@@ -554,6 +554,10 @@ declare module "@y/host" {
   }
   export function ChatTurnList(props: ChatTurnListProps): any;
 
+  // panelCatalog artifactIcon (contract v31, todo 4076). Registry key or
+  // normalized module SVG, rendered the same way as the activity bar.
+  export function ModuleIcon(props: { icon?: string | null }): any;
+
   // resolvedRange.ts / ResolvedRangeLabel.tsx (contract v14, todo 3580) —
   // host-owned inclusive date/instant range formatter and presentational
   // label. Calendar `from_date`/`to_date` are YYYY-MM-DD and are never

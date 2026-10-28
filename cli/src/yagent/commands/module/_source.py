@@ -9,12 +9,15 @@ FETCH_HEAD.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
 from pathlib import Path, PurePosixPath
 
 import click
+
+from storage.service.module_icon import normalize_module_icon
 
 from . import _paths
 
@@ -215,6 +218,52 @@ def _git_out(root, *args: str) -> str:
     if proc.returncode != 0 or not proc.stdout.strip():
         raise click.ClickException(f"refusing publish: git {' '.join(args)} failed")
     return proc.stdout.strip()
+
+
+def find_icon_conflict(slug: str, resolved_icon: str, root=None) -> str | None:
+    """Return the other module under ``root`` that already holds this icon.
+
+    ``root`` defaults to the canonical module source root. A registry key is
+    compared as a string. SVG markup is compared after ``normalize_module_icon``.
+    Directories without ``module.json``, this slug, and siblings whose icon
+    cannot be read are skipped. A broken sibling icon is not an error.
+    """
+    base = Path(root) if root is not None else _paths.modules_dir()
+    if not base.is_dir() or not isinstance(resolved_icon, str) or resolved_icon == "":
+        return None
+    for child in sorted(base.iterdir(), key=lambda path: path.name):
+        if not child.is_dir() or child.name == slug:
+            continue
+        meta_path = child / "module.json"
+        if not meta_path.is_file():
+            continue
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            raw = meta.get("icon") if isinstance(meta, dict) else None
+            sibling = _resolved_sibling_icon(child, raw)
+        except (OSError, ValueError, json.JSONDecodeError, click.ClickException):
+            continue
+        if sibling == resolved_icon:
+            return child.name
+    return None
+
+
+def _resolved_sibling_icon(module_dir: Path, raw) -> str:
+    if not isinstance(raw, str) or raw == "":
+        raise ValueError("empty icon")
+    if raw.endswith(".svg"):
+        rel = Path(raw)
+        if rel.is_absolute() or ".." in rel.parts:
+            raise ValueError(f"module icon SVG must be a relative path under ui/, got {raw!r}")
+        ui = (module_dir / "ui").resolve()
+        full = (module_dir.resolve() / rel).resolve()
+        full.relative_to(ui)
+        if not full.is_file():
+            raise ValueError(f"module icon SVG not found: {raw}")
+        return normalize_module_icon(full.read_text(encoding="utf-8"))
+    if raw.lstrip().startswith("<"):
+        return normalize_module_icon(raw)
+    return raw
 
 
 def _run(root, args: list[str]) -> subprocess.CompletedProcess:

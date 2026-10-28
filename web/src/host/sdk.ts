@@ -47,6 +47,7 @@ import {
 import remarkStripComments from "../utils/remarkStripComments";
 import { parseLocalFileReference } from "../utils/localFileLinks";
 import { citationDomain, citationHostname } from "../components/citationDomain";
+import { artifactIcon } from "../components/panelCatalog";
 import { normalizeLinks } from "../components/citationLinks";
 import { buildExportFilename, pickImageDelivery, toggleSelection, selectMessagesByIndices } from "../utils/messageExport";
 import { deliverPng, exportElementToPng } from "../utils/exportImage";
@@ -217,7 +218,16 @@ export const hostSdk = {
   extractContent,
   toggleSelection,
   selectMessagesByIndices,
+
+  // panelCatalog artifactIcon (contract v31, todo 4076). One glyph for a
+  // registry key or a normalized module SVG, the same node the activity bar uses.
+  ModuleIcon,
 };
+
+/** Registry key or inline module SVG. Same glyph as the activity bar. */
+export function ModuleIcon({ icon }: { icon?: string | null }) {
+  return artifactIcon(icon);
+}
 
 export type { ThemeColors } from "./theme";
 export type { ArtifactType, ArtifactMode } from "../components/ArtifactView";

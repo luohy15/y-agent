@@ -17,7 +17,7 @@ from ._api import publish_bundle, resolve_or_create
 from ._build import build_api_bundle, build_artifact
 from ._paths import meta_path, source_dir, source_path, ui_dir, validate_slug
 from ._sdk import load_contract
-from ._source import verify_source_snapshot
+from ._source import find_icon_conflict, verify_source_snapshot
 
 
 VALID_SURFACES = {"panel", "detail", "shell"}
@@ -88,7 +88,7 @@ def module_publish(slug, no_activate, label, icon, desc, trace_id, source_sha):
 
     meta = _load_meta(slug)
     label = label if label is not None else meta.get("label")
-    icon = _resolve_icon(slug, icon if icon is not None else meta.get("icon", "box"))
+    icon = checked_icon(slug, icon if icon is not None else meta.get("icon"))
     min_backend_version = meta.get("min_backend_version")
     if min_backend_version is not None:
         try:
@@ -210,11 +210,30 @@ def module_publish(slug, no_activate, label, icon, desc, trace_id, source_sha):
     )
 
 
+def checked_icon(slug: str, raw, root=None) -> str:
+    """Resolve an icon and reject a missing value, ``box``, or a sibling clash.
+
+    ``root`` defaults to the canonical module source root. The clash check uses
+    the normalized value, so two SVG files that differ only by whitespace or
+    ``width``/``height`` still conflict. Runs before either publish build.
+    """
+    if not isinstance(raw, str) or raw == "":
+        raise click.ClickException(
+            'module icon is required: set module.json "icon" or pass --icon '
+            "(a registry key, or a ui/*.svg path)"
+        )
+    resolved = _resolve_icon(slug, raw)
+    holder = find_icon_conflict(slug, resolved, root=root)
+    if holder:
+        raise click.ClickException(f"module icon is already used by {holder}")
+    return resolved
+
+
 def _resolve_icon(slug: str, raw: str) -> str:
     """Registry key, or a ui/*.svg path read and normalized.
 
-    ``--icon`` and module.json share this. ``y module create --icon`` stays
-    key-only and does not call it.
+    ``--icon`` and module.json share this. ``box`` is rejected: it is only the
+    host fallback for an unknown legacy value.
     """
     if not isinstance(raw, str) or raw == "":
         raise click.ClickException(
@@ -222,6 +241,11 @@ def _resolve_icon(slug: str, raw: str) -> str:
         )
     if raw.endswith(".svg"):
         return _read_svg_icon(slug, raw)
+    if raw == "box":
+        raise click.ClickException(
+            "module icon 'box' is not allowed; it is only the rendering fallback "
+            "for an unknown legacy value"
+        )
     valid_icons = load_contract()["icons"]
     if raw not in valid_icons:
         raise click.ClickException(

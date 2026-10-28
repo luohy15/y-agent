@@ -1337,11 +1337,22 @@ The registry keys are `chart`, `calendar`, `list`, `bot`,
 `mail`, `bell`, `clock`, `utensils`, `entity`, `git-branch`, `pencil`, `link`,
 `rss`, and `camera`. `bell` and `clock` arrived with browser contract v20; `entity` and
 `git-branch` with v21; `pencil` with v22; `link` and `rss` with v23 (todo 3708);
-`camera` with v25 (todo 3838). `box` is the
-`y module create --icon` default and the host rendering fallback for unknown
-legacy persisted values. `y module create --icon` stays key-only. The host
-still owns the registry SVGs, so an existing key can gain a corrected glyph
-through an ordinary host deploy.
+`camera` with v25 (todo 3838). `box` is the host rendering fallback for an
+unknown legacy persisted value. It is not a default. `y module create --icon`
+is required. A registry key is rejected when it is `box`, unknown, or already
+held by another module; the error names the holder and points at
+`--icon <file>.svg`. A path ending in `.svg` must be an existing local file.
+Create reads it, normalizes it, rejects a duplicate glyph, and only then writes
+the scaffold: `ui/icon.svg` plus module.json `"icon": "ui/icon.svg"`. A rejected
+icon leaves no directory. When every registry key is taken, that SVG path still
+works. `y module publish` rejects a missing icon, `box`, and any icon (key or
+normalized SVG) another module under the canonical source root already holds.
+That check runs after icon resolution and before either build. There is no
+switch that skips it, and `--icon` on publish takes the same path. Browser
+contract **v30 → v31** (todo 4076) adds one `@y/host` export, `ModuleIcon({ icon })`,
+which returns the same glyph the activity bar uses. The registry is not
+extended. The host still owns the registry SVGs, so an existing key can gain a
+corrected glyph through an ordinary host deploy.
 
 **The CLI part is deliberately not versioned.** It is never published and never
 stored; it is always read from local source on disk. This is a real asymmetry and

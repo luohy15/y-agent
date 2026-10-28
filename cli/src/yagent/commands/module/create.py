@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import json
 import shutil
+from pathlib import Path
 
 import click
 import httpx
+
+from storage.service.module_icon import normalize_module_icon
 
 from ._api import create_module, resolve_module
 from ._paths import (
@@ -20,6 +23,7 @@ from ._paths import (
     validate_slug,
 )
 from ._sdk import ensure_sdk, load_contract, package_sdk_root
+from ._source import find_icon_conflict
 
 
 ICON_KEYS = load_contract()["icons"]
@@ -96,9 +100,11 @@ already has — it never executes anything either.
 @click.option("--label", default=None, help="Sidebar label (default: title-cased slug)")
 @click.option(
     "--icon",
-    default="box",
-    show_default=True,
-    help=f"Sidebar icon key ({', '.join(ICON_KEYS)})",
+    required=True,
+    help=(
+        "Required sidebar icon: a registry key other than box, or a path ending "
+        "in .svg. An SVG is normalized into ui/icon.svg. box is not a default."
+    ),
 )
 @click.option("--force", is_flag=True, help="Overwrite existing source/meta files")
 @click.option(
@@ -112,6 +118,9 @@ def module_create(slug, label, icon, force, no_register):
         slug = validate_slug(slug)
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
+
+    # Resolve and uniqueness-check before ensure_sdk or any scaffold write.
+    stored_icon, svg_markup = _prepare_icon(slug, icon)
 
     try:
         ensure_sdk()
@@ -129,6 +138,8 @@ def module_create(slug, label, icon, force, no_register):
     root = source_dir(slug)
     root.mkdir(parents=True, exist_ok=True)
     ui_dir(slug).mkdir(parents=True, exist_ok=True)
+    if svg_markup is not None:
+        (ui_dir(slug) / "icon.svg").write_text(svg_markup, encoding="utf-8")
     shutil.copy2(templates / "starter.tsx", src)
 
     # D11: __init__.py must stay empty so the API half never transitively
@@ -167,7 +178,7 @@ def module_create(slug, label, icon, force, no_register):
 
     meta_body = {
         "label": label or slug.replace("-", " ").replace("_", " ").title(),
-        "icon": icon,
+        "icon": stored_icon,
         "description": "",
         "parts": ["ui"],
         "min_backend_version": None,
@@ -203,6 +214,54 @@ def module_create(slug, label, icon, force, no_register):
     click.echo(f"Created {src}")
     click.echo(f"         {meta}")
     click.echo(f"Edit the source, then: y module publish {slug}")
+
+
+def _prepare_icon(slug: str, icon: str) -> tuple[str, str | None]:
+    """Return ``(module.json icon, normalized SVG or None)``. Writes nothing.
+
+    A registry key is rejected when it is ``box``, unknown, or already held.
+    A path ending in ``.svg`` must be an existing file; its normalized markup
+    is what gets written to ``ui/icon.svg``.
+    """
+    if not isinstance(icon, str) or icon == "":
+        raise click.ClickException(
+            "pass --icon: a registry key, or a path ending in .svg"
+        )
+    if icon.endswith(".svg"):
+        path = Path(icon)
+        if not path.is_file():
+            raise click.ClickException(f"module icon SVG not found: {icon}")
+        try:
+            normalized = normalize_module_icon(path.read_text(encoding="utf-8"))
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        except OSError as exc:
+            raise click.ClickException(f"module icon SVG not readable: {icon}") from exc
+        if not normalized.startswith("<svg"):
+            raise click.ClickException(
+                f"module icon file must be an SVG document, got {icon}"
+            )
+        holder = find_icon_conflict(slug, normalized)
+        if holder:
+            raise click.ClickException(
+                f"icon matches {holder}; pass a different --icon <file>.svg"
+            )
+        return "ui/icon.svg", normalized
+    if icon == "box":
+        raise click.ClickException(
+            "module icon 'box' is not allowed; pass a registry key or --icon <file>.svg"
+        )
+    if icon not in ICON_KEYS:
+        raise click.ClickException(
+            "module icon must be one of "
+            f"{', '.join(ICON_KEYS)}, or a path ending in .svg, got {icon!r}"
+        )
+    holder = find_icon_conflict(slug, icon)
+    if holder:
+        raise click.ClickException(
+            f"icon {icon!r} is already used by {holder}; pass --icon <file>.svg"
+        )
+    return icon, None
 
 
 def _http_detail(exc: httpx.HTTPStatusError) -> str:
