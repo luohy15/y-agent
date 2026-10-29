@@ -148,20 +148,28 @@ request usage can trigger the gate; launch averages remain display-only.
 ## Implementation Decisions
 
 - **Tiers are a nonempty set on the bot config**, drawn from `tier0`
-  (strongest) through `tier3` (baseline). `tiers` is a sorted, deduplicated JSON
-  list. Every full config write persists it and mirrors its strongest member
-  into legacy `tier`. Unknown values and explicit empty lists are rejected.
-  Omitted `tiers` accepts legacy `tier`; omitted or cleared `tier` means
-  `["tier3"]`. CLI repeatable/comma-separated `--tier` replaces the whole set;
-  the bot UI selects one or more tiers and the list shows all memberships.
+  (strongest) through `tier3` (baseline). `tiers` is a key-sorted JSON object
+  mapping each member to its independent nonnegative finite weight or null
+  (unset). Every full config write mirrors the strongest key into legacy `tier`
+  and its weight into `route_weight`. Empty maps, unknown keys, booleans,
+  negative/non-finite and non-number weights are rejected. Omitted `tiers`
+  accepts legacy `tier` and `route_weight`; omitted or cleared tier means tier3.
+  CLI repeatable/comma-separated `--tier` replaces membership, preserving weights
+  of retained members and giving new members unset weight. Repeatable
+  `--tier-weight tierN=W` patches a member only. The bot UI gives each checked
+  tier its own weight field. Legacy `route_weight` alone is accepted only for a
+  singleton; on a multi-tier bot the API returns 422 and the CLI reports a usage
+  error. Legacy `tier` explicitly collapses membership to that singleton.
 - **Singleton migration and rollback compatibility.** Add nullable `tiers`
   before host deployment, then run the separately authorized singleton
   backfill after deployment and before publishing the bot module. Existing
-  NULL tiers become explicit tier3. The column stays nullable for old hosts.
-  Reads use the sorted set only when its strongest member equals legacy `tier`;
-  otherwise they use `[tier or "tier3"]`. This detects old writers changing
-  only the mirror. An older module's full single-tier write collapses a set.
-  No automatic migration runs.
+  NULL tiers become explicit tier3, preserving each row's existing weight in
+  its singleton map. The column stays nullable for old hosts. Reads use a valid
+  map only when both its strongest key and corresponding weight match legacy
+  `tier` and `route_weight`; otherwise they use the legacy singleton. Malformed
+  maps fall back without raising, and unknown legacy tiers read as tier3. This
+  detects old writers changing either mirror. An older module's full single-tier
+  write collapses a map. No automatic migration runs.
 - **Pool viability is guarded by bot management.** Create, update, delete and
   disable refuse a previously viable tier becoming non-viable (409), unless
   `allow_empty_tier` / `--allow-empty-tier` is explicit. A viable pool has an
@@ -208,8 +216,12 @@ request usage can trigger the gate; launch averages remain display-only.
      (the user's default config, then the system default user's, then a
      hard error if nothing exists). Routing never fails a chat over a mere
      data gap.
-- **One route weight is shared across all of a bot's tier pools.** Smooth
-  weighted round-robin state remains isolated by owner, tier and pool key.
+- **Each tier membership has an independent weight.** A tier draw, viability
+  check and effort preflight use only that tier's weights. Smooth weighted
+  round-robin state is isolated by owner, tier and the hash of that tier's
+  sorted name/weight tuples. Editing tier1 weights cannot change tier2's pool
+  key, weights or sequence; concurrent tier2 traffic still advances its counters.
+  Backend-only multi-candidate draws use the legacy strongest-tier weight mirror.
   Weights describe new-chat shares, not token or cost shares; adding a tier
   does not change provider prices, subscriptions or quota limits.
 - **Route weight gates the draw, not membership.** Weight is consulted only

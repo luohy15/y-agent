@@ -5,7 +5,7 @@ import os
 import random
 from typing import List, Optional
 
-from storage.dto.bot import TIERS, effective_effort_levels, tiers_of
+from storage.dto.bot import TIERS, effective_effort_levels, tier_weight, tiers_of
 from storage.entity.dto import BotConfig, VmConfig
 from storage.service import bot_config as bot_service
 from storage.service import vm_config as vm_service
@@ -54,6 +54,10 @@ def served_tier(bot_config: BotConfig, bot_tier: str = None) -> str:
     return next((tier for tier in (bot_tier, "tier2") if tier in tiers), tiers[0])
 
 
+def _pool_weight(config: BotConfig, tier: str = None) -> Optional[float]:
+    return tier_weight(config, tier) if tier else config.route_weight
+
+
 def bot_tier_pools(configs: List[BotConfig]) -> dict[str, List[str]]:
     """Return viable draw members without reading or changing routing state."""
     universe = [cfg for cfg in configs if cfg.enabled and not cfg.ref_bot_name]
@@ -61,7 +65,7 @@ def bot_tier_pools(configs: List[BotConfig]) -> dict[str, List[str]]:
     for tier in TIERS:
         candidates = _candidates(universe, tier=tier)
         if len(candidates) > 1:
-            candidates = [cfg for cfg in candidates if cfg.route_weight and cfg.route_weight > 0]
+            candidates = [cfg for cfg in candidates if (_pool_weight(cfg, tier) or 0) > 0]
         pools[tier] = sorted(cfg.name for cfg in candidates)
     return pools
 
@@ -147,14 +151,14 @@ def _candidates(universe: List[BotConfig], bot_name: str = None, backend: str = 
     return result
 
 
-def _pick_by_weight(bots: List[BotConfig]) -> Optional[BotConfig]:
+def _pick_by_weight(bots: List[BotConfig], tier: str = None) -> Optional[BotConfig]:
     """Weighted random pick from bots by route_weight.
 
     Probability = route_weight / sum(route_weights). Bots with
     route_weight <= 0 are excluded from the draw. Only called with 2+
     candidates (see _select) so weight never gates a sole candidate.
     """
-    eligible = [(cfg, cfg.route_weight) for cfg in bots if cfg.route_weight and cfg.route_weight > 0]
+    eligible = [(cfg, weight) for cfg in bots if (weight := _pool_weight(cfg, tier)) and weight > 0]
     if not eligible:
         return None
     choices, raw_weights = zip(*eligible, strict=True)
@@ -179,12 +183,12 @@ def _select(candidates: List[BotConfig], user_id: int = None, tier: str = None) 
         selected_name = bot_service.select_weighted_round_robin(
             user_id,
             tier,
-            [(cfg.name, cfg.route_weight) for cfg in candidates if cfg.route_weight and cfg.route_weight > 0],
+            [(cfg.name, weight) for cfg in candidates if (weight := _pool_weight(cfg, tier)) and weight > 0],
         )
         if selected_name:
             return next(cfg for cfg in candidates if cfg.name == selected_name)
         return None
-    return _pick_by_weight(candidates)
+    return _pick_by_weight(candidates, tier)
 
 
 def _global_default(user_id: int) -> BotConfig:
@@ -352,7 +356,7 @@ def preflight_launch_effort(user_id: int, effort: str = None, *, chat=None, bot_
     pool_tier = bot_tier if (bot_tier or pool_backend) else "tier2"
     candidates = _candidates(_universe(user_id), backend=pool_backend, tier=pool_tier, effort=effort)
     viable = bool(candidates) and (
-        len(candidates) == 1 or any(cfg.route_weight and cfg.route_weight > 0 for cfg in candidates)
+        len(candidates) == 1 or any((_pool_weight(cfg, pool_tier) or 0) > 0 for cfg in candidates)
     )
     if not viable:
         raise EffortCapabilityError(effort)

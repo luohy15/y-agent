@@ -189,7 +189,7 @@ entity + controller + service + CLI slices, and most have a web panel.
   loopback OAuth start/complete; v23 adds the private photo object primitives,
   `published_module_json`, and module tag-carrier helpers of todo 3838; v24 adds
   Pillow / pillow-heif to the API runtime for the Photo module, todo 3879; v25 adds
-  optional `filenames` to `photo_authorize_get_batch` for attachment downloads, todo 3879; v26 adds owner-bound `dev_worktree_*` and pure `normalize_project_key` / `ProjectKeyError` exports, todo 3941; v27 adds request-owner-bound `bot_config_set_effort_capability`, todo 4067; v29 adds pure `bot_tier_pools(configs)` and nonempty bot tier sets, todo 4103). The tag module owns
+  optional `filenames` to `photo_authorize_get_batch` for attachment downloads, todo 3879; v26 adds owner-bound `dev_worktree_*` and pure `normalize_project_key` / `ProjectKeyError` exports, todo 3941; v27 adds request-owner-bound `bot_config_set_effort_capability`, todo 4067; v29 adds pure `bot_tier_pools(configs)` and nonempty bot tier sets with independent per-tier weights, todo 4103). The tag module owns
   `/api/module/tag/*`, the lazy `y tag` CLI, and the `artifact:tag` panel; the
   host retains the `entity_tag` projection, normalization, carrier sync and
   cleanup, resolver hydration (todo rows carry `updated_at_unix` for client

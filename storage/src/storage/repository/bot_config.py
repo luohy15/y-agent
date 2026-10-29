@@ -3,7 +3,7 @@
 from typing import List, Optional
 from storage.entity.bot_config import BotConfigEntity
 from storage.entity.dto import BotConfig
-from storage.dto.bot import normalize_tiers, tiers_of
+from storage.dto.bot import normalize_tier_weights, tier_weights_of
 from storage.database.base import get_db
 
 
@@ -22,7 +22,7 @@ def _entity_to_dto(entity: BotConfigEntity) -> BotConfig:
         resume_context_limit=entity.resume_context_limit,
         custom_api_path=entity.custom_api_path,
         tier=entity.tier,
-        tiers=tiers_of(entity),
+        tiers=tier_weights_of(entity),
         type=entity.type,
         route_weight=entity.route_weight,
         enabled=entity.enabled if entity.enabled is not None else True,
@@ -34,7 +34,8 @@ def _entity_to_dto(entity: BotConfigEntity) -> BotConfig:
 
 
 def _dto_to_entity_fields(config: BotConfig) -> dict:
-    tiers = normalize_tiers(config.tiers, config.tier)
+    tiers = normalize_tier_weights(config.tiers, config.tier, config.route_weight)
+    strongest = next(iter(tiers))
     fields = dict(
         base_url=config.base_url,
         api_key=config.api_key,
@@ -47,10 +48,10 @@ def _dto_to_entity_fields(config: BotConfig) -> dict:
         max_tokens=config.max_tokens,
         resume_context_limit=config.resume_context_limit,
         custom_api_path=config.custom_api_path,
-        tier=tiers[0],
+        tier=strongest,
         tiers=tiers,
         type=config.type,
-        route_weight=config.route_weight,
+        route_weight=tiers[strongest],
         enabled=config.enabled,
         ref_bot_name=config.ref_bot_name,
     )

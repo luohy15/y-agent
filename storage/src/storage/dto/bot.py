@@ -1,4 +1,5 @@
 import hashlib
+import math
 from dataclasses import dataclass, asdict
 from typing import Dict, List, Optional
 
@@ -23,7 +24,7 @@ class BotConfig:
     resume_context_limit: Optional[int] = None
     custom_api_path: Optional[str] = None
     tier: Optional[str] = None
-    tiers: Optional[List[str]] = None
+    tiers: Optional[Dict[str, Optional[float]]] = None
     type: Optional[str] = None
     route_weight: Optional[float] = None
     enabled: bool = True
@@ -54,22 +55,40 @@ class BotConfig:
 TIERS = ("tier0", "tier1", "tier2", "tier3")
 
 
-def normalize_tiers(tiers: Optional[List[str]], tier: Optional[str] = None) -> List[str]:
-    """Normalize a write, accepting the legacy single-tier input when omitted."""
-    values = tiers if tiers is not None else [tier or "tier3"]
-    if not isinstance(values, list) or not values or any(value not in TIERS for value in values):
-        raise ValueError("tiers must be a nonempty list of tier0, tier1, tier2, tier3")
-    return sorted(set(values))
+def normalize_tier_weights(tiers: Optional[Dict[str, Optional[float]]], tier: Optional[str] = None,
+                           route_weight: Optional[float] = None) -> Dict[str, Optional[float]]:
+    """Validate a full write, accepting legacy single-tier input when omitted."""
+    values = tiers if tiers is not None else {tier or "tier3": route_weight}
+    if not isinstance(values, dict) or not values or any(key not in TIERS for key in values):
+        raise ValueError("tiers must be a nonempty map of tier0, tier1, tier2, tier3")
+    for weight in values.values():
+        if weight is not None and (
+            isinstance(weight, bool) or not isinstance(weight, (int, float))
+            or weight < 0 or not math.isfinite(weight)
+        ):
+            raise ValueError("tier weights must be finite nonnegative numbers or null")
+    return dict(sorted(values.items()))
+
+
+def tier_weights_of(config) -> Dict[str, Optional[float]]:
+    """Read malformed/legacy rows safely and detect either legacy mirror drifting."""
+    try:
+        normalized = normalize_tier_weights(getattr(config, "tiers", None))
+        strongest = next(iter(normalized))
+        if strongest == config.tier and normalized[strongest] == config.route_weight:
+            return normalized
+    except (ValueError, TypeError, OverflowError):
+        pass
+    tier = config.tier if config.tier in TIERS else "tier3"
+    return {tier: config.route_weight}
 
 
 def tiers_of(config) -> List[str]:
-    """Read old rows and detect legacy writers that changed only the mirror."""
-    tiers = getattr(config, "tiers", None)
-    if tiers:
-        normalized = normalize_tiers(tiers)
-        if normalized[0] == config.tier:
-            return normalized
-    return normalize_tiers(None, config.tier)
+    return list(tier_weights_of(config))
+
+
+def tier_weight(config, tier: str) -> Optional[float]:
+    return tier_weights_of(config).get(tier)
 
 
 EFFORT_LEVELS = frozenset({"low", "medium", "high", "xhigh", "max"})
