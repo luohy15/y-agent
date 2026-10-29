@@ -23,6 +23,7 @@ class BotConfig:
     resume_context_limit: Optional[int] = None
     custom_api_path: Optional[str] = None
     tier: Optional[str] = None
+    tiers: Optional[List[str]] = None
     type: Optional[str] = None
     route_weight: Optional[float] = None
     enabled: bool = True
@@ -48,6 +49,27 @@ class BotConfig:
                 result[k] = v
         result["effort_stale"] = self.effort_stale
         return result
+
+
+TIERS = ("tier0", "tier1", "tier2", "tier3")
+
+
+def normalize_tiers(tiers: Optional[List[str]], tier: Optional[str] = None) -> List[str]:
+    """Normalize a write, accepting the legacy single-tier input when omitted."""
+    values = tiers if tiers is not None else [tier or "tier3"]
+    if not isinstance(values, list) or not values or any(value not in TIERS for value in values):
+        raise ValueError("tiers must be a nonempty list of tier0, tier1, tier2, tier3")
+    return sorted(set(values))
+
+
+def tiers_of(config) -> List[str]:
+    """Read old rows and detect legacy writers that changed only the mirror."""
+    tiers = getattr(config, "tiers", None)
+    if tiers:
+        normalized = normalize_tiers(tiers)
+        if normalized[0] == config.tier:
+            return normalized
+    return normalize_tiers(None, config.tier)
 
 
 EFFORT_LEVELS = frozenset({"low", "medium", "high", "xhigh", "max"})

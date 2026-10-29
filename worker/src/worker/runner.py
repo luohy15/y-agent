@@ -677,7 +677,7 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
         logger.info("Using backend from chat: {}", chat.backend)
     elif backend:
         logger.info("Using backend from queue: {}", backend)
-    resolved_tier = agent_config.tier_of(bot_config)
+    resolved_tier = agent_config.served_tier(bot_config, bot_tier)
     logger.info("Resolved bot config: name={} backend={} model={} tier={}", bot_config.name, bot_config.backend or bot_config.api_type, bot_config.model, resolved_tier)
 
     from storage.service.resume_gate import (

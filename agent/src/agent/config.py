@@ -5,7 +5,7 @@ import os
 import random
 from typing import List, Optional
 
-from storage.dto.bot import effective_effort_levels
+from storage.dto.bot import TIERS, effective_effort_levels, tiers_of
 from storage.entity.dto import BotConfig, VmConfig
 from storage.service import bot_config as bot_service
 from storage.service import vm_config as vm_service
@@ -44,12 +44,26 @@ def _effective_backend(bot_config: BotConfig) -> str:
 # --- Tier helpers ---
 
 def tier_of(bot_config: BotConfig) -> str:
-    """Return the tier for a bot config.
+    """Return the strongest tier for display and legacy readers."""
+    return tiers_of(bot_config)[0]
 
-    Explicit bot_config.tier wins; NULL/unspecified defaults to tier3
-    (most bots are tier3, so unlabeled configs need no explicit tier).
-    """
-    return bot_config.tier or "tier3"
+
+def served_tier(bot_config: BotConfig, bot_tier: str = None) -> str:
+    """Record the requested tier if served, then the default, then strongest."""
+    tiers = tiers_of(bot_config)
+    return next((tier for tier in (bot_tier, "tier2") if tier in tiers), tiers[0])
+
+
+def bot_tier_pools(configs: List[BotConfig]) -> dict[str, List[str]]:
+    """Return viable draw members without reading or changing routing state."""
+    universe = [cfg for cfg in configs if cfg.enabled and not cfg.ref_bot_name]
+    pools = {}
+    for tier in TIERS:
+        candidates = _candidates(universe, tier=tier)
+        if len(candidates) > 1:
+            candidates = [cfg for cfg in candidates if cfg.route_weight and cfg.route_weight > 0]
+        pools[tier] = sorted(cfg.name for cfg in candidates)
+    return pools
 
 
 def _deref_bot_config(user_id: int, bot_config: BotConfig, visited: Optional[set] = None, depth: int = 0) -> BotConfig:
@@ -125,7 +139,7 @@ def _candidates(universe: List[BotConfig], bot_name: str = None, backend: str = 
     if tier:
         result = [
             cfg for cfg in result
-            if tier_of(cfg) == tier
+            if tier in tiers_of(cfg)
             and (getattr(cfg, "type", None) or "agent") != "model"
         ]
     if effort:

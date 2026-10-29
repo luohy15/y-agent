@@ -26,7 +26,7 @@ data, and principled about where the expensive models go.
 
 ## Solution
 
-Bots carry a capability tier as data: a four-level ladder from tier0
+Bots carry a nonempty set of capability tiers as data: a four-level ladder from tier0
 (strongest, most expensive) to tier3 (baseline). Bot targeting on a dispatch
 is a set of filters: bot name, backend, and tier, all of the same kind.
 Resolution is one simple rule: intersect the given filters over the pool of
@@ -85,8 +85,8 @@ request usage can trigger the gate; launch averages remain display-only.
    something agents memorize.
 7. As an admin, I want unlabeled bots to default to the lowest tier, so that
    the majority of bots need no explicit tier configuration.
-8. As an admin, I want to clear a bot's explicit tier back to unset, so that
-   redundant labels matching the bot-side default can be removed.
+8. As an admin, I want to reset a bot's tiers to the singleton tier3 default,
+   keeping the legacy clear-tier command without allowing an empty set.
 9. As an admin, I want to weight bots within a candidate pool, so that I
    control the long-run new-chat draw split when filters leave multiple members.
 10. As an admin, I want a bot with no positive route weight to never win a
@@ -147,11 +147,33 @@ request usage can trigger the gate; launch averages remain display-only.
 
 ## Implementation Decisions
 
-- **Tier is a nullable field on the bot config**, one of `tier0` (strongest)
-  through `tier3` (baseline). Unset means tier3: the bot-side default tier
-  is the bottom of the ladder, chosen because most bots are baseline and
-  should need no label. The default was originally tier1 and was deliberately
-  moved to tier3; explicit tier3 labels were then cleared as redundant.
+- **Tiers are a nonempty set on the bot config**, drawn from `tier0`
+  (strongest) through `tier3` (baseline). `tiers` is a sorted, deduplicated JSON
+  list. Every full config write persists it and mirrors its strongest member
+  into legacy `tier`. Unknown values and explicit empty lists are rejected.
+  Omitted `tiers` accepts legacy `tier`; omitted or cleared `tier` means
+  `["tier3"]`. CLI repeatable/comma-separated `--tier` replaces the whole set;
+  the bot UI selects one or more tiers and the list shows all memberships.
+- **Singleton migration and rollback compatibility.** Add nullable `tiers`
+  before host deployment, then run the separately authorized singleton
+  backfill after deployment and before publishing the bot module. Existing
+  NULL tiers become explicit tier3. The column stays nullable for old hosts.
+  Reads use the sorted set only when its strongest member equals legacy `tier`;
+  otherwise they use `[tier or "tier3"]`. This detects old writers changing
+  only the mirror. An older module's full single-tier write collapses a set.
+  No automatic migration runs.
+- **Pool viability is guarded by bot management.** Create, update, delete and
+  disable refuse a previously viable tier becoming non-viable (409), unless
+  `allow_empty_tier` / `--allow-empty-tier` is explicit. A viable pool has an
+  enabled, agent-type, non-pointer member and either one candidate or a
+  positive-weight candidate. Existing empty pools do not block unrelated
+  edits. The host's usage-driven enable/disable primitive bypasses this guard.
+  Host contract v29 exposes pure `bot_tier_pools(configs)` with the names that
+  can win each tier's draw, including weightless sole candidates.
+- **Chat tier stays singular.** On first routing or accepted re-bot, record the
+  requested tier if the bot serves it, otherwise tier2 if served, otherwise
+  its strongest tier. Existing chats retain their persisted tier. A multi-tier
+  bot can therefore serve tier1 without mislabeling its default tier2 chats.
 - **The reference ladder** (as of adoption): tier0 = frontier flagship,
   tier1 = strong general model, tier2 = capable mid-range (multiple members),
   tier3 = everything else. The ladder is per-user data maintained via the bot
@@ -168,7 +190,7 @@ request usage can trigger the gate; launch averages remain display-only.
      excluding pointer (ref) configs.
   2. The given filters (bot name, backend, tier) intersect over the
      universe. Tier-filter candidacy additionally excludes model-type
-     entries, and matches with unset tier counting as tier3. Explicit name
+     entries, and matches set membership, with legacy unset tier counting as tier3. Explicit name
      and backend pins can therefore reach model-type configs without allowing
      them into automatic routing pools. Type is the whole rule: no backend
      value is special-cased, so every inline query bot is kept out of the
@@ -186,6 +208,10 @@ request usage can trigger the gate; launch averages remain display-only.
      (the user's default config, then the system default user's, then a
      hard error if nothing exists). Routing never fails a chat over a mere
      data gap.
+- **One route weight is shared across all of a bot's tier pools.** Smooth
+  weighted round-robin state remains isolated by owner, tier and pool key.
+  Weights describe new-chat shares, not token or cost shares; adding a tier
+  does not change provider prices, subscriptions or quota limits.
 - **Route weight gates the draw, not membership.** Weight is consulted only
   when the filters produce multiple candidates: smooth weighted round-robin in
   a tier pool, weighted random selection in any other pool. Both allocate

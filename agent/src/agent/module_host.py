@@ -211,7 +211,7 @@ if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
 # v28: chat rows expose role and chat_list accepts the closed role filter.
-BACKEND_CONTRACT_VERSION = 28
+BACKEND_CONTRACT_VERSION = 29
 
 # Wall-clock budget for the wake="nowait" readiness check (todo 3777).
 NOWAIT_BUDGET_SECONDS = 1.0
@@ -465,6 +465,13 @@ def _bot_service(user_id: int):
     from storage.service import bot_config as bot_service
 
     return bot_service
+
+
+def bot_tier_pools(configs: list[BotConfig]) -> dict[str, list[str]]:
+    """Pure viable tier-pool projection of caller-supplied configs (v29)."""
+    from agent.config import bot_tier_pools as project_pools
+
+    return project_pools(configs)
 
 
 def bot_config_list(user_id: int) -> list[BotConfig]:

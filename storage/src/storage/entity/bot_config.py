@@ -20,6 +20,7 @@ class BotConfigEntity(Base, BaseEntity):
     resume_context_limit = Column(Integer, nullable=True)
     custom_api_path = Column(String, nullable=True)
     tier = Column(String, nullable=True)
+    tiers = Column(JSON, nullable=True)
     type = Column(String, nullable=True)
     route_weight = Column(Float, nullable=True)
     enabled = Column(Boolean, nullable=False, default=True)
