@@ -1,11 +1,19 @@
 """Deterministic admission guard for expensive long-context resumes."""
 
 import os
+import re
 import shlex
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+
+from loguru import logger
 
 from storage.dto.chat import Chat
+
+_WINDOW_ENV = "Y_AGENT_OPUS_RESUME_WARM_WINDOW_SECONDS"
+_WINDOW_DEFAULT = 300
+_WINDOW_TOKEN = re.compile(r"0|[1-9][0-9]*")
+_window_cache = {"raw": None, "value": _WINDOW_DEFAULT, "seen": False}
 
 
 class ChatReadOnly(Exception):
@@ -46,6 +54,46 @@ class Measurement:
 UNKNOWN = Measurement(None, "unknown")
 _BOUNDARY_UNKNOWN = object()
 _PROMPT_COUNTERS = ("input_tokens", "cache_read_tokens", "cache_creation_tokens")
+
+
+def warm_window_seconds():
+    """Grace period in seconds. Unset is 300; only a canonical nonnegative integer overrides it."""
+    raw = os.environ.get(_WINDOW_ENV)
+    if _window_cache["seen"] and _window_cache["raw"] == raw:
+        return _window_cache["value"]
+    if raw is None:
+        value = _WINDOW_DEFAULT
+    elif _WINDOW_TOKEN.fullmatch(raw):
+        value = int(raw)
+    else:
+        logger.warning("invalid Y_AGENT_OPUS_RESUME_WARM_WINDOW_SECONDS; using 300")
+        value = _WINDOW_DEFAULT
+    _window_cache.update(seen=True, raw=raw, value=value)
+    return value
+
+
+def decision_clock(now=None):
+    """Aware UTC clock for one gate decision. A naive value is not a usable clock."""
+    clock = datetime.now(timezone.utc) if now is None else now
+    if not isinstance(clock, datetime) or clock.tzinfo is None:
+        return None
+    return clock.astimezone(timezone.utc)
+
+
+def age_exceeds_window(requested_at, clock, window=None):
+    """True only for a reliable timestamp strictly older than the window.
+
+    Missing, naive, malformed, nonfinite, and future values fail open. Exact
+    equality with the window is still inside it. Age is not rounded.
+    """
+    if clock is None:
+        return False
+    when = _parse_requested_at(requested_at)
+    if when is None or when > clock:
+        return False
+    if window is None:
+        window = warm_window_seconds()
+    return clock - when > timedelta(seconds=window)
 
 
 def effective_limit(bot_config):
@@ -176,7 +224,12 @@ def resolve_measurement(user_id: int, chat: Chat, *, session=None, pending_input
     source = chat.context_usage_source
     if source == "main_request":
         tokens = chat.prompt_tokens()
-        return Measurement(tokens, "main_request") if tokens is not None else UNKNOWN
+        if tokens is None:
+            return UNKNOWN
+        stamp = chat.context_usage_requested_at
+        if not isinstance(stamp, str) or not stamp:
+            stamp = None
+        return Measurement(tokens, "main_request", requested_at=stamp)
     if source is not None:
         return UNKNOWN
     floor = _message_floor(chat, pending_input_ids, boundary_reliable)
@@ -190,11 +243,35 @@ def resolve_measurement(user_id: int, chat: Chat, *, session=None, pending_input
     return _row_measurement(rows, floor, now or datetime.now(timezone.utc), chat.external_id, chat.id)
 
 
+def policy_refusal(user_id: int, chat: Chat, measurement, current_limit, pending_limit, now=None):
+    """Current-first refusal at one clock. The caller supplies both limits.
+
+    A requested bot is never allowed to replace the current bot's limit once the
+    measurement is already over it. The clock is the caller's; this does not
+    read the chat's bot again.
+    """
+    if measurement is None:
+        measurement = UNKNOWN
+    clock = decision_clock(now)
+    limit = pick_limit(current_limit, pending_limit, measurement.tokens)
+    if limit is None or measurement.tokens is None or measurement.tokens < limit:
+        return None
+    if not age_exceeds_window(measurement.requested_at, clock):
+        return None
+    return ChatReadOnly(measurement.tokens, limit, build_handoff(user_id, chat))
+
+
 def evaluate(user_id: int, chat: Chat, bot_name=None, bot_tier=None, *, bot_config=None,
-             measurement=None, pending_input_ids=None, session=None, boundary_reliable: bool = True):
-    """Evaluate a resume, including worker launches whose reservation is running."""
+             measurement=None, pending_input_ids=None, session=None, boundary_reliable: bool = True,
+             now=None):
+    """Evaluate a resume, including worker launches whose reservation is running.
+
+    Over-limit size refuses only when the measurement's own timestamp is strictly
+    older than the warm window. Unknown or future age does not refuse.
+    """
     if chat.backend != "claude_code" or not chat.external_id:
         return None
+    clock = decision_clock(now)
     if measurement is None:
         if bot_config is not None:
             applicable = effective_limit(bot_config) is not None
@@ -203,11 +280,13 @@ def evaluate(user_id: int, chat: Chat, bot_name=None, bot_tier=None, *, bot_conf
             applicable = current_limit is not None or pending_limit is not None
         measurement = resolve_measurement(
             user_id, chat, session=session, pending_input_ids=pending_input_ids,
-            limit_applicable=applicable, boundary_reliable=boundary_reliable,
+            limit_applicable=applicable, boundary_reliable=boundary_reliable, now=clock,
         )
     limit = (effective_limit(bot_config) if bot_config is not None
              else resolve_limit(user_id, chat, bot_name, bot_tier, measured=measurement.tokens))
     if limit is None or measurement.tokens is None or measurement.tokens < limit:
+        return None
+    if not age_exceeds_window(measurement.requested_at, clock):
         return None
     return ChatReadOnly(measurement.tokens, limit, build_handoff(user_id, chat))
 
@@ -216,8 +295,6 @@ def append_refusal_notice(user_id: int, chat_id: str, event_id: str, refusal: Ch
     from storage.entity.dto import Message
     from storage.service.chat import append_message_sync
     from storage.util import get_unix_timestamp, get_utc_iso8601_timestamp
-
-    from loguru import logger
 
     try:
         append_message_sync(chat_id, Message(

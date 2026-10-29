@@ -76,8 +76,8 @@ def maybe_append_handoff_reminder(chat: Chat, content: str, resume_limit=None, m
             return content
         reminder = (
             f"{HANDOFF_REMINDER_MARKER} Latest prompt: {measured:,} tokens. "
-            f"This chat becomes read-only for new turns at {resume_limit:,} tokens. "
-            "Record durable state in the todo and associated notes now and plan a fresh continuation. "
+            "A future resume may be refused after the warm window when this measured context "
+            "is at or above the limit; record durable state and continue in a new chat. "
             "If a parent is awaiting your result, callback with that state instead of self-restarting."
         )
     else:
@@ -441,6 +441,7 @@ async def accept_user_message(
     source: Optional[str] = None,
     event_id: Optional[str] = None,
     session=None,
+    decision_time=None,
     trace_id: Optional[str] = None,
     role: Optional[str] = None,
     skill: Optional[str] = None,
@@ -485,6 +486,7 @@ async def accept_user_message(
             trace_id=trace_id, role=role, skill=skill,
             event_id=event_id, session=session,
             current_limit=current_limit, pending_limit=pending_limit,
+            decision_time=decision_time,
         )
     except resume_gate.ChatReadOnly as exc:
         exc.handoff = resume_gate.build_handoff(user_id, chat)

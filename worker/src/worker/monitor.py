@@ -694,11 +694,57 @@ def _latest_complete_request(result_data: dict, observed_usage: dict):
     return _launch_average_usage(result_data)
 
 
+def _usage_stamp(value):
+    if not isinstance(value, dict) or value.get("state") == "unknown":
+        return None
+    if value.get("timestamp_conflict") or value.get("timestamp_unbound"):
+        return None
+    stamp = value.get("requested_at")
+    return stamp if isinstance(stamp, str) and stamp else None
+
+
+_PROMPT_STAMP_KEYS = ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
+
+
+def _prompt_stamp_counters(value):
+    if not isinstance(value, dict):
+        return None
+    counters = []
+    for key in _PROMPT_STAMP_KEYS:
+        item = value.get(key)
+        if isinstance(item, bool) or not isinstance(item, int) or item < 0:
+            return None
+        counters.append(item)
+    return tuple(counters)
+
+
+def _selected_usage_stamp(iterations, observed_usage):
+    """Timestamp that belongs to the selected measurement.
+
+    An iteration timestamp is its own. Without one, the latest complete assistant
+    observation's first event time is used only when the prompt counters are the
+    same request. Output is not part of that match. A message id alone, an earlier
+    observation, and result-envelope durations are not substitutes.
+    """
+    if not iterations:
+        return _usage_stamp(observed_usage)
+    last = iterations[-1]
+    if not isinstance(last, dict):
+        return None
+    own = last.get("timestamp")
+    if isinstance(own, str) and own:
+        return own
+    if _prompt_stamp_counters(last) != _prompt_stamp_counters(observed_usage):
+        return None
+    return _usage_stamp(observed_usage)
+
+
 def _apply_claude_usage(fresh, result_data: dict, observed_usage: dict = None):
     # NULL provenance is the only legacy fallback signal. Unknown and
     # average-only closeouts keep an explicit marker so a later decision
     # cannot revive an older stored request.
     fresh.context_usage_source = "unknown"
+    fresh.context_usage_requested_at = None
     if not isinstance(result_data, dict):
         return
 
@@ -726,6 +772,7 @@ def _apply_claude_usage(fresh, result_data: dict, observed_usage: dict = None):
         for key in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
     ) and any(request.get(key, 0) for key in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")):
         fresh.context_usage_source = "main_request"
+        fresh.context_usage_requested_at = _selected_usage_stamp(iterations, observed_usage)
     latest = _latest_complete_request(result_data, observed_usage)
     if latest is None:
         return

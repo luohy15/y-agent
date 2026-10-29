@@ -680,44 +680,46 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
     resolved_tier = agent_config.tier_of(bot_config)
     logger.info("Resolved bot config: name={} backend={} model={} tier={}", bot_config.name, bot_config.backend or bot_config.api_type, bot_config.model, resolved_tier)
 
-    from storage.service.resume_gate import effective_limit, evaluate, limit_bounds, resolve_measurement
+    from storage.service.resume_gate import (
+        decision_clock, effective_limit, limit_bounds, policy_refusal, resolve_measurement,
+    )
     measurement = None
+    current_limit = None
+    pending_limit = None
     if chat.backend == "claude_code" and chat.external_id:
         pending_ids = [message.id for message in selected_inputs if getattr(message, "id", None)]
         boundary_reliable = all(getattr(message, "id", None) for message in selected_inputs)
         current_limit, _pending_limit = limit_bounds(user_id, chat)
-        applicable = current_limit is not None or effective_limit(bot_config) is not None
+        if rebot:
+            pending_limit = effective_limit(bot_config)
+        applicable = current_limit is not None or pending_limit is not None
         measurement = resolve_measurement(
             user_id, chat, pending_input_ids=pending_ids, limit_applicable=applicable,
-            boundary_reliable=boundary_reliable,
+            boundary_reliable=boundary_reliable, now=decision_clock(),
         )
-    refusal = evaluate(user_id, chat, measurement=measurement)
+        # This clock, not the measurement clock above, decides the age. It is
+        # still before routing is persisted, and it keeps the original bot.
+        refusal = policy_refusal(
+            user_id, chat, measurement, current_limit, pending_limit, now=decision_clock(),
+        )
+    else:
+        refusal = None
     if refusal:
         error = RuntimeError(f"chat_read_only:{refusal.reason}: {refusal}")
         _abort_unlaunched(chat, chat_id, user_id, error)
         raise error
 
-    # Persist routing identity. A chat's backend is fixed for the lifetime of the
-    # chat so changing the user's default bot does not move existing conversations
-    # between agent backends. bot_name / tier are set on the first run and then
-    # only move again on an accepted re-bot, so the chat always reflects the bot
-    # and tier it actually ran on.
-    if not chat.backend:
-        chat.backend = bot_config.backend or bot_config.api_type
-    if not chat.bot_name or rebot:
-        chat.bot_name = bot_config.name
-    if not chat.tier or rebot:
-        chat.tier = resolved_tier
-    def patch_routing(current):
-        current.backend = chat.backend
-        current.bot_name = chat.bot_name
-        current.tier = chat.tier
-    chat, _ = chat_repo.mutate_chat_locked(chat_id, patch_routing, user_id=user_id)
-
+    # Routing is computed here but not written yet. The detached path has one
+    # more age check after work-dir resolution, and a refusal there must leave
+    # the original bot and tier in place. The handoff reads this chat object.
+    next_backend = chat.backend or (bot_config.backend or bot_config.api_type)
+    next_bot = bot_config.name if (not chat.bot_name or rebot) else chat.bot_name
+    next_tier = resolved_tier if (not chat.tier or rebot) else chat.tier
     effective_backend = bot_config.backend or bot_config.api_type
     try:
         resolve_reasoning_effort(selected_inputs, effective_backend)
         if _inline_runner(effective_backend):
+            chat, _ = _persist_routing(chat_id, user_id, next_backend, next_bot, next_tier)
             await _run_inline(chat, chat_id, user_id, bot_config, effective_backend,
                               post_hooks=post_hooks, trace_id=trace_id, role=role)
             return "done"
@@ -727,7 +729,9 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
                                resume_5xx_retries=resume_5xx_retries,
                                continuation_from_id=continuation_from_id,
                                handled_input_ids=handled_input_ids,
-                               measurement=measurement)
+                               measurement=measurement,
+                               current_limit=current_limit, pending_limit=pending_limit,
+                               next_backend=next_backend, next_bot=next_bot, next_tier=next_tier)
         return "detached"
     except Exception as e:
         logger.exception("Detached backend launch failed for chat {}: {}", chat_id, e)
@@ -748,7 +752,9 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
 def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None,
                               work_dir: str = None, trace_id: str = None, role: str = None,
                               continuation_from_id: str = None,
-                              handled_input_ids=None, measurement=None) -> dict:
+                              handled_input_ids=None, measurement=None,
+                              current_limit=None, pending_limit=None,
+                              limits_from_launch: bool = False) -> dict:
     """Extract prompt, build cmd/env/cwd for claude-code. Returns dict with all params needed to run."""
     messages = list(chat.messages)
 
@@ -766,12 +772,25 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
     session_id = chat.external_id
     resume = bool(session_id) and chat.work_dir == cwd
     if resume:
-        from storage.service.resume_gate import evaluate
+        from storage.service.resume_gate import (
+            decision_clock, effective_limit, limit_bounds, policy_refusal, resolve_measurement,
+        )
 
-        refusal = evaluate(
-            user_id, chat, bot_config=bot_config, measurement=measurement,
-            pending_input_ids=[message.id for message in selected_inputs if message.id],
-            boundary_reliable=all(message.id for message in selected_inputs),
+        if not limits_from_launch:
+            current_limit, _ignored = limit_bounds(user_id, chat)
+            supplied = effective_limit(bot_config)
+            if bot_config is not None and bot_config.name != chat.bot_name:
+                pending_limit = supplied
+        if measurement is None:
+            measurement = resolve_measurement(
+                user_id, chat,
+                pending_input_ids=[message.id for message in selected_inputs if message.id],
+                limit_applicable=current_limit is not None or pending_limit is not None,
+                boundary_reliable=all(message.id for message in selected_inputs),
+                now=decision_clock(),
+            )
+        refusal = policy_refusal(
+            user_id, chat, measurement, current_limit, pending_limit, now=decision_clock(),
         )
         if refusal:
             raise RuntimeError(f"chat_read_only:{refusal.reason}: {refusal}")
@@ -837,12 +856,25 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
 
 
 
+def _persist_routing(chat_id, user_id, backend, bot_name, tier):
+    """Write the accepted bot only after the last refusal check has passed."""
+    from storage.repository import chat as chat_repo
+
+    def patch(current):
+        current.backend = backend
+        current.bot_name = bot_name
+        current.tier = tier
+    return chat_repo.mutate_chat_locked(chat_id, patch, user_id=user_id)
+
+
 async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
                            vm_name: str = None, work_dir: str = None,
                            post_hooks: list = None, trace_id: str = None,
                            role: str = None, resume_5xx_retries: int = 0,
                            continuation_from_id: str = None,
-                           handled_input_ids=None, measurement=None) -> None:
+                           handled_input_ids=None, measurement=None,
+                           current_limit=None, pending_limit=None,
+                           next_backend=None, next_bot=None, next_tier=None) -> None:
     """Start claude-code as a detached tmux process on EC2.
 
     Called from run_chat after chat loading, trace setup, and running flag are done.
@@ -865,7 +897,15 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
                                         trace_id=trace_id, role=role,
                                         continuation_from_id=continuation_from_id,
                                         handled_input_ids=handled_input_ids,
-                                        measurement=measurement)
+                                        measurement=measurement,
+                                        current_limit=current_limit, pending_limit=pending_limit,
+                                        limits_from_launch=True)
+    chat, _ = _persist_routing(
+        chat_id, user_id,
+        next_backend or chat.backend,
+        next_bot or chat.bot_name,
+        next_tier or chat.tier,
+    )
 
     if not params["prompt"]:
         logger.error("No user message found in chat {}", chat_id)

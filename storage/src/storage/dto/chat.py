@@ -163,6 +163,9 @@ class Chat:
     cache_creation_input_tokens: Optional[int] = None
     context_window: Optional[int] = None
     context_usage_source: Optional[str] = None
+    # Aware ISO8601 observation time for the same main_request counters.
+    # JSON only: legacy rows omit it and stay valid for size, unknown for age.
+    context_usage_requested_at: Optional[str] = None
     # Cumulative modelUsage for this session. Its scope follows the CLI:
     # current launch on 2.1.259, prior launches included on 2.1.280. Spend
     # only, never a context estimate.
@@ -207,6 +210,8 @@ class Chat:
             cache_creation_input_tokens=data.get('cache_creation_input_tokens'),
             context_window=data.get('context_window'),
             context_usage_source=data.get('context_usage_source'),
+            context_usage_requested_at=data.get('context_usage_requested_at')
+            if isinstance(data.get('context_usage_requested_at'), str) else None,
             cumulative_input_tokens=data.get('cumulative_input_tokens'),
             cumulative_output_tokens=data.get('cumulative_output_tokens'),
             cumulative_cache_read_input_tokens=data.get('cumulative_cache_read_input_tokens'),
@@ -272,6 +277,8 @@ class Chat:
             result['context_window'] = self.context_window
         if self.context_usage_source is not None:
             result['context_usage_source'] = self.context_usage_source
+        if self.context_usage_requested_at:
+            result['context_usage_requested_at'] = self.context_usage_requested_at
         if self.cumulative_input_tokens is not None:
             result['cumulative_input_tokens'] = self.cumulative_input_tokens
         if self.cumulative_output_tokens is not None:

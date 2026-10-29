@@ -514,9 +514,67 @@ def restore_context_usage(value):
     return {"state": "unknown"}
 
 
+def _observation_time(event):
+    """Explicit timestamp on this assistant event, or 'conflict' when the two fields disagree.
+
+    `event.timestamp` is the stream and transcript observation time. `message.timestamp`
+    is absent on the producer shapes inspected for this change. Neither field is
+    replaced with the local clock.
+    """
+    if not isinstance(event, dict):
+        return None
+    message = event.get("message") if isinstance(event.get("message"), dict) else {}
+    event_ts = event.get("timestamp")
+    message_ts = message.get("timestamp")
+    event_ok = isinstance(event_ts, str) and bool(event_ts)
+    message_ok = isinstance(message_ts, str) and bool(message_ts)
+    if event_ok and message_ok and event_ts != message_ts:
+        return "conflict"
+    if event_ok:
+        return event_ts
+    if message_ok:
+        return message_ts
+    return None
+
+
+def _bind_observation_time(previous, observed, candidate):
+    """Keep the first explicit time for one request. A newer request replaces time with its own."""
+    ident = observed.get("message_id")
+    same = (
+        isinstance(previous, dict)
+        and previous.get("state") != "unknown"
+        and isinstance(ident, str) and bool(ident)
+        and previous.get("message_id") == ident
+    )
+    if same:
+        observed.pop("requested_at", None)
+        observed.pop("timestamp_conflict", None)
+        observed.pop("timestamp_unbound", None)
+        # A disagreement on any block of this request sticks. Later blocks keep
+        # the counters but cannot restore or refresh a timestamp.
+        if candidate == "conflict" or previous.get("timestamp_conflict"):
+            observed["timestamp_conflict"] = True
+        elif isinstance(previous.get("requested_at"), str) and previous.get("requested_at"):
+            observed["requested_at"] = previous["requested_at"]
+        else:
+            observed["timestamp_unbound"] = True
+        return observed
+    if candidate == "conflict":
+        observed["timestamp_conflict"] = True
+    elif isinstance(candidate, str) and candidate:
+        observed["requested_at"] = candidate
+    else:
+        observed["timestamp_unbound"] = True
+    return observed
+
+
 def reduce_context_usage(previous, event):
     observed = _context_usage_from_assistant(event)
-    return previous if observed is None else observed
+    if observed is None:
+        return previous
+    if not isinstance(observed, dict) or observed.get("state") == "unknown":
+        return {"state": "unknown"}
+    return _bind_observation_time(previous, observed, _observation_time(event))
 
 
 def _context_usage_from_assistant(event: dict):
@@ -545,6 +603,9 @@ def _context_usage_from_assistant(event: dict):
     model = message.get("model")
     if isinstance(model, str) and model:
         observed["model"] = model
+    message_id = message.get("id")
+    if isinstance(message_id, str) and message_id:
+        observed["message_id"] = message_id
     return restore_context_usage(observed)
 
 

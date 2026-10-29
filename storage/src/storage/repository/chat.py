@@ -565,7 +565,7 @@ class EffortOnRunningChat(Exception):
 def accept_or_start_chat(user_id: int, chat_id: str, *, message=None,
                          human_reply=False, trace_id=None, role=None, skill=None,
                          event_id=None, session=None, resume_limit=None,
-                         current_limit=None, pending_limit=None):
+                         current_limit=None, pending_limit=None, decision_time=None):
     """Lock todo before chat; append/start and conditional resume commit together.
 
     Explicit non-root trace conflicts fail before mutation (todo 3458), replacing
@@ -609,8 +609,11 @@ def accept_or_start_chat(user_id: int, chat_id: str, *, message=None,
             resume_limit is not None or current_limit is not None or pending_limit is not None
         ):
             from storage.service.chat import maybe_append_handoff_reminder
-            from storage.service.resume_gate import ChatReadOnly, pick_limit, resolve_measurement
+            from storage.service.resume_gate import (
+                ChatReadOnly, age_exceeds_window, decision_clock, pick_limit, resolve_measurement,
+            )
 
+            clock = decision_clock(decision_time)
             if already_running:
                 pure = chat.prompt_tokens()
                 gate_limit = (resume_limit if current_limit is None and pending_limit is None
@@ -621,7 +624,9 @@ def accept_or_start_chat(user_id: int, chat_id: str, *, message=None,
                         chat, message.content, resume_limit=gate_limit, measured=pure,
                     )
             else:
-                evidence = resolve_measurement(user_id, chat, session=session, limit_applicable=True)
+                evidence = resolve_measurement(
+                    user_id, chat, session=session, limit_applicable=True, now=clock,
+                )
                 gate_limit = (resume_limit if current_limit is None and pending_limit is None
                               else pick_limit(current_limit, pending_limit, evidence.tokens))
                 if (gate_limit is not None and evidence.tokens is not None
@@ -629,7 +634,7 @@ def accept_or_start_chat(user_id: int, chat_id: str, *, message=None,
                     message.content = maybe_append_handoff_reminder(
                         chat, message.content, resume_limit=gate_limit, measured=evidence.tokens,
                     )
-                    if evidence.tokens >= gate_limit:
+                    if evidence.tokens >= gate_limit and age_exceeds_window(evidence.requested_at, clock):
                         raise ChatReadOnly(evidence.tokens, gate_limit)
         if message is not None and message.reasoning_effort and already_running:
             raise EffortOnRunningChat("effort applies per launch; resend after the run ends")
