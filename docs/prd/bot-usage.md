@@ -454,9 +454,10 @@ later delivery.
     chart-reading aid. It is not the section-wide model query: a non-empty
     Filter models query narrows every one of those surfaces together (story
     66e). An empty query still leaves them as the complete record of the range.
-66a. As a web user, I want a search on the Over-time chart card (to the right
-    of the metric-over-time title, labelled Filter models, placeholder Search
-    models, not in the global filter row) whose text defines one model set for
+66a. As a web user, I want a search beside the Tokens / Cost / Requests metric
+    tabs (one centered controls row above the Over-time surfaces, labelled
+    Filter models, placeholder Search models, not on the chart card and not in
+    the global filter row) whose text defines one model set for
     the whole Over-time section, so that typing a substring such as claude
     charts every matching model as its own series and the same set drives the
     averages, the heatmap or hourly grid, and the history table (story 66e).
