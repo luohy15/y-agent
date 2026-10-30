@@ -288,8 +288,10 @@ later delivery.
 37g. As a web user, I want the Over-time `H` granularity to replace the daily
     contribution card with a seven-day grid of the last seven local calendar
     dates (oldest at top, today at bottom) by 24 hour columns, driven by the
-    same selected metric and summed across every model, so that the short
-    hourly window is readable hour by hour instead of as a year of day cells.
+    same selected metric, summed across every model when the Filter models
+    query is empty and across the matching models when it is not (story 66e),
+    so that the short hourly window is readable hour by hour instead of as a
+    year of day cells.
 37h. As a web user, I want each hourly cell to distinguish a recorded zero from
     an hour with no stored row and from an hour that has not happened yet, and
     to mark the in-progress hour from the server's `partial` flag, so that a
@@ -394,9 +396,14 @@ later delivery.
 54. As a web user, I want one metric charted at a time via a Tokens | Cost |
     Requests toggle, so that the axis and stacking stay meaningful.
 55. As a web user, I want a per-model-by-period table under the chart with a
-    range-sum column and a per-column totals row consistent with the unfiltered
-    chart's per-period totals, so that chart and table never disagree (see
-    story 61 for the one deliberate exception, a legend "Other" filter).
+    range-sum column and a per-column totals row consistent with the chart's
+    per-period totals for the same model set, so that chart and table never
+    disagree. An empty model query uses the unfiltered top-seven-plus-Other
+    fold (see story 61 for the legend "Other" exception, and story 66: any
+    legend click changes only the chart). A non-empty query lists every match
+    in global rank order, with no Other row and no cap, and each column total
+    equals that period's matched
+    chart total (story 66e).
 56. As a web user, I want the over-time table to open scrolled to the most
     recent periods (and re-apply that on metric switch), with monthly headers
     rendered as month-plus-full-year, so that current data is what I see first.
@@ -441,32 +448,43 @@ later delivery.
     renders a stale or empty filter. This applies to the default chart (empty
     model query). A non-empty model query replaces that legend, and story 66b
     governs it instead.
-66. As a web user, I want the per-model-by-period table under the chart, the
-    heatmap or hourly grid, and the averages row to keep showing every model
-    regardless of the chart filter, so that the filter stays a chart-reading
-    aid while those surfaces remain the complete record of the range.
+66. As a web user, I want a legend click (stories 60-65) to change only the
+    chart, so that the table, the heatmap or hourly grid, and the averages row
+    stay on the model set the query already selected. That click is a transient
+    chart-reading aid. It is not the section-wide model query: a non-empty
+    Filter models query narrows every one of those surfaces together (story
+    66e). An empty query still leaves them as the complete record of the range.
 66a. As a web user, I want a search on the Over-time chart card (to the right
     of the metric-over-time title, labelled Filter models, placeholder Search
-    models, not in the global filter row) whose text defines a model set, so
-    that typing a substring such as claude charts every matching model as its
-    own series. Matching is a case-insensitive substring on the model name,
-    over models with non-zero usage for the selected metric in the current
-    range, kept in global rank order. An empty query leaves the default chart:
-    the top-seven-plus-Other stack and the top-five-plus-Other legend. A
-    non-empty query with matches stacks every match, with no Other slice and
-    no cap, and the legend lists every match. Suggestions in the dropdown are
-    those ranked model names only, so the open list previews the charted set.
+    models, not in the global filter row) whose text defines one model set for
+    the whole Over-time section, so that typing a substring such as claude
+    charts every matching model as its own series and the same set drives the
+    averages, the heatmap or hourly grid, and the history table (story 66e).
+    Matching is a case-insensitive substring on the model name, over models
+    with non-zero usage for the selected metric in the current range, kept in
+    global rank order. An empty query leaves the default chart (the
+    top-seven-plus-Other stack and the top-five-plus-Other legend) and leaves
+    every other Over-time surface unfiltered. A non-empty query with matches
+    stacks every match, with no Other slice and no cap, and the legend lists
+    every match. Suggestions in the dropdown are those ranked model names
+    only, so the open list previews the charted set. Rank, color, and
+    suggestions stay on the unfiltered rows (story 66d).
 66b. As a web user, I want a non-empty query that matches nothing, once data
     has loaded, to show an empty chart that says no models match that query in
     this range, so that a miss is never mistaken for all models. The chart
-    frame stays, the legend hides, and the query stays as typed. Nothing
-    clears the query except emptying the field. Clicking a legend entry only
-    isolates that one series until I click it again or edit the query, and
-    that isolation is not saved. The legend's Other isolation exists only when
+    frame stays, the legend hides, and the query stays as typed. The history
+    table body is replaced by the same no-match line and has no Total row. The
+    averages strip shows 0 for the selected metric over the same recorded days
+    the unfiltered range would have used. The heatmap or hourly grid renders
+    all-zero cells for slots that still have coverage, and captions that no
+    models match. Nothing clears the query except emptying the field. Clicking
+    a legend entry only isolates that one series on the chart until I click it
+    again or edit the query, and that isolation is not saved and does not
+    change the other surfaces. The legend's Other isolation exists only when
     the query is empty.
 66c. As a web user, I want the raw model-query text persisted in local storage
     under botUsageOverTimeModelQuery, one value across metric, granularity,
-    and time, so that the chart reopens on the same set. An empty query
+    and time, so that Over-time reopens on the same set. An empty query
     removes the key. Loading, a metric or range change, and a query that
     currently matches nothing never rewrite or clear the stored text.
 66d. As a web user, I want each model's color to depend only on its global
@@ -476,6 +494,28 @@ later delivery.
     a base03 segment stroke. No new hue is invented, and the legend Other
     swatch stays base01. More than eight matches stay separate segments. None
     are folded into Other.
+66e. As a web user, I want a non-empty Filter models query to narrow every
+    Over-time surface to the same model set, and an empty query to leave them
+    unchanged, so that the chart, the averages strip, the Daily heatmap or
+    Hourly grid, and the Tokens history table (rows and Total) cannot disagree.
+    Matching stays the case-insensitive substring in story 66a. One query
+    string drives every surface. Non-matching models are masked, not dropped:
+    their tokens, cost, and requests count as zero, while their dates, hours,
+    and partial flags stay, so recorded-day counts, unknown dates, today and
+    partial exclusions, and hourly missing-versus-zero stay based on coverage
+    rather than on which models matched. The history table then lists each
+    match as its own row in global rank order, with no Other row and no cap,
+    and each column Total is the sum of those rows. The heatmap applies that
+    same substring to its own window, including models absent from the current
+    Over-time range. An empty query still paints from daily totals. An active
+    query reads model-daily for the heatmap window once; editing the query
+    does not refetch. Until that read arrives the card shows a loading line and
+    no cell values, never the unfiltered daily totals. While a query is active,
+    the heatmap or hourly header, the history header, and the averages title
+    each say Filtered to models matching "<q>", in plain text and without a new
+    color. Rank, color, and suggestions stay on the unfiltered rows. A miss is
+    story 66b. A legend click still changes only the chart (story 66). Usage
+    Live is outside this filter.
 
 ### Controls and state
 
@@ -509,10 +549,13 @@ later delivery.
     calendar-month means.
 74. As a web user, I want the caption to name the recorded-day count, date
     span, any dates in that span without rows, that recorded days may be
-    partial, that ingestion coverage is unknown, and that the strip is all
-    models, without hovering, so that I can judge how far the figure may sit
-    from a calendar-day mean. Today-excluded and partial-dates-excluded copy
-    appear only when those exclusions actually happened.
+    partial, that ingestion coverage is unknown, and which models the strip
+    covers, without hovering, so that I can judge how far the figure may sit
+    from a calendar-day mean. An empty query says the strip is all models. A
+    non-empty query says it is the models matching that query, using the same
+    Filtered to models matching "<q>" line the other filtered surfaces use
+    (story 66e). Today-excluded and partial-dates-excluded copy appear only
+    when those exclusions actually happened.
 
 ### Per-trace usage (todo 3729)
 
@@ -785,10 +828,13 @@ later delivery.
 - **Seven local dates including today**, oldest at top and today at bottom, with
   all 168 slots generated from the resolved window rather than from the dates
   that happen to appear in the data.
-- **All models, always.** The grid sums the selected metric across every
-  returned model. Like the daily card it takes no model filter: the over-time
-  legend's model / "Other" toggles still narrow only the stacked chart, and the
-  history table is untouched. Per-bot and per-key attribution remain excluded.
+- **All models, unless a model query is active.** With an empty Filter models
+  query the grid sums the selected metric across every returned model, and the
+  daily card does the same. The over-time legend's model / "Other" toggles
+  still narrow only the stacked chart. A non-empty query masks non-matching
+  models' usage to zero and keeps row presence, so a missing hour stays missing
+  and a recorded zero stays a recorded zero; the history table follows the same
+  query (story 66e). Per-bot and per-key attribution remain excluded.
 - **Absence is not zero.** A present row whose summed metric is 0 is a recorded
   zero and keeps the existing filled neutral cell. A slot with no row reads as
   missing (unfilled cell plus a dash), a slot after the current instant reads as
@@ -1298,6 +1344,10 @@ later delivery.
   window: a given calendar year, or the month-aligned past 12 months (the
   first of the month 11 months back through today). This decoupling exists so
   the heatmap always renders its full window regardless of the Live filter.
+  An empty Over-time model query still paints from this endpoint. A non-empty
+  query does not: the client reads model-daily for the same window and sums
+  only the matching models (story 66e). The endpoint itself stays an all-model
+  total.
 - **Resolved window labels (todo 3580).** `GET /api/usage/range` is an additive
   superset of `{from_date, to_date}`: it also returns `input` and `recognized`
   from host `describe_time_range`. A malformed literal date (`2026-13-45`) that
@@ -1384,10 +1434,13 @@ later delivery.
   Tokens means total tokens including cache.
 - **Top-N convention: two folds that coexist.** The *series* fold is top seven
   models by the selected metric over the range, descending, remainder into
-  "Other". It is the one the donut, the over-time stack, and every table use, so
-  chart and table totals always reconcile. The over-time **legend** applies a
-  second, coarser top-five-plus-Other fold *on top of* that same seven-element
-  array. Both conventions are live and neither replaces the other, because they
+  "Other". The donut and the Live table always use it. The over-time stack
+  and the over-time table use it while the model query is empty, so those
+  chart and table totals reconcile on that fold. A non-empty query leaves the
+  fold for Over-time only: that chart and table then reconcile on the matched
+  set instead (story 66e). The Live surfaces do not. The over-time **legend**
+  applies a second, coarser top-five-plus-Other fold *on top of* that same
+  seven-element array. Both conventions are live and neither replaces the other, because they
   answer different questions: seven segments is the amount of detail a chart can
   carry before the tail is noise, while a legend is a scannable index and a row
   of click targets, and five entries plus Other stay readable in one wrapped row
@@ -1435,13 +1488,14 @@ later delivery.
   pinned to the neutral color unconditionally. The shared color function itself
   is deliberately left alone, so the filtered bar and the tooltip keep the color
   semantics they had; only the legend swatch differs.
-- **The chart filter does not filter the table.** Filtering is scoped to the
-  chart; the per-model-by-period table under it always shows every model. This
-  is what the requesting todo asked for ("filter the chart") and it keeps the
-  table as the complete record of the range, but it is surprising enough to be
-  worth stating: a user may reasonably expect the table to follow. It is
-  recorded here as delivered behavior, not as an oversight; extending the filter
-  to the table stays out of scope until asked for.
+- **A legend click does not filter the table.** The legend click is scoped to
+  the chart. While it is the only active narrowing, the per-model-by-period
+  table still shows every model of the current query (every model, when the
+  query is empty). This is what the original chart-filter todo asked for, and
+  it keeps a legend click a reading aid. The Filter models query is a different
+  control and does narrow the table, the averages, and the heatmap or hourly
+  grid together (story 66e). Extending the legend click itself to those
+  surfaces stays out of scope until asked for.
 - **Donut presentation** follows the relay dashboard's distribution chart:
   no on-slice labels, a bottom dot-legend (wrapped a few items per centered
   row, sorted by share descending to match slice order), hover tooltip with
@@ -1510,8 +1564,11 @@ later delivery.
 - **Over-time averages (todo 3571).** A compact strip inside the existing
   Over-time chart card, between the title row and the stacked chart: Avg daily,
   Avg weekly (x7), Avg monthly (x30.44). Daily is `total / recordedDays` for
-  the selected metric across all models; weekly and monthly are that same rate
-  times 7 and 30.4375 (`365.25 / 12`, an adopted convention). They are
+  the selected metric. An empty query sums all models. A non-empty query sums
+  only the matched models over those same recorded days, so a query that
+  matches nothing reads 0 without shrinking the recorded-day count (story
+  66e). Weekly and monthly are that same rate times 7 and 30.4375 (`365.25 / 12`,
+  an adopted convention). They are
   normalized estimates, not observed calendar-week or calendar-month means, and
   the multiplier is disclosed for every window. `recordedDays` is distinct
   `usage_date` values in the already range-clipped rows after two
@@ -1521,10 +1578,12 @@ later delivery.
   span the caption shows the gap count. Zone-offset mismatch is not treated as
   truncation. The visible caption always carries `mean per recorded day`, the
   recorded-day count, the span, `recorded days may be partial`, `ingestion
-  coverage unknown`, and `all models`; `today excluded` / `partial dates
+  coverage unknown`, and either `all models` (empty query) or `Filtered to
+  models matching "<q>"` (active query); `today excluded` / `partial dates
   excluded` and the gap count appear only when true. A unit longer than the
   recorded span is prefixed `~`. Zero recorded days render `-` with `needs one
-  recorded day`. The chart legend filter does not apply. D / W / M print the
+  recorded day`. The chart legend click does not apply. The model query does.
+  D / W / M print the
   same numbers on one `requestedTime`; H must not, because it clamps to
   `day-6 to day` and has no daily fallback.
 - **State persistence.** View toggle, mode, granularity, and the two
@@ -1855,16 +1914,20 @@ as decisions.
   bar is "no new type errors versus HEAD", verified against a detached
   worktree of HEAD rather than asserted, because the project's baseline
   `tsc --noEmit` is not clean. Chart and table consistency is checked by
-  construction (unfiltered chart per-period totals equal table column totals
-  because both derive from the same seven-plus-Other fold).
+  construction (chart per-period totals equal table column totals because both
+  derive from the same seven-plus-Other fold when the model query is empty, and
+  from the same matched set when it is not).
 - **The two folds are checked by their reconciliation contracts, not their
   internals:** the six legend entries' per-period values sum to that period's
   total (the legend partitions the period), a legend-Other filtered bar equals
   the period total minus the top five and is asserted to be *different* from the
   table's Other row whenever more than seven models exist, and the legend is
   asserted to carry no Other entry at all when five or fewer named models exist.
-  Toggling a filter on and off is asserted to restore the original stack, and
-  the table is asserted unchanged across both states. The legend's Other swatch
+  Toggling a legend filter on and off is asserted to restore the original
+  stack, and the table is asserted unchanged across both of those states. A
+  non-empty model query is asserted to change the table, averages, and heatmap
+  or hourly grid together, and an empty query is asserted to restore the
+  unfiltered surfaces. The legend's Other swatch
   is asserted neutral on both sides of the seven-model boundary, the caption is
   asserted to state the Other bucket's scope while that filter is active, and
   the legend entries are asserted to expose their pressed state.
@@ -1940,8 +2003,10 @@ as decisions.
   large) and a shared web chart-helper library extraction (follow-up).
 - **Filtering the over-time table from the chart legend**, and multi-select
   legend filtering (only one model at a time, click again to clear). Both are
-  deferred rather than rejected: the legend filter is a chart-reading aid, and
-  neither has been asked for.
+  deferred rather than rejected: the legend click is a chart-reading aid, and
+  neither has been asked for. The Filter models query is a separate control
+  and does narrow the table (story 66e). This exclusion is only the legend
+  click.
 - **Encrypting `crs_admin` / `bot_config.api_key` at rest.** The repo has no
   secret-encryption layer; both already store plaintext secrets, and adding one
   is a separate decision. The approved 3121 change deliberately stores the
