@@ -207,7 +207,7 @@ async def _start_detached_tmux(
         _ssh_exec(
             client,
             f"{_tmux_kill_cmd(chat_id)}; "
-            f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit /tmp/cc-{chat_id}.killed 2>/dev/null; "
+            f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit /tmp/cc-{chat_id}.killed /tmp/cc-{chat_id}.claude-ec 2>/dev/null; "
             f"rm -rf /tmp/cc-{chat_id}-images 2>/dev/null; "
             + cleanup_command(chat_id),
         )

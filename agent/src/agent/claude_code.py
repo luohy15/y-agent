@@ -485,6 +485,8 @@ def _stream_error_suffix(stream_error: Optional[Exception]) -> str:
 
 
 RESUME_REFUSED_MARKER = "No conversation found with session ID"
+# grep BRE for claude's per-delta progress lines, which are dropped at the source.
+THINKING_TOKENS_LINE_RE = '^{"type":"system","subtype":"thinking_tokens"[,}]'
 
 _CONTEXT_USAGE_KEYS = (
     "input_tokens", "output_tokens",
@@ -1005,11 +1007,19 @@ def _claude_write_stdin(client, chat_id: str, prompt: str, images: Optional[List
 
 
 def _claude_build_exec(cmd: List[str], chat_id: str, prompt: str, images: Optional[List[str]] = None) -> str:
-    """Build `tail -f <stdin> | claude -p --input-format stream-json ...`."""
+    """Build `tail -f <stdin> | claude -p --input-format stream-json ... | grep -v thinking_tokens`."""
     full_cmd = cmd + ["--input-format", "stream-json"]
     claude_cmd = " ".join(_shell_quote(c) for c in full_cmd)
     stdin_file = f"/tmp/cc-{chat_id}.stdin"
-    exec_cmd = f"tail -f -n +1 {_shell_quote(stdin_file)} | {claude_cmd}"
+    ec_file = _shell_quote(f"/tmp/cc-{chat_id}.claude-ec")
+    # claude emits one system/thinking_tokens line per thinking delta and nothing
+    # reads them (todo 4145). The VM shell is not bash, so claude's own status
+    # goes through a file instead of PIPESTATUS; the subshell exits with it.
+    exec_cmd = (
+        f"( ( tail -f -n +1 {_shell_quote(stdin_file)} | {claude_cmd}; echo $? > {ec_file} ) "
+        f"| grep --line-buffered -v {_shell_quote(THINKING_TOKENS_LINE_RE)}; "
+        f"_y_ec=$(cat {ec_file} 2>/dev/null); rm -f {ec_file}; exit ${{_y_ec:-1}} )"
+    )
     resume_session_id = _claude_resume_session_id(cmd)
     if not resume_session_id:
         return exec_cmd
