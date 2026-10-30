@@ -19,6 +19,7 @@ import json
 import mimetypes
 import re
 import threading
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
@@ -1317,15 +1318,25 @@ async def tail_ssh_output(
 
         def _read_lines():
             nonlocal result_data, context_usage, session_id, launch_model, current_offset, stream_error
+            # The stdout tail used to call check_interrupted_fn on every line.
+            # A thinking-heavy session emits tens of thousands of lines, and
+            # each call reads the chat row. PollLoop still kills within 2s;
+            # this check stays immediate on the first line, then at most once
+            # per second, so the reader-thread self-kill path remains valid.
+            last_interrupt_check = None
             try:
                 if result_data is not None and not ledger.outstanding() and _try_finish_turn():
                     return None
                 for raw_line in stdout_ch:
                     if reader_stop.is_set():
                         return "deadline"
-                    if check_interrupted_fn and check_interrupted_fn():
-                        _kill_tmux(self_killed=True)
-                        return "interrupted"
+                    if check_interrupted_fn:
+                        now = time.monotonic()
+                        if last_interrupt_check is None or now - last_interrupt_check >= 1.0:
+                            last_interrupt_check = now
+                            if check_interrupted_fn():
+                                _kill_tmux(self_killed=True)
+                                return "interrupted"
 
                     if check_deadline_fn and check_deadline_fn():
                         try:
