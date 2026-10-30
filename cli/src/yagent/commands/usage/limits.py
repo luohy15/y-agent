@@ -1,8 +1,7 @@
-"""`y usage limits [--json] [--refresh]` (todo 2872 sub-task 3): the three
-readers -- `codex_usage_api`, `xai_billing_credits` (direct HTTP,
-`_http_readers.py`) and `claude_tui_usage` (`/usage` TUI scrape wrapped by
-its own on-VM cache, `_claude_reader.py`) -- behind one envelope. Emits
-exactly the `{"providers": [...], "errors": [...]}` shape
+"""`y usage limits [--json] [--refresh]` (todo 2872 sub-task 3, Claude reader
+removed in todo 4138): the two readers -- `codex_usage_api` and
+`xai_billing_credits` (direct HTTP, `_http_readers.py`) -- behind one
+envelope. Emits exactly the `{"providers": [...], "errors": [...]}` shape
 `storage.service.model_usage_limits.normalize_envelope` expects; this is the
 contract `agent.usage_limits`'s SSH wrapper and `GET /api/usage/limits` are
 built against. No provider-selector flag: callers take the whole envelope.
@@ -10,7 +9,7 @@ built against. No provider-selector flag: callers take the whole envelope.
 Readers never raise for an ordinary provider-level failure (not_logged_in /
 reauth_required / parse_failed / transport_error all come back as a row);
 `asyncio.gather(..., return_exceptions=True)` is only the backstop for a
-genuine bug in one reader, so it can't take the other two down with it --
+genuine bug in one reader, so it can't take the other down with it --
 that failure is isolated into the envelope's `errors`, not a crashed
 command.
 """
@@ -23,7 +22,6 @@ import json
 import click
 from loguru import logger
 
-from . import _claude_reader
 from . import _http_readers
 
 _WINDOW_LABELS = (
@@ -34,9 +32,11 @@ _WINDOW_LABELS = (
 
 
 async def _collect(refresh: bool) -> dict:
-    sources = ("claude_tui_usage", "codex_usage_api", "xai_billing_credits")
+    # `--refresh` stays accepted. The agent retry still passes it, and both
+    # remaining readers always run fresh, so the flag does not change the read.
+    del refresh
+    sources = ("codex_usage_api", "xai_billing_credits")
     tasks = (
-        _claude_reader.read_claude_provider(refresh=refresh),
         asyncio.to_thread(_http_readers.read_codex_provider),
         asyncio.to_thread(_http_readers.read_xai_provider),
     )
@@ -56,9 +56,9 @@ async def _collect(refresh: bool) -> dict:
 
 @click.command("limits")
 @click.option("--json", "as_json", is_flag=True, help="Output the raw JSON envelope instead of a table")
-@click.option("--refresh", is_flag=True, help="Bypass the on-VM Claude scrape cache for a fresh read")
+@click.option("--refresh", is_flag=True, help="Accepted for callers; Codex and Grok always run fresh")
 def limits(as_json: bool, refresh: bool):
-    """Read live subscription limit-window usage for Claude, Codex and Grok."""
+    """Read live subscription limit-window usage for Codex and Grok."""
     envelope = asyncio.run(_collect(refresh))
 
     if as_json:

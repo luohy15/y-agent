@@ -21,8 +21,9 @@ wants usage queryable and chartable alongside the other y-agent subsystems:
 which models dominate spend, how usage trends week over week, and whether a
 given day was heavy or idle, without the numbers silently rolling off. Spend
 history also does not answer the operational question that matters before
-starting another long agent turn: how much of each paid subscription (Claude,
-GPT (Codex), and Grok) is still available, and when it recovers. Those
+starting another long agent turn: how much of each retained paid subscription
+(GPT (Codex) and Grok) is still available, and when it recovers. Claude
+subscription limits are not part of that status. Those
 provider-native limits need a current status surface of their own rather than
 being inferred from token or dollar totals. They also should not depend on a
 relay: routing limit status through claude-relay-service made the numbers a
@@ -59,14 +60,15 @@ daily / weekly / monthly granularity), with a Tokens / Cost / Requests metric
 toggle shared across both.
 
 The Live mode of that bot-page Usage view also presents a current
-subscription-limit status section for the Claude, GPT (Codex), and Grok
-backends, read **directly from each provider** rather than through any relay.
-Each provider reports whichever windows it actually defines (Claude and Codex
-report rolling windows, `five_hour` / `one_week`; Grok reports its current
-billing period), with percent used, percent remaining, reset time, freshness,
-and explicit unavailable / stale / re-auth states. The three reads run in the
-`y` CLI **on the user's VM** (stable source IP, already known to these
-vendors), behind one `y usage limits --json` envelope. A 30-minute worker
+subscription-limit status section for GPT (Codex) and Grok, read **directly
+from each provider** rather than through any relay. Claude subscription limits
+are not read or shown. Codex still reports rolling windows, `five_hour` /
+`one_week`, in the fetched payload; the Live card draws the weekly window.
+Grok reports its current billing period. Each drawn window shows percent used,
+percent remaining, reset time, freshness, and explicit unavailable / stale /
+re-auth states. The two reads run in the `y` CLI **on the user's VM** (stable
+source IP, already known to these vendors), behind one `y usage limits --json`
+envelope. A 30-minute worker
 schedule SSH-execs that command per user, normalizes the result, and persists
 the latest snapshot in `user_preference` (key `usage_limits_latest`, todo
 3226); ordinary `GET /api/usage/limits` polls read only that persisted
@@ -83,11 +85,11 @@ source of truth: y-agent reads it live and, when the access token has expired,
 refreshes it at the provider's OAuth endpoint and writes the rotated grant back
 into that same vendor file, in that file's exact original shape: precisely
 what the vendor CLI would have done itself. There is no y-agent credential
-store and no y-agent login command. Anthropic handles no token here at all: its
-reader drives the `claude` CLI's own `/usage` view, and that CLI owns its grant
-end to end. Re-authentication is therefore always a **vendor** action
-(`claude login` / `codex login` / `grok login`), which is exactly what the
-expired-login card tells the user to run.
+store and no y-agent login command. Subscription-limit refresh handles no
+Anthropic grant: it does not scrape `/usage` and it does not exchange an
+Anthropic token. Claude API spend stays on the relay. Re-authentication for a
+limits card is a **vendor** action (`codex login` / `grok login`), which is
+exactly what the expired-login card tells the user to run.
 
 Session context analysis (todo 3844) explains a single chat's context
 request by request. After a run, the VM analyses that chat's attributed Claude
@@ -166,19 +168,19 @@ later delivery.
 ### Subscription limit-window status
 
 16. As a web user, I want the Live tab of the bot Usage view to show
-    subscription-limit status for all three subscriptions I pay for
-    (Claude, GPT (Codex), and Grok), so that I can choose a backend with enough
+    subscription-limit status for GPT (Codex) and Grok, and not a Claude
+    subscription card, so that I can choose a retained backend with enough
     available capacity before starting work without adding operational status
-    to the historical Over-time tab.
+    to the historical Over-time tab. Claude API spend, models, and stored
+    limit history stay.
 17. As a user, I want each provider's numbers read straight from that provider,
     so that limit status does not depend on a relay service staying deployed,
     configured, and in sync, and so that a provider the relay has no usage
     concept for can still be shown.
-18. As a web user, I want each provider to show whichever windows it actually
-    defines (Claude: rolling 5-hour and 1-week; Codex: its rolling rate-limit
-    windows; Grok: the current billing period) rather than every provider being
-    forced into one window shape, so that no card shows a permanently empty row
-    for a window its provider does not have.
+18. As a web user, I want the Live card to show the weekly window for GPT
+    (Codex) and the current billing period for Grok. Codex's 5-hour window
+    stays in the fetched payload and is not drawn. A provider is not given an
+    empty row for a window it does not have.
 19. As a web user, I want each window to show percent used, percent remaining,
     and the reset time, so that I can judge both current headroom and how long I
     need to wait for recovery.
@@ -205,17 +207,14 @@ later delivery.
     identifies the backend, provider, account scope, the windows that provider
     reports, observation time, and availability state, so that future surfaces
     do not need to parse provider-native output.
-26. As a user, I want provider-native extra windows, such as Claude's optional
-    model-specific weekly limit, preserved as optional metadata without
-    displacing the primary window display, so that useful detail is not lost
-    while the cross-provider comparison stays consistent.
+26. As a user, I want subscription status limited to each retained provider's
+    primary windows, with no model-specific extra window collected or shown.
 27. As a user, I want a status read to never spend model tokens, so that
     looking at my remaining allowance never consumes it.
-27a. As a user, I want the named `fable` bot automatically disabled when a
-    successful Claude usage refresh shows any required window above 95%, and
-    re-enabled below 95% even if I had disabled it, so new dispatches stop
-    landing on an exhausted Fable subscription without a separate polling
-    service.
+27a. As a user, I want a usage refresh to leave the named `fable` bot's
+    enabled bit unchanged. Removing the old quota gate does not enable or
+    disable it, does not create a config, and does not change routing. I still
+    enable or disable that bot by hand.
 28. As a user, I want every limit refresh, including the ones that fail or
     find a provider missing, kept as history I can read back by hour next to
     that hour's token and cost totals, so that a window resetting inside the
@@ -235,15 +234,14 @@ later delivery.
     refresh fails, and never observed half-written by a vendor CLI running at
     the same moment, so that reading a status number can never cost me a login.
 31. As a user, I want an expired or absent login surfaced as an actionable card
-    naming the **vendor** command to re-run (`claude login`, `codex login`,
-    `grok login`), so that I can fix it without knowing y-agent's internals.
+    naming the **vendor** command to re-run (`codex login` or `grok login`),
+    so that I can fix it without knowing y-agent's internals.
 32. As a user, I want a CLI command that reports each provider's credential
     state without ever printing token material, so that I can diagnose a dark
     card from a terminal safely.
-33. As a user, I want Anthropic's monthly re-authentication to be the only
-    lifecycle work I do for it, with y-agent implementing no Anthropic token
-    handling at all, so that its 30-day session cap costs one login and nothing
-    more.
+33. As a user, I want subscription-limit refresh to perform no Anthropic token
+    handling, so that Claude API spend can keep using the relay without a
+    subscription login path in this feature.
 
 ### Read cost and availability
 
@@ -253,10 +251,9 @@ later delivery.
 35. As a user, I want a stopped VM to answer the status poll immediately with
     an explicit unreachable state instead of being started, so that opening a
     panel never boots an instance.
-36. As a user, I want the expensive Anthropic reading cached on the VM for a
-    few minutes while the two cheap HTTP reads always run fresh, and the cached
-    reading to keep its original observation time, so that a 60-second poll
-    does not spawn a terminal session every minute and freshness never lies.
+36. As a user, I want both subscription reads (Codex and Grok) to run fresh on
+    each limits command, so that a poll does not replay a cached scrape and
+    freshness never lies about a stale observation.
 
 ### Hourly grain
 
@@ -282,13 +279,12 @@ later delivery.
     hour, so that the Live "today by hour" strip can mark the in-progress bar
     without trusting the browser clock.
 37f. As a web user, I want the Live cards above the per-model table, on a wide
-    panel, to lay out as Run rate (full width) → Subscription limits (full
-    width) → "Today by hour" | donut side by side (shared metric toggle), and
-    on a narrow panel to stack Run rate → Subscription limits → Today by hour
-    → donut, and Over-time to offer an `H` granularity clamped to 7 days, so
-    that Subscription limits can show three provider cards in one row at the
-    widths where that previously worked, short-horizon activity stays visible,
-    and daily / weekly / monthly views stay unchanged.
+    panel, to lay out as Run rate (full width) → left column Subscription
+    limits (GPT and Grok weekly rows) above Today by hour, with the donut in
+    the right column (shared metric toggle), and on a narrow panel to stack
+    Run rate → Subscription limits → Today by hour → donut, and Over-time to
+    offer an `H` granularity clamped to 7 days, so that short-horizon activity
+    stays visible and daily / weekly / monthly views stay unchanged.
 37g. As a web user, I want the Over-time `H` granularity to replace the daily
     contribution card with a seven-day grid of the last seven local calendar
     dates (oldest at top, today at bottom) by 24 hour columns, driven by the
@@ -846,15 +842,18 @@ later delivery.
   explicit manual retry) — so the underlying reads, their VM execution, and
   their error vocabulary are unchanged; see "Persisted snapshot" below for
   the read/refresh/failure/lock contract this introduced.
-- **Three providers, three readers, one envelope.** `claude_tui_usage` for
-  anthropic (drive the `claude` CLI's own `/usage` view in an ephemeral tmux
-  session and parse the rendered pane), `codex_usage_api` for openai/codex
-  (authenticated GET of the Codex usage endpoint), `xai_billing_credits` for
-  xai (authenticated GET of the xAI CLI's billing endpoint, tried in two
-  shapes; see below). The three run concurrently; one reader's failure is
-  isolated into the envelope's `errors[]` and can never take the other two
-  down. There is no provider-selector flag: callers take the whole envelope or
-  nothing.
+- **Two providers, two readers, one envelope (todo 4138).** `codex_usage_api`
+  for openai/codex (authenticated GET of the Codex usage endpoint) and
+  `xai_billing_credits` for xai (authenticated GET of the xAI CLI's billing
+  endpoint, tried in two shapes; see below). The two run concurrently; one
+  reader's failure is isolated into the envelope's `errors[]` and cannot take
+  the other down. There is no provider-selector flag: callers take the whole
+  envelope or nothing. The Claude subscription reader, its on-VM scrape cache,
+  and `y claude usage` are removed. `normalize_envelope`, `merge_providers`,
+  and `read_snapshot` drop `claude_code` rows and errors whose origin is the
+  removed Claude reader, `claude_code`, or `anthropic`. That filter does not
+  rewrite the stored preference by itself; the next successful refresh stops
+  carrying those rows forward. Stored limit-history rows are not deleted.
 - **claude-relay-service is not in this path at all.** The earlier design read
   both providers through a CRS self-service endpoint backed by CRS's Redis
   snapshots. That was removed, not wrapped: CRS's per-key fan-out, its
@@ -863,17 +862,17 @@ later delivery.
   sync still runs on CRS and is untouched. CRS remains the meter for relayed
   traffic; it is simply no longer the source of subscription status.
 - **Window kinds are per provider, not a fixed pair.** Contract kinds are
-  `five_hour`, `one_week`, and `billing_period`. Anthropic reports 5-hour and
-  1-week; Codex reports its rolling rate-limit windows, keyed on each window's
-  own reported duration and **never** on primary/secondary position (a live
-  sample returned the one-week window as "primary" with the secondary null);
-  xAI reports one `billing_period` usage row with the period end as its reset.
-  A row is usable when **any** window carries a real percentage. Demanding the
-  5-hour/1-week pair would leave Grok permanently unavailable. Claude's
-  optional model-specific weekly window is retained under `extra_windows`, and
-  a provider-specific `extra` map (xAI's `used`/`monthlyLimit`, prepaid
-  balance, on-demand cap/used, unified-billing flag) rides along on the
-  window.
+  `five_hour`, `one_week`, and `billing_period`. Codex reports its rolling
+  rate-limit windows, keyed on each window's own reported duration and
+  **never** on primary/secondary position (a live sample returned the one-week
+  window as "primary" with the secondary null); xAI reports one
+  `billing_period` usage row with the period end as its reset. A row is usable
+  when **any** window carries a real percentage. Demanding the 5-hour/1-week
+  pair would leave Grok permanently unavailable. The Live card draws Codex's
+  weekly window and Grok's billing-period window; Codex's 5-hour window stays
+  in the payload. Model-specific extra windows are not collected or served. A
+  provider-specific `extra` map (xAI's `used`/`monthlyLimit`, prepaid balance,
+  on-demand cap/used, unified-billing flag) may still ride on the window.
 - **xAI's percent has two source shapes, plain-first (todo 3001).** The
   reader is not a single fixed-field parse: it requests the plain
   `GET /v1/billing` view first and derives `used_percent` from
@@ -888,7 +887,7 @@ later delivery.
   `?format=credits` view stopped carrying `creditUsagePercent` while the plain
   view's `used`/`monthlyLimit` pair stayed populated (the reverse of the
   shape this reader originally shipped against, todo 2872).
-- **Execution on the VM, not in Lambda.** All provider HTTP and the scrape live
+- **Execution on the VM, not in Lambda.** Both provider HTTP reads live
   in `y usage limits [--json] [--refresh]`, which runs on the user's VM. Two
   callers SSH-exec it and normalize the returned envelope: the 30-minute
   worker schedule (`refresh_and_persist_snapshot`, unforced) and
@@ -896,7 +895,7 @@ later delivery.
   reason for VM execution is source IP: shared cloud egress already drew a
   rate-limit response from one vendor on an unauthenticated probe and another
   vendor is Cloudflare-fronted, while the VM's address is stable and already
-  known to all three. The CLI emits exactly the envelope shape the normalizer
+  known to both. The CLI emits exactly the envelope shape the normalizer
   consumes, so the envelope *is* the boundary contract, pinned from both
   sides.
 - **Layering: transport in `agent`, normalization and the persisted snapshot
@@ -985,38 +984,17 @@ later delivery.
   consequence: `READ_FRESH_SECONDS` stays 600, so provider rows read `fresh`
   for 10 minutes after each refresh and `stale` for the other 20, and they
   read `stale` with a `vm_unreachable` attempt error while the VM sleeps.
-- **Fable routing gate at 95% (todo 3573).** After `record_refresh_success`
-  persists the incoming envelope, that same function reconciles the refresh
-  owner's existing named `fable` bot. The evaluator uses only that incoming
-  envelope, never the merged snapshot and never `last_attempt_status == ok`
-  alone. Required windows from the same new Claude row are
-  `windows.five_hour`, `windows.one_week`, and `extra_windows.one_week_fable`.
-  Comparison is the maximum of those three used percents, never a sum or
-  average: `max > 95` disables, `max < 95` enables (including when the bot
-  was manually disabled), `max == 95` leaves state unchanged. Incomplete,
-  missing, or malformed windows, stale or future observations, the wrong
-  provider/source, a Claude-tagged error, or an unscoped malformed payload
-  are no-ops in both directions; other providers' isolated errors do not
-  veto. Eligibility is a complete fresh Claude row (`claude_code` /
-  `anthropic` / `claude_tui_usage`, `available`, no row error, observation
-  age in `[0, DEFAULT_TTL_SECONDS]`). The 240s on-VM Claude cache is
-  permitted and keeps its original timestamp; the wider ten-minute display
-  TTL does not grant gate eligibility. The write is owner+name scoped: it
-  never creates a bot, never updates fields other than `enabled`, and never
-  fans out. A bot-write failure propagates after a successful snapshot
-  persist so the next refresh retries rather than reporting a false gate
-  success. This is periodic admission control on the existing 30-minute
-  refresh path: already-running processes are not interrupted. Normal tier
-  and direct-name routing observe `enabled` via `agent.config._universe`.
-  Alias dereference and the global-default fallback still do not re-check
-  the final target's enabled bit; those remaining bypasses are a
-  routing-policy admission boundary documented in
-  [`bot-routing.md`](bot-routing.md), not closed here. Binding the named
-  Fable bot to the owner's default usage-VM subscription is a load-bearing
-  unverified operational assumption.
+- **No subscription quota gate (todo 4138).** `record_refresh_success` does
+  not read or write any bot's enabled bit. The old 95% gate on the named
+  `fable` bot is removed. That bit stays at whatever value it already has
+  (manual enable and disable still work). There is no replacement gate and no
+  automatic enable. Routing still observes `enabled` through
+  `agent.config._universe`. Alias dereference and the global-default fallback
+  still do not re-check the final target's enabled bit; that boundary stays
+  in [`bot-routing.md`](bot-routing.md).
 - **Limit-window history (todo 3717).** The 30-minute sweep and a manual
   `?refresh=true` already share `refresh_and_persist_snapshot`. That function
-  now also writes history, after the snapshot write and the Fable gate, and a
+  now also writes history, after the snapshot write, and a
   history failure only logs a warning: the returned snapshot is unchanged.
   Cadence stays "every 30 minutes while the VM is awake, plus manual
   refreshes". The hour is the query grain, not a promise that a collection
@@ -1028,7 +1006,7 @@ later delivery.
   providers-less envelope) writes the attempt only. A successful attempt
   records the incoming normalized envelope, never the merged-snapshot
   fallback. Each non-null window is a row (`five_hour`, `one_week`,
-  `billing_period`, or `extra:<key>`); a provider that reports an error or no
+  `billing_period`); a provider that reports an error or no
   windows gets one provider-level row with an empty `window_key`; an expected
   backend absent from the envelope gets `state=missing`, with its error taken
   from `errors[]` by origin. NaN, bool, and non-numeric percents are stored
@@ -1040,7 +1018,7 @@ later delivery.
   outside the CLI timeout. A source time past the allowance is labelled
   `future`. A slow manual attempt therefore reads `future`, never falsely
   `fresh`. A null source time is `unknown`, an age within 300 seconds is
-  `fresh` (so the 240-second Claude on-VM cache counts as fresh), otherwise
+  `fresh`, otherwise
   `stale`, and any state other than `available` is `unavailable`. This
   describes the source against the attempt stamp, not how fresh the row is
   now.
@@ -1060,12 +1038,11 @@ later delivery.
   A null reset is never inferred, so `max_used_percent` for a null-reset
   group is only an upper bound across whatever resets the source did not
   report.
-  Whether a Claude TUI `reset_at` is stable to the minute is unverified, and
-  two different values are kept apart rather than fuzzy-merged. Codex
+  Two different `reset_at` values are kept apart rather than fuzzy-merged. Codex
   `plan_type` and `rate_limit.limit_reached` are account-wide: they are copied
   onto every Codex row of that attempt and never read as a per-window fact.
-  `rate_limit.allowed` is a different field and is not stored. Claude and xAI
-  leave both NULL. The public Codex payload model
+  `rate_limit.allowed` is a different field and is not stored. xAI
+  leaves both NULL. The public Codex payload model
   (`RateLimitStatusPayload` / `RateLimitStatusDetails` in
   openai/codex `codex-rs/codex-backend-openapi-models`, read 2026-09-28)
   defines both fields; no authenticated response was probed, so a live body
@@ -1240,11 +1217,9 @@ later delivery.
   and live. y-agent keeps **no credential store of its own** and has **no login
   command**: `y usage login` and `$Y_AGENT_HOME/.credentials/provider-usage.json`
   were built, shipped once, and then deliberately deleted.
-- **Anthropic handles no token at all.** Its reader asks the `claude` CLI to
-  render a number that CLI already knows, so there is no PKCE flow, no refresh
-  path, and no credential file on y-agent's side for this provider. The 30-day
-  session cap on the subscription grant still applies; y-agent implements none
-  of it and simply reports `reauth_required` when the CLI is logged out.
+- **No Anthropic subscription credential.** Subscription-limit refresh does
+  not read Anthropic, does not scrape a CLI view, and does not store or
+  refresh an Anthropic grant. Claude API spend stays on the relay.
 - **Refresh writes back into the vendor's file.** When the access token has
   expired (60-second margin), y-agent refreshes it at that provider's OAuth
   endpoint and writes the rotated grant back into the same vendor file in its
@@ -1278,8 +1253,8 @@ later delivery.
   60-second-polled panel depend on unrelated CLI habits. And since both
   providers rotate the refresh token on use, refreshing *without* writing back
   is precisely what killed the live `codex` login during this work.
-- **Re-auth is always a vendor action.** `claude login`, `codex login`,
-  `grok login`, which is exactly what the `reauth_required` card names.
+- **Re-auth is always a vendor action.** `codex login` or `grok login`,
+  which is exactly what the `reauth_required` card names.
   `y usage credentials` reports each provider's state (`active` /
   `reauth_required` / `not_logged_in`) by exercising the real refresh path, and
   never prints token material.
@@ -1344,11 +1319,9 @@ later delivery.
   isolated into a per-origin error list rather than failing the whole read.
   Responses omit internal integer ids and never fabricate a current value after
   a failed read: missing or malformed data stays null and visibly unavailable.
-- **Reset text zone (todo 3812).** The Claude `/usage` overlay prints reset
-  times in the CLI's own timezone (e.g. `Resets 10:10pm (Asia/Shanghai)`), not
-  always UTC. `reset_at_iso` parses the text in the zone it prints (any IANA
-  name; "today" and roll-forward are computed in that zone) and converts to
-  UTC. An unrecognized zone or text stays null; the scrape never forces `TZ`.
+- **Reset times come from the provider payload.** Codex and Grok supply
+  `reset_at` on the window. The old Claude overlay text parser is gone
+  (todo 4138). An unparseable reset stays null.
 - **Limit-window history (todo 3717).** `GET /api/usage/limit-history` and
   `y usage limit-history` return the same bounded read: every local hour in
   an inclusive range of at most 31 days, up to the current hour, including
@@ -1378,10 +1351,13 @@ later delivery.
   immediate routing/capacity question rather than an analytics question. It
   is not rendered or fetched for the Over-time tab, which remains a
   historical-spend-only view.
-  Claude, GPT (Codex), and Grok share one card structure that renders whichever
-  windows the provider reported (progress bar, used/remaining percentages,
-  reset time, observed time, and a fresh/stale/unavailable badge), with a
-  dedicated "no windows reported" state rather than empty rows. A
+  GPT (Codex) and Grok share one compact row (label, weekly or billing
+  window, progress, percent, reset, freshness dot). On a wide panel that
+  block sits above Today by hour in the left column; the donut stays in the
+  right column. A narrow panel stacks in that same order. The row does not
+  draw Codex's 5-hour window. There is no Claude subscription row. A
+  provider that reports no drawn window uses a dedicated "no windows reported"
+  state rather than empty rows. A
   `reauth_required` provider renders an actionable card naming the vendor login
   to re-run, distinct from plain unavailable and from `vm_unreachable`. Cards
   are classified from stable `backend`/`provider` identifiers, never from
@@ -1851,19 +1827,12 @@ as decisions.
   only `force` differing; the CLI timeout stays the existing 30s bound; and a
   user with no successful refresh yet reads a bounded `snapshot_unavailable`
   envelope without any VM probe.
-- **Fable gate contracts (todo 3573) are asserted on the incoming envelope
-  and the named bot row, not on display merge:** the evaluator table covers
-  94.9 / 95 / 95.1, mixed windows, zero, over-100, numeric strings, bool,
-  negative, NaN/Infinity, missing extra, stale/future/bad observation, wrong
-  provider/source, and unrelated versus Claude/unscoped errors; reconciliation
-  covers enable, disable (including a prior manual disable), equality no-op,
-  absent/wrong-backend/ref/other-owner no-ops, and unchanged unrelated
-  fields; `record_refresh_success` uses the new envelope so retained old low
-  Claude readings after a failed/missing Claude row do not re-enable, a
-  persistence failure does not mutate the bot, and a bot-write failure is
-  not a silent success; scheduled `force=False` and manual `force=True`
-  share that success seam while asleep/no-VM/CLI-failure/held-lock/ordinary
-  reads never call it. Cadence stays 1800s and read freshness 600s.
+- **No quota gate (todo 4138).** A successful refresh does not read or write
+  a bot's enabled bit. Codex and Grok rows survive normalize, merge, and
+  read; `claude_code` rows and Claude-origin errors do not. History does not
+  synthesize a missing Claude backend and does not write extra windows.
+  Stored history rows are not deleted. Cadence stays 1800s and read freshness
+  600s.
 - **Credential write safety is tested on the file, not the code path:** a
   failed refresh leaves the vendor file byte-identical (hash before/after); a
   successful refresh preserves every unrelated field, the file mode, and Grok's
@@ -1904,7 +1873,7 @@ as decisions.
   but never renders or requests Subscription limits.
 - **Limit-status states** cover fresh, stale, never-observed, provider-error,
   re-auth-required, missing-reset-time, zero-windows-reported, and narrow-panel
-  layouts across all three backends, with configured-timezone reset labels
+  layouts across both retained backends, with configured-timezone reset labels
   checked against the absolute API timestamps. These are asserted in component
   tests and fixtures; screenshots are taken only on request, per the house
   policy that agent-driven UI runtime checks are opt-in.
@@ -1914,9 +1883,9 @@ as decisions.
   `unknown`); an absent Grok is `missing` and
   inherits its origin error; a merged fallback row is never recorded; a UTC
   16:30 bucket lands on the next local midnight hour; freshness is
-  fresh/stale/future/unknown against the collection time, with a 240-second
-  cache counted fresh; a reset inside an hour and a null reset are separate
-  groups, and two distinct Claude reset values are not merged; replaying one
+  fresh/stale/future/unknown against the collection time, and a source four
+  minutes before the attempt is fresh; a reset inside an hour and a null reset are separate
+  groups, and two distinct reset values are not merged; replaying one
   attempt id writes nothing and two attempts sharing a source time count as
   one distinct observation; empty hours are present with zero attempts; 32
   days, too many observations, and too many attempts all refuse; the spend
@@ -1946,11 +1915,11 @@ as decisions.
   and build gate the module.
 - **Post-deploy smoke:** trigger a sync, confirm rows appear for the current
   day, spot-check a date's totals against the relay dashboard, then call the
-  deployed limits endpoint and confirm all three providers return with an empty
-  error list; cross-check the Claude numbers against `/usage` in an interactive
-  Claude Code session and the Grok number against the vendor's own billing
-  view, and confirm a relay-backed agent turn running concurrently is
-  unaffected.
+  deployed limits endpoint and confirm Codex and Grok return with an empty
+  error list and no Claude subscription row; cross-check the Grok number
+  against the vendor's own billing view, and confirm a relay-backed agent
+  turn running concurrently is unaffected. `y claude` is not a command. The
+  named `fable` bot's enabled bit is unchanged by the refresh.
 - Prior art to mirror: the finance test suite's derived-view style and the
   finance price table's upsert tests.
 

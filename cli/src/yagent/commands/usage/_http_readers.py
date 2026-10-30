@@ -3,7 +3,8 @@ direct HTTP reads of the two providers' subscription usage, using the
 vendor CLI's own grant (read through by `_refresh.ensure_access_token`).
 
 Response shapes below are LIVE-VERIFIED (todo 2872, 2026-07-30, against a
-real Claude Max + Codex Pro + xAI account) -- both diverge from the plan's
+real Codex Pro + xAI account; the Anthropic scrape is no longer a reader,
+todo 4138) -- both diverge from the plan's
 reverse-engineered guesses, which came from decompiled binary strings for
 xAI and an assumed `rate_limits[]`/`window_minutes` shape for Codex (there
 never was a live token to check either against before). Parsed defensively

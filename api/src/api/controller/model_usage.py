@@ -243,7 +243,7 @@ async def limit_history(
 
 @router.get("/limits")
 async def limits(request: Request, refresh: bool = False):
-    """Subscription limit-window status (Claude, Codex, Grok), read from the
+    """Subscription limit-window status (Codex, Grok), read from the
     persisted snapshot in `user_preference` key `usage_limits_latest`
     (todo 3226). Ordinary polls never touch the VM/SSH/CLI path — a
     30-minute worker sweep keeps that snapshot current, read here as a

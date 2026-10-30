@@ -3,7 +3,7 @@
 Every refresh that actually runs leaves an attempt row. A successful
 attempt also leaves one observation per reported window, plus a
 provider-level row when a provider reports an error, reports no windows,
-or is one of the three expected backends and is simply absent. Nothing is
+or is one of the two expected backends and is simply absent. Nothing is
 zero-filled and nothing is taken from the merged snapshot fallback: only
 the incoming normalized envelope is recorded.
 
@@ -32,14 +32,14 @@ from storage.service.model_usage_limits import (
 )
 from storage.util import _time_filter_tz
 
-# The three backends a successful envelope is expected to cover. An absent
-# one is recorded as missing rather than dropped.
-EXPECTED_BACKENDS = ("claude_code", "codex", "grok")
+# The backends a successful envelope is expected to cover. An absent one is
+# recorded as missing rather than dropped. Claude subscription limits are
+# not an expected backend (todo 4138); stored history rows are not deleted.
+EXPECTED_BACKENDS = ("codex", "grok")
 
 # errors[].origin -> the backend that error belongs to. An unmatched origin
 # leaves the missing row's error NULL.
 _ERROR_ORIGIN_BACKEND = {
-    "claude_tui_usage": "claude_code",
     "codex_usage_api": "codex",
     "xai_billing_credits": "grok",
 }
@@ -153,12 +153,6 @@ def _window_rows(item: dict) -> list[tuple[str, dict | None]]:
         raw = windows.get(kind)
         if isinstance(raw, dict):
             rows.append((kind, raw))
-    extra = item.get("extra_windows") or {}
-    if isinstance(extra, dict):
-        for key in sorted(extra):
-            raw = extra.get(key)
-            if isinstance(raw, dict):
-                rows.append((f"extra:{key}", raw))
     return rows
 
 

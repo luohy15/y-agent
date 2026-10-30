@@ -1,6 +1,6 @@
 """Normalization plus the persisted latest snapshot (todo 3226) for live
-subscription limit-window status (Claude / Codex 5h + 1w windows, Grok
-billing-period window).
+subscription limit-window status (Codex 5h + 1w windows, Grok billing-period
+window). Claude subscription rows are not read or served (todo 4138).
 
 Separate operational dataset from `model_usage_daily`: no migration SQL and
 no sync of its own. The latest snapshot below is still one `user_preference`
@@ -29,29 +29,18 @@ from datetime import datetime, timezone
 
 from loguru import logger
 
-from storage.service import bot_config as bot_config_service
 from storage.service import user_preference as user_pref_service
 
 # TTL passed to normalize_envelope for a single live CLI attempt (todo 3226:
 # still used at refresh time; no longer used to gate an ordinary read, see
-# READ_FRESH_SECONDS). Also the eligibility window for the Fable routing gate
-# (todo 3573): a Claude observation older than this, or in the future, is not
-# fresh enough to mutate enabled state.
+# READ_FRESH_SECONDS).
 DEFAULT_TTL_SECONDS = 300
 
-# Owner-scoped named bot reconciled after a successful Claude usage refresh.
-FABLE_BOT_NAME = "fable"
-FABLE_GATE_THRESHOLD = 95.0
-_FABLE_REQUIRED_WINDOWS = ("five_hour", "one_week")
-_FABLE_REQUIRED_EXTRA = "one_week_fable"
-_FABLE_CLAUDE_BACKEND = "claude_code"
-_FABLE_CLAUDE_PROVIDER = "anthropic"
-_FABLE_CLAUDE_SOURCE = "claude_tui_usage"
-_CLAUDE_ERROR_ORIGINS = frozenset({
-    "claude_tui_usage", "claude_code", "anthropic",
-})
-_MALFORMED_PAYLOAD_CODES = frozenset({"malformed_item", "bad_payload"})
-_UNSCOPED_ERROR_ORIGINS = frozenset({None, "", "vm", "snapshot"})
+# Claude subscription limits are no longer collected. Rows and errors from
+# that path are dropped at normalize, merge, and read. Nothing rewrites the
+# stored preference just to delete them (todo 4138).
+_DROPPED_BACKEND = "claude_code"
+_DROPPED_ERROR_ORIGINS = frozenset({"claude_code", "anthropic"})
 
 _WINDOW_KINDS = ("five_hour", "one_week", "billing_period")
 
@@ -179,11 +168,30 @@ def _freshness(availability: str, observed_at: str | None, windows: dict, ttl_se
     return "fresh" if age <= ttl_seconds else "stale"
 
 
+def _dropped_provider(item) -> bool:
+    return isinstance(item, dict) and item.get("backend") == _DROPPED_BACKEND
+
+
+def _dropped_error(entry) -> bool:
+    if not isinstance(entry, dict):
+        return False
+    origin = entry.get("origin")
+    if not isinstance(origin, str):
+        return False
+    # Prefix covers the removed scrape reader's origin without keeping that
+    # name as a live reference.
+    return origin in _DROPPED_ERROR_ORIGINS or origin.startswith("claude_")
+
+
+def _without_extra_windows(account: dict) -> dict:
+    if "extra_windows" not in account:
+        return account
+    return {key: value for key, value in account.items() if key != "extra_windows"}
+
+
 def _normalize_account(item: dict, ttl_seconds: int) -> dict:
     windows_raw = item.get("windows") or {}
     windows = {kind: _normalize_window(windows_raw.get(kind)) for kind in _WINDOW_KINDS}
-    extra_raw = item.get("extra_windows") or {}
-    extra_windows = {k: _normalize_window(v) for k, v in extra_raw.items()}
     observed_at = item.get("observed_at")
     availability = item.get("availability") or "unavailable"
     account = {
@@ -197,7 +205,6 @@ def _normalize_account(item: dict, ttl_seconds: int) -> dict:
         "freshness": _freshness(availability, observed_at, windows, ttl_seconds),
         "error": item.get("error"),
         "windows": windows,
-        "extra_windows": extra_windows,
     }
     # Account-wide, and only when the source actually sent them. Kept off the
     # row otherwise so an older payload shape stays byte-for-byte unchanged.
@@ -268,10 +275,14 @@ def normalize_envelope(raw: dict, ttl_seconds: int | None = None, origin: str = 
         return {"providers": [], "errors": [{"origin": origin, "error": "bad_payload"}]}
 
     raw_providers = raw.get("providers") or []
-    errors: list[dict] = list(raw.get("errors") or [])
+    errors: list[dict] = [
+        entry for entry in (raw.get("errors") or []) if not _dropped_error(entry)
+    ]
 
     candidates: dict[str, dict] = {}
     for item in raw_providers:
+        if _dropped_provider(item):
+            continue
         try:
             account = _normalize_account(item, ttl)
         except Exception as e:
@@ -315,10 +326,17 @@ def merge_providers(old_providers: list, new_providers: list) -> list:
     data rather than being permanently hidden behind it. A backend absent
     from the new attempt entirely also keeps its previous row.
     """
-    old_by_backend = {p.get("backend"): p for p in old_providers}
+    old_by_backend = {
+        p.get("backend"): _without_extra_windows(p)
+        for p in old_providers
+        if not _dropped_provider(p)
+    }
     merged = []
     seen = set()
     for item in new_providers:
+        if _dropped_provider(item):
+            continue
+        item = _without_extra_windows(item)
         backend = item.get("backend")
         seen.add(backend)
         old = old_by_backend.get(backend)
@@ -342,18 +360,21 @@ def _with_read_freshness(providers: list) -> list:
     freshness value frozen at refresh time — the same row read past
     READ_FRESH_SECONDS after a successful refresh must not still claim
     `fresh`."""
-    return [
-        {
-            **p,
+    refreshed = []
+    for item in providers:
+        if _dropped_provider(item):
+            continue
+        row = _without_extra_windows(item)
+        refreshed.append({
+            **row,
             "freshness": _freshness(
-                p.get("availability") or "unavailable",
-                p.get("observed_at"),
-                p.get("windows") or {},
+                row.get("availability") or "unavailable",
+                row.get("observed_at"),
+                row.get("windows") or {},
                 READ_FRESH_SECONDS,
             ),
-        }
-        for p in providers
-    ]
+        })
+    return refreshed
 
 
 def read_snapshot(user_id: int) -> dict:
@@ -369,117 +390,14 @@ def read_snapshot(user_id: int) -> dict:
     stored = pref.value
     return {
         "providers": _with_read_freshness(stored.get("providers") or []),
-        "errors": stored.get("errors") or [],
+        "errors": [
+            entry for entry in (stored.get("errors") or []) if not _dropped_error(entry)
+        ],
         "last_attempt_at": stored.get("last_attempt_at"),
         "last_success_at": stored.get("last_success_at"),
         "last_attempt_status": stored.get("last_attempt_status"),
         "last_attempt_error": stored.get("last_attempt_error"),
     }
-
-
-def _used_percent(window) -> float | None:
-    """Finite nonnegative used_percent, else None. Values above 100 stay
-    valid exhausted readings; negatives and bools do not."""
-    if not isinstance(window, dict):
-        return None
-    used = _valid_percent(window.get("used_percent"))
-    if used is None or used < 0:
-        return None
-    return used
-
-
-def _fable_errors_veto(errors) -> bool:
-    """True when the envelope cannot prove a complete Claude read.
-
-    Other providers' isolated errors do not veto. A Claude-tagged error, or
-    an unscoped malformed-payload error, does: either means this attempt
-    cannot be trusted as a complete fresh Claude observation.
-    """
-    for entry in errors or []:
-        if not isinstance(entry, dict):
-            continue
-        origin = entry.get("origin")
-        code = entry.get("error")
-        if not code:
-            continue
-        if origin in _CLAUDE_ERROR_ORIGINS:
-            return True
-        if origin in _UNSCOPED_ERROR_ORIGINS and code in _MALFORMED_PAYLOAD_CODES:
-            return True
-    return False
-
-
-def _incoming_claude_row(envelope: dict) -> dict | None:
-    for item in envelope.get("providers") or []:
-        if not isinstance(item, dict):
-            continue
-        if (
-            item.get("backend") == _FABLE_CLAUDE_BACKEND
-            and item.get("provider") == _FABLE_CLAUDE_PROVIDER
-            and item.get("source") == _FABLE_CLAUDE_SOURCE
-        ):
-            return item
-    return None
-
-
-def evaluate_fable_desired_enabled(envelope: dict) -> bool | None:
-    """Map a *new* normalized usage envelope to a Fable enabled bit.
-
-    Returns True to enable, False to disable, None to leave the current
-    state unchanged. Uses only the incoming envelope (never a merged
-    snapshot): the three required Claude windows, max-not-sum comparison
-    against 95, and a complete fresh Claude row. Incomplete, stale, future,
-    malformed, or untrustworthy input is a no-op in both directions.
-    """
-    if not isinstance(envelope, dict):
-        return None
-    if _fable_errors_veto(envelope.get("errors")):
-        return None
-    row = _incoming_claude_row(envelope)
-    if row is None:
-        return None
-    if row.get("availability") != "available" or row.get("error"):
-        return None
-    observed_at = row.get("observed_at")
-    if not isinstance(observed_at, str) or not observed_at:
-        return None
-    age = _age_seconds(observed_at)
-    if age is None or age < 0 or age > DEFAULT_TTL_SECONDS:
-        return None
-    windows = row.get("windows") or {}
-    extra = row.get("extra_windows") or {}
-    if not isinstance(windows, dict) or not isinstance(extra, dict):
-        return None
-    values = [
-        _used_percent(windows.get(kind)) for kind in _FABLE_REQUIRED_WINDOWS
-    ]
-    values.append(_used_percent(extra.get(_FABLE_REQUIRED_EXTRA)))
-    if any(value is None for value in values):
-        return None
-    peak = max(values)
-    if peak > FABLE_GATE_THRESHOLD:
-        return False
-    if peak < FABLE_GATE_THRESHOLD:
-        return True
-    return None
-
-
-def reconcile_fable_enabled(user_id: int, envelope: dict) -> None:
-    """Apply evaluate_fable_desired_enabled to the owner's existing `fable`
-    bot. Never creates a config, never fans out, never writes fields other
-    than enabled. A write error propagates to the caller.
-    """
-    desired = evaluate_fable_desired_enabled(envelope)
-    if desired is None:
-        return
-    config = bot_config_service.get_config(user_id, FABLE_BOT_NAME)
-    if config is None or config.ref_bot_name:
-        return
-    if (config.backend or config.api_type) != _FABLE_CLAUDE_BACKEND:
-        return
-    if config.enabled == desired:
-        return
-    bot_config_service.set_enabled(user_id, FABLE_BOT_NAME, desired)
 
 
 def record_refresh_success(user_id: int, envelope: dict, attempt_at: str) -> dict:
@@ -488,10 +406,7 @@ def record_refresh_success(user_id: int, envelope: dict, attempt_at: str) -> dic
     whatever was previously stored so one bad provider row in an otherwise
     good run never destroys good data for the others.
 
-    After the snapshot write succeeds, reconcile the owner's `fable` bot
-    against this *incoming* envelope (todo 3573), not the merged snapshot.
-    A bot-write failure propagates; the stored usage may remain valid and
-    the next refresh retries.
+    This write does not read or change any bot's enabled bit.
     """
     pref = user_pref_service.get_preference(user_id, SNAPSHOT_PREFERENCE_KEY)
     previous = pref.value if pref and pref.value else {}
@@ -505,7 +420,6 @@ def record_refresh_success(user_id: int, envelope: dict, attempt_at: str) -> dic
         "last_attempt_error": None,
     }
     user_pref_service.upsert_preference(user_id, SNAPSHOT_PREFERENCE_KEY, stored)
-    reconcile_fable_enabled(user_id, envelope)
     return read_snapshot(user_id)
 
 

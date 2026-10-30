@@ -1,4 +1,4 @@
-"""Orchestrates the live subscription limit-window read (Claude, Codex, Grok)
+"""Orchestrates the live subscription limit-window read (Codex, Grok)
 that backs the persisted snapshot: resolve the user's VM, SSH-exec
 `y usage limits --json` (mirroring worker/downloaders/ssh.py), and normalize
 the result via storage.service.model_usage_limits. Lives in `agent` (not
@@ -168,8 +168,8 @@ def _lock_name(user_id: int) -> str:
 
 async def _run_usage_limits_cli(vm_config, refresh: bool = False) -> str:
     """Run `y usage limits --json` on the user's VM and return raw stdout.
-    `refresh` appends `--refresh`, telling the CLI to bypass its own on-VM
-    cache for this one read."""
+    `refresh` still appends `--refresh`. Both remaining readers are uncached,
+    so the flag does not change the read (todo 4138)."""
     cmd = ["y", "usage", "limits", "--json"]
     if refresh:
         cmd.append("--refresh")
@@ -226,10 +226,10 @@ async def refresh_and_persist_snapshot(user_id: int, force: bool = False) -> dic
     each of those operations is independently bounded and cleans up after
     itself (see the executor comment above), not the cancellation.
 
-    `force` maps to the CLI's own `--refresh` flag (bypass its on-VM cache):
-    True only for the explicit user retry, False for the scheduled sweep,
-    which runs slower than that cache's own TTL and does not need to force
-    it. A stopped EC2 instance is never woken to serve a refresh; it answers
+    `force` maps to the CLI's own `--refresh` flag. True only for the explicit
+    user retry, False for the scheduled sweep. The flag no longer bypasses a
+    cache: Codex and Grok always run fresh. A stopped EC2 instance is never
+    woken to serve a refresh; it answers
     `vm_unreachable` immediately, same as an ordinary SSH/CLI failure.
     """
     lock_name = _lock_name(user_id)

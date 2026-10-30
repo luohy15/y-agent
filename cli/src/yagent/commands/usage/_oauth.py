@@ -1,11 +1,9 @@
 """Per-provider OAuth request shapes for the direct provider-usage credential
 layer (plan-2872-direct-provider-usage.md, sub-tasks 1-2).
 
-Scope note: Anthropic has **no** y-agent-owned grant or refresh path here.
-Per the plan's per-provider verdict, Anthropic reads live usage via the
-revived `/usage` TUI scrape (`agent.claude_usage`), where the `claude` CLI
-owns and refreshes its own subscription credential -- no PKCE flow, no
-refresh module, no grant storage. This module covers OpenAI and xAI only.
+Scope note: this module covers OpenAI and xAI only. Subscription-limit
+refresh does not read Anthropic and has no Anthropic grant or refresh path
+(todo 4138).
 
 Endpoints, client_ids, body encodings below are exactly as
 reverse-engineered from claude-relay-service and documented in the plan for

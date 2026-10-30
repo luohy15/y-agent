@@ -11,10 +11,9 @@ separately-held y-agent copy dies on the next login and never recovers.
 Reading through removes the second grant entirely, so there is nothing left
 for a vendor login to invalidate.
 
-Scope: **openai and xai only** (`PROVIDERS`). Anthropic reads live usage via
-the `/usage` TUI scrape (`agent.claude_usage`), where the `claude` CLI owns
-its own subscription credential end to end -- no grant, no refresh path, no
-file, here or anywhere in y-agent.
+Scope: **openai and xai only** (`PROVIDERS`). Subscription-limit refresh does
+not read Anthropic and does not store or refresh an Anthropic grant
+(todo 4138). Claude API spend stays on the relay and is not this module.
 
 Vendor file shapes (both live-verified, todo 2872):
     - `~/.codex/auth.json`: `{"tokens": {"access_token", "refresh_token",
