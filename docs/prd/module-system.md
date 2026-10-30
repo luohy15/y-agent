@@ -1204,9 +1204,13 @@ resolve active version for slug
 
 Two details are load-bearing. Imports use a **version-unique top-level package
 name** derived from slug and hash, so two versions of the same module can coexist
-in one warm container without colliding in `sys.modules` mid-switch. And the
-cache key is the **content hash**, not the version id, so an unchanged rebuild
-reuses a loaded module and a rollback to an already-loaded version is free.
+in one warm container without colliding in `sys.modules` mid-switch. Hyphens in
+the slug are rewritten to underscores first (`family-finance` becomes
+`family_finance`): a slug may contain hyphens, and the import name must stay an
+identifier. The content hash is not rewritten, so two versions still never share
+a package. The local CLI package name uses the same hyphen rule without the
+hash. The cache key is the **content hash**, not the version id, so an unchanged
+rebuild reuses a loaded module and a rollback to an already-loaded version is free.
 
 Cold-start cost, fetch plus verify plus import on the first request to a module
 route, is accepted. It is bounded, it is paid once per container per module, and
@@ -1391,6 +1395,30 @@ arise. The known consequence is that `y <slug>` does not exist on a machine
 without the module source, which after the finance migration means the Mac.
 `$Y_AGENT_HOME` exists on both machines, so the mechanism works anywhere the
 source is present; getting it there is `y file download`.
+
+### Family Finance compatibility (todo 4143)
+
+One temporary pair, not a general alias table. It comes out when the old module
+and the compatibility views are dropped under a later authorization. The host
+does not rewrite JSON. The module may return `family_finance` plus a transitional
+`household` alias of the same object, and that body is forwarded as produced.
+
+**CLI.** `y household` loads `code/y-module/household` when that directory has
+`module.json` and `cli.py`. Otherwise it loads `family-finance` and keeps the
+command name `household`. Enablement is not consulted, because the local CLI is
+not version-routed and both names share one ledger. Putting the old source back
+restores the old group. `y family-finance` is never redirected. A failure while
+loading the chosen source is returned; it is not swapped for the other source.
+
+**HTTP.** A request under `/api/module/household/…` is dispatched to
+`family-finance` only when that module exists, is enabled, and has an active API
+version. The ledger resource moves with it: `/household`, `/household/currency`,
+and `/household/assumptions` become `/family-finance` and the same subpaths.
+Every other resource path stays. Method and body stay. If `family-finance` is
+missing, disabled, or has no API half, the request stays on `household`, so a
+disabled target cannot capture the old route during rollback. Once that target
+version has resolved, a later fetch, hash, or import failure is returned as that
+error. There is no second try against `household`.
 
 ### Failure isolation
 

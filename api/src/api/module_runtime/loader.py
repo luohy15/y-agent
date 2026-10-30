@@ -73,7 +73,11 @@ def package_name_for(slug: str, api_sha256: str) -> str:
     # short prefix must still get distinct sys.modules packages so a "already
     # imported" lookup under the second full hash can never reuse the first
     # package's code (review finding 4).
-    return f"ymod_{slug}_{api_sha256}"
+    # Hyphens are legal in a slug (`family-finance`) and illegal in an import
+    # name. The local CLI helper already rewrites them; keep the published
+    # name on the same rule (todo 4143). The digest is unchanged.
+    safe_slug = slug.replace("-", "_")
+    return f"ymod_{safe_slug}_{api_sha256}"
 
 
 def extract_root_for(api_sha256: str) -> Path:

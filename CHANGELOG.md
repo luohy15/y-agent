@@ -14,6 +14,8 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Added
 
+- **Family Finance aliases (4143)**: `y household` loads the `family-finance` CLI when the old source is absent. `/api/module/household` rewrites to an enabled `family-finance` module, including the ledger resource path, and leaves the method and body unchanged. A missing, disabled, or API-less target still serves the legacy module. Published import names replace hyphens in the slug.
+
 ### Changed
 
 ### Fixed

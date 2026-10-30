@@ -80,6 +80,22 @@ def is_discoverable_module(slug: str) -> bool:
     )
 
 
+# One compatibility pair, not a general alias table (todo 4143). The requested
+# name wins when that source is on disk. Enablement is not consulted: the
+# local CLI is not version-routed, and both names share one ledger.
+CLI_SOURCE_ALIAS = {"household": "family-finance"}
+
+
+def cli_source_slug(requested: str) -> Optional[str]:
+    """Return the on-disk source slug for a CLI group name, or None."""
+    if is_discoverable_module(requested):
+        return requested
+    target = CLI_SOURCE_ALIAS.get(requested)
+    if target and is_discoverable_module(target):
+        return target
+    return None
+
+
 class LazyModuleProxy(click.Group):
     """Placeholder group that imports `<slug>.cli` only when resolved.
 
@@ -93,10 +109,15 @@ class LazyModuleProxy(click.Group):
     is forwarded.
     """
 
-    def __init__(self, slug: str, short_help: Optional[str] = None):
+    def __init__(
+        self,
+        slug: str,
+        short_help: Optional[str] = None,
+        invoked_name: Optional[str] = None,
+    ):
         help_text = short_help or f"Module command group for {slug!r}."
         super().__init__(
-            name=slug,
+            name=invoked_name or slug,
             help=help_text,
             short_help=short_help,
         )
@@ -155,7 +176,11 @@ class LazyModuleGroup(click.Group):
 
     def list_commands(self, ctx: click.Context) -> list[str]:
         names = set(super().list_commands(ctx))
-        names.update(discover_module_slugs())
+        discovered = discover_module_slugs()
+        names.update(discovered)
+        for alias, target in CLI_SOURCE_ALIAS.items():
+            if alias not in names and target in discovered:
+                names.add(alias)
         return sorted(names)
 
     def get_command(self, ctx: click.Context, cmd_name: str) -> Optional[click.Command]:
@@ -165,9 +190,14 @@ class LazyModuleGroup(click.Group):
         builtin = super().get_command(ctx, cmd_name)
         if builtin is not None:
             return builtin
-        if not is_discoverable_module(cmd_name):
+        source = cli_source_slug(cmd_name)
+        if source is None:
             return None
-        return LazyModuleProxy(cmd_name, short_help=module_short_help(cmd_name))
+        return LazyModuleProxy(
+            source,
+            short_help=module_short_help(source),
+            invoked_name=cmd_name,
+        )
 
     def invoke(self, ctx: click.Context):
         import httpx

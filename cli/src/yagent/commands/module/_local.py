@@ -19,7 +19,8 @@ from ._paths import modules_dir, source_dir
 def package_name_for(slug: str) -> str:
     # Local (unpublished) packages use a stable name so CLI state survives
     # across invocations in the same process; the published loader uses a
-    # content-hash-qualified name instead.
+    # content-hash-qualified name instead. Hyphens are rewritten in both
+    # places so the import name stays an identifier (todo 4143).
     return f"ymod_local_{slug.replace('-', '_')}"
 
 

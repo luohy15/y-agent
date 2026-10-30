@@ -18,6 +18,26 @@ from api.module_runtime import loader
 from api.module_runtime.errors import ModuleRuntimeError
 from api.middleware.api_latency import MONITOR_SCOPE_KEY, UNMATCHED_ROUTE
 
+# One compatibility pair (todo 4143), not a general alias table. A miss of
+# these kinds leaves the legacy slug in place so a disabled target cannot
+# capture the old route. Any other resolve error, and every load error after
+# a successful resolve, is returned as-is.
+FAMILY_FINANCE_SLUG = "family-finance"
+HOUSEHOLD_SLUG = "household"
+_ALIAS_MISS = frozenset({"not_found", "disabled", "no_api"})
+
+
+def rewrite_household_resource_path(rest: str) -> str:
+    """Map the legacy ledger resource onto `/family-finance`.
+
+    `/household`, `/household/currency`, and `/household/assumptions` move.
+    Every other resource stays. Method and body are not touched.
+    """
+    marker = "/household"
+    if rest == marker or rest.startswith(marker + "/"):
+        return "/family-finance" + rest[len(marker):]
+    return rest
+
 
 async def _send_json(send, status: int, body: dict) -> None:
     payload = json.dumps(body).encode("utf-8")
@@ -127,11 +147,25 @@ class ModuleDispatcher:
             )
             return
 
-        try:
-            version = self._resolve(owner_id, slug)
-        except ModuleRuntimeError as err:
-            await _send_json(send, _status_for(err), err.detail())
-            return
+        version = None
+        if slug == HOUSEHOLD_SLUG:
+            try:
+                aliased = self._resolve(owner_id, FAMILY_FINANCE_SLUG)
+            except ModuleRuntimeError as err:
+                if err.kind not in _ALIAS_MISS:
+                    await _send_json(send, _status_for(err), err.detail())
+                    return
+            else:
+                slug = FAMILY_FINANCE_SLUG
+                rest = rewrite_household_resource_path(rest)
+                version = aliased
+
+        if version is None:
+            try:
+                version = self._resolve(owner_id, slug)
+            except ModuleRuntimeError as err:
+                await _send_json(send, _status_for(err), err.detail())
+                return
 
         if user_id != owner_id and version.dispatch_scope != "authenticated":
             await _send_json(
