@@ -19,6 +19,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ### Changed
 
 - **Family Finance replacement (4143)**: removed the Household CLI/API aliases. Each entry point resolves only its own source or module; after source replacement `y household` is unknown, and the retained disabled Household module returns HTTP 403 rather than forwarding to Family Finance.
+- **Over Time model filter (4146)**: a non-empty Filter models query now narrows the whole Over-time section (chart, averages strip, heatmap or hourly grid, and history table) to one model set, so the surfaces cannot disagree. An empty query leaves every surface unfiltered, a legend click still isolates only the chart, and Usage Live stays outside the filter.
 
 ### Fixed
 
