@@ -206,14 +206,6 @@ entity + controller + service + CLI slices, and most have a web panel.
   resolved module child-route identity. Host-owned raw/hourly/daily telemetry is
   rolled up and retained by the worker schedule. The `monitor` module reads it only
   through four configured-maintainer-only `api_latency_*` backend contract v10 queries.
-- **Provider service health** — host-owned `provider_status_*` tables normalize
-  upstream-reported component and incident state. The exact unauthenticated-but-secret
-  Anthropic Statuspage webhook receiver validates the canonical page identity, writes a
-  redacted bounded receipt before 2xx, and is reconciled from the official Status API on
-  the worker schedule. Statuspage deactivates an endpoint that answers non-2xx within
-  30s, so every canonical-page delivery is acknowledged: one it cannot normalize is kept
-  as an `unhandled` receipt that advances only `last_webhook_receipt_at`. Bot reads only four maintainer-bound v12 host-contract queries.
-  Setup, privacy limits, and manual subscription steps: `docs/provider-status.md`.
 - **Image transport** — API image ingestion stores bytes only under
   `/Users/roy/luohy15/assets/images/`: local writes when available, otherwise SSH-push
   to EC2. Workers SSH-fetch local EC2 paths before Telegram delivery. `Message.images`
@@ -367,8 +359,6 @@ exceptions noted):
   stays in `user_preference` and is not one of these tables.
 - **Dev / trace**: `dev_worktree`, `dev_release`, `dev_release_waiter`, `trace_share`
 - **API telemetry**: `api_latency_event`, `api_latency_rollup`
-- **Provider status**: `provider_status_source`, `provider_status_component`,
-  `provider_status_incident`, `provider_status_incident_update`, `provider_status_event`
 - **MCP connectors** (todo 3796): `mcp_connector`, `mcp_credential`,
   `mcp_oauth_transaction`, `mcp_launch`, `mcp_launch_connector` (all in
   `entity/mcp.py`; one service `service/mcp.py`)
@@ -412,7 +402,7 @@ Grouped by feature area:
   `/api/module/<slug>/*` by `api/module_runtime/` (not a built-in controller per
   domain). Per-module route inventories live in `code/y-module/<slug>/README.md`.
 - **Infrastructure**: `telegram.py` (private-only webhook, bind/unbind, routing),
-  `provider_status.py` (exact Anthropic Statuspage receiver), `mcp.py` (the
+  `mcp.py` (the
   launch-grant-authenticated runtime gateway only; management and OAuth completion
   are the `mcp` module over `mcp_*` host capabilities), `vm_config.py`,
   `dev_worktree.py` (supported compatibility worktree routes),
@@ -433,8 +423,7 @@ Grouped by feature area:
   (including `tag_create_vocabulary`, `tag_delete_vocabulary`,
   `tag_rename_plan` / `tag_rename_apply`),
   `dev_worktree_*`, pure `normalize_project_key` / `ProjectKeyError`,
-  fixed `api_latency_*`, and configured-maintainer-only `provider_status_*` and
-  `mcp_*` capabilities; `tag_get` todo rows include `updated_at_unix`; time-range
+  fixed `api_latency_*`, and configured-maintainer-only `mcp_*` capabilities; `tag_get` todo rows include `updated_at_unix`; time-range
   allowlist includes `describe_time_range`)
 - `mcp/`: host MCP connector runtime (todo 3796): `egress.py` (public-only HTTPS),
   `oauth.py`, `client.py` (tools-only Streamable HTTP client), `manager.py`
@@ -459,7 +448,7 @@ Grouped by feature area:
 - `monitor.py` — tails detached process stdout, flushes to DB; on a normal
   closeout it calls the session-end reconcile (todo 4077)
 - `session_end.py` — `reconcile_session_end`: one owner probe, shared idle claim
-- `steps/` — RSS feed fetch, link batch download, provider-status reconciliation,
+- `steps/`: RSS feed fetch, link batch download,
   publication-grant wakeup recovery (`recover_release_grants`), registered
   scheduled chat wakeup delivery (`deliver_chat_wakeups`, todo 3655)
 - `downloaders/` — SSH wrapper that runs `y link fetch --json` on the user's VM

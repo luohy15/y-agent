@@ -43,9 +43,6 @@ def _handle_scheduled_action(action: str, event: dict) -> dict:
     if action == "batch_download_links":
         from worker.steps.batch_download_links import handle_batch_download_links
         return asyncio.run(handle_batch_download_links())
-    if action == "reconcile_provider_status":
-        from worker.steps.reconcile_provider_status import handle_reconcile_provider_status
-        return asyncio.run(handle_reconcile_provider_status())
     if action == "sync_model_usage":
         from worker.steps.sync_model_usage import handle_sync_model_usage
         return asyncio.run(handle_sync_model_usage())

@@ -45,9 +45,7 @@ The v10 surface adds fixed configured-maintainer-only API latency monitoring que
 The v11 surface adds owner-bound tag rename/merge planning and apply:
   - tag_rename_plan / tag_rename_apply
 
-The v12 surface adds configured-maintainer-only provider status reads:
-  - provider_status_overview / provider_status_incidents / provider_status_incident /
-    provider_status_history
+The v12 provider service health surface was retired in todo 4157.
 
 The v13 surface adds owner-bound durable vocabulary creation:
   - tag_create_vocabulary
@@ -1140,64 +1138,6 @@ def api_latency_events(
 def api_latency_meta(user_id: int) -> dict[str, Any]:
     """Collection bounds, row volume, route cardinality, and rollup freshness."""
     return _api_latency_service(user_id).meta()
-
-
-# ---------------------------------------------------------------------------
-# v12 provider status capability
-# ---------------------------------------------------------------------------
-
-
-def _provider_status_service(user_id: int):
-    owner = _request_owner.get()
-    if owner is None or owner != user_id:
-        raise ModuleHostAuthError(
-            f"provider status operation for user_id={user_id} does not match the "
-            f"authenticated request owner (bound={owner}); provider status is request-bound"
-        )
-    from storage.service.user import get_module_maintainer_user_id
-
-    maintainer_id = get_module_maintainer_user_id()
-    if maintainer_id is None or owner != maintainer_id:
-        raise ModuleHostAuthError(
-            "provider status is restricted to the configured module maintainer"
-        )
-    from storage.service import provider_status as status_service
-
-    return status_service
-
-
-def provider_status_overview(user_id: int, provider: str = "anthropic") -> dict[str, Any]:
-    """Provider-reported current health and channel freshness for Anthropic only."""
-    return _provider_status_service(user_id).overview(provider)
-
-
-def provider_status_incidents(
-    user_id: int,
-    provider: str,
-    start,
-    end,
-    *,
-    limit: int = 100,
-) -> dict[str, Any]:
-    """Bounded incident list for one explicit time range."""
-    return _provider_status_service(user_id).incidents(provider, start, end, limit)
-
-
-def provider_status_incident(user_id: int, provider: str, source_id: str) -> dict[str, Any]:
-    """One incident and its bounded normalized update timeline."""
-    return _provider_status_service(user_id).incident(provider, source_id)
-
-
-def provider_status_history(
-    user_id: int,
-    provider: str,
-    start,
-    end,
-    *,
-    limit: int = 500,
-) -> dict[str, Any]:
-    """Bounded component transition history for one explicit time range."""
-    return _provider_status_service(user_id).history(provider, start, end, limit)
 
 
 # ---------------------------------------------------------------------------

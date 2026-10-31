@@ -67,7 +67,6 @@ add_param "OxylabsPassword" "OXYLABS_PASSWORD"
 add_param "AlphaVantageApiKey" "ALPHAVANTAGE_API_KEY"
 add_param "OpenRouterApiKey" "OPENROUTER_API_KEY"
 add_param "DeepSeekApiKey" "DEEPSEEK_API_KEY"
-add_param "AnthropicStatusWebhookSecret" "ANTHROPIC_STATUS_WEBHOOK_SECRET"
 add_param "McpGatewayUrl" "Y_AGENT_MCP_GATEWAY_URL"
 
 # ============================================================================

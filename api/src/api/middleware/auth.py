@@ -6,8 +6,6 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from api.middleware.provider_status_access_log import PROVIDER_STATUS_WEBHOOK_PREFIX
-
 JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
 JWT_ALGORITHM = "HS256"
 
@@ -20,11 +18,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         # Allow CORS preflight requests
         if request.method == "OPTIONS":
-            return await call_next(request)
-
-        # The opaque path credential is validated by the dedicated receiver. This
-        # is deliberately not a broad public /api/provider-status prefix.
-        if request.method == "POST" and path.startswith(PROVIDER_STATUS_WEBHOOK_PREFIX):
             return await call_next(request)
 
         # This exact route authenticates an opaque, launch-scoped grant, not JWT.

@@ -103,12 +103,6 @@ Parameters:
     NoEcho: true
     Default: ""
 
-  AnthropicStatusWebhookSecret:
-    Type: String
-    Description: Opaque path credential for the Anthropic Statuspage webhook receiver
-    NoEcho: true
-    Default: ""
-
 Conditions:
   HasCustomDomain: !Not [!Equals [!Ref DomainName, ""]]
   HasVpc: !Not [!Equals [!Ref LambdaSecurityGroupId, ""]]
@@ -450,7 +444,6 @@ Resources:
           ALPHAVANTAGE_API_KEY: !Ref AlphaVantageApiKey
           OPENROUTER_API_KEY: !Ref OpenRouterApiKey
           DEEPSEEK_API_KEY: !Ref DeepSeekApiKey
-          ANTHROPIC_STATUS_WEBHOOK_SECRET: !Ref AnthropicStatusWebhookSecret
           # Temporary /api/todo/list stage timing (todo 3788 R1); remove after B3.
           Y_AGENT_TODO_LIST_TIMING: "1"
           AWS_LAMBDA_EXEC_WRAPPER: /opt/bootstrap
@@ -551,11 +544,6 @@ Resources:
           Properties:
             Schedule: rate(3 minutes)
             Input: '{"action": "batch_download_links"}'
-        ReconcileProviderStatusSchedule:
-          Type: Schedule
-          Properties:
-            Schedule: rate(15 minutes)
-            Input: '{"action": "reconcile_provider_status"}'
         SyncModelUsageSchedule:
           # Minute 50 every hour (UTC): keeps the last local Asia/Shanghai run of
           # a day at 23:50 while also refreshing the current hour. Daily + hourly
