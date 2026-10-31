@@ -155,6 +155,58 @@ decisions and the additive host→module CSS contract.
   without republish; republish only refreshes the unused fallback string or
   ships role-audit class edits.
 
+### Analytics surfaces (todo 4152)
+
+These reusable rules first apply to Bot Usage Live. They reuse D1–D9 and the
+host mono stack; they do not restyle the shell, other modules, or `@y/design`.
+The reference page's bordered sample cards are documentation chrome, not a
+requirement to nest cards inside an existing application panel.
+
+- **One canvas, hairline sections (D10).** Analytics sections sit on `base03`
+  with one `border-t border-sol-base02 pt-3` separator and 16px gaps. Charts,
+  balances and limit rows have no individual card fill, enclosing border or
+  elevation. Floating controls retain D3/D4.
+- **Section header (D11).** Use `text-xs font-medium uppercase tracking-wide
+  text-sol-base1`, with optional right-aligned `text-[11px]` metadata or a quiet
+  control. This replaces Bot Usage's one-off 11px/600 header.
+- **Four type roles (D12).** Metadata uses `text-[11px]`, body and table rows
+  `text-xs`, inputs `text-sm`, and numeric emphasis `text-base`. At the host's
+  110% root these are 11 / 13.2 / 15.4 / 17.6px, not new pixel tokens. Use 400
+  for normal text, 500 for headers and small labels, 600 for numeric emphasis;
+  no 700. Figures use `tabular-nums`. Chart ticks (10px) and donut keys (9px)
+  are deliberate chart-mark exceptions, not smaller UI labels.
+- **Numeric emphasis (D13).** Balance amounts and donut totals share
+  `text-base font-semibold tabular-nums text-sol-base1`. Inline and table
+  figures stay `text-xs`; comparable values use the same size and weight.
+  Reference-sheet headings are not application KPI sizes.
+- **Color jobs (D14).** Outside charts, blue denotes selection or primary
+  action; status accents carry text or a titled dot, never decorative provider
+  chips. A quiet track switch needs no saturated fill. Limit tracks use
+  `base0` below 60%, yellow at 60% and orange at 80%, so green means freshness
+  rather than ordinary consumption on the same row. Inside charts and legends,
+  Bot's shared categorical order is blue, cyan, violet, magenta, orange, green,
+  yellow, red. This is an explicit reuse of existing accents, not a claim that
+  status and category palettes are disjoint. Donut and Over-time use the same
+  order; labels, tooltips and tables carry identity. Known limitation: this
+  Solarized order fails adjacent-pair separation validation (blue/cyan normal
+  ΔE 12.4; green/yellow deutan 1.5). It is not colorblind-safe; no new palette
+  is introduced by this refit.
+- **Narrow analytics order (D15).** Order by the page's question before account
+  status. Below the 720px container width, Bot Live puts Model share before
+  Account balances, Subscription limits, Today by hour and Models. Balances
+  always precede limits. At 720px and above the donut stays right, with balances,
+  limits and hourly activity left, then the full-width table. Controls must
+  remain reachable at 320px and reset text must not truncate.
+
+The Models table keeps caller-owned sorting, keyboard-reachable headers with
+`aria-sort`, right-aligned tabular figures, scrolling and sticky totals. These
+are `@y/design` table semantics, not a component migration: its current
+0.65rem body / 0.55rem header defaults are smaller than this page's roles and
+appended classes cannot reliably override them. Bot keeps its hand-rolled table,
+with Model / % / Tokens / Cost always visible, Requests / Sessions / Turns /
+Avg / Input / Output revealed at 560px, and Cache (cr/rd) / Cache Hit at 700px
+(container widths); totals mirror the same reveals.
+
 ## Testing Decisions
 
 - Open the HTML through the y-agent FileViewer Preview and verify it renders

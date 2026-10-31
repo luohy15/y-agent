@@ -284,12 +284,13 @@ later delivery.
     the row whose (date, hour) equals the server's current configured-timezone
     hour, so that the Live "today by hour" strip can mark the in-progress bar
     without trusting the browser clock.
-37f. As a web user, I want the Live cards above the per-model table, on a wide
-    panel, to lay out as Run rate (full width) → left column Account balances
-    above Subscription limits (GPT weekly and Grok billing-period rows) above
-    Today by hour, with the donut in the right column (shared metric toggle),
-    and on a narrow panel to stack Run rate → Account balances → Subscription
-    limits → Today by hour → donut, and Over-time to
+37f. As a web user, I want Live's run rate in the header metadata, with a wide
+    panel's left column showing Account balances above Subscription limits
+    (GPT weekly and Grok billing-period rows) above Today by hour, and Model
+    share (donut with the shared metric toggle) in the right column. Below the
+    720px container width, I want Model share → Account balances → Subscription
+    limits → Today by hour → Models, with the per-model table full width below
+    both columns on wide panels, and Over-time to
     offer an `H` granularity clamped to 7 days, so that short-horizon activity
     stays visible and daily / weekly / monthly views stay unchanged.
 37g. As a web user, I want the Over-time `H` granularity to replace the daily
@@ -659,9 +660,11 @@ later delivery.
      account credit without confusing it with subscription or per-key limits.
 104. As a user, I want each balance in its provider-reported currency, with no
      conversion or combined total, so CNY and USD never become one number.
-105. As a user, I want loading, not configured, error, stale and a real zero
-     balance to be distinct, with observation time and a manual retry, so a
-     failed read never looks like an empty account or a current reading.
+105. As a user, I want a compact amounts-only balance display with provider
+     names, separate currency amounts and a placeholder when no amount is
+     available, so a missing value never becomes a fabricated zero. Detailed
+     freshness, errors and observation times remain API state, not extra UI
+     rows or balance retry controls.
 106. As a user, I want a provider failure to leave the other provider usable,
      and API keys to remain server-side, so opening Live neither leaks a key
      nor depends on both providers succeeding.
@@ -708,15 +711,17 @@ later delivery.
   Closed error codes are `auth_failed` for 401, `http_error` for other non-2xx,
   `transport_error` for network failures, and `parse_failed` for invalid
   payloads. Never expose raw response bodies or exception text.
-- **Compact Live-only display.** Account balances precedes Subscription limits
-  in the existing left column; Run rate, donut and Today by hour keep their
-  behavior. Each provider has a tile with separate currency rows, primary
-  remaining amount, optional used/purchased (OpenRouter) or granted/topped-up
-  (DeepSeek) detail, and observation freshness. State uses text as well as
-  color. Loading and errors never invent amounts; a failed browser poll keeps
-  retained values visibly stale. A partial-read marker identifies degraded
-  results. Retry fetches `?refresh=true` once and seeds the normal poll cache
-  without immediate revalidation. Over-time neither mounts nor polls balances.
+- **Compact Live-only display (todos 4151 / 4152).** Account balances precedes
+  Subscription limits in the left column, and follows Model share on narrow
+  panels. OpenRouter then DeepSeek appear as provider label/amount rows directly
+  on the canvas, with a two-column split at 380px section width and hairline
+  rows below it. Remaining amounts use `text-base font-semibold tabular-nums`;
+  separate currency rows and screen-reader currency names remain. There are no
+  used/purchased or granted/topped-up details, observation-time rows, freshness
+  badges or balance retry controls. Loading or missing amounts use a placeholder,
+  never an invented zero; retained amounts remain displayable without a visible
+  stale badge. Detailed state and forced refresh remain API capabilities.
+  Polling stays at 60 seconds. Over-time neither mounts nor polls balances.
 
 ### Storage
 
@@ -868,17 +873,13 @@ later delivery.
   `GET /api/usage/model-hourly`, never a browser-clock decision.
 - **One sync, hourly cadence.** Daily and hourly share the minute-50 EventBridge
   schedule and the same CLI/API entry points; the result envelope carries both.
-- **Presentation.** Live's wide layout (todo 3261, superseding the todo 3165
-  two-column stack) places Run rate and Subscription limits as successive
-  full-width rows above a two-column `Today by hour` | donut pair
-  (`@min-[720px]:grid-cols-2`, `@min-[720px]:items-start`, donut pinned with
-  `@min-[720px]:col-start-2` so it stays on the right when the hourly card is
-  absent). Giving Subscription limits the full dashboard width restores the
-  three-in-a-row `repeat(auto-fit, minmax(260px, 1fr))` card grid at the
-  pre-3165 viewport thresholds without a fixed-width override or a hardcoded
-  `grid-cols-3`. Narrow panels keep the same DOM order — Run rate →
-  Subscription limits → Today by hour → donut — so the earlier
-  `display:contents` + `order` machinery is gone. Over-time gains an `H`
+- **Presentation.** The todo 4152 Live layout supersedes todo 3261's full-width
+  status rows: run rate is header metadata; at `@min-[720px]`, balances,
+  subscription limits and Today by hour sit left of the Model share donut.
+  The donut stays on the right even when hourly activity is absent; Models
+  spans both columns below. Narrow DOM order is Model share, Account balances,
+  Subscription limits, Today by hour, Models. Sections use canvas hairlines,
+  not enclosing cards. Over-time gains an `H`
   granularity that fetches `model-hourly` and clamps the range to 7 days; what
   `H` renders below the stacked chart was later superseded by todo 3566 (next
   section). Active-hours analytics and per-key/per-bot hourly attribution stay
@@ -1468,16 +1469,16 @@ later delivery.
   bot-to-model is a lossy many-to-one free-text match and per-bot rows would
   duplicate shared-model usage. The expanded bot detail card may show the
   matching model's usage, clearly labeled as model-level.
-- **Limit status placement.** A compact subscription-status section sits at
-  the top of the Live tab, before its spend charts, because it answers an
-  immediate routing/capacity question rather than an analytics question. It
-  is not rendered or fetched for the Over-time tab, which remains a
-  historical-spend-only view.
-  GPT (Codex) and Grok share one compact row (label, weekly or billing
-  window, progress, percent, reset, freshness dot). On a wide panel that
-  block sits above Today by hour in the left column; the donut stays in the
-  right column. A narrow panel stacks in that same order. The row does not
-  draw Codex's 5-hour window. There is no Claude subscription row. A
+- **Limit status placement (todo 4152).** Subscription limits follows Account
+  balances in Live, before Today by hour in the wide left column; Model share
+  stays right. Narrow panels put Model share first, then balances and limits.
+  Limits is not rendered or fetched for Over-time, which remains a
+  historical-spend-only view. GPT (Codex) and Grok each use two lines: provider
+  name, freshness dot, muted `1 week` or `Billing period`, and right-aligned
+  percent used; then a 4px track and full, untruncated reset text. Provider
+  letter chips are removed. The fill is `base0` below 60%, yellow at 60%,
+  orange at 80%; `limit reached` and `not reported` states remain. The row does
+  not draw Codex's 5-hour window. There is no Claude subscription row. A
   provider that reports no drawn window uses a dedicated "no windows reported"
   state rather than empty rows. A
   `reauth_required` provider renders an actionable card naming the vendor login
@@ -1486,6 +1487,35 @@ later delivery.
   display text. Provider failures are isolated, the envelope's error list shows
   as a partial-read badge, and the limit refresh control is visually and
   behaviorally separate from spend refresh.
+- **Live visual roles (todo 4152).** Follow D10–D15 in
+  [Design Language](design-language.md): one canvas, hairline sections with 16px
+  gaps and 12px top padding, `text-xs font-medium uppercase tracking-wide`
+  section titles, 11px metadata, `text-xs` rows, `.y-field text-sm` input, and
+  `text-base font-semibold tabular-nums` balance amounts and donut totals.
+  Config/usage/provider use underline tabs; Live/Over-time uses a quiet track
+  switch. Run rate is a Live-only dot plus `live`, RPM and TPM, with neutral
+  loading/unavailable states and the existing explanatory title. Date or
+  resolved range and timezone share a metadata line beside it on wide panels
+  and below controls on narrow panels. No decorative LIVE badge remains.
+  Model share's quiet Tokens/Cost/Requests toggle sits in its section header;
+  the 190px donut uses outer/inner radii 78/60, 9px center keys and an 11px
+  wrapping legend. Chart ticks remain 10px. Shared `modelColors()` order is
+  blue, cyan, violet, magenta, orange, green, yellow, red for both donut and
+  Over-time, with unchanged data and tooltips. Existing Solarized separation
+  limitations remain; labels and the table supplement color identity.
+- **Models table (todo 4152).** Keep the hand-rolled table and caller-owned
+  sorting, five-row scroll, sticky header and total. Headers are 11px,
+  keyboard-reachable with `aria-sort`; rows use `text-xs` and numeric columns
+  align right with tabular figures. The section header names the active sort.
+  Model / % / Tokens / Cost remain visible at every width; Requests / Sessions /
+  Turns / Avg / Input / Output appear at 560px; Cache (cr/rd) / Cache Hit appear
+  at 700px (container widths). Total cells mirror those reveals. This reuses
+  `@y/design` table semantics without adopting its smaller default type scale.
+  The shared quiet metric toggle also applies to Over-time, but todo 4146's
+  `data-overtime-controls` row, Filter models placement and filtering behavior
+  stay unchanged. Provider filtering, polling, limit retention and retry from
+  todo 4138 and amounts-only balances from todo 4151 remain intact. The host
+  shell, host CSS and other modules are not restyled.
 - **Display timezone: ingestion stamps Shanghai, Over-time reads the browser
   zone (todo 3346, shipped).** Storage and the API keep stamping rows in the
   configured `Y_AGENT_TIMEZONE` (`Asia/Shanghai`) as story 8 requires; that is a
@@ -2008,9 +2038,13 @@ as decisions.
   CNY and USD rows without double-counting components, real zero, malformed
   payloads, missing keys with no network call, isolated provider failures,
   cache reuse and forced refresh, and stale fallback with the original
-  observation time. Static UI checks assert balances precede limits in Live
-  and leave the donut/hourly grouping unchanged. State fixtures distinguish
-  loading, not configured, error, stale and zero. Host checks assert both
+  observation time. Static UI checks assert balances precede limits in Live,
+  with Model share first on narrow panels and the donut right on wide panels.
+  API fixtures distinguish loading, not configured, error, stale and zero;
+  amounts-only UI fixtures preserve real zero, separate currencies and
+  placeholders without expecting freshness or retry controls. Layout fixtures
+  cover D10–D15 roles, limit fills at 59/60/80%, full reset text, table reveals
+  and mirrored totals, keyboard sorting and `aria-sort`. Host checks assert both
   optional NoEcho parameters, API-only environment mappings and both deploy
   paths, with no literal credentials in tracked files. Live provider/UI smoke
   checks require the matching host deployment and module publication first;

@@ -104,6 +104,17 @@
     .floating-demo { position: relative; width: 220px; padding: 12px; border: 1px solid var(--base01); border-radius: var(--radius); background: var(--base03); box-shadow: var(--shadow-float); }
     .floating-demo strong { display: block; color: var(--base1); font-size: 12px; margin-bottom: 3px; }
     .floating-demo span { color: var(--base01); font-size: 11px; }
+    .analytics { container-type: inline-size; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 13.2px; }
+    .analytics-section { border-top: 1px solid var(--base02); padding-top: 12px; margin-top: 16px; }
+    .analytics-head, .analytics-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+    .analytics-head { margin-bottom: 8px; }
+    .analytics-head h3 { margin: 0; font-size: 13.2px; font-weight: 500; text-transform: uppercase; letter-spacing: .05em; }
+    .analytics-meta { color: var(--base01); font-size: 11px; }
+    .analytics-row { padding: 5px 0; }
+    .analytics-row + .analytics-row { border-top: 1px solid var(--base02); }
+    .analytics-amount { color: var(--base1); font-size: 17.6px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .analytics-rules { margin-top: 16px; font-size: 12px; }
+    .analytics-rules p { margin-bottom: 10px; }
     footer { border-top: 1px solid var(--base02); margin-top: 52px; padding-top: 15px; color: var(--base01); font: 10px ui-monospace, monospace; }
     @media (max-width: 760px) { .page { padding: 26px 17px 56px; } header, .component-area { display: block; }.mode-switch { margin-top: 20px; width: fit-content; }.grid.two, .grid.three { grid-template-columns: 1fr; }.accent-row, .swatches { grid-template-columns: repeat(4, 1fr); }.accent-row { row-gap: 22px; }.component-area > * + * { margin-top: 14px; } }
   </style>
@@ -172,6 +183,28 @@
       <div class="demo" style="margin-top:14px"><div class="demo-label">Floating layer</div><div class="floating-demo"><strong>Context menu</strong><span>One elevation token for menus, popovers, and dialogs.</span></div></div>
     </section>
 
+    <section class="section" id="analytics-surfaces">
+      <div class="section-title"><h2>Analytics surfaces</h2><span>D10–D15 · Bot Usage Live</span></div>
+      <p class="spec">One canvas inside the host panel. The bordered cards elsewhere on this sheet are documentation chrome, not nested analytics containers. This addition changes no host token or shell, and does not restyle other modules.</p>
+      <div class="analytics" aria-label="Illustrative account balances, not live data">
+        <div class="analytics-meta">Illustrative amounts · mono roles at the app's 110% root</div>
+        <section class="analytics-section">
+          <div class="analytics-head"><h3>Account balances</h3><span class="analytics-meta">separate currencies</span></div>
+          <div class="analytics-row"><span>OpenRouter</span><span class="analytics-amount">$53.72</span></div>
+          <div class="analytics-row"><span>DeepSeek</span><span class="analytics-amount">¥107.75</span></div>
+        </section>
+      </div>
+      <div class="analytics-rules">
+        <p><strong>D10 · One canvas.</strong> A 1px base02 top rule, 12px top padding and 16px gaps replace enclosing cards. No elevation on analytics sections.</p>
+        <p><strong>D11 · Section header.</strong> <code>text-xs font-medium uppercase tracking-wide text-sol-base1</code>, with optional 11px metadata or a quiet control on the right.</p>
+        <p><strong>D12 · Four type roles.</strong> Meta <code>text-[11px]</code> (11px); body/rows <code>text-xs</code> (13.2px); input <code>text-sm</code> (15.4px); numeric emphasis <code>text-base</code> (17.6px). These are existing utilities, not new px tokens. Weights 400/500/600, never 700; tabular figures. Chart ticks at 10px and donut keys at 9px are chart-mark exceptions. D9's host mono stack stays authoritative.</p>
+        <p><strong>D13 · Numeric emphasis.</strong> Balance amounts and donut totals share <code>text-base font-semibold tabular-nums</code>. Comparable row figures share <code>text-xs</code>; no competing sizes or weights.</p>
+        <p><strong>D14 · Color jobs.</strong> Outside charts, blue marks selection/action; status accents carry text or a titled dot. No provider letter chips or boxed LIVE badge. Limit fill is base0 below 60%, yellow at 60%, orange at 80%; green denotes freshness. Inside charts/legends the shared order is blue, cyan, violet, magenta, orange, green, yellow, red. This reuse is not a disjoint status palette or a colorblind-safe claim: adjacent-pair validation fails for blue/cyan (normal ΔE 12.4) and green/yellow (deutan 1.5). Labels, tooltips and the table remain essential.</p>
+        <p><strong>D15 · Narrow analytics order.</strong> Below 720px container width: Model share → Account balances → Subscription limits → Today by hour → Models. Wide: balances, limits and hourly activity left, donut right, Models full width below. Controls remain reachable at 320px and reset text never truncates.</p>
+        <p><strong>Table and controls.</strong> Keep caller-owned sorting, keyboard headers with <code>aria-sort</code>, right-aligned tabular numbers, scroll and sticky totals. Model/%/Tokens/Cost always show; Requests/Sessions/Turns/Avg/Input/Output join at 560px, Cache (cr/rd)/Cache Hit at 700px; totals mirror reveals. Bot's hand-rolled table retains these <code>@y/design</code> semantics without its smaller default type. Underline module tabs, a quiet Live/Over-time track and <code>.y-field</code> time input reuse existing controls.</p>
+      </div>
+    </section>
+
     <section class="section">
       <div class="section-title"><h2>Settled conventions</h2><span>shipped in todo 3115</span></div>
       <div class="drift"><h3>Checkbox: host class <code>.y-check</code></h3><p>One custom primitive for every <code>type="checkbox"</code> in host and module UI. Spec: <code>appearance:none</code>, 14px square, <code>border-radius:3px</code>, muted base01 border on base03 fill; hover raises the border; checked is blue with an inset base03 mark; <code>:focus-visible</code> draws a 2px blue outline at offset 2px; disabled is <code>opacity:.55; cursor:not-allowed</code>. Class name is append-only while older module versions remain rollback-reachable.</p></div>
@@ -179,7 +212,7 @@
       <div class="drift"><h3>Elevation: one Solarized-aware <code>shadow-float</code></h3><p>Ordinary panels, cards, and rows stay border-defined with no elevation. Any layer floating above the document uses <code>shadow-float</code>: light <code>0 12px 28px rgb(7 54 66 / 16%)</code>, dark <code>0 12px 28px rgb(0 0 0 / 30%)</code>. The Tailwind theme key holds a var indirection so the shadow flips with polarity at runtime. Host class <code>.y-field</code> owns input fill/border/focus only; size and padding stay per-site utilities.</p></div>
     </section>
 
-    <footer>Feature: design-language · Todo: 3112 (living reference) · Status: approved · Host code y-agent 4069880 · Module code y-module 8ef8811 · Visual decisions recorded here; CSS authority is web/src/style.css.</footer>
+    <footer>Feature: design-language · Todo: 3112 (living reference), 4152 (analytics surfaces) · Status: approved · Host code y-agent 4069880 · Module code y-module 8ef8811 · Visual decisions recorded here; CSS authority is web/src/style.css.</footer>
   </main>
   <script>
     const root = document.body;
