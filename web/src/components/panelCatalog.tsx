@@ -88,12 +88,11 @@ export function buildModulePanelItems(artifacts: Module[]): PanelItem<`artifact:
   }));
 }
 
-// Round-2 gap closure (plan-3046-right-sidebar.md R1) + C1 (plan-3068): the
-// right drawer only resolves chat and file modules dynamically — arbitrary
-// module panels remain left-activity-bar only. Returns [] while the target
-// module is not yet mountable (cold-loading, disabled, unpublished), which
-// resolveRightPanel's cold-retention / removed-module-fallback logic already
-// handles the same way it does for any other catalog item.
+// Right drawer resolves chat, note, link, and file dynamically. Arbitrary
+// other module panels stay on the left activity bar. Returns [] while the
+// target module is not yet mountable (cold-loading, disabled, unpublished),
+// which resolveRightPanel's cold-retention / removed-module-fallback logic
+// already handles the same way it does for any other catalog item.
 export function buildChatPanelItem(artifacts: Module[]): PanelItem<"artifact:chat">[] {
   const chat = mountableUiArtifacts(artifacts).find((artifact) => artifact.slug === "chat");
   if (!chat) return [];
@@ -106,6 +105,12 @@ export function buildNotePanelItem(artifacts: Module[]): PanelItem<"artifact:not
   return [{ key: "artifact:note", label: artifactLabel(note), icon: artifactIcon(note.active_version.icon) }];
 }
 
+export function buildLinkPanelItem(artifacts: Module[]): PanelItem<"artifact:link">[] {
+  const link = mountableUiArtifacts(artifacts).find((artifact) => artifact.slug === "link");
+  if (!link) return [];
+  return [{ key: "artifact:link", label: artifactLabel(link), icon: artifactIcon(link.active_version.icon) }];
+}
+
 export function buildFilePanelItem(artifacts: Module[]): PanelItem<"artifact:file">[] {
   const file = mountableUiArtifacts(artifacts).find((artifact) => artifact.slug === "file");
   if (!file) return [];
@@ -115,7 +120,8 @@ export function buildFilePanelItem(artifacts: Module[]): PanelItem<"artifact:fil
 export function restoreRightPanel(saved: string | null): string {
   if (saved === "git") return "diff";
   if (saved === "chats") return "artifact:chat";
-  if (saved === "notes" || saved === "links") return "artifact:note";
+  if (saved === "notes") return "artifact:note";
+  if (saved === "links") return "artifact:link";
   if (saved === "files") return "artifact:file";
   return saved || "artifact:note";
 }

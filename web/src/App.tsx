@@ -9,7 +9,7 @@ import GoogleSignInButton from "./components/GoogleSignInButton";
 import FileViewer from "./components/FileViewer";
 import ActivityBar, { BUILT_IN_PANEL_ITEMS, migrateActivityPanelKey, type SidebarPanel } from "./components/ActivityBar";
 import RightActivityBar from "./components/RightActivityBar";
-import { buildChatPanelItem, buildFilePanelItem, buildNotePanelItem, resolveRightPanel, restoreRightPanel, type PanelItem } from "./components/panelCatalog";
+import { buildChatPanelItem, buildFilePanelItem, buildLinkPanelItem, buildNotePanelItem, resolveRightPanel, restoreRightPanel, type PanelItem } from "./components/panelCatalog";
 import DesktopHeaderBar from "./components/shell/DesktopHeaderBar";
 import CentreModeTabs from "./components/shell/CentreModeTabs";
 import TabRefreshButton from "./components/shell/TabRefreshButton";
@@ -128,9 +128,8 @@ interface BotConfigItem {
 // keeps its own permanent tab and is not in this set.
 const RETIRED_TABS = new Set(["bot.md", "calendar.md", "todo.md", "trace.md", "email.md", "entity.md", "dev.md", "english.md", "link.md", "links.md"]);
 
-// Round-2 gap closure (plan-3046-right-sidebar.md R1) + module cuts: exactly
-// four right categories. Chat, Notes, and Files resolve dynamically; Diff stays
-// host-owned. Links remains in the left activity bar. Order: Chat, Notes, Files, Diff.
+// Right categories: Chat, Notes, Links, Files, and host-owned Diff.
+// Links is its own category (todo 4153), not folded into Notes.
 type RightPanel = "diff" | `artifact:${string}`;
 type ArtifactTab = { type: ArtifactType; spec: string };
 
@@ -177,6 +176,7 @@ export default function App() {
     () => [
       ...buildChatPanelItem(uiArtifacts),
       ...buildNotePanelItem(uiArtifacts),
+      ...buildLinkPanelItem(uiArtifacts),
       ...buildFilePanelItem(uiArtifacts),
       RIGHT_DIFF_ITEM,
     ],
@@ -288,6 +288,9 @@ export default function App() {
   const selectedChatIdRef = useRef(selectedChatId);
   selectedChatIdRef.current = selectedChatId;
   const [rightPanelRefreshKey, setRightPanelRefreshKey] = useState(0);
+  // Generic refresh for the right module mount (todo 4153). Git keeps
+  // rightPanelRefreshKey; Files still publishes its own intent refresh.
+  const rightPanelRefreshChrome = useTabRefreshChrome(["right-panel"]);
   const [rightPanelSpinning, setRightPanelSpinning] = useState(false);
   const currentVmWorkDir = vmList.find(v => v.name === (selectedVM || "default"))?.work_dir;
   const defaultWorkDir = vmList.find(v => v.name === "default")?.work_dir;
@@ -1382,10 +1385,12 @@ export default function App() {
   const refreshRightPanel = useCallback(() => {
     setRightPanelRefreshKey((k) => k + 1);
     // Module Files and Notes panels read top-level intent.nonce; Git uses refreshKey.
+    // The right mount's SWR list is revalidated, then remounted, by the generic chrome.
     publishFileRefresh();
+    rightPanelRefreshChrome.triggerScoped("right-panel");
     setRightPanelSpinning(true);
     setTimeout(() => setRightPanelSpinning(false), 600);
-  }, []);
+  }, [rightPanelRefreshChrome]);
 
   const closeTabShortcut = useMemo(() => closeTabShortcutLabel(), []);
   const commandActions: CommandAction[] = useMemo(() => [
@@ -1419,6 +1424,8 @@ export default function App() {
           surface="panel"
           panelLocation="right"
           onRolledBack={() => { void mutateUiArtifacts(); }}
+          refreshRegistry={rightPanelRefreshChrome.registryFor("right-panel")}
+          refreshNonce={rightPanelRefreshChrome.nonceFor("right-panel")}
         />
       );
     }

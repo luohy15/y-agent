@@ -117,8 +117,9 @@ its entry points are migrated intentionally rather than left as dead paths.
     still apply when I navigate away, so that I do not silently lose edits.
 18. As a user, I want the trace tree of chats and their timing shown, so that I
     can see how the work was carried out and open the chat I care about.
-19. As a user, I want associated notes, links, and calendar events listed with
-    their existing open behavior, so that the detail remains the hub of a todo's
+19. As a user, I want associated notes and calendar events listed with their
+    existing open behavior, and associated links listed in the detail and in the
+    right sidebar Links category, so that the detail remains the hub of a todo's
     artifacts.
 20. As a user, I want the todo's activity history available in the detail, so
     that I can see how it progressed. The History section lists entries newest
@@ -263,6 +264,13 @@ Test observable behavior at the surface boundary, not the internal state shape:
   notes, links, calendar events).
 - Public trace share behavior is covered by its existing tests and must stay
   green through the cut.
+
+## Right sidebar Links category
+
+The selected todo's associated links show in two places, and both stay on that todo:
+
+- The Todo detail Related Links section lists the links from the trace payload (`GET /api/trace/chats` and `GET /api/trace/share`). Those handlers resolve `link_todo_relation` by `activity_id`, newest activity first. A relation whose activity was deleted is omitted. A row with an `activity_id` opens the Link module detail through `link.open` (`activityId`, plus `contentKey` when the row has one) instead of a new browser tab. Public trace shares, and rows with no `activity_id`, stay external anchors to `base_url`. The section is absent when the list is empty.
+- The right sidebar has a separate Links category. It mounts the link module panel in the right column, scoped to the selected todo, and is not embedded in Notes. A persisted right-panel key `links` restores this category. Switching the selected todo must not keep showing the previous todo's links. The category's Refresh revalidates that list, and the centre Todo tab's Refresh revalidates the detail list. The category does not add association editing, scraping, previews, or fetching.
 
 ## Out of Scope
 

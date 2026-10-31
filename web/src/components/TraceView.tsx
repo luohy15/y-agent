@@ -47,6 +47,7 @@ export interface TraceLink {
   title?: string;
   download_status?: string | null;
   activity_id?: string;
+  content_key?: string | null;
 }
 
 export interface TraceNote {
@@ -137,6 +138,20 @@ function getDomain(url: string): string {
   } catch {
     return url;
   }
+}
+
+export function linkRowLabel(link: Pick<TraceLink, "title" | "base_url">): string {
+  return link.title || getDomain(link.base_url);
+}
+
+/** Canonical `link.open` body. Null when the row has no activity to open. */
+export function openLinkCommand(
+  link: Pick<TraceLink, "activity_id" | "content_key">,
+): { activityId: string; contentKey?: string } | null {
+  const activityId = typeof link.activity_id === "string" ? link.activity_id.trim() : "";
+  if (!activityId) return null;
+  const contentKey = typeof link.content_key === "string" ? link.content_key.trim() : "";
+  return contentKey ? { activityId, contentKey } : { activityId };
 }
 
 function formatEventTime(ev: TraceCalendarEvent): string {
@@ -528,23 +543,37 @@ export default function TraceView({
                 </button>
                 {linksOpen && (
                   <div className="px-2 pb-2 space-y-1">
-                    {traceLinks.map((link) => (
-                      <div key={link.link_id} className="flex items-center gap-1.5 py-0.5 group">
+                    {traceLinks.map((link) => {
+                      const label = linkRowLabel(link);
+                      const command = publicMode ? null : openLinkCommand(link);
+                      return (
+                      <div key={link.activity_id || link.link_id} className="flex items-center gap-1.5 py-0.5 group">
                         <img
                           src={`https://www.google.com/s2/favicons?domain=${getDomain(link.base_url)}&sz=16`}
                           alt=""
                           className="w-3.5 h-3.5 shrink-0"
                           loading="lazy"
                         />
-                        <a
-                          href={link.base_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-sol-base0 hover:text-sol-blue truncate text-[0.7rem] min-w-0 flex-1"
-                          title={link.base_url}
-                        >
-                          {link.title || getDomain(link.base_url)}
-                        </a>
+                        {command ? (
+                          <button
+                            type="button"
+                            onClick={() => runHostCommand("link.open", command)}
+                            className="text-sol-base0 hover:text-sol-blue truncate text-[0.7rem] min-w-0 flex-1 text-left cursor-pointer"
+                            title={link.base_url}
+                          >
+                            {label}
+                          </button>
+                        ) : (
+                          <a
+                            href={link.base_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sol-base0 hover:text-sol-blue truncate text-[0.7rem] min-w-0 flex-1"
+                            title={link.base_url}
+                          >
+                            {label}
+                          </a>
+                        )}
                         {link.download_status === "done" && link.activity_id && onPreviewLink && (
                           <button
                             onClick={() => onPreviewLink(link.activity_id!)}
@@ -558,7 +587,8 @@ export default function TraceView({
                           </button>
                         )}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>

@@ -69,6 +69,23 @@ async def get_trace_usage(request: Request, trace_id: str = Query(...)):
     return request_usage_service.aggregate_for_trace(_get_user_id(request), trace_id)
 
 
+def _associated_links(user_id: int, trace_id: str) -> list:
+    """Resolve a todo's link relations by activity id, newest activity first.
+
+    ``link_todo_relation`` stores ``activity_id``. Orphan rows whose activity
+    was deleted do not resolve and are omitted.
+    """
+    from storage.repository.link import get_links_by_activity_ids
+    from storage.repository.link_todo_relation import list_by_todo as list_link_relations
+
+    activity_ids = list_link_relations(user_id, trace_id)
+    if not activity_ids:
+        return []
+    links = [row.to_dict() for row in get_links_by_activity_ids(user_id, activity_ids)]
+    links.sort(key=lambda item: item.get("timestamp") or 0, reverse=True)
+    return links
+
+
 def preferred_trace_chat(chats):
     """Newest coordinator chat, or the newest chat overall.
 
@@ -148,11 +165,7 @@ async def get_trace_chats(request: Request, trace_id: str = Query(...)):
             ],
         }
 
-    # Fetch associated links
-    from storage.repository.link_todo_relation import list_by_todo as list_link_relations
-    from storage.repository.link import get_links_with_latest_activity
-    link_ids = list_link_relations(user_id, trace_id)
-    links = get_links_with_latest_activity(user_id, link_ids) if link_ids else []
+    links = _associated_links(user_id, trace_id)
 
     # Fetch associated notes
     from storage.repository.note_todo_relation import list_by_todo as list_note_relations
@@ -389,11 +402,7 @@ async def get_share(share_id: str = Query(...), password: Optional[str] = Query(
             ],
         }
 
-    # Fetch associated links
-    from storage.repository.link_todo_relation import list_by_todo as list_link_relations
-    from storage.repository.link import get_links_with_latest_activity
-    link_ids = list_link_relations(user_id, trace_id)
-    links = get_links_with_latest_activity(user_id, link_ids) if link_ids else []
+    links = _associated_links(user_id, trace_id)
 
     # Fetch associated notes
     from storage.repository.note_todo_relation import list_by_todo as list_note_relations
