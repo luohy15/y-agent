@@ -15,18 +15,23 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ### Added
 
 - **Hyphenated module imports (4143)**: published Python package names replace slug hyphens with underscores, supporting `family-finance` without changing its public slug.
+- **Todo detail trace section (4154)**: the authenticated Todo detail now wraps its waterfall and participant chat rows in a collapsible `Trace (N)` frame that matches the neighboring sections. Chat rows use the right sidebar's two-line hierarchy (badges and Context above the title and segment-end time), sort newest first, and pin only the newest leader row on top. Public trace shares keep the bare waterfall.
 
 ### Changed
 
 - **Family Finance replacement (4143)**: removed the Household CLI/API aliases. Each entry point resolves only its own source or module; after source replacement `y household` is unknown, and the retained disabled Household module returns HTTP 403 rather than forwarding to Family Finance.
 - **Over Time model filter (4146)**: a non-empty Filter models query now narrows the whole Over-time section (chart, averages strip, heatmap or hourly grid, and history table) to one model set, so the surfaces cannot disagree. An empty query leaves every surface unfiltered, a legend click still isolates only the chart, and Usage Live stays outside the filter.
+- **Bot Usage account balance credentials (4151)**: deployment now passes `OPENROUTER_API_KEY` and `DEEPSEEK_API_KEY` to the API Lambda (NoEcho SAM parameters) so Bot Usage Live can read remaining account credit. A missing key reports `not_configured` instead of a zero balance.
 
 ### Fixed
 
 - **CLI without pymupdf**: a missing `pymupdf` no longer crashes every `y` command. PDF parse imports it only when used, and the dependency stays in the 1.x range.
 - **Todo detail history (4026)**: todo detail history is newest first, including on public shares. Stored history and other todo lists are unchanged.
+- **Todo detail related links (4153)**: trace payloads resolve link relations by activity id, so a todo's associated links appear in both the detail section and the new right-sidebar Links category. Rows with an activity id open the Link module detail; public shares and rows without one stay external links.
 
 ### Removed
+
+- **Provider service health (4157)**: the Anthropic Statuspage webhook receiver, its worker reconciliation schedule, the `provider_status_*` tables, and the bot host-contract queries are retired.
 
 ## [0.5.32] - 2026-10-25
 
