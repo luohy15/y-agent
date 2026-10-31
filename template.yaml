@@ -91,6 +91,18 @@ Parameters:
     NoEcho: true
     Default: ""
 
+  OpenRouterApiKey:
+    Type: String
+    Description: OpenRouter API key for account balance reads
+    NoEcho: true
+    Default: ""
+
+  DeepSeekApiKey:
+    Type: String
+    Description: DeepSeek API key for account balance reads
+    NoEcho: true
+    Default: ""
+
   AnthropicStatusWebhookSecret:
     Type: String
     Description: Opaque path credential for the Anthropic Statuspage webhook receiver
@@ -436,6 +448,8 @@ Resources:
           Y_AGENT_PHOTO_CORS_ORIGINS: "https://yovy.app"
           Y_AGENT_TIMEZONE: Asia/Shanghai
           ALPHAVANTAGE_API_KEY: !Ref AlphaVantageApiKey
+          OPENROUTER_API_KEY: !Ref OpenRouterApiKey
+          DEEPSEEK_API_KEY: !Ref DeepSeekApiKey
           ANTHROPIC_STATUS_WEBHOOK_SECRET: !Ref AnthropicStatusWebhookSecret
           # Temporary /api/todo/list stage timing (todo 3788 R1); remove after B3.
           Y_AGENT_TODO_LIST_TIMING: "1"

@@ -72,14 +72,20 @@ envelope. A 30-minute worker
 schedule SSH-execs that command per user, normalizes the result, and persists
 the latest snapshot in `user_preference` (key `usage_limits_latest`, todo
 3226); ordinary `GET /api/usage/limits` polls read only that persisted
-snapshot and never touch VM, SSH, or CLI. No provider request originates from
-Lambda — the live read always runs on the VM, only the resulting envelope is
-persisted — and a manual `?refresh=true` still performs one bounded live read
+snapshot and never touch VM, SSH, or CLI. No Codex/Grok subscription request
+originates from Lambda: those live reads always run on the VM, and only the
+resulting envelope is persisted. A manual `?refresh=true` still performs one bounded live read
 through the same refresh function the schedule uses. Refresh is independent
 from spend sync because the two datasets have different sources, cadence, and
 failure modes.
 
-Credentials are not y-agent's to own. For OpenAI and xAI the **vendor CLI's own
+Live also shows **Account balances** immediately above Subscription limits:
+one OpenRouter tile and one DeepSeek tile, with each reported currency kept
+separate. These are account credits, not subscription limits, per-key allowances,
+or inferred spend totals. Their official API-key-authenticated reads run
+server-side in the API Lambda, independently of the VM-only subscription path.
+
+Subscription credentials are not y-agent's to own. For OpenAI and xAI the **vendor CLI's own
 credential file** (`~/.codex/auth.json`, `~/.grok/auth.json`) is the single
 source of truth: y-agent reads it live and, when the access token has expired,
 refreshes it at the provider's OAuth endpoint and writes the rotated grant back
@@ -245,7 +251,7 @@ later delivery.
 
 ### Read cost and availability
 
-34. As a user, I want the provider calls made from my own VM rather than from
+34. As a user, I want the Codex/Grok subscription calls made from my own VM rather than from
     Lambda, so that requests come from a stable source IP these vendors already
     know instead of shared cloud egress.
 35. As a user, I want a stopped VM to answer the status poll immediately with
@@ -279,10 +285,11 @@ later delivery.
     hour, so that the Live "today by hour" strip can mark the in-progress bar
     without trusting the browser clock.
 37f. As a web user, I want the Live cards above the per-model table, on a wide
-    panel, to lay out as Run rate (full width) → left column Subscription
-    limits (GPT and Grok weekly rows) above Today by hour, with the donut in
-    the right column (shared metric toggle), and on a narrow panel to stack
-    Run rate → Subscription limits → Today by hour → donut, and Over-time to
+    panel, to lay out as Run rate (full width) → left column Account balances
+    above Subscription limits (GPT weekly and Grok billing-period rows) above
+    Today by hour, with the donut in the right column (shared metric toggle),
+    and on a narrow panel to stack Run rate → Account balances → Subscription
+    limits → Today by hour → donut, and Over-time to
     offer an `H` granularity clamped to 7 days, so that short-horizon activity
     stays visible and daily / weekly / monthly views stay unchanged.
 37g. As a web user, I want the Over-time `H` granularity to replace the daily
@@ -645,7 +652,71 @@ later delivery.
      session totals live longer, so that storage stays bounded without losing
      the session-level picture.
 
+### Account balances
+
+103. As a web user, I want Account balances above Subscription limits in Live,
+     with OpenRouter and DeepSeek shown separately, so I can see remaining
+     account credit without confusing it with subscription or per-key limits.
+104. As a user, I want each balance in its provider-reported currency, with no
+     conversion or combined total, so CNY and USD never become one number.
+105. As a user, I want loading, not configured, error, stale and a real zero
+     balance to be distinct, with observation time and a manual retry, so a
+     failed read never looks like an empty account or a current reading.
+106. As a user, I want a provider failure to leave the other provider usable,
+     and API keys to remain server-side, so opening Live neither leaks a key
+     nor depends on both providers succeeding.
+
 ## Implementation Decisions
+
+### Account balances
+
+- **Separate current account status.** The Bot module owns
+  `GET /api/module/bot/balances[?refresh=true]`, behind its authenticated
+  configured-maintainer gate. It returns OpenRouter then DeepSeek in a
+  `providers` envelope. No spend sync, subscription refresh, model turn,
+  database write or VM wake is part of this read.
+- **Official account semantics.** OpenRouter's
+  `GET https://openrouter.ai/api/v1/credits` reports `data.total_credits` and
+  `data.total_usage`; remaining USD is `total_credits - total_usage`. The
+  per-key `/api/v1/key` allowance (`limit_remaining`) is different and is not
+  displayed. DeepSeek's `GET https://api.deepseek.com/user/balance` reports
+  `is_available` and `balance_infos` with `currency`, `total_balance`,
+  `granted_balance` and `topped_up_balance`. Remaining is `total_balance`,
+  which already includes granted and topped-up credit. Never add those
+  components again. Preserve each currency row, including real zero, without
+  summing providers or currencies or converting them.
+- **API-process credentials.** Both official endpoints use Bearer keys from
+  `OPENROUTER_API_KEY` and `DEEPSEEK_API_KEY` in the API process environment.
+  SAM's optional `OpenRouterApiKey` and `DeepSeekApiKey` parameters have
+  `NoEcho: true` and empty defaults, and map only into the API function.
+  GitHub deployment reads these variables from its existing `CONFIG` secret;
+  manual deployment uses the existing environment / `.env` path. Missing or
+  empty keys yield `not_configured` without a network attempt, not a zero
+  balance. No key is returned to the browser or included in logs, notes or
+  fixtures. Deployment wiring does not provision a missing provider key.
+- **Scoped Lambda exception.** These API-key balance reads originate from the
+  API Lambda. The stable-source-IP VM requirement applies to Codex/Grok CLI
+  subscription reads, not these balance APIs; their existing execution,
+  refresh cadence and credential ownership remain unchanged.
+- **Bounded reads and cache.** Providers run concurrently with an 8-second
+  per-provider timeout and isolated failures. A process-local 60-second TTL
+  matches Live's polling cadence; `refresh=true` bypasses it. This is not a
+  durable history or shared cross-Lambda cache. A failed read retains that
+  process's last successful provider value as `stale` with its original
+  `observed_at`; without a previous success it returns `error`. A missing key
+  remains `not_configured`, never stale success. Successful values use `ok`.
+  Closed error codes are `auth_failed` for 401, `http_error` for other non-2xx,
+  `transport_error` for network failures, and `parse_failed` for invalid
+  payloads. Never expose raw response bodies or exception text.
+- **Compact Live-only display.** Account balances precedes Subscription limits
+  in the existing left column; Run rate, donut and Today by hour keep their
+  behavior. Each provider has a tile with separate currency rows, primary
+  remaining amount, optional used/purchased (OpenRouter) or granted/topped-up
+  (DeepSeek) detail, and observation freshness. State uses text as well as
+  color. Loading and errors never invent amounts; a failed browser poll keeps
+  retained values visibly stale. A partial-read marker identifies degraded
+  results. Retry fetches `?refresh=true` once and seeds the normal poll cache
+  without immediate revalidation. Over-time neither mounts nor polls balances.
 
 ### Storage
 
@@ -1932,6 +2003,19 @@ as decisions.
   is asserted neutral on both sides of the seven-model boundary, the caption is
   asserted to state the Other bucket's scope while that filter is active, and
   the legend entries are asserted to expose their pressed state.
+- **Account balances acceptance.** Fixture checks cover OpenRouter account
+  remaining as total credits minus usage (never per-key allowance), DeepSeek
+  CNY and USD rows without double-counting components, real zero, malformed
+  payloads, missing keys with no network call, isolated provider failures,
+  cache reuse and forced refresh, and stale fallback with the original
+  observation time. Static UI checks assert balances precede limits in Live
+  and leave the donut/hourly grouping unchanged. State fixtures distinguish
+  loading, not configured, error, stale and zero. Host checks assert both
+  optional NoEcho parameters, API-only environment mappings and both deploy
+  paths, with no literal credentials in tracked files. Live provider/UI smoke
+  checks require the matching host deployment and module publication first;
+  a missing DeepSeek key permits not-configured acceptance but cannot verify
+  its live response shape.
 - **Tab-scoping visual checks** confirm that Live shows Subscription limits but
   not the Daily tokens widget, while Over-time shows the Daily tokens widget
   but never renders or requests Subscription limits.
@@ -1989,6 +2073,9 @@ as decisions.
 
 ## Out of Scope
 
+- **Balance history, top-ups, alerts, currency conversion, per-key allowance
+  display and a balance CLI.** Account balances is a current read-only Live
+  surface, not another spend-ingestion or subscription-limit pipeline.
 - **Per-key, per-account, or per-bot usage attribution.** Only the global
   per-model daily aggregate is stored; per-bot display is a loose model-name
   match for presentation only.
