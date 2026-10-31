@@ -4,6 +4,7 @@ import { API, authFetch, clearToken, jsonFetcher as fetcher } from "../api";
 import { runHostCommand } from "../host/commands";
 import WaterfallChart, { type TraceChat } from "./WaterfallChart";
 import { statusBadgeClass } from "./badges";
+import TraceSection from "./TraceSection";
 import SharePopover, { type ExistingShare } from "./SharePopover";
 import TraceTodoDetail, { type TodoInfo, type TodoPatch } from "./TraceTodoDetail";
 
@@ -494,38 +495,12 @@ export default function TraceView({
               />
             )}
 
-            {traceChats.length > 0 ? (
+            {!publicMode ? (
+              <TraceSection chats={traceChats} onSelectChat={onSelectChat} onOpenContext={openParticipantContext} />
+            ) : traceChats.length > 0 ? (
               <WaterfallChart chats={traceChats} onClickChat={onSelectChat} />
             ) : (
               <p className="text-sol-base01 italic text-xs mt-2">No chats found for this todo</p>
-            )}
-
-            {!publicMode && traceChats.length > 0 && (
-              <div className="mt-2 space-y-0.5" data-testid="trace-context-links">
-                {traceChats.map((chat) => {
-                  const skill = (chat.skill && chat.skill.trim()) || chat.role || "";
-                  const label = chat.title || chat.chat_id;
-                  return (
-                    <div key={chat.chat_id}>
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="text-[0.65rem] text-sol-base1 truncate min-w-0 flex-1" title={`${label} (#${chat.chat_id})`}>
-                          {skill ? `${skill} · ` : ""}{label}
-                          <span className="text-sol-base01 font-mono"> #{chat.chat_id.slice(-6)}</span>
-                        </span>
-                        <button
-                          type="button"
-                          className="shrink-0 text-[0.6rem] font-mono px-1.5 py-0.5 rounded cursor-pointer bg-sol-base02 text-sol-base01 hover:text-sol-base0"
-                          data-testid={`trace-context-${chat.chat_id}`}
-                          data-chat-id={chat.chat_id}
-                          onClick={() => openParticipantContext(chat.chat_id)}
-                        >
-                          Context
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
             )}
 
             {/* Related Links */}

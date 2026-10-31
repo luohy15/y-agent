@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 import { API, jsonFetcher as fetcher } from "../api";
-import { TRACE_BADGE, CHAT_BADGE, topicBadgeClass, roleLabel } from "./badges";
+import { TRACE_BADGE, CHAT_BADGE, topicBadgeClass, roleLabel, chatDisplayTitle } from "./badges";
 import { formatDateTime } from "../utils/formatTime";
 import { ListEmpty, ListError, ListLoading } from "./ListStates";
 
@@ -145,7 +145,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
               const sel = c.chat_id === selectedChatId;
               const dt = c.updated_at || c.created_at ? new Date(c.updated_at || c.created_at!) : null;
               const { date, time } = dt ? formatDateTime(dt) : { date: "", time: "" };
-              const displayTitle = (c.title || "").replace(/^\[.*?\]\s*/, "");
+              const displayTitle = chatDisplayTitle(c.title);
               const firstTraceId = c.trace_id;
               return (
                 <div
@@ -351,7 +351,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
               {pinnedManager.status === "interrupted" && (
                 <svg className="w-3 h-3 text-sol-orange shrink-0" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" /></svg>
               )}
-              <span className="flex-1 truncate">{(pinnedManager.title || "").replace(/^\[.*?\]\s*/, "")}</span>
+              <span className="flex-1 truncate">{chatDisplayTitle(pinnedManager.title)}</span>
               {(() => {
                 const dt = pinnedManager.updated_at || pinnedManager.created_at ? new Date(pinnedManager.updated_at || pinnedManager.created_at!) : null;
                 if (!dt) return null;
@@ -377,7 +377,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
               const sel = c.chat_id === selectedChatId;
               const dt = c.updated_at || c.created_at ? new Date(c.updated_at || c.created_at!) : null;
               const { date, time } = dt ? formatDateTime(dt) : { date: "", time: "" };
-              const displayTitle = (c.title || "").replace(/^\[.*?\]\s*/, "");
+              const displayTitle = chatDisplayTitle(c.title);
               const firstTraceId = c.trace_id;
               return (
                 <div

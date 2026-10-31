@@ -67,6 +67,10 @@ export function topicBadgeClass(topic: string) {
   return `${BADGE_BASE} ${c.bg} ${c.text}`;
 }
 
+export function chatDisplayTitle(title?: string): string {
+  return (title || "").replace(/^\[.*?\]\s*/, "");
+}
+
 /** Display only closed system roles. */
 export function roleLabel(role: string): string {
   return role === "manager" || role === "leader" ? role : "";

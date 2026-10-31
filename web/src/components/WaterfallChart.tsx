@@ -20,6 +20,10 @@ export interface TraceChat {
   messages?: unknown[];
 }
 
+export function lastSegmentEnd(segments: Segment[]): number | null {
+  return segments.reduce<number | null>((latest, segment) => latest === null ? segment.end_unix : Math.max(latest, segment.end_unix), null);
+}
+
 export function getTopicColors(topic: string) {
   return getTopicChartColors(topic);
 }

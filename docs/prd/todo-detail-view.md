@@ -272,6 +272,25 @@ The selected todo's associated links show in two places, and both stay on that t
 - The Todo detail Related Links section lists the links from the trace payload (`GET /api/trace/chats` and `GET /api/trace/share`). Those handlers resolve `link_todo_relation` by `activity_id`, newest activity first. A relation whose activity was deleted is omitted. A row with an `activity_id` opens the Link module detail through `link.open` (`activityId`, plus `contentKey` when the row has one) instead of a new browser tab. Public trace shares, and rows with no `activity_id`, stay external anchors to `base_url`. The section is absent when the list is empty.
 - The right sidebar has a separate Links category. It mounts the link module panel in the right column, scoped to the selected todo, and is not embedded in Notes. A persisted right-panel key `links` restores this category. Switching the selected todo must not keep showing the previous todo's links. The category's Refresh revalidates that list, and the centre Todo tab's Refresh revalidates the detail list. The category does not add association editing, scraping, previews, or fetching.
 
+## Trace section
+
+The authenticated Todo Detail groups the unchanged waterfall and participant chat
+rows inside one framed, collapsible `Trace (N)` section between Todo Detail and
+Related Links. The border, header and spacing follow the neighboring sections.
+It starts expanded and does not persist collapse state. An empty trace still
+shows `Trace (0)` and the existing empty message; loading, errors and unavailable
+states remain outside the frame. Public trace shares keep their bare waterfall.
+
+Chat rows follow the sidebar's two-line hierarchy: copyable chat ID, role and
+non-duplicate skill badges, and a visible Context action above the title and
+time. The display-only title strips one leading bracketed prefix, keeps the raw
+title in its tooltip, and falls back to the chat ID when empty. Stored titles and
+history never change. Time is the latest segment's `end_unix` in milliseconds,
+formatted like the sidebar; chats without segments show no time. No unread,
+running or interrupted icons or new payload fields are added. Row clicks open
+the chat; copy and Context actions do not also navigate. Metadata wraps on
+narrow screens and titles truncate without changing waterfall interactions.
+
 ## Out of Scope
 
 - **Redesigning the todo detail.** This feature relocates and unifies an existing
