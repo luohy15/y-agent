@@ -290,6 +290,11 @@ formatted like the sidebar; chats without segments show no time. No unread,
 running or interrupted icons or new payload fields are added. Row clicks open
 the chat; copy and Context actions do not also navigate. Metadata wraps on
 narrow screens and titles truncate without changing waterfall interactions.
+The most recent leader chat is pinned first; all remaining chats, including
+older leaders, follow in reverse chronological order by latest segment end.
+Chats without segments sort last within the remaining rows, and equal times
+preserve payload order. This is display-only ordering; the waterfall and source
+payload keep their original order.
 
 ## Out of Scope
 

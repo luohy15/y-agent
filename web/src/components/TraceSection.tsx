@@ -11,6 +11,10 @@ interface TraceSectionProps {
 
 export default function TraceSection({ chats, onSelectChat, onOpenContext }: TraceSectionProps) {
   const [traceOpen, setTraceOpen] = useState(true);
+  const orderedChats = chats.map((chat) => ({ chat, end: lastSegmentEnd(chat.segments) }))
+    .sort((a, b) => (b.end ?? -Infinity) - (a.end ?? -Infinity));
+  const leaderIndex = orderedChats.findIndex(({ chat }) => chat.role === "leader");
+  if (leaderIndex > 0) orderedChats.unshift(...orderedChats.splice(leaderIndex, 1));
 
   return (
     <div className="mt-3 border border-sol-base02 rounded">
@@ -32,9 +36,8 @@ export default function TraceSection({ chats, onSelectChat, onOpenContext }: Tra
             <>
               <WaterfallChart chats={chats} onClickChat={onSelectChat} />
               <div className="mt-2 pt-2 border-t border-sol-base02/60 space-y-0.5" data-testid="trace-context-links">
-                {chats.map((chat) => {
+                {orderedChats.map(({ chat, end }) => {
                   const title = chatDisplayTitle(chat.title) || chat.chat_id;
-                  const end = lastSegmentEnd(chat.segments);
                   const timestamp = end === null ? null : formatDateTime(new Date(end));
                   return (
                     <div
