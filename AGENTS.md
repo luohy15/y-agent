@@ -57,7 +57,10 @@ entity + controller + service + CLI slices, and most have a web panel.
   `trace_id` / `from_role` / `from_chat_id` / `role` / `skill` / `force_new`
   (or the deprecated `topic` / `from_topic` aliases);
   only dispatch-shaped requests get the `[trace:… to_chat:…]` prefix, root-role
-  rejection, and may create a chat without `chat_id`. Default target is the DM
+  rejection, and may create a chat without `chat_id`. A role-free dispatch with
+  a trace, exact work_dir and a `<phase> phase` token reuses that same-phase
+  worker unless `force_new` is set (`fresh` is only a deprecated alias of it).
+  Default target is the DM
   (manager). Trace/from meta is attached on send; short-circuited callbacks back
   to root topics never invoke the LLM. `POST /api/chat/notify` was removed
   outright (todo 3167): every CLI install upgrades in lockstep with the API, so

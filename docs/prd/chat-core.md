@@ -231,24 +231,31 @@ mode (`-i`) serves a human at a terminal.
      defaults to manager. A role-free child omits `from:` so callbacks are not
      mistaken for top-level manager reports. Trace inheritance is unchanged.
 28. A role + trace dispatch resumes that role's chat for the same trace.
-    Role-free sessions continue only with `--chat-id`, including callers of
-    the deprecated `--topic hr` alias. Skill names do not provide resume keys.
-29. `--new` forces a new chat. Resolution is explicit chat id, then role +
-    trace unless forced new, then creation. An explicit role mismatch fails.
-    Legacy `--topic` maps manager to manager, leader/dev to leader, and other
-    names to a default skill with no role. Explicit role and skill win.
-29a. A new role-free dispatch with a trace and work_dir must resume an existing
-     same-phase worker rather than create another one. Phase is the leftmost
-     case-insensitive `design|plan|impl|review|deploy phase` token in the prompt,
-     falling back to a phase-named skill. Candidate phase comes from its first
-     user message with the same fallback. The owner, trace, phase, and exact
-     work_dir must match; role chats and archived topics are excluded, but
-     running workers and old workers count. The API refuses with HTTP 409 and
-     detail `{code: "phase_worker_exists", chat_id, phase, skill, work_dir,
-     updated_at, message, command}`. The command resumes via `y chat --chat-id`.
-     The CLI prints the message and command to stdout and exits 1. Explicit
-     `--chat-id` bypasses this creation guard; `--fresh` intentionally overrides
-     it and skips lookup. New chats persist work_dir before worker launch.
+    A role-free session continues with `--chat-id`, or by the same-phase reuse
+    in 29a. Callers of the deprecated `--topic hr` alias stay role-free.
+    Skill names do not provide resume keys.
+29. `--new` forces a new chat, including a new role chat. For a role-free
+    dispatch, resolution is explicit chat id, then same-phase reuse (29a)
+    unless forced new, then creation. A role dispatch keeps role + trace
+    resolution unless forced new, and does not use phase reuse. An explicit
+    role mismatch fails. Legacy `--topic` maps manager to manager, leader/dev
+    to leader, and other names to a default skill with no role. Explicit role
+    and skill win.
+29a. A role-free dispatch with a trace, an exact work_dir, and a phase, and
+     with neither `--new` nor the deprecated `fresh` input, delivers into the
+     existing same-phase worker instead of creating another chat. Delivery is
+     the same path as explicit `--chat-id`: the message is appended, a running
+     worker is steered, and `ChatReadOnly` / `EffortOnRunningChat` still return
+     HTTP 409. No match creates a chat. Phase is the leftmost case-insensitive
+     `design|plan|impl|review|deploy phase` token in the prompt, falling back
+     to a phase-named skill. Candidate phase comes from its first user message
+     with the same fallback. The owner, trace, phase, and exact work_dir must
+     match; tier, bot, effort and sub-task are ignored. Role chats and archived
+     topics are excluded, but running workers and old workers count. The target
+     is re-read for the owner before delivery; a vanished row falls through to
+     creation. `fresh` is accepted only as an alias of `force_new` (a warning
+     is logged) so an old client does not silently reuse. The response is the
+     chat id only. New chats persist work_dir before worker launch.
 30. As an agent session, I want the dispatch to stamp a machine-readable
     metadata prefix (`[trace:... from:... to:... from_chat:... to_chat:...]`)
     onto the delivered message, so that the receiver can identify the trace
@@ -554,8 +561,8 @@ mode (`-i`) serves a human at a terminal.
   browse/runtime subcommands are unaffected: they never read this trio.
   `--chat-id` (the destination) is never inferred from `$Y_CHAT_ID`; only
   the caller-identity field (`--from-chat-id`) reads it.
-- **Same-trace phase worker guard is bounded and fail-open (todo 4159).**
-  The creation branch enforces story 29a, replacing the former stderr advisory.
+- **Same-phase worker reuse is bounded and fail-open (todo 4159).**
+  The creation branch enforces story 29a by delivering into the match.
   SQL narrows by owner, trace, and null role, newest first. At most 20 rows and
   1M transcript JSON characters are hydrated, with early exit on the first
   matching phase and exact work_dir. No worktree registration is required.
@@ -563,8 +570,8 @@ mode (`-i`) serves a human at a terminal.
   length is accounted before parsing. A PostgreSQL-local one-second timeout
   applies per statement, not end to end. Budget exhaustion or lookup failure
   allows creation. These are work budgets, never retirement or age inference.
-  The lookup and insert are not a transactional uniqueness guarantee for
-  simultaneous dispatches. The old `resume_candidate` response field is removed.
+  The lookup and delivery are not a transactional uniqueness guarantee for
+  simultaneous dispatches. The response has no `resumed` field.
 - **`POST /api/chat/notify` was removed outright, not kept as an alias**: Roy
   confirmed every CLI install upgrades in lockstep with the API deploy (no
   out-of-band PyPI consumer to protect), so the CLI's `_fire_and_forget` was

@@ -270,12 +270,10 @@ def _fire_and_forget(
 
     payload = {
         "prompt": message,
-        "force_new": force_new,
+        "force_new": force_new or fresh,
     }
     if from_role:
         payload.update(from_role=from_role, from_topic=from_role)
-    if fresh:
-        payload["fresh"] = True
     if images:
         payload["images"] = [stage_image_path(image) for image in images]
     if role:
@@ -305,15 +303,6 @@ def _fire_and_forget(
         else:
             click.echo(data["chat_id"])
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 409:
-            try:
-                detail = e.response.json().get("detail")
-            except (ValueError, AttributeError):
-                detail = None
-            if isinstance(detail, dict) and detail.get("code") == "phase_worker_exists":
-                click.echo(detail["message"])
-                click.echo(detail["command"])
-                raise SystemExit(1) from e
         click.echo(f"Error: {_http_error_detail(e.response)}", err=True)
         raise SystemExit(1) from e
 
@@ -443,8 +432,8 @@ def _interactive(
 @click.option('--skill', default=None, help='Skill to load on the target chat (defaults to role for non-manager roles)')
 @click.option('--work-dir', default=None, help='Working directory for the chat')
 @click.option('--trace-id', default=None, help='Trace ID. Precedence: explicit flag > $Y_TRACE_ID env var > unset')
-@click.option('--new', 'force_new', is_flag=True, help='Force create a new chat instead of resuming existing one')
-@click.option('--fresh', is_flag=True, help='Override the same-phase worker refusal and skip its lookup')
+@click.option('--new', 'force_new', is_flag=True, help='Force a new chat instead of resuming a role chat or reusing a same-phase worker')
+@click.option('--fresh', is_flag=True, hidden=True, help='Deprecated alias of --new')
 @click.option('--from-topic', default=None, hidden=True)
 @click.option('--from-role', type=click.Choice(['manager', 'leader']), default=None, help="Caller role: flag > $Y_ROLE > legacy $Y_TOPIC; manager only outside a session")
 @click.option('--from-chat-id', default=None, help='Caller chat ID. Precedence: explicit flag > $Y_CHAT_ID env var > unset')
@@ -490,7 +479,8 @@ def chat_group(
 
     \b
       Fire-and-forget (default — like the old `y notify`):
-        y chat -m "..."                          fresh anonymous chat
+        y chat -m "..."                          new anonymous chat
+        y chat --skill dev -m "impl phase: ..."  reuse a same-phase worker, or create one
         y chat --role leader -m "..."              coordinator chat
         y chat --role leader --skill review -m "." role + explicit skill
         y chat --skill dev -m "..."              anonymous chat with skill
@@ -517,6 +507,8 @@ def chat_group(
     if ctx.invoked_subcommand is not None:
         return
 
+    if fresh:
+        click.echo("warning: --fresh is deprecated; use --new", err=True)
     if topic is not None:
         click.echo("warning: --topic is deprecated; use --role or --skill", err=True)
         if role is None:

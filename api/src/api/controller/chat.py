@@ -1,6 +1,5 @@
 import asyncio
 import json
-import shlex
 import time
 from typing import List, Optional
 
@@ -99,6 +98,9 @@ class SendMessageRequest(BaseModel):
                     self.skill = self.topic or None
         if "from_role" not in self.model_fields_set:
             self.from_role = legacy_topic_to_role(self.from_topic)
+        if self.fresh:
+            logger.warning("Deprecated chat fresh input; use force_new")
+            self.force_new = True
         return self
 
 
@@ -380,7 +382,8 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     _reject_pasted_trace_prefix(req.prompt)
     skill = _resolve_skill(req.skill, req.role)
 
-    # Resolve target chat: explicit chat_id > role+trace lookup > new.
+    # Resolve target chat: explicit chat_id > role+trace lookup > same-phase
+    # worker reuse (role-free, unless force_new) > new.
     # Do not pre-mint a generated id: create_chat retries allocate+insert, and
     # the final id must land in the to_chat: prefix (built after create).
     existing_chat = None
@@ -425,60 +428,56 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     # Resolve work_dir and append/create chat
     work_dir = req.work_dir
     from storage.repository import chat as chat_repo
-    if existing_chat:
-        if req.trace_id and existing_chat.trace_id and req.trace_id != existing_chat.trace_id:
+    from storage.repository.chat import EffortOnRunningChat
+
+    async def deliver_existing(target):
+        resolved = work_dir
+        if req.trace_id and target.trace_id and req.trace_id != target.trace_id:
             raise HTTPException(status_code=400, detail="Chat trace_id mismatch")
-        if existing_chat.work_dir:
-            if work_dir and work_dir != existing_chat.work_dir:
-                raise HTTPException(status_code=400, detail=f"work_dir mismatch: existing chat '{chat_id}' has work_dir '{existing_chat.work_dir}', got '{work_dir}'. Use --new to create a new chat with the new work_dir.")
-            if not work_dir:
-                work_dir = existing_chat.work_dir
-        from storage.repository.chat import EffortOnRunningChat
+        if target.work_dir:
+            if resolved and resolved != target.work_dir:
+                raise HTTPException(status_code=400, detail=f"work_dir mismatch: existing chat '{target.id}' has work_dir '{target.work_dir}', got '{resolved}'. Use --new to create a new chat with the new work_dir.")
+            if not resolved:
+                resolved = target.work_dir
         try:
-            chat = await chat_service.deliver_dispatch(
-                user_id, existing_chat, req.prompt,
+            delivered = await chat_service.deliver_dispatch(
+                user_id, target, req.prompt,
                 from_chat_id=req.from_chat_id, from_role=req.from_role,
                 images=images, reasoning_effort=reasoning_effort,
                 bot_name=req.bot_name, bot_tier=req.bot_tier,
-                work_dir=work_dir, trace_id=req.trace_id, role=req.role, skill=skill,
+                work_dir=resolved, trace_id=req.trace_id, role=req.role, skill=skill,
             )
         except chat_service.resume_gate.ChatReadOnly as exc:
             raise HTTPException(status_code=409, detail=exc.detail()) from exc
         except EffortOnRunningChat as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        return SendMessageResponse(chat_id=chat.id, trace_id=req.trace_id)
+        return SendMessageResponse(chat_id=delivered.id, trace_id=req.trace_id)
+
+    if existing_chat:
+        return await deliver_existing(existing_chat)
 
     phase = chat_service.derive_phase(req.prompt, skill)
-    candidate = None
-    if not req.fresh and req.role is None and req.trace_id and work_dir and phase:
+    if req.role is None and not req.force_new and req.trace_id and work_dir and phase:
+        candidate = None
         try:
             candidate = chat_service.find_phase_worker(user_id, req.trace_id, phase, work_dir)
         except Exception as exc:
             logger.warning(
-                "Phase-worker guard lookup failed for trace_id={} phase={}: {}",
+                "Phase-worker lookup failed for trace_id={} phase={}: {}",
                 req.trace_id, phase, exc,
             )
         if candidate:
-            command = [
-                "y", "chat", "--chat-id", candidate["chat_id"], "-m", req.prompt,
-                "--work-dir", work_dir, "--trace-id", req.trace_id,
-            ]
-            if candidate["skill"]:
-                command.extend(["--skill", candidate["skill"]])
-            raise HTTPException(status_code=409, detail={
-                "code": "phase_worker_exists",
-                "chat_id": candidate["chat_id"],
-                "phase": phase,
-                "skill": candidate["skill"],
-                "work_dir": work_dir,
-                "updated_at": candidate["updated_at"],
-                "message": (
-                    f"Phase worker {candidate['chat_id']} already exists for {phase} phase "
-                    f"on trace {req.trace_id} in {work_dir}. Resume it with the command below, "
-                    "or pass --fresh to create a new worker intentionally."
-                ),
-                "command": shlex.join(command),
-            })
+            target = await chat_service.get_chat(user_id, candidate["chat_id"])
+            if target:
+                logger.info(
+                    "Reusing phase worker chat_id={} phase={} trace_id={}",
+                    target.id, phase, req.trace_id,
+                )
+                _admit_launch_effort(
+                    user_id, reasoning_effort, chat=target,
+                    bot_name=req.bot_name, bot_tier=req.bot_tier,
+                )
+                return await deliver_existing(target)
 
     # create_chat mints + inserts with race retry; rebuild the message so
     # to_chat: matches the final id.
