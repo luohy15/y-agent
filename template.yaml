@@ -97,6 +97,12 @@ Parameters:
     NoEcho: true
     Default: ""
 
+  OpenRouterInferenceApiKey:
+    Type: String
+    Description: OpenRouter inference API key for voice transcription
+    NoEcho: true
+    Default: ""
+
   DeepSeekApiKey:
     Type: String
     Description: DeepSeek API key for account balance reads
@@ -443,6 +449,7 @@ Resources:
           Y_AGENT_TIMEZONE: Asia/Shanghai
           ALPHAVANTAGE_API_KEY: !Ref AlphaVantageApiKey
           OPENROUTER_API_KEY: !Ref OpenRouterApiKey
+          OPENROUTER_INFERENCE_API_KEY: !Ref OpenRouterInferenceApiKey
           DEEPSEEK_API_KEY: !Ref DeepSeekApiKey
           # Temporary /api/todo/list stage timing (todo 3788 R1); remove after B3.
           Y_AGENT_TODO_LIST_TIMING: "1"

@@ -66,6 +66,7 @@ add_param "OxylabsUsername" "OXYLABS_USERNAME"
 add_param "OxylabsPassword" "OXYLABS_PASSWORD"
 add_param "AlphaVantageApiKey" "ALPHAVANTAGE_API_KEY"
 add_param "OpenRouterApiKey" "OPENROUTER_API_KEY"
+add_param "OpenRouterInferenceApiKey" "OPENROUTER_INFERENCE_API_KEY"
 add_param "DeepSeekApiKey" "DEEPSEEK_API_KEY"
 add_param "McpGatewayUrl" "Y_AGENT_MCP_GATEWAY_URL"
 
