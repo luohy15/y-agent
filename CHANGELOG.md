@@ -14,6 +14,24 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Added
 
+- **Voice object storage (4165)**: backend contract v30 adds owner- and maintainer-bound voice put/get/delete over the private S3 bucket, with RIFF/WAVE, size, duration and checksum validation and pinned-version reads. Deployments pass a separate API-only `OPENROUTER_INFERENCE_API_KEY` so voice inference does not share the management key.
+- **RSS moved article URLs (4163)**: a new feed URL that matches an existing same-host, same-slug link only on a redirect or an equal title and published time moves the existing URL instead of inserting a duplicate.
+- **Publication grant recovery (4168)**: a two-minute worker schedule retries a pending release-grant wakeup instead of relying on the single post-commit delivery.
+
+### Changed
+
+- **Same-phase chat worker (4159)**: a role-free dispatch carrying a trace, work directory and a `<phase> phase` token now delivers into the existing same-phase worker rather than creating a second chat. `--new` (or the hidden `--fresh` alias) forces a new chat.
+
+### Fixed
+
+- **RSS item relabeling (4163)**: a browser visit is reused for an RSS link only when it is already an `rss` activity, so a plain visit stays a visit and the RSS row is inserted beside it.
+
+### Removed
+
+## [0.5.33] - 2026-11-01
+
+### Added
+
 - **Hyphenated module imports (4143)**: published Python package names replace slug hyphens with underscores, supporting `family-finance` without changing its public slug.
 - **Todo detail trace section (4154)**: the authenticated Todo detail now wraps its waterfall and participant chat rows in a collapsible `Trace (N)` frame that matches the neighboring sections. Chat rows use the right sidebar's two-line hierarchy (badges and Context above the title and segment-end time), sort newest first, and pin only the newest leader row on top. Public trace shares keep the bare waterfall.
 
