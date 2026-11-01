@@ -85,7 +85,7 @@ class ChatSummary:
 
 
 @dataclass
-class ResumeCandidateRow:
+class PhaseWorkerRow:
     chat: Chat
     topic: Optional[str]
     status: str
@@ -1003,15 +1003,14 @@ def rename_bot_name(user_id: int, old_name: str, new_name: str) -> int:
                 .update({"bot_name": new_name}))
 
 
-def find_resume_candidate_row(
+def find_phase_worker_row(
     user_id: int,
     trace_id: str,
-    skill: str,
     eligible: Callable[[Chat, Optional[str]], bool],
     *,
     limit: int,
     max_json_chars: int,
-) -> Optional[ResumeCandidateRow]:
+) -> Optional[PhaseWorkerRow]:
     """Return the first eligible row inside a bounded newest-first window.
 
     Each body SELECT enforces the remaining character budget against its current
@@ -1038,8 +1037,8 @@ def find_resume_candidate_row(
                     ChatEntity.routine_id,
                     func.length(ChatEntity.json_content).label("json_chars"),
                 )
-                .filter_by(user_id=user_id, trace_id=trace_id, skill=skill)
-                .filter(ChatEntity.status != "running")
+                .filter_by(user_id=user_id, trace_id=trace_id)
+                .filter(ChatEntity.role.is_(None))
                 .order_by(ChatEntity.updated_at_unix.desc(), ChatEntity.id.desc())
                 .limit(limit)
                 .all())
@@ -1075,7 +1074,7 @@ def find_resume_candidate_row(
             chat = _entity_to_chat(row)
             hydrated_json_chars += actual_json_chars
             if eligible(chat, metadata.topic):
-                return ResumeCandidateRow(
+                return PhaseWorkerRow(
                     chat=chat,
                     topic=metadata.topic,
                     status=metadata.status or "idle",

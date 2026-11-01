@@ -1,4 +1,5 @@
 import json
+import re
 import sys
 import os
 from dataclasses import dataclass
@@ -21,14 +22,12 @@ IS_WINDOWS = sys.platform == 'win32'
 # (plan 3131 D3). Caller-supplied ids never enter this loop.
 CHAT_ID_CREATE_ATTEMPTS = 5
 
-# Resume advice must never turn repeated phase history into unbounded work on
-# the synchronous dispatch path. These are work budgets, not retirement rules:
-# inspect at most 20 newest non-running rows, hydrate at most 1M JSON characters,
-# and give each PostgreSQL statement at most one second. Exhaustion fails quiet
-# and may omit a candidate at any age.
-RESUME_CANDIDATE_MAX_ROWS = 20
-RESUME_CANDIDATE_MAX_JSON_CHARS = 1_000_000
-RESUME_CANDIDATE_STATEMENT_TIMEOUT_SECONDS = 1.0
+# Bound synchronous phase-worker lookup work, not worker age or retirement.
+# Budget exhaustion fails open and may omit a candidate at any age.
+PHASE_WORKER_MAX_ROWS = 20
+PHASE_WORKER_MAX_JSON_CHARS = 1_000_000
+PHASE_WORKER_STATEMENT_TIMEOUT_SECONDS = 1.0
+PHASE_PATTERN = re.compile(r"\b(design|plan|impl|review|deploy)\s+phase\b", re.IGNORECASE)
 
 CONTEXT_HANDOFF_RATIO = 0.50
 # The reminder fires once used tokens exceed the smaller of this ratio's share
@@ -144,43 +143,49 @@ async def get_chat(user_id: int, chat_id: str) -> Optional[Chat]:
     return await chat_repo.get_chat(user_id, chat_id)
 
 
-def find_resume_candidate(
+def derive_phase(text: Optional[str], skill: Optional[str] = None) -> Optional[str]:
+    match = PHASE_PATTERN.search(text) if isinstance(text, str) else None
+    if match:
+        return match.group(1).lower()
+    return skill if skill in {"design", "plan", "impl", "review", "deploy"} else None
+
+
+def chat_phase(chat: Chat) -> Optional[str]:
+    first_user = next((msg for msg in chat.messages if msg.role == "user"), None)
+    return derive_phase(first_user.content if first_user else None, chat.skill)
+
+
+def find_phase_worker(
     user_id: int,
     trace_id: Optional[str],
-    skill: Optional[str],
+    phase: Optional[str],
     work_dir: Optional[str],
 ) -> Optional[dict]:
-    """Find a possible same-trace phase chat without affecting dispatch.
-
-    This is an advisory lookup. It hydrates at most 20 transcripts and 1M JSON
-    characters under a PostgreSQL-local one-second statement timeout. Budget
-    exhaustion or any failure yields no candidate, so retirement is never
-    inferred from age and advice can never prevent the requested chat creation.
-    """
-    if not trace_id or not skill or not work_dir:
+    """Find a same-trace phase worker; lookup failures and budgets fail open."""
+    if not trace_id or not phase or not work_dir:
         return None
     try:
         from storage.database.base import statement_timeout
-        from storage.repository.dev_worktree import find_active_worktree_by_path
 
-        with statement_timeout(RESUME_CANDIDATE_STATEMENT_TIMEOUT_SECONDS):
-            if find_active_worktree_by_path(user_id, work_dir) is None:
-                return None
-
+        with statement_timeout(PHASE_WORKER_STATEMENT_TIMEOUT_SECONDS):
             def eligible(chat: Chat, topic: Optional[str]) -> bool:
-                return chat.work_dir == work_dir and not (topic and topic.endswith("-archived"))
+                return (
+                    chat.role is None and chat.work_dir == work_dir
+                    and chat_phase(chat) == phase
+                    and not (topic and topic.endswith("-archived"))
+                )
 
-            row = chat_repo.find_resume_candidate_row(
+            row = chat_repo.find_phase_worker_row(
                 user_id,
                 trace_id,
-                skill,
                 eligible,
-                limit=RESUME_CANDIDATE_MAX_ROWS,
-                max_json_chars=RESUME_CANDIDATE_MAX_JSON_CHARS,
+                limit=PHASE_WORKER_MAX_ROWS,
+                max_json_chars=PHASE_WORKER_MAX_JSON_CHARS,
             )
         if row is not None:
             return {
                 "chat_id": row.chat.id,
+                "phase": phase,
                 "skill": row.chat.skill,
                 "work_dir": row.chat.work_dir,
                 "status": row.status,
@@ -189,8 +194,8 @@ def find_resume_candidate(
             }
     except Exception as exc:
         logger.warning(
-            "Resume-candidate lookup failed for trace_id={} skill={}: {}",
-            trace_id, skill, exc,
+            "Phase-worker lookup failed for trace_id={} phase={}: {}",
+            trace_id, phase, exc,
         )
     return None
 

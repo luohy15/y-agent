@@ -237,6 +237,18 @@ mode (`-i`) serves a human at a terminal.
     trace unless forced new, then creation. An explicit role mismatch fails.
     Legacy `--topic` maps manager to manager, leader/dev to leader, and other
     names to a default skill with no role. Explicit role and skill win.
+29a. A new role-free dispatch with a trace and work_dir must resume an existing
+     same-phase worker rather than create another one. Phase is the leftmost
+     case-insensitive `design|plan|impl|review|deploy phase` token in the prompt,
+     falling back to a phase-named skill. Candidate phase comes from its first
+     user message with the same fallback. The owner, trace, phase, and exact
+     work_dir must match; role chats and archived topics are excluded, but
+     running workers and old workers count. The API refuses with HTTP 409 and
+     detail `{code: "phase_worker_exists", chat_id, phase, skill, work_dir,
+     updated_at, message, command}`. The command resumes via `y chat --chat-id`.
+     The CLI prints the message and command to stdout and exits 1. Explicit
+     `--chat-id` bypasses this creation guard; `--fresh` intentionally overrides
+     it and skips lookup. New chats persist work_dir before worker launch.
 30. As an agent session, I want the dispatch to stamp a machine-readable
     metadata prefix (`[trace:... from:... to:... from_chat:... to_chat:...]`)
     onto the delivered message, so that the receiver can identify the trace
@@ -542,20 +554,17 @@ mode (`-i`) serves a human at a terminal.
   browse/runtime subcommands are unaffected: they never read this trio.
   `--chat-id` (the destination) is never inferred from `$Y_CHAT_ID`; only
   the caller-identity field (`--from-chat-id`) reads it.
-- **Same-trace phase-chat advice is bounded and fail-quiet (todo 3528).** Only
-  the dispatch branch that will create a chat checks for a possible predecessor,
-  and `--fresh` skips the check. The owner-scoped exact `work_dir` must be an
-  active registered worktree. Candidate SQL narrows by owner, trace, skill, and
-  non-running status, newest first; at most 20 rows and 1M transcript JSON
-  characters are hydrated, with early exit on the first matching non-archived
-  row. Every body SELECT enforces its current remaining character budget and
-  the actual returned length is accounted before parsing, so concurrent growth
-  fails quiet. A PostgreSQL-local one-second timeout applies per statement, not
-  end to end. These are work budgets, never retirement or age inference:
-  exhausting either budget or any
-  lookup error returns no advice and chat creation proceeds. The response's
-  nullable candidate is rendered only as a qualified stderr note; stdout and
-  addressing/creation semantics are unchanged.
+- **Same-trace phase worker guard is bounded and fail-open (todo 4159).**
+  The creation branch enforces story 29a, replacing the former stderr advisory.
+  SQL narrows by owner, trace, and null role, newest first. At most 20 rows and
+  1M transcript JSON characters are hydrated, with early exit on the first
+  matching phase and exact work_dir. No worktree registration is required.
+  Every body SELECT enforces its remaining character budget and actual returned
+  length is accounted before parsing. A PostgreSQL-local one-second timeout
+  applies per statement, not end to end. Budget exhaustion or lookup failure
+  allows creation. These are work budgets, never retirement or age inference.
+  The lookup and insert are not a transactional uniqueness guarantee for
+  simultaneous dispatches. The old `resume_candidate` response field is removed.
 - **`POST /api/chat/notify` was removed outright, not kept as an alias**: Roy
   confirmed every CLI install upgrades in lockstep with the API deploy (no
   out-of-band PyPI consumer to protect), so the CLI's `_fire_and_forget` was

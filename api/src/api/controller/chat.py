@@ -1,5 +1,6 @@
 import asyncio
 import json
+import shlex
 import time
 from typing import List, Optional
 
@@ -105,7 +106,6 @@ class SendMessageResponse(BaseModel):
     ok: bool = True
     chat_id: str
     trace_id: Optional[str] = None
-    resume_candidate: Optional[dict] = None
 
 
 class StopChatRequest(BaseModel):
@@ -448,17 +448,37 @@ async def post_send_message(req: SendMessageRequest, request: Request):
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return SendMessageResponse(chat_id=chat.id, trace_id=req.trace_id)
 
-    resume_candidate = None
-    if not req.fresh:
+    phase = chat_service.derive_phase(req.prompt, skill)
+    candidate = None
+    if not req.fresh and req.role is None and req.trace_id and work_dir and phase:
         try:
-            resume_candidate = chat_service.find_resume_candidate(
-                user_id, req.trace_id, skill, work_dir,
-            )
+            candidate = chat_service.find_phase_worker(user_id, req.trace_id, phase, work_dir)
         except Exception as exc:
             logger.warning(
-                "Resume-candidate advisory failed for trace_id={} skill={}: {}",
-                req.trace_id, skill, exc,
+                "Phase-worker guard lookup failed for trace_id={} phase={}: {}",
+                req.trace_id, phase, exc,
             )
+        if candidate:
+            command = [
+                "y", "chat", "--chat-id", candidate["chat_id"], "-m", req.prompt,
+                "--work-dir", work_dir, "--trace-id", req.trace_id,
+            ]
+            if candidate["skill"]:
+                command.extend(["--skill", candidate["skill"]])
+            raise HTTPException(status_code=409, detail={
+                "code": "phase_worker_exists",
+                "chat_id": candidate["chat_id"],
+                "phase": phase,
+                "skill": candidate["skill"],
+                "work_dir": work_dir,
+                "updated_at": candidate["updated_at"],
+                "message": (
+                    f"Phase worker {candidate['chat_id']} already exists for {phase} phase "
+                    f"on trace {req.trace_id} in {work_dir}. Resume it with the command below, "
+                    "or pass --fresh to create a new worker intentionally."
+                ),
+                "command": shlex.join(command),
+            })
 
     # create_chat mints + inserts with race retry; rebuild the message so
     # to_chat: matches the final id.
@@ -474,6 +494,7 @@ async def post_send_message(req: SendMessageRequest, request: Request):
             role=req.role,
             trace_id=req.trace_id if req.role != "manager" else None,
             skill=skill,
+            work_dir=work_dir,
             running=True,
         )
         return chat
@@ -496,7 +517,6 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     return SendMessageResponse(
         chat_id=chat_id,
         trace_id=req.trace_id,
-        resume_candidate=resume_candidate,
     )
 
 

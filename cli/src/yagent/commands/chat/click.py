@@ -220,22 +220,6 @@ def _validate_skill_name(skill: str) -> None:
     )
 
 
-def _resume_candidate_note(trace_id: Optional[str], candidate: dict) -> str:
-    updated_at = candidate.get("updated_at") or "unknown"
-    if updated_at != "unknown":
-        try:
-            updated_at = utc_to_local(updated_at)
-        except (TypeError, ValueError):
-            pass
-    return (
-        f"note: trace {trace_id} has a possible resume target: chat {candidate.get('chat_id')} "
-        f"(skill={candidate.get('skill')}, work_dir={candidate.get('work_dir')}, "
-        f"last activity {updated_at}). It may already be retired or handed off; "
-        f"the system cannot tell. Resume with --chat-id {candidate.get('chat_id')}, "
-        "or pass --fresh to suppress this note."
-    )
-
-
 def _caller_role(explicit):
     value = explicit or os.environ.get("Y_ROLE") or legacy_topic_to_role(os.environ.get("Y_TOPIC"))
     if not value and not os.environ.get("Y_CHAT_ID"):
@@ -316,14 +300,20 @@ def _fire_and_forget(
     try:
         resp = api_request("POST", "/api/chat/message", json=payload)
         data = resp.json()
-        candidate = data.get("resume_candidate")
-        if candidate and not fresh:
-            click.echo(_resume_candidate_note(trace_id, candidate), err=True)
         if wait:
             _wait_for_reply(data["chat_id"], wait_timeout)
         else:
             click.echo(data["chat_id"])
     except httpx.HTTPStatusError as e:
+        if e.response.status_code == 409:
+            try:
+                detail = e.response.json().get("detail")
+            except (ValueError, AttributeError):
+                detail = None
+            if isinstance(detail, dict) and detail.get("code") == "phase_worker_exists":
+                click.echo(detail["message"])
+                click.echo(detail["command"])
+                raise SystemExit(1) from e
         click.echo(f"Error: {_http_error_detail(e.response)}", err=True)
         raise SystemExit(1) from e
 
@@ -454,7 +444,7 @@ def _interactive(
 @click.option('--work-dir', default=None, help='Working directory for the chat')
 @click.option('--trace-id', default=None, help='Trace ID. Precedence: explicit flag > $Y_TRACE_ID env var > unset')
 @click.option('--new', 'force_new', is_flag=True, help='Force create a new chat instead of resuming existing one')
-@click.option('--fresh', is_flag=True, help='Suppress the possible same-trace resume-target lookup and note')
+@click.option('--fresh', is_flag=True, help='Override the same-phase worker refusal and skip its lookup')
 @click.option('--from-topic', default=None, hidden=True)
 @click.option('--from-role', type=click.Choice(['manager', 'leader']), default=None, help="Caller role: flag > $Y_ROLE > legacy $Y_TOPIC; manager only outside a session")
 @click.option('--from-chat-id', default=None, help='Caller chat ID. Precedence: explicit flag > $Y_CHAT_ID env var > unset')
