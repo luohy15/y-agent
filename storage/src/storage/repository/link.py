@@ -2,6 +2,7 @@
 
 from collections import OrderedDict
 from typing import List, Optional, Set
+from urllib.parse import urlsplit
 
 from sqlalchemy import and_, func, or_
 
@@ -301,6 +302,26 @@ def save_link(
         return _row_to_dto(activity, link)
 
 
+def find_rss_links_by_host_slug(base_url: str) -> List[LinkEntity]:
+    """Find RSS alias candidates, including an exact URL already in the library."""
+    parsed = urlsplit(base_url)
+    path = parsed.path.rstrip('/')
+    slug = path.rsplit('/', 1)[-1]
+    if parsed.scheme not in ('http', 'https') or not parsed.netloc or not slug:
+        return []
+    with get_db() as session:
+        return session.query(LinkEntity).filter(
+            or_(
+                LinkEntity.base_url == _strip_query(base_url),
+                and_(
+                    LinkEntity.source == 'rss',
+                    func.lower(func.split_part(LinkEntity.base_url, '/', 3)) == parsed.netloc.lower(),
+                    func.regexp_replace(LinkEntity.base_url, r'^.*/([^/]+)/?$', r'\1') == slug,
+                ),
+            ),
+        ).order_by(LinkEntity.created_at, LinkEntity.id).all()
+
+
 def save_link_rss(
     user_id: int,
     url: str,
@@ -308,6 +329,7 @@ def save_link_rss(
     timestamp: int,
     published_at: Optional[int],
     source_feed_id: Optional[str],
+    reuse_link_id: Optional[str] = None,
 ) -> tuple[LinkActivity, bool]:
     """Idempotent RSS ingest: at most one activity per (user_id, link).
 
@@ -316,7 +338,22 @@ def save_link_rss(
     indicates whether a new activity row was created.
     """
     with get_db() as session:
-        link = _upsert_link(session, url, title, published_at=published_at)
+        link = None
+        if reuse_link_id is not None:
+            link = session.query(LinkEntity).filter_by(
+                link_id=reuse_link_id, source='rss',
+            ).with_for_update().first()
+        if link is not None:
+            link.base_url = _strip_query(url)
+            if title is not None:
+                link.title = title
+            if published_at is not None and link.published_at is None:
+                link.published_at = published_at
+            session.query(LinkActivityEntity).filter_by(
+                link_id=link.id, source='rss',
+            ).update({'url': url}, synchronize_session=False)
+        else:
+            link = _upsert_link(session, url, title, published_at=published_at)
         if link.source is None:
             link.source = "rss"
             link.source_feed_id = source_feed_id

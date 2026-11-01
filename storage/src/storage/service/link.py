@@ -49,6 +49,7 @@ def add_link_rss(
     timestamp: int,
     published_at: Optional[int],
     source_feed_id: Optional[str],
+    reuse_link_id: Optional[str] = None,
 ) -> tuple[LinkActivity, bool]:
     """Idempotent RSS ingest: at most one activity per (user_id, link).
 
@@ -58,7 +59,12 @@ def add_link_rss(
     return link_repo.save_link_rss(
         user_id, url, title, timestamp,
         published_at=published_at, source_feed_id=source_feed_id,
+        reuse_link_id=reuse_link_id,
     )
+
+
+def find_rss_links_by_host_slug(base_url: str):
+    return link_repo.find_rss_links_by_host_slug(base_url)
 
 
 def add_link_fetch(

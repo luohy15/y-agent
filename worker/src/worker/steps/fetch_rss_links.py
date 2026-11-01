@@ -1,10 +1,10 @@
 """Scheduled action: stage 2 of two-stage RSS pipeline.
 
-Pure S3 -> feedparser -> link transform. For every RssFeed, read the staged
+S3 -> feedparser -> link transform with best-effort URL alias resolution. For every RssFeed, read the staged
 XML from s3://$Y_AGENT_S3_BUCKET/rss/<rss_feed_id>.xml, parse with feedparser,
 and write new LinkEntity/LinkActivityEntity rows tagged with source='rss'.
 
-No HTTP IO, no cooldown, no failure tracking. Missing or unparseable XML is
+Bounded HTTP redirect checks only for same-host, same-slug alias candidates. Missing or unparseable XML is
 silently skipped — fetch failures are owned by stage 1 (`fetch_rss_xml`).
 """
 
@@ -13,9 +13,12 @@ import calendar
 import os
 import time
 from typing import Optional
+from urllib.parse import urlsplit, urlunsplit
 
 import feedparser
+import httpx
 from loguru import logger
+from sqlalchemy.exc import IntegrityError
 
 from storage.service import link as link_service
 from storage.service import pipeline_lock as pipeline_lock_service
@@ -34,7 +37,66 @@ def _parse_feed_timestamp(entry) -> Optional[int]:
     return int(calendar.timegm(ts_struct) * 1000)
 
 
-def _ingest_entries(user_id: int, feed, parsed) -> tuple[int, int]:
+def _article_url(url: str) -> str:
+    parsed = urlsplit(url)
+    return urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), parsed.path.rstrip('/'), '', ''))
+
+
+def _host_slug(url: str) -> tuple[str, str]:
+    parsed = urlsplit(url)
+    return parsed.netloc.lower(), parsed.path.rstrip('/').rsplit('/', 1)[-1]
+
+
+def _normalized_title(title: Optional[str]) -> str:
+    return ' '.join((title or '').split()).casefold()
+
+
+def _is_rss_alias(candidate, url, title, published_at, resolved_old=None, resolved_new=None) -> bool:
+    host, slug = _host_slug(url)
+    if not host or not slug or _host_slug(candidate.base_url) != (host, slug):
+        return False
+    old, new = _article_url(candidate.base_url), _article_url(url)
+    if old == new:
+        return True
+    if resolved_old and _article_url(resolved_old) == new:
+        return True
+    if resolved_new and _article_url(resolved_new) == old:
+        return True
+    return (
+        published_at is not None and candidate.published_at == published_at
+        and bool(_normalized_title(title))
+        and _normalized_title(candidate.title) == _normalized_title(title)
+    )
+
+
+def _resolve_redirect(client, url: str) -> Optional[str]:
+    try:
+        response = client.head(url)
+        response.raise_for_status()
+        return str(response.url)
+    except httpx.HTTPError:
+        return None
+
+
+def _find_alias(url, title, published_at, client) -> Optional[str]:
+    candidates = link_service.find_rss_links_by_host_slug(url)
+    # An exact row wins over any historical alias. The ordinary upsert owns it.
+    if any(c.base_url == url.split('#', 1)[0].split('?', 1)[0] for c in candidates):
+        return None
+    for candidate in candidates:
+        if _is_rss_alias(candidate, url, title, published_at):
+            return candidate.link_id
+    if client is not None and candidates:
+        resolved_new = _resolve_redirect(client, url)
+        for candidate in candidates:
+            if _is_rss_alias(candidate, url, title, published_at,
+                             resolved_old=_resolve_redirect(client, candidate.base_url),
+                             resolved_new=resolved_new):
+                return candidate.link_id
+    return None
+
+
+def _ingest_entries(user_id: int, feed, parsed, client=None) -> tuple[int, int]:
     """Insert new items into the link table. Returns (added, max_ts).
 
     Idempotent on (user_id, link_id): timestamp drift between refetches no longer
@@ -64,11 +126,24 @@ def _ingest_entries(user_id: int, feed, parsed) -> tuple[int, int]:
         published_at = ts_ms if dated else None
 
         title = entry.get("title")
+        reuse_link_id = None
         try:
-            _, created = link_service.add_link_rss(
-                user_id, url, title=title, timestamp=timestamp,
-                published_at=published_at, source_feed_id=feed.rss_feed_id,
-            )
+            reuse_link_id = _find_alias(url, title, published_at, client)
+        except Exception:
+            logger.exception("fetch_rss_links alias lookup failed feed={} url={}", feed.rss_feed_id, url)
+        try:
+            try:
+                _, created = link_service.add_link_rss(
+                    user_id, url, title=title, timestamp=timestamp,
+                    published_at=published_at, source_feed_id=feed.rss_feed_id,
+                    reuse_link_id=reuse_link_id,
+                )
+            except IntegrityError:
+                # A concurrent feed may have inserted the target URL first.
+                _, created = link_service.add_link_rss(
+                    user_id, url, title=title, timestamp=timestamp,
+                    published_at=published_at, source_feed_id=feed.rss_feed_id,
+                )
             if created:
                 added += 1
             if dated and ts_ms > max_ts:
@@ -94,7 +169,8 @@ def _process_feed(user_id: int, feed) -> dict:
                        feed.rss_feed_id, parsed.bozo_exception)
         return {"feed_id": feed.rss_feed_id, "added": 0, "skipped": "bad_xml"}
 
-    added, max_ts = _ingest_entries(user_id, feed, parsed)
+    with httpx.Client(timeout=5.0, follow_redirects=True, max_redirects=5) as client:
+        added, max_ts = _ingest_entries(user_id, feed, parsed, client)
     if max_ts > (feed.last_item_ts or 0):
         rss_feed_service.update_last_item_ts(feed.rss_feed_id, max_ts)
     logger.info("fetch_rss_links feed={} user={} added={}", feed.rss_feed_id, user_id, added)
