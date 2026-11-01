@@ -331,11 +331,14 @@ def save_link_rss(
     source_feed_id: Optional[str],
     reuse_link_id: Optional[str] = None,
 ) -> tuple[LinkActivity, bool]:
-    """Idempotent RSS ingest: at most one activity per (user_id, link).
+    """Idempotent RSS ingest: at most one RSS activity per (user_id, link).
 
-    Upserts LinkEntity (title/published_at/source on first sight), then returns the
-    existing (user_id, link) activity if any, otherwise inserts a new one. The bool
-    indicates whether a new activity row was created.
+    Upserts LinkEntity (title/published_at, and source on first sight). Reuses an
+    activity only when it is already source='rss', regardless of source_feed_id.
+    A blank-source visit is left unchanged and a new RSS activity is inserted
+    beside it. Another feed's RSS row for the same link is reused and keeps its
+    source_feed_id. Alias URL rewrite updates every source='rss' activity on the
+    link. The bool indicates whether a new activity row was created.
     """
     with get_db() as session:
         link = None
@@ -358,13 +361,9 @@ def save_link_rss(
             link.source = "rss"
             link.source_feed_id = source_feed_id
         existing = session.query(LinkActivityEntity).filter_by(
-            user_id=user_id, link_id=link.id,
+            user_id=user_id, link_id=link.id, source='rss',
         ).first()
         if existing:
-            if existing.source is None or existing.source == "":
-                existing.source = "rss"
-            if existing.source_feed_id is None:
-                existing.source_feed_id = source_feed_id
             session.flush()
             return _row_to_dto(existing, link), False
         activity = LinkActivityEntity(

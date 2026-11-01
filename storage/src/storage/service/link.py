@@ -51,10 +51,11 @@ def add_link_rss(
     source_feed_id: Optional[str],
     reuse_link_id: Optional[str] = None,
 ) -> tuple[LinkActivity, bool]:
-    """Idempotent RSS ingest: at most one activity per (user_id, link).
+    """Idempotent RSS ingest: at most one RSS activity per (user_id, link).
 
     Returns (activity, created). `created` is True only when a new activity row was
-    inserted; False when an existing one was reused.
+    inserted. An existing row is reused only when it is already source='rss';
+    a blank-source visit is not relabeled. The reused row keeps its source_feed_id.
     """
     return link_repo.save_link_rss(
         user_id, url, title, timestamp,
