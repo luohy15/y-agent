@@ -268,7 +268,7 @@ entity + controller + service + CLI slices, and most have a web panel.
   direct `claim` is refused outright while waiters are pending. The grant writes a wakeup
   event on the receipt in that same transaction; delivery goes through the
   `chat_service.accept_dispatch` primitive after commit, is deduplicated by event id, and
-  is retried by the `recover_release_grants` worker action (wired, deployed disabled).
+  is retried by the `recover_release_grants` worker action on an enabled two-minute schedule.
   Delivery is at-least-once, a stale grant is suppressed rather than reported as live, and
   a failed wakeup never expires or reassigns the claim.
 - **MCP connectors (todo 3796)**: owner-scoped remote HTTPS (Streamable HTTP) MCP
