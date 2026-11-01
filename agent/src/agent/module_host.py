@@ -208,8 +208,8 @@ from storage.project_key import ProjectKeyError as ProjectKeyError, normalize_pr
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-# v28: chat rows expose role and chat_list accepts the closed role filter.
-BACKEND_CONTRACT_VERSION = 29
+# v30: owner-and-maintainer bound private voice object capabilities (todo 4165).
+BACKEND_CONTRACT_VERSION = 30
 
 # Wall-clock budget for the wake="nowait" readiness check (todo 3777).
 NOWAIT_BUDGET_SECONDS = 1.0
@@ -1613,6 +1613,36 @@ def photo_delete_objects(user_id: int, photo_id: str) -> dict[str, Any]:
     from storage.service import photo_store
 
     return photo_store.delete_all_versions(user_id, photo_id)
+
+
+# v30 private voice objects in Y_AGENT_S3_BUCKET (todo 4165). The storage
+# service also enforces the configured maintainer; callers never supply keys.
+
+
+def voice_put_object(
+    user_id: int, take_id: str, *, data: bytes, duration_ms: int,
+) -> dict[str, Any]:
+    """Write a WAV (4 MB, declared duration up to 120s); return version and digest."""
+    _require_tag_owner(user_id)
+    from storage.service import voice_store
+
+    return voice_store.put_object(user_id, take_id, data=data, duration_ms=duration_ms)
+
+
+def voice_get_object(user_id: int, take_id: str, *, version_id: str) -> bytes:
+    """Read bytes from the exact version pinned by the module's take row."""
+    _require_tag_owner(user_id)
+    from storage.service import voice_store
+
+    return voice_store.get_object(user_id, take_id, version_id=version_id)
+
+
+def voice_delete_objects(user_id: int, take_id: str) -> dict[str, Any]:
+    """Delete every version and delete marker for this take. Idempotent."""
+    _require_tag_owner(user_id)
+    from storage.service import voice_store
+
+    return voice_store.delete_all_versions(user_id, take_id)
 
 
 def _require_json_caller(user_id: int) -> Optional[int]:
