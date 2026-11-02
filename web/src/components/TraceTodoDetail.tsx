@@ -32,6 +32,7 @@ export interface TodoInfo {
   progress?: string;
   completed_at?: string;
   awaiting_chat?: string | null;
+  handle_chat?: string | null;
   /** Read-only. Earliest outstanding wakeup, milliseconds. Not part of a save. */
   next_wakeup_at_unix?: number | null;
   /** Read-only. Same-owner pending publication waiter. Not part of a save. */
@@ -67,7 +68,7 @@ interface TraceTodoDetailProps {
   /** When provided, a plain left-click on a shared-note link calls this instead of
    *  navigating (the `href`/new-tab still works for cmd-click / right-click). */
   onOpenNote?: (note: TodoNoteInfo) => void;
-  /** Authenticated navigation to the optional awaiting reply chat. */
+  /** Authenticated navigation to the handle or awaiting reply chat. */
   onSelectChat?: (chatId: string) => void;
 }
 
@@ -432,7 +433,24 @@ export default function TraceTodoDetail({
                 )}
               </>
             )}
-            {todoInfo.status === "awaiting" && todoInfo.awaiting_chat && (
+            {todoInfo.handle_chat && (
+              <>
+                <span className="text-sol-base01">Talk to</span>
+                {onSelectChat ? (
+                  <button
+                    type="button"
+                    onClick={() => onSelectChat(todoInfo.handle_chat!)}
+                    className="font-mono text-sol-blue hover:text-sol-cyan underline underline-offset-2 break-all cursor-pointer"
+                    title={`Open chat ${todoInfo.handle_chat}`}
+                  >
+                    {todoInfo.handle_chat}
+                  </button>
+                ) : (
+                  <span className="font-mono text-sol-base0 break-all">{todoInfo.handle_chat}</span>
+                )}
+              </>
+            )}
+            {todoInfo.status === "awaiting" && todoInfo.awaiting_chat && todoInfo.awaiting_chat !== todoInfo.handle_chat && (
               <>
                 <span className="text-sol-base01">Reply in</span>
                 {onSelectChat ? (

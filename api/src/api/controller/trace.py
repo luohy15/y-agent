@@ -99,16 +99,20 @@ def preferred_trace_chat(chats):
     return coordinator or chats[0]
 
 
+def resolve_open_chat(chats, handle):
+    """Prefer the handle only when it belongs to the owner-scoped trace chats."""
+    held = next((chat for chat in chats if chat.chat_id == handle), None) if handle else None
+    return held or preferred_trace_chat(chats)
+
+
 @router.get("/latest_chat")
 async def get_latest_chat(request: Request, trace_id: str = Query(...)):
-    """Get the latest chat_id for a trace.
+    """Open the trace's held chat, falling back to coordinator/newest."""
+    from storage.service.todo import find_handle_chat
 
-    Prefers the newest coordinator chat (`leader`, then legacy `dev`) so this
-    agrees with the right drawer's pin, which queries `role=leader`. Otherwise the newest chat overall.
-    """
     user_id = _get_user_id(request)
     chats = find_chats_by_trace_id(user_id, trace_id)
-    chosen = preferred_trace_chat(chats)
+    chosen = resolve_open_chat(chats, find_handle_chat(user_id, trace_id))
     return {"chat_id": chosen.chat_id if chosen is not None else None}
 
 
@@ -154,6 +158,7 @@ async def get_trace_chats(request: Request, trace_id: str = Query(...)):
             "due_date": todo.due_date,
             "progress": todo.progress,
             "awaiting_chat": todo.awaiting_chat,
+            "handle_chat": todo.handle_chat,
             "next_wakeup_at_unix": todo.next_wakeup_at_unix,
             "has_pending_release_waiter": todo.has_pending_release_waiter,
             "completed_at": todo.completed_at,
@@ -393,6 +398,7 @@ async def get_share(share_id: str = Query(...), password: Optional[str] = Query(
             "due_date": todo.due_date,
             "progress": todo.progress,
             "awaiting_chat": todo.awaiting_chat,
+            "handle_chat": todo.handle_chat,
             "completed_at": todo.completed_at,
             "created_at": todo.created_at,
             "updated_at": todo.updated_at,

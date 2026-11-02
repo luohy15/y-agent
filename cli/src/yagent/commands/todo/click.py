@@ -11,6 +11,7 @@ from .deactivate import todo_deactivate
 from .reopen import todo_reopen
 from .status import todo_status
 from .wait import todo_wait
+from .handle import todo_handle
 from .pin import todo_pin, todo_unpin
 from .usage import todo_usage
 from .claim import todo_claim, todo_release
@@ -31,6 +32,7 @@ todo_group.add_command(todo_deactivate)
 todo_group.add_command(todo_reopen)
 todo_group.add_command(todo_status)
 todo_group.add_command(todo_wait)
+todo_group.add_command(todo_handle)
 todo_group.add_command(todo_pin)
 todo_group.add_command(todo_unpin)
 todo_group.add_command(todo_usage)

@@ -178,6 +178,23 @@ async def update_todo(req: UpdateTodoRequest, request: Request):
     return todo.to_dict()
 
 
+class SetHandleRequest(BaseModel):
+    todo_id: str
+    chat_id: str
+
+
+@router.post("/handle")
+async def set_handle(req: SetHandleRequest, request: Request):
+    user_id = _get_user_id(request)
+    try:
+        todo = await asyncio.to_thread(todo_service.set_handle, user_id, req.todo_id, req.chat_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not todo:
+        raise HTTPException(status_code=404, detail="Todo not found")
+    return todo.to_dict()
+
+
 class MachineWaitRequest(BaseModel):
     model_config = {"extra": "forbid"}
 

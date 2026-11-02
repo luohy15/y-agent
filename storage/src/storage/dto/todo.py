@@ -41,6 +41,7 @@ class Todo:
     pinned: bool = False
     status: str = "pending"
     awaiting_chat: Optional[str] = None
+    handle_chat: Optional[str] = None
     machine_wait: Optional[Dict] = None
     progress: Optional[str] = None
     completed_at: Optional[str] = None
@@ -73,6 +74,7 @@ class Todo:
             pinned=data.get('pinned', False),
             status=data.get('status', 'pending'),
             awaiting_chat=data.get('awaiting_chat'),
+            handle_chat=data.get('handle_chat'),
             machine_wait=data.get('machine_wait'),
             progress=data.get('progress'),
             completed_at=data.get('completed_at'),
@@ -93,6 +95,7 @@ class Todo:
             'pinned': self.pinned,
             'status': self.status,
             'awaiting_chat': self.awaiting_chat,
+            'handle_chat': self.handle_chat,
             'machine_wait': self.machine_wait,
             'next_wakeup_at_unix': self.next_wakeup_at_unix,
             'has_pending_release_waiter': self.has_pending_release_waiter,

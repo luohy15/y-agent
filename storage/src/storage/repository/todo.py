@@ -71,6 +71,7 @@ def _entity_to_dto(entity: TodoEntity, *, include_history: bool = True) -> Todo:
         pinned=bool(entity.pinned) if entity.pinned is not None else False,
         status=entity.status,
         awaiting_chat=entity.awaiting_chat,
+        handle_chat=entity.handle_chat,
         machine_wait=entity.machine_wait,
         progress=entity.progress,
         completed_at=entity.completed_at,
@@ -83,6 +84,14 @@ def _entity_to_dto(entity: TodoEntity, *, include_history: bool = True) -> Todo:
         created_at_unix=entity.created_at_unix if entity.created_at_unix else None,
         updated_at_unix=entity.updated_at_unix if entity.updated_at_unix else None,
     )
+
+
+def find_handle_chat(user_id: int, todo_id: str) -> Optional[str]:
+    with get_db() as session:
+        row = session.query(TodoEntity.handle_chat).filter_by(
+            user_id=user_id, todo_id=todo_id,
+        ).first()
+        return row[0] if row else None
 
 
 class TodoList(list):

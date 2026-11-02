@@ -259,15 +259,17 @@ def _legacy_awaiting_rejected(fields) -> None:
         )
 
 
-def _pointer_chat(session, row, chat_id: str) -> None:
+def _pointer_chat(session, row, chat_id: str, field: str = "awaiting_chat") -> None:
     from storage.entity.chat import ChatEntity
     if not session.query(ChatEntity.id).filter_by(
         user_id=row.user_id, chat_id=chat_id, trace_id=row.todo_id,
     ).first():
-        raise ValueError("awaiting_chat must name a same-owner, same-trace chat")
+        raise ValueError(f"{field} must name a same-owner, same-trace chat")
 
 
 def _status_side_effects(row, fields, status: str) -> None:
+    if status in {"completed", "deleted"}:
+        fields["handle_chat"] = None
     if fields.get("status") == row.status:
         return
     fields["machine_wait"] = None
@@ -305,6 +307,11 @@ def _transition_locked(session, row, fields, *, action="updated", extra_note=Non
         _status_side_effects(row, fields, status)
     elif "awaiting_chat" in fields and row.status != "awaiting":
         raise ValueError("awaiting_chat is only valid while status is awaiting")
+    if "handle_chat" in fields:
+        if "status" not in fields and row.status in {"completed", "deleted"}:
+            raise ValueError("handle_chat is not writable on closed work")
+        if fields.get("handle_chat"):
+            _pointer_chat(session, row, fields["handle_chat"], "handle_chat")
     if fields.get("awaiting_chat"):
         if fields.get("status", row.status) != "awaiting":
             raise ValueError("awaiting_chat is only valid while status is awaiting")
@@ -461,6 +468,17 @@ def update_todo(user_id: int, todo_id: str, **fields) -> Optional[Todo]:
     if todo and "tags" in fields:
         tag_repo.sync_tags(user_id, "todo", todo.todo_id, todo.tags or [])
     return _maybe_notice(user_id, todo_id, todo, entered)
+
+
+def find_handle_chat(user_id: int, todo_id: str) -> Optional[str]:
+    return todo_repo.find_handle_chat(user_id, todo_id)
+
+
+def set_handle(user_id: int, todo_id: str, chat_id: str) -> Optional[Todo]:
+    if not isinstance(chat_id, str) or not chat_id.strip():
+        raise ValueError("chat_id is required")
+    return todo_repo.mutate_todo(user_id, todo_id, lambda session, row: _transition_locked(
+        session, row, {"handle_chat": chat_id}))
 
 
 def set_machine_wait(user_id: int, todo_id: str, on: str, chat_id: str,
