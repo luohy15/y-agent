@@ -14,6 +14,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Added
 
+- **Persistent todo conversation (4185)**: `y todo handle <todo_id> --chat <chat_id>` sets the conversation opened with a todo, and Todo detail exposes it as a "Talk to" link. The pointer survives status changes and replies, clearing only on completion or deletion; without a valid pointer, opening falls back to the coordinator or newest chat.
 - **Voice object storage (4165)**: backend contract v30 adds owner- and maintainer-bound voice put/get/delete over the private S3 bucket, with RIFF/WAVE, size, duration and checksum validation and pinned-version reads. Deployments pass a separate API-only `OPENROUTER_INFERENCE_API_KEY` so voice inference does not share the management key.
 - **RSS moved article URLs (4163)**: a new feed URL that matches an existing same-host, same-slug link only on a redirect or an equal title and published time moves the existing URL instead of inserting a duplicate.
 - **Publication grant recovery (4168)**: a two-minute worker schedule retries a pending release-grant wakeup instead of relying on the single post-commit delivery.
