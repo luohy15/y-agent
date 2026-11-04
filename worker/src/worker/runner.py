@@ -18,7 +18,8 @@ import agent.config as agent_config
 INLINE_ALLOWED_ROLES = {"system", "user", "assistant"}
 
 # Fixed built-in tool subset for the `claude -p` launch.
-CLAUDE_TOOLS_ALLOWLIST = "Bash,Edit,Glob,Grep,Read,Skill,TodoWrite,Write"
+# ToolSearch prevents a deferred placeholder that OpenRouter rejects with 400.
+CLAUDE_TOOLS_ALLOWLIST = "Bash,Edit,Glob,Grep,Read,Skill,TodoWrite,ToolSearch,Write"
 
 ARTIFACT_FENCE_RE = re.compile(
     r"```(?P<lang>mermaid|vega-lite|artifact-svg)[^\n`]*\n.*?```",
