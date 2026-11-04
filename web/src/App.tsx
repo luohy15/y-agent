@@ -81,6 +81,7 @@ import {
   isPersistableTab,
   modulesFromPayload,
   mountableUiArtifacts,
+  rememberUiModuleLabels,
   resolveShellSlot,
   shellClaimant,
   type Module,
@@ -146,6 +147,12 @@ export default function App() {
   } = useSWR<unknown>(auth.isLoggedIn ? `${API}/api/module/list?enabled_only=true` : null, jsonFetcher);
   const uiArtifacts = useMemo(() => modulesFromPayload(uiArtifactsResponse), [uiArtifactsResponse]);
   const mountedUiArtifacts = useMemo(() => mountableUiArtifacts(uiArtifacts), [uiArtifacts]);
+  // Persist slug → label only after a real enabled list. Logged-out and
+  // in-flight loads leave the previous cache alone (no extra fetch).
+  useEffect(() => {
+    if (!Array.isArray(uiArtifactsResponse)) return;
+    rememberUiModuleLabels(uiArtifactsResponse);
+  }, [uiArtifactsResponse]);
   // The Modules panel lists every module, including disabled rows. Visibility
   // authorization follows that list, not the enabled-only rail catalog.
   const { data: moduleListResponse } = useSWR<unknown>(

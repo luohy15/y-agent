@@ -54,6 +54,67 @@ export function artifactLabel(artifact: MountableModule): string {
   return artifact.active_version.label?.trim() || artifact.slug;
 }
 
+// Last successful enabled-module list. A restored `ui:` tab can render before
+// that list resolves (logged out, cold load, or a failed fetch). Live label
+// still wins; the slug remains the last resort when nothing was ever cached.
+const UI_MODULE_LABELS_KEY = "uiModuleLabels.v1";
+const UI_MODULE_LABEL_CACHE_CAP = 200;
+
+function labelRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+export function readUiModuleLabelCache(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(UI_MODULE_LABELS_KEY);
+    if (!raw) return {};
+    const parsed = labelRecord(JSON.parse(raw));
+    if (!parsed) return {};
+    const out: Record<string, string> = {};
+    for (const [slug, label] of Object.entries(parsed)) {
+      if (Object.keys(out).length >= UI_MODULE_LABEL_CACHE_CAP) break;
+      if (!slug.trim() || typeof label !== "string") continue;
+      const trimmed = label.trim();
+      if (!trimmed) continue;
+      out[slug] = trimmed;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+export function rememberUiModuleLabels(artifacts: unknown): void {
+  const labels: Record<string, string> = {};
+  for (const artifact of mountableUiArtifacts(artifacts)) {
+    if (Object.keys(labels).length >= UI_MODULE_LABEL_CACHE_CAP) break;
+    const slug = artifact.slug.trim();
+    const label = artifact.active_version.label?.trim() ?? "";
+    if (!slug || !label) continue;
+    labels[slug] = label;
+  }
+  try {
+    localStorage.setItem(UI_MODULE_LABELS_KEY, JSON.stringify(labels));
+  } catch {
+    // Private mode or a full quota. The live label still renders this session.
+  }
+}
+
+export function resolveArtifactTabLabel(
+  path: string,
+  artifacts: readonly MountableModule[],
+  cached: Record<string, string>,
+): string {
+  const slug = artifactSlugFromTab(path);
+  if (!slug) return "ui";
+  const live = artifacts.find((item) => item.slug === slug)?.active_version.label?.trim();
+  if (live) return live;
+  const cachedLabel = cached[slug]?.trim();
+  if (cachedLabel) return cachedLabel;
+  return slug;
+}
+
 // `ui_surfaces` is a comma list; absent (older host response, or a version
 // published before V1) means the pre-existing panel-only default.
 export function hasSurface(module: MountableModule, surface: string): boolean {

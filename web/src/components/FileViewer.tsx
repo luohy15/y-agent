@@ -4,7 +4,13 @@ import DiffViewer from "./DiffViewer";
 import TraceView, { type TraceChatsResponse, type TraceNote } from "./TraceView";
 import ArtifactView, { type ArtifactMode, type ArtifactType } from "./ArtifactView";
 import ArtifactMount from "../host/ArtifactMount";
-import { artifactLabel as uiArtifactLabel, artifactSlugFromTab, type MountableModule } from "../host/artifacts";
+import {
+  artifactLabel as uiArtifactLabel,
+  artifactSlugFromTab,
+  readUiModuleLabelCache,
+  resolveArtifactTabLabel,
+  type MountableModule,
+} from "../host/artifacts";
 import TabRefreshButton from "./shell/TabRefreshButton";
 import { tabRefreshTitle, tabRefreshVisible } from "./shell/tabRefreshState";
 import { useTabRefreshChrome } from "./shell/useTabRefreshChrome";
@@ -59,12 +65,6 @@ function getFileName(path: string): string {
 
 function inlineArtifactLabel(path: string, artifactTabs?: Record<string, { type: ArtifactType; spec: string }>): string {
   return artifactTabs?.[path]?.type ?? "artifact";
-}
-
-function uiArtifactLabelForPath(path: string, artifacts: MountableModule[]): string {
-  const slug = artifactSlugFromTab(path);
-  const artifact = slug ? artifacts.find((item) => item.slug === slug) : undefined;
-  return artifact ? uiArtifactLabel(artifact) : slug ?? "ui";
 }
 
 interface PublicNoteCache {
@@ -216,6 +216,8 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
     return <div className="h-full border-b border-sol-base02 bg-sol-base03" />;
   }
 
+  const moduleLabelCache = readUiModuleLabelCache();
+  const uiTabLabel = (filePath: string) => resolveArtifactTabLabel(filePath, uiArtifacts ?? [], moduleLabelCache);
   const tabs = openFiles.map((filePath) => ({
     key: filePath,
     label: fileTabs[filePath]
@@ -223,11 +225,11 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
       : filePath.startsWith("artifact:")
       ? inlineArtifactLabel(filePath, artifactTabs)
       : filePath.startsWith("ui:")
-      ? uiArtifactLabelForPath(filePath, uiArtifacts)
+      ? uiTabLabel(filePath)
       : filePath.startsWith("diff:")
       ? `${getFileName(filePath.slice(5))} (diff)`
       : getFileName(filePath),
-    title: fileTabs[filePath]?.path ?? filePath,
+    title: filePath.startsWith("ui:") ? uiTabLabel(filePath) : (fileTabs[filePath]?.path ?? filePath),
     dirty: !!fileDirty[filePath],
     italic: filePath === previewFile,
   }));
@@ -269,7 +271,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
     ? isArtifact
       ? inlineArtifactLabel(activeFile, artifactTabs)
       : isUiArtifact
-      ? uiArtifactLabelForPath(activeFile, uiArtifacts)
+      ? uiTabLabel(activeFile)
       : activeFile.replace(/^diff:/, "")
     : "";
 
