@@ -135,6 +135,15 @@ function artifactFromPreNode(node?: HastNode): { type: ArtifactType; spec: strin
   return { type, spec: hastText(codeNode).replace(/\n$/, "") };
 }
 
+// Raw fenced-block text from the parsed tree, so the per-block copy action never
+// depends on the rendered DOM or the language label. The parser appends one
+// final newline before the closing fence; drop only that one.
+function codeTextFromPreNode(node?: HastNode): string | null {
+  const codeNode = node?.children?.find((child) => child.type === "element" && child.tagName === "code");
+  if (!codeNode) return null;
+  return hastText(codeNode).replace(/\n$/, "");
+}
+
 function artifactFromPreChildren(children: ReactNode): { type: ArtifactType; spec: string } | null {
   const items: ReactNode[] = Array.isArray(children) ? children : [children];
   const child = items.find((item) => Boolean(item) && typeof item === "object" && (item as { type?: unknown }).type === "code") as { props?: { className?: string; children?: ReactNode } } | undefined;
@@ -244,7 +253,16 @@ export default function ChatMessagePresentation(props: ChatMessagePresentationPr
             img: ChatImage,
             pre({ children, node }: { children?: ReactNode; node?: HastNode }) {
               const artifact = artifactFromPreNode(node) ?? artifactFromPreChildren(children);
-              if (!artifact) return <pre>{children}</pre>;
+              if (!artifact) {
+                const code = codeTextFromPreNode(node) ?? nodeText(children).replace(/\n$/, "");
+                if (!code) return <pre>{children}</pre>;
+                return (
+                  <div className="group/code relative">
+                    <CopyButton text={code} label="Copy code" className="absolute right-1 top-1 z-10 opacity-0 transition-opacity group-hover/code:opacity-100 pointer-coarse:opacity-100" />
+                    <pre>{children}</pre>
+                  </div>
+                );
+              }
               const key = artifactKey(artifact.type, artifact.spec);
               return (
                 <ArtifactView

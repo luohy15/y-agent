@@ -59,7 +59,7 @@ async function writeClipboard(text: string): Promise<void> {
   }
 }
 
-export function CopyButton({ text, className }: { text: string; className?: string }) {
+export function CopyButton({ text, className, label = "Copy message" }: { text: string; className?: string; label?: string }) {
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<number | null>(null);
   useEffect(() => () => {
@@ -77,7 +77,7 @@ export function CopyButton({ text, className }: { text: string; className?: stri
         });
       }}
       title={copied ? "Copied" : "Copy"}
-      aria-label={copied ? "Copied" : "Copy message"}
+      aria-label={copied ? "Copied" : label}
       className={`inline-flex items-center justify-center rounded border border-sol-base02 bg-sol-base03/80 p-1 text-sol-base01 transition-colors hover:border-sol-blue hover:text-sol-blue focus:opacity-100 ${copied ? "text-sol-green border-sol-green/60" : ""} ${className ?? ""}`}
     >
       {copied ? (
