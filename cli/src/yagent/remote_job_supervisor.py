@@ -34,10 +34,44 @@ def terminate(process):
     return False
 
 
+def version_key(name):
+    parts = []
+    for part in name.split('.'):
+        if not part.isdigit():
+            return (0, name)
+        parts.append(int(part))
+    return (1, tuple(parts))
+
+
+def browser_client(root=None):
+    base = Path(root) if root is not None else Path.home() / '.codex/plugins/cache/openai-bundled'
+    found = []
+    for family in ('browser', 'chrome'):
+        family_dir = base / family
+        if not family_dir.is_dir():
+            continue
+        for version_dir in family_dir.iterdir():
+            script = version_dir / 'scripts' / 'browser-client.mjs'
+            if script.is_file():
+                found.append((version_key(version_dir.name), family, str(script)))
+    if not found:
+        return 'BROWSER_CLIENT_NOT_FOUND'
+    found.sort()
+    return found[-1][2]
+
+
+def render_prompt(text, client_path):
+    marker = 'BROWSER_CLIENT_PATH'
+    if marker not in text:
+        return text
+    # Once: a later copy inside the server-validated URL must not rewrite the setup line.
+    return text.replace(marker, client_path, 1)
+
+
 def main():
     root = Path.cwd()
     config = json.loads((root / 'input.json').read_text())
-    (root / 'prompt.txt').write_text(config['prompt'])
+    (root / 'prompt.txt').write_text(render_prompt(config['prompt'], browser_client()))
     with (root / 'prompt.txt').open('rb') as prompt_input:
         process = subprocess.Popen(
             ['codex', 'exec', '--ephemeral', '--skip-git-repo-check', '--approve-for-me',
