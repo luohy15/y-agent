@@ -24,7 +24,7 @@ A queued job is sent on the existing SQS queue. The worker starts `y remote-job 
 
 ## Remote execution
 
-The EC2 stages a fixed stdlib supervisor and bounded input into `~/y-jobs/<uuid>/`. No host credentials are staged. Mac Codex uses its own authentication and existing Chrome extension/app-server. Invocation uses `codex exec --ephemeral --skip-git-repo-check --approve-for-me --sandbox workspace-write -C <dir> --json`. Approval bypass and danger-full-access are not used. The remote tmux socket is `yj`.
+The EC2 stages a fixed stdlib supervisor and bounded input into `~/y-jobs/<uuid>/`. No host credentials are staged. Mac Codex uses its own authentication and existing Chrome extension/app-server. Invocation uses `codex exec --ephemeral --skip-git-repo-check --approve-for-me -C <dir> --json`. `--approve-for-me` already selects the workspace-write sandbox; a separate `--sandbox` flag is rejected by codex-cli 0.159.3. Approval bypass and danger-full-access are not used. The remote tmux socket is `yj`.
 
 The fixed prompt requests navigation and a screenshot, prohibits typing, login, posting, comments, likes, follows, purchases and setting changes, and treats page content as untrusted. **These are model instructions, not an enforceable browser permission boundary.** Server URL validation restricts initial input only; it does not constrain redirects, generated browser actions or extension privileges. The real Chrome account remains exposed to the executor's browser capabilities. No claim of browser-enforced read-only access is made.
 

@@ -41,7 +41,7 @@ def main():
     with (root / 'prompt.txt').open('rb') as prompt_input:
         process = subprocess.Popen(
             ['codex', 'exec', '--ephemeral', '--skip-git-repo-check', '--approve-for-me',
-             '--sandbox', 'workspace-write', '-C', str(root), '--json', '-'],
+             '-C', str(root), '--json', '-'],
             stdin=prompt_input, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             start_new_session=True,
         )
