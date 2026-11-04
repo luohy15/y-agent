@@ -480,9 +480,11 @@ y todo list --status awaiting
 
 ### Declared machine wait
 
-`y todo wait <id> --on "<dependency>" --chat <chat_id> [--until <+Nm|+Nh|ISO>]`
+`y todo hold <id> --on "<dependency>" --chat <chat_id> [--until <+Nm|+Nh|ISO>]`
 declares a bounded dependency without changing `status=active`.
-`y todo wait <id> --clear` clears it. `POST /api/todo/wait` accepts
+`y todo hold <id> --clear` clears it. `y todo wait` remains a silent hidden alias
+with the same options; both verbs print `hold declared` / `hold cleared`.
+`POST /api/todo/wait` accepts
 `{todo_id, on, chat_id, until?}` (absolute milliseconds) or `{todo_id, clear: true}`.
 The nullable JSON column `todo.machine_wait` stores `{on, chat_id, since, until}`;
 all IDs are public strings. List/detail payloads carry this field.
