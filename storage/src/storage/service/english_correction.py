@@ -194,6 +194,7 @@ def _strip_ui_wrapper_blocks(text: str) -> Optional[str]:
 
 
 def _strip_handoff_reminder(text: str) -> str:
+    text = re.sub(r"^" + re.escape(HANDOFF_REMINDER_MARKER) + r"[^\n]*\n\n", "", text)
     return _HANDOFF_REMINDER_RE.sub("", text)
 
 

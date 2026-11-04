@@ -362,7 +362,7 @@ mode (`-i`) serves a human at a terminal.
 53. As a user sending a message into a chat that has already used more
     tokens than the recommended context-handoff threshold
     (`min(50% of its context window, 200k tokens)`), I want a
-    `[context-handoff-reminder]` block appended to the end of my message,
+    `[context-handoff-reminder]` block before my message's task text (after a dispatch trace prefix),
     stating the session's actual usage, so that the receiving session is
     nudged to wrap up and hand off per AGENTS.md rather than running
     unboundedly long.
@@ -740,10 +740,10 @@ mode (`-i`) serves a human at a terminal.
 - **Post-turn hooks** (Telegram reply delivery, unread marking, plan-to-todo
   extraction, trace registration) run in the worker after completion, keyed
   off the same chat record.
-- **Handoff reminder is appended at write time, in-band** (plan-2951, folded
+- **Handoff reminder is prepended at write time, in-band** (plan-2951, folded
   into `deliver_user_message` by todo 3167): every existing-chat inbound write
   site (`/api/chat/message`'s dispatch and non-dispatch arms, Telegram routed
-  message, Telegram DM append/steer) appends the handoff reminder to the
+  message, Telegram DM append/steer) prepends the handoff reminder to the
   persisted message content itself rather than at prompt-assembly time,
   so steer (which forwards `msg.content` verbatim into the live stdin pipe)
   and Lambda-handoff turn relaunches (which reread already-persisted
@@ -762,6 +762,48 @@ mode (`-i`) serves a human at a terminal.
   reminder wording states the session's actual usage percentage and token
   count rather than a fixed threshold percentage, since the effective
   percentage now varies by window size.
+
+### Context handoff visibility and reuse advice (todo 4211)
+
+- The advisory threshold remains strictly greater than `min(50% window, 200k)`.
+  Prefer main-request prompt tokens (input + cache read + cache creation), not
+  generated output or cumulative spend. Only legacy rows without provenance
+  retain the `used_tokens()` fallback; explicit unknown measurements stay silent.
+  The separate resume-limit gate is unchanged.
+- Persisted dispatch shape is `[trace:...]\n[context-handoff-reminder] ...\n\n<task>`.
+  Plain sends prepend the same reminder without a trace line. Pending-batch
+  deduplication remains; English correction strips both new leading reminders
+  and historical trailing ones. No sender/reuse notice is persisted in the body.
+- Existing-chat dispatches with `from_chat_id` check the prospective target,
+  excluding leader/manager targets, before accepting the message. The response
+  includes nullable `handoff_state` and `handoff_warning`; fresh chats, ordinary
+  human sends and coordinator callbacks have neither. Both explicit chat-id and
+  same-phase reuse share this check. This is a pre-accept snapshot, not a locked
+  guarantee about a concurrently changing target.
+- For an idle target, `over` / `under` require a known positive target window,
+  valid `main_request` counters and an aware observation time no older than its
+  last user message. Missing/invalid/future observation or absent usage/window is
+  `unknown`; an older observation is `stale`. A running target has the same
+  states prefixed `running_`; running and closeout cannot be distinguished here,
+  and a retained `closeout_receipt` is never a state signal. Only `over` and
+  `running_over` warn. Warnings label usage `last settled at <time>`, never live.
+- The CLI prints the returned warning to stderr; stdout stays the chat id and
+  exit status stays zero on successful acceptance. Reuse is not prevented. The
+  parent must not duplicate the accepted assignment; finish at a safe boundary,
+  preserve durable state and use `--new` for subsequent work. No threshold,
+  forced restart, rejection or tool allowlist change is part of this advice.
+- The worker passes stored `chat.context_window` as `Y_CONTEXT_WINDOW` to the
+  launch. The standalone advisory PreToolUse hook in y-history prefers that
+  value, then `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, otherwise stays silent. Fresh
+  sessions use the CLI assumption until a measured window is saved at closeout.
+  It reads at most the transcript's last 256 KiB, skips sidechain entries, uses
+  the latest valid main assistant prompt counters, and emits `additionalContext`
+  at most once per session per ten minutes. Missing/malformed input or usage,
+  unreadable files and no window exit zero silently. It never blocks a tool,
+  dispatches a message, contacts a database or restarts a session.
+- Hook source and its additive `PreToolUse` matcher `*` settings patch are
+  prepared inert. Registration is a separate post-review step preserving existing
+  Bash hooks. Rollback removes only this added hook entry, not other hooks.
 
 ## Testing Decisions
 

@@ -3,6 +3,7 @@ import re
 import sys
 import os
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import List, Optional
 
 import boto3
@@ -39,8 +40,47 @@ CONTEXT_HANDOFF_ABSOLUTE_TOKENS = 200_000
 HANDOFF_REMINDER_MARKER = "[context-handoff-reminder]"
 
 
+def context_prompt_tokens(chat: Chat) -> Optional[int]:
+    """Prefer measured prompt context; retain only the legacy unknown-source fallback."""
+    measured = chat.prompt_tokens()
+    if measured is not None:
+        return measured
+    if chat.context_usage_source is not None or chat.input_tokens is None:
+        return None
+    return chat.used_tokens()
+
+
+def build_target_reuse_check(chat: Chat, *, from_chat_id=None):
+    """Advisory snapshot before reuse, never a send gate or live usage claim."""
+    if not from_chat_id or chat.role in {"leader", "manager"}:
+        return None, None
+    prefix = "running_" if chat.running else ""
+    tokens = chat.prompt_tokens()
+    window = chat.context_window
+    if tokens is None or not window or window <= 0:
+        return prefix + "unknown", None
+    try:
+        observed = datetime.fromisoformat(chat.context_usage_requested_at.replace("Z", "+00:00"))
+        if observed.tzinfo is None or observed > datetime.now(timezone.utc):
+            return prefix + "unknown", None
+        last_user = max((m.unix_timestamp for m in chat.messages if m.role == "user"), default=0)
+    except (AttributeError, TypeError, ValueError):
+        return prefix + "unknown", None
+    if observed.timestamp() * 1000 < last_user:
+        return prefix + "stale", None
+    if tokens <= min(window * CONTEXT_HANDOFF_RATIO, CONTEXT_HANDOFF_ABSOLUTE_TOKENS):
+        return prefix + "under", None
+    return prefix + "over", (
+        f"Target chat {chat.id}: last settled at {chat.context_usage_requested_at}, "
+        f"{tokens:,} prompt tokens ({tokens / window:.0%} of its context window), "
+        "over the handoff threshold. Message accepted, reuse was not prevented. "
+        "Record durable state at a safe boundary and use --new for subsequent work; "
+        "do not duplicate this accepted assignment."
+    )
+
+
 def build_handoff_reminder(chat: Chat, ratio: float) -> str:
-    """Build the (role-agnostic) handoff reminder appended to an over-threshold send.
+    """Build the (role-agnostic) handoff reminder for an over-threshold send.
 
     Wording is grounded in the AGENTS.md "Context handoff" playbook (todo 2976):
     it defers the parent-vs-self-restart classification to the session itself
@@ -48,7 +88,7 @@ def build_handoff_reminder(chat: Chat, ratio: float) -> str:
     knows its own tree position better than the send pipeline does.
     """
     pct = round(ratio * 100)
-    used = chat.used_tokens()
+    used = context_prompt_tokens(chat)
     return (
         f"{HANDOFF_REMINDER_MARKER} This session is at {pct}% of its context "
         f"window ({used:,} tokens used) and has crossed the handoff threshold. "
@@ -61,7 +101,7 @@ def build_handoff_reminder(chat: Chat, ratio: float) -> str:
 
 
 def maybe_append_handoff_reminder(chat: Chat, content: str, resume_limit=None, measured=None) -> str:
-    """Append a handoff reminder to `content` when `chat` is over threshold.
+    """Prepend a handoff reminder (after trace metadata) when over threshold.
 
     No-op when: usage is unknown (ratio is None), usage is at/under the
     min(ratio, absolute) threshold, or a trailing user message (since the last
@@ -80,14 +120,15 @@ def maybe_append_handoff_reminder(chat: Chat, content: str, resume_limit=None, m
             "If a parent is awaiting your result, callback with that state instead of self-restarting."
         )
     else:
-        ratio = chat.context_usage_ratio()
-        if ratio is None:
+        used = context_prompt_tokens(chat)
+        if used is None or not chat.context_window or chat.context_window <= 0:
             return content
+        ratio = used / chat.context_window
         threshold_tokens = min(
             chat.context_window * CONTEXT_HANDOFF_RATIO,
             CONTEXT_HANDOFF_ABSOLUTE_TOKENS,
         )
-        if chat.used_tokens() <= threshold_tokens:
+        if used <= threshold_tokens:
             return content
         reminder = build_handoff_reminder(chat, ratio)
 
@@ -96,7 +137,10 @@ def maybe_append_handoff_reminder(chat: Chat, content: str, resume_limit=None, m
         if HANDOFF_REMINDER_MARKER in msg_content:
             return content
 
-    return f"{content}\n\n{reminder}"
+    first, separator, rest = content.partition("\n")
+    if first.startswith("[trace:") and first.endswith("]") and separator:
+        return f"{first}\n{reminder}\n\n{rest}"
+    return f"{reminder}\n\n{content}"
 
 
 async def list_chats(

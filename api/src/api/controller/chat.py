@@ -108,6 +108,8 @@ class SendMessageResponse(BaseModel):
     ok: bool = True
     chat_id: str
     trace_id: Optional[str] = None
+    handoff_state: Optional[str] = None
+    handoff_warning: Optional[str] = None
 
 
 class StopChatRequest(BaseModel):
@@ -431,6 +433,9 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     from storage.repository.chat import EffortOnRunningChat
 
     async def deliver_existing(target):
+        handoff_state, handoff_warning = chat_service.build_target_reuse_check(
+            target, from_chat_id=req.from_chat_id,
+        )
         resolved = work_dir
         if req.trace_id and target.trace_id and req.trace_id != target.trace_id:
             raise HTTPException(status_code=400, detail="Chat trace_id mismatch")
@@ -451,7 +456,10 @@ async def post_send_message(req: SendMessageRequest, request: Request):
             raise HTTPException(status_code=409, detail=exc.detail()) from exc
         except EffortOnRunningChat as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        return SendMessageResponse(chat_id=delivered.id, trace_id=req.trace_id)
+        return SendMessageResponse(
+            chat_id=delivered.id, trace_id=req.trace_id,
+            handoff_state=handoff_state, handoff_warning=handoff_warning,
+        )
 
     if existing_chat:
         return await deliver_existing(existing_chat)

@@ -298,6 +298,8 @@ def _fire_and_forget(
     try:
         resp = api_request("POST", "/api/chat/message", json=payload)
         data = resp.json()
+        if data.get("handoff_warning"):
+            click.echo(data["handoff_warning"], err=True)
         if wait:
             _wait_for_reply(data["chat_id"], wait_timeout)
         else:

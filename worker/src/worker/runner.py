@@ -830,6 +830,8 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
         env["_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL"] = "1"
     if api_key:
         env["ANTHROPIC_AUTH_TOKEN"] = api_key
+    if chat.context_window and chat.context_window > 0:
+        env["Y_CONTEXT_WINDOW"] = str(chat.context_window)
     if chat_id:
         env["Y_CHAT_ID"] = chat_id
     if trace_id:
