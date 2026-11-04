@@ -94,6 +94,9 @@ export function rememberUiModuleLabels(artifacts: unknown): void {
     if (!slug || !label) continue;
     labels[slug] = label;
   }
+  if (modulesFromPayload(artifacts).some((artifact) => artifact.slug === "food" && artifact.enabled)) {
+    delete labels.eat;
+  }
   try {
     localStorage.setItem(UI_MODULE_LABELS_KEY, JSON.stringify(labels));
   } catch {

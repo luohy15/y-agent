@@ -86,6 +86,7 @@ import {
   shellClaimant,
   type Module,
 } from "./host/artifacts";
+import { migrateFoodTabs } from "./host/moduleSlugMigration";
 import { registerHostCommand, runHostCommand } from "./host/commands";
 import { getArtifactIntent, registerArtifactDetailOpener, setArtifactIntent } from "./host/intents";
 import { publishActivityBarVisibility, registerActivityBarVisibilityCommands } from "./host/activityBarVisibilityBridge";
@@ -234,6 +235,15 @@ export default function App() {
   const [activeFile, setActiveFile] = useState<string | null>(() => initialWorkspace.active);
   const [previewFile, setPreviewFile] = useState<string | null>(() => initialWorkspace.preview);
   const [fileTabs, setFileTabs] = useState<Record<string, OrdinaryFileTab>>(() => initialWorkspace.files);
+  // Also catches tabs restored by the later server preference reconciliation.
+  useEffect(() => {
+    const snapshot = { openTabs: openFiles, active: activeFile, preview: previewFile };
+    const migrated = migrateFoodTabs(snapshot, uiArtifacts);
+    if (migrated === snapshot) return;
+    setOpenFiles(migrated.openTabs);
+    setActiveFile(migrated.active);
+    setPreviewFile(migrated.preview);
+  }, [uiArtifacts, openFiles, activeFile, previewFile]);
   // Session-scoped per-tab back/forward stacks (todo 3288); not persisted with
   // the fileWorkspace preference, dies with the tab and the page reload.
   const [fileHistory, setFileHistory] = useState<TabHistoryMap>({});
