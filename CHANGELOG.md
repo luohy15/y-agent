@@ -18,14 +18,21 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Voice object storage (4165)**: backend contract v30 adds owner- and maintainer-bound voice put/get/delete over the private S3 bucket, with RIFF/WAVE, size, duration and checksum validation and pinned-version reads. Deployments pass a separate API-only `OPENROUTER_INFERENCE_API_KEY` so voice inference does not share the management key.
 - **RSS moved article URLs (4163)**: a new feed URL that matches an existing same-host, same-slug link only on a redirect or an equal title and published time moves the existing URL instead of inserting a duplicate.
 - **Publication grant recovery (4168)**: a two-minute worker schedule retries a pending release-grant wakeup instead of relying on the single post-commit delivery.
+- **Remote Mac browser jobs (4204)**: `y remote-job` submits owner-scoped Codex `browser_open` jobs to the existing `ssh mac` target through the normal SQS and worker path. Jobs move through queued, dispatched, running and terminal states under fenced claim tokens, with bounded logs and results, cancellation, an independent 180-second default timeout, and a completion receipt delivered as a `chat_wakeup` on the same trace. A `browser_open` job reports completed only after a non-empty title, URL and JPEG artifact are recorded.
+- **Code block copy (4198)**: every non-artifact fenced code block has a Copy button in its upper-right corner, copying the raw parsed code. It shows on hover and focus and stays visible on touch pointers.
 
 ### Changed
 
 - **Same-phase chat worker (4159)**: a role-free dispatch carrying a trace, work directory and a `<phase> phase` token now delivers into the existing same-phase worker rather than creating a second chat. `--new` (or the hidden `--fresh` alias) forces a new chat.
+- **`y todo hold` (4207)**: `y todo hold` is the canonical command for declaring a bounded machine wait on an active todo. `y todo wait` remains a hidden alias with identical behavior.
 
 ### Fixed
 
 - **RSS item relabeling (4163)**: a browser visit is reused for an RSS link only when it is already an `rss` activity, so a plain visit stays a visit and the RSS row is inserted beside it.
+- **Context handoff reuse warning (4211)**: reusing an existing chat now returns a handoff state, and when that chat is over the threshold the CLI prints the prompt tokens, usage ratio and a `--new` recommendation while still accepting the message. Handoff checks read measured prompt tokens, and the reminder is placed after any trace metadata.
+- **ToolSearch allowlist (4197)**: `ToolSearch` stays in the fixed Claude Code tool allowlist, so OpenRouter-backed relay models no longer receive a deferred tool placeholder that fails with HTTP 400.
+- **Restored tab labels (4201)**: a restored `ui:` tab uses the cached module label while the enabled-module list is still resolving, instead of falling back to the slug.
+- **Restored Food tabs (4203)**: open, active and preview tabs pointing at `ui:eat` migrate to `ui:food` once Food is enabled. A module list that only has `eat` is left unchanged.
 
 ### Removed
 
