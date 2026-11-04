@@ -13,6 +13,7 @@ from yagent.commands.pdf.click import pdf_group
 from yagent.commands.assoc import assoc_group, unassoc_group
 from yagent.commands.entity.click import entity_group
 from yagent.commands.reminder.click import reminder_group
+from yagent.commands.remote_job.click import remote_job_group
 from yagent.commands.routine.click import routine_group
 from yagent.commands.english.click import english_group
 from yagent.commands.rss.click import rss_group
@@ -44,6 +45,7 @@ cli.add_command(entity_group)
 cli.add_command(assoc_group)
 cli.add_command(unassoc_group)
 cli.add_command(reminder_group)
+cli.add_command(remote_job_group)
 cli.add_command(routine_group)
 cli.add_command(english_group)
 cli.add_command(rss_group)

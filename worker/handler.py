@@ -80,6 +80,11 @@ async def _process_record(body: dict) -> str:
         await handle_batch_download_links()
         return "done"
 
+    if task_type == "remote_job":
+        from worker.steps.run_remote_job import handle_remote_job
+        await handle_remote_job(body)
+        return "done"
+
     if task_type == "continuation":
         return "continuation"
 

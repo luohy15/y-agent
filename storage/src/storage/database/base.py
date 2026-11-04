@@ -125,6 +125,9 @@ def init_tables():
     import storage.entity.module  # noqa: F401
     import storage.entity.module_version  # noqa: F401
 
+    from importlib import import_module
+    import_module('storage.entity.remote_job')
+
     Base.metadata.create_all(bind=_engine)
 
 

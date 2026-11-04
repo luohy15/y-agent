@@ -45,6 +45,15 @@ Other top-level dirs: `scripts/` (deploy, DNS, IAM), `template.yaml` / `samconfi
 
 ## Notable Subsystems
 
+- **Remote machine jobs (todo 4204)**: host `execution_target` / `remote_job`,
+  `/api/remote-jobs`, and `y remote-job` provide the bounded Mac `browser_open`
+  capability with Codex, not a new chat backend. Existing SQS starts an EC2
+  runner which claims once, stages a credential-free supervisor over `ssh mac`,
+  and records fenced results. Terminal state and an immediate `chat_wakeup`
+  completion receipt commit together. The Machine module is UI-only. Prompt
+  read-only instructions are not browser-enforced restrictions; host_offline
+  never confirms remote termination. See `docs/prd/multi-machine-execution.md`.
+
 These are the cross-cutting features to be aware of before touching the code. Each has
 entity + controller + service + CLI slices, and most have a web panel.
 
