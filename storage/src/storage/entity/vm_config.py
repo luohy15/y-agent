@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, UniqueConstraint, text
 from .base import Base, BaseEntity
 
 
@@ -14,6 +14,12 @@ class VmConfigEntity(Base, BaseEntity):
     ec2_instance_id = Column(String, nullable=False, default="")
     ec2_region = Column(String, nullable=False, default="")
     last_up = Column(Integer, nullable=True)
+    # Execution-node metadata (todo 4204). A NULL platform means linux; a NULL
+    # data_scope means personal. Every row is a node in the registry; `default`
+    # is the orchestrator and the SSH jump anchor.
+    platform = Column(String, nullable=True)
+    data_scope = Column(String, nullable=True)
+    enabled = Column(Boolean, nullable=False, server_default=text("true"), default=True)
     # NOTE: the live table still has a `finance_config` jsonb column (NOT NULL
     # DEFAULT '{}'). It is finance domain data that moved to the module-owned
     # `finance_config` table (todo 3020, D8); the expand/contract DROP is the

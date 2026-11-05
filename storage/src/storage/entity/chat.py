@@ -19,7 +19,8 @@ class ChatEntity(Base, BaseEntity):
     skill = Column(String, nullable=True, index=True)
     trace_id = Column(String, nullable=True, index=True)
     routine_id = Column(String, nullable=True, index=True)
-    # NULL and ec2 are the EC2 machine. mac is sticky; see chat_target.
+    # Sticky snapshot of the vm_config node name that runs this chat; NULL and
+    # `default`/`ec2` all mean the orchestrator itself. See chat_target.
     execution_target = Column(String, nullable=True)
     json_content = Column(Text, nullable=False)
     search_text = Column(Text, nullable=True)  # extracted message text for fast search
@@ -34,8 +35,12 @@ class ChatEntity(Base, BaseEntity):
     __table_args__ = (
         UniqueConstraint("user_id", "chat_id"),
         CheckConstraint("role IN ('manager', 'leader')", name="ck_chat_role"),
+        # Portable subset of the migration's node-name format check
+        # (`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`); the regex CHECK is applied by
+        # migration/4204_execution_node.sql so in-memory SQLite harnesses can
+        # still create the table.
         CheckConstraint(
-            "execution_target IS NULL OR execution_target IN ('ec2', 'mac')",
+            "execution_target IS NULL OR (length(execution_target) BETWEEN 1 AND 64)",
             name="ck_chat_execution_target",
         ),
         Index("ix_chat_user_role_trace", "user_id", "role", "trace_id",

@@ -363,11 +363,20 @@ def preflight_launch_effort(user_id: int, effort: str = None, *, chat=None, bot_
 
 
 def resolve_vm_config(user_id: int, vm_name: str = None, work_dir: str = None) -> VmConfig:
+    """Resolve the generic default VM for non-chat work (files, terminal, images).
+
+    Chat execution does not use this: a chat resolves its node strictly from
+    ``vm_config`` and never lets a work-dir match substitute another machine.
+    Here the work-dir auto-match is likewise limited to the default row, so a
+    node row sharing a work_dir cannot receive untargeted generic work.
+    """
     vm_config = None
     if vm_name:
         vm_config = vm_service.get_config(user_id, vm_name)
     if not vm_config and work_dir:
-        vm_config = vm_service.get_config_by_work_dir(user_id, work_dir)
+        candidate = vm_service.get_config_by_work_dir(user_id, work_dir)
+        if candidate is not None and candidate.name == "default":
+            vm_config = candidate
     if not vm_config:
         vm_config = vm_service.get_config(user_id, "default")
     if not vm_config:

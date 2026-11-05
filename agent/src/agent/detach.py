@@ -35,25 +35,21 @@ ORPHAN_WRAPPER_MIN_AGE_SECONDS = 120
 TMUX_SOCKET = "y-agent"
 
 
-def _tmux_command(args: str, legacy: bool = False, target: str = "ec2") -> str:
+def _tmux_command(args: str, legacy: bool = False, node=None) -> str:
     socket = "default" if legacy else TMUX_SOCKET
-    binary = "tmux"
-    if target not in (None, "", "ec2"):
-        from agent.chat_target import layout
-
-        binary = layout(target).tmux_binary
+    binary = node.tmux_binary if node is not None else "tmux"
     return f"{binary} -L {socket} {args}"
 
 
-def _tmux_alive_cmd(chat_id: str, target: str = "ec2") -> str:
+def _tmux_alive_cmd(chat_id: str, node=None) -> str:
     # One-release transition: pre-deploy turns still live on the default socket.
     args = f"has-session -t {_shell_quote(f'=cc-{chat_id}')} 2>/dev/null"
-    return f"( {_tmux_command(args, target=target)} || {_tmux_command(args, legacy=True, target=target)} )"
+    return f"( {_tmux_command(args, node=node)} || {_tmux_command(args, legacy=True, node=node)} )"
 
 
-def _tmux_kill_cmd(chat_id: str, target: str = "ec2") -> str:
+def _tmux_kill_cmd(chat_id: str, node=None) -> str:
     args = f"kill-session -t {_shell_quote(f'=cc-{chat_id}')} 2>/dev/null"
-    return f"( {_tmux_command(args, target=target)}; {_tmux_command(args, legacy=True, target=target)} )"
+    return f"( {_tmux_command(args, node=node)}; {_tmux_command(args, legacy=True, node=node)} )"
 
 
 def _reap_orphan_wrappers_cmd(min_age_s: float = ORPHAN_WRAPPER_MIN_AGE_SECONDS, stdin_prefix: str = "/tmp/cc-") -> str:
@@ -65,18 +61,18 @@ def _reap_orphan_wrappers_cmd(min_age_s: float = ORPHAN_WRAPPER_MIN_AGE_SECONDS,
 
 
 @contextmanager
-def _with_ssh_client(vm_config, ssh_client=None, target: str = "ec2"):
-    """Yield a paramiko SSHClient for `target`, connecting if not passed.
+def _with_ssh_client(node, ssh_client=None):
+    """Yield a paramiko SSHClient for `node`, connecting if not passed.
 
     If the caller supplies `ssh_client` (from a pool), it is reused and left
-    open. Otherwise a fresh connection is opened and closed on exit. ``mac``
-    keeps the EC2 session only as the direct-tcpip outer hop.
+    open. Otherwise a fresh connection is opened and closed on exit. Jump nodes
+    keep the anchor session only as the direct-tcpip outer hop.
     """
     owns_client = ssh_client is None
     if owns_client:
         from agent.chat_target import open_owned_client
 
-        ssh_client = open_owned_client(vm_config, target)
+        ssh_client = open_owned_client(node)
 
     try:
         yield ssh_client
@@ -180,26 +176,25 @@ def assemble_inner(
     return " ".join(inner_parts)
 
 
-def build_launch_plan(target_id, chat_id: str, cmd, env=None, cwd=None, prompt: str = "") -> dict:
-    """Launch text for one target, with no SSH. Used by the mac command check."""
-    from agent.chat_target import apply_launch, layout
+def build_launch_plan(node, chat_id: str, cmd, env=None, cwd=None, prompt: str = "") -> dict:
+    """Launch text for one node, with no SSH. Used by the mac command check."""
+    from agent.chat_target import apply_launch
     from agent.claude_code import _claude_build_exec
 
-    desc = layout(target_id)
-    argv, exported = apply_launch(target_id, cmd, env)
+    argv, exported = apply_launch(node, cmd, env)
     inner = assemble_inner(
         env=exported,
         cwd=cwd,
         exec_cmd=_claude_build_exec(argv, chat_id, prompt, None),
-        heartbeat=desc.heartbeat,
+        heartbeat=node.heartbeat,
         stdout_file=f"/tmp/cc-{chat_id}.stdout",
         stderr_file=f"/tmp/cc-{chat_id}.stderr",
         exit_file=f"/tmp/cc-{chat_id}.exit",
     )
     return {
         "inner": inner,
-        "reaper_command": _reap_orphan_wrappers_cmd() if desc.reaper else None,
-        "tmux_command": _tmux_command("new-session", target=desc.id),
+        "reaper_command": _reap_orphan_wrappers_cmd() if node.reaper else None,
+        "tmux_command": _tmux_command("new-session", node=node),
     }
 
 
@@ -225,12 +220,11 @@ async def _start_detached_tmux(
     prompt: str,
     cwd: Optional[str],
     chat_id: str,
-    vm_config,
+    node,
     spec: DetachBackendSpec,
     env: Optional[Dict[str, str]] = None,
     images: Optional[List[str]] = None,
     ssh_client=None,
-    target: str = "ec2",
 ) -> Optional[str]:
     """Shared skeleton for starting a detached tmux session over SSH.
 
@@ -248,10 +242,7 @@ async def _start_detached_tmux(
       5. Sleep briefly, read the first few stdout lines, and extract the
          initial id via `spec.parse_initial`.
     """
-    from agent.chat_target import layout
-
-    desc = layout(target)
-    with _with_ssh_client(vm_config, ssh_client, target=target) as client:
+    with _with_ssh_client(node, ssh_client) as client:
         session_name = f"cc-{chat_id}"
         stdout_file = f"/tmp/cc-{chat_id}.stdout"
         stderr_file = f"/tmp/cc-{chat_id}.stderr"
@@ -261,7 +252,7 @@ async def _start_detached_tmux(
         from agent.mcp.staging import cleanup_command
         _ssh_exec(
             client,
-            f"{_tmux_kill_cmd(chat_id, target=target)}; "
+            f"{_tmux_kill_cmd(chat_id, node=node)}; "
             f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit /tmp/cc-{chat_id}.killed /tmp/cc-{chat_id}.claude-ec 2>/dev/null; "
             f"rm -rf /tmp/cc-{chat_id}-images 2>/dev/null; "
             + cleanup_command(chat_id),
@@ -269,7 +260,7 @@ async def _start_detached_tmux(
         # Host-wide guard: wrappers whose tmux session is gone but whose
         # process tree survived (todo 3819). Never fails the launch.
         # The reaper reads /proc, so it does not run on macOS.
-        if desc.reaper:
+        if node.reaper:
             try:
                 reaped = _ssh_exec(client, _reap_orphan_wrappers_cmd()).strip()
                 if reaped and reaped != "reaped=0":
@@ -307,7 +298,7 @@ async def _start_detached_tmux(
             env=env,
             cwd=cwd,
             exec_cmd=exec_cmd,
-            heartbeat=desc.heartbeat,
+            heartbeat=node.heartbeat,
             stdout_file=stdout_file,
             stderr_file=stderr_file,
             exit_file=exit_file,
@@ -315,7 +306,7 @@ async def _start_detached_tmux(
         )
 
         tmux_cmd = (
-            f"{_tmux_command('new-session', target=target)} -d -s {_shell_quote(session_name)} "
+            f"{_tmux_command('new-session', node=node)} -d -s {_shell_quote(session_name)} "
             f"{_shell_quote(inner)}"
         )
 

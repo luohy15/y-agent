@@ -11,6 +11,9 @@ class VmConfig:
     ec2_instance_id: str = ""
     ec2_region: str = ""
     last_up: Optional[int] = None  # unix timestamp
+    platform: Optional[str] = None  # NULL means linux
+    data_scope: Optional[str] = None  # NULL means personal
+    enabled: bool = True
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'VmConfig':

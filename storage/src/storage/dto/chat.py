@@ -143,7 +143,7 @@ class Chat:
     trace_id: Optional[str] = None
     routine_id: Optional[str] = None  # set when chat was fired by a routine
     work_dir: Optional[str] = None
-    execution_target: Optional[str] = None  # None/ec2 on EC2; mac is sticky
+    execution_target: Optional[str] = None  # sticky vm_config node name; None/ec2 = default
     interrupted: bool = False
     running: bool = False
     # Run reservation identity. `run_seq` is bumped by whoever makes this chat

@@ -114,6 +114,13 @@ interface VmConfigItem {
   name: string;
   vm_name: string;
   work_dir: string;
+  platform?: string | null;
+  data_scope?: string | null;
+  enabled?: boolean;
+  is_default?: boolean;
+  // Non-default vm_config rows are chat-only in v1; file/git/terminal stay on
+  // the default node and must not offer them as targets.
+  chat_only?: boolean;
 }
 
 interface BotConfigItem {
@@ -1537,7 +1544,7 @@ export default function App() {
                     >
                       default
                     </button>
-                    {vmList.filter((vm) => vm.name !== "default").map((vm) => (
+                    {vmList.filter((vm) => vm.name !== "default" && !vm.chat_only && vm.enabled !== false).map((vm) => (
                       <button
                         key={vm.name}
                         onClick={() => { setSelectedVM(vm.name); setSelectedChatId(null); setChatTopic(null); setChatSkill(null); setChatBackend(null); setChatBotName(null); setChatTraceId(null); setVmDropdownOpen(false); }}

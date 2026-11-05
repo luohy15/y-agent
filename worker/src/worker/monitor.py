@@ -217,21 +217,21 @@ def _turn_message_patch(fresh) -> dict:
 
 async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadline_at: float, ssh_pool=None):
     """Tail a single detached process and handle completion."""
-    from agent.config import resolve_vm_config
+    from agent.chat_target import layout
     from storage.service import chat as chat_service
 
     backend_type = proc.get("backend_type", "claude_code")
-    vm_name = proc["vm_name"]
     user_id = proc["user_id"]
     offset = proc.get("stdout_offset", 0)
     last_message_id = proc.get("last_message_id")
     session_id = proc.get("session_id")
 
-    vm_config = resolve_vm_config(user_id, vm_name, work_dir=proc.get("work_dir"))
-    target_id = proc.get("target_id") or "ec2"
+    # A disabled node still tails: this chat already lives there. An unknown
+    # node fails closed instead of falling back to the orchestrator.
+    node = layout(user_id, proc.get("target_id") or "default", allow_disabled=True)
 
-    # Get pooled SSH client if pool is available. mac is a jump on that pool.
-    client = ssh_pool.get_or_create(vm_config, target=target_id) if ssh_pool else None
+    # Get pooled SSH client if pool is available. Jump nodes are a jump on it.
+    client = ssh_pool.get_or_create(node) if ssh_pool else None
 
     started_at = proc.get("started_at", 0)
 
@@ -275,7 +275,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
     else:
         result = await tail_ssh_output(
             chat_id=chat_id,
-            vm_config=vm_config,
+            node=node,
             offset=offset,
             last_message_id=last_message_id,
             message_callback=_msg_callback,
@@ -288,7 +288,6 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                                     if proc.get("scope_first_id") in ids), None),
             pending_result=_load_json_field(proc, "pending_result") or None,
             pending_context_usage=_load_json_field(proc, "pending_context_usage") or None,
-            target=target_id,
         )
 
     if result["is_done"] and result["status"] != "error":
@@ -438,7 +437,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
 
                 try:
                     from worker.runner import _send_telegram_reply
-                    _send_telegram_reply(fresh, user_id, proc.get("trace_id"), vm_config=vm_config, ssh_client=client)
+                    _send_telegram_reply(fresh, user_id, proc.get("trace_id"), vm_config=node.anchor, ssh_client=client)
                 except Exception as e:
                     logger.exception("telegram reply failed: {}", e)
 
@@ -468,9 +467,8 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                         logger.exception("session-end reconcile failed: chat_id={} error={}", chat_id, e)
 
             await _trigger_context_ingest(
-                vm_config, backend_type,
+                node, backend_type,
                 (result.get("result_data") or {}).get("session_id") or updated_session_id,
-                target_id=target_id,
             )
         else:
             complete_process(chat_id, status=result["status"])
@@ -490,12 +488,13 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
         logger.info("tail_and_process paused chat_id={} offset={}", chat_id, result["offset"])
 
 
-async def _trigger_context_ingest(vm_config, backend_type: str, session_id, target_id: str = "ec2"):
+async def _trigger_context_ingest(node, backend_type: str, session_id):
     """Launch a scoped ingest after closeout; the hourly scan remains the backstop.
 
-    Mac transcripts live on the Mac. v1 does not copy them back, so skip ingest.
+    Transcripts live on the node. Jump-node transcripts are not copied back in
+    v1, so only a direct VM node ingests.
     """
-    if target_id not in (None, "", "ec2"):
+    if not node.ingest_transcripts:
         return
     if (backend_type != "claude_code" or not isinstance(session_id, str)
             or not re.fullmatch(r"[0-9a-fA-F-]{36}", session_id)):
@@ -504,7 +503,7 @@ async def _trigger_context_ingest(vm_config, backend_type: str, session_id, targ
         from agent.vm_command import execute_vm_command
 
         await asyncio.wait_for(execute_vm_command(
-            vm_config,
+            node.anchor,
             ["sh", "-c", "mkdir -p ~/.y-agent/logs && "
              f"(nohup y usage ingest-transcripts --session {session_id} "
              "</dev/null >>~/.y-agent/logs/context-ingest.log 2>&1 &)"],
@@ -888,7 +887,7 @@ async def _sweep_orphan_running_chats() -> dict:
 
 async def _handle_timeout(chat_id: str, proc: dict, ssh_pool=None):
     """Handle hard timeout through the same terminal persistence and delivery as errors."""
-    from agent.config import resolve_vm_config
+    from agent.chat_target import layout
     from storage.service import chat as chat_service
 
     from worker.death_delivery import current_run
@@ -897,17 +896,15 @@ async def _handle_timeout(chat_id: str, proc: dict, ssh_pool=None):
             or not current_run(chat_id, proc)):
         return
 
-    # 1. Kill tmux session on remote
+    # 1. Kill tmux session on the node
     user_id = proc["user_id"]
-    vm_name = proc["vm_name"]
     try:
-        vm_config = resolve_vm_config(user_id, vm_name, work_dir=proc.get("work_dir"))
-        target_id = proc.get("target_id") or "ec2"
-        client = ssh_pool.get_or_create(vm_config, target=target_id) if ssh_pool else None
+        node = layout(user_id, proc.get("target_id") or "default", allow_disabled=True)
+        client = ssh_pool.get_or_create(node) if ssh_pool else None
         if client:
             from agent.detach import _tmux_kill_cmd
             client.exec_command(
-                f"{_tmux_kill_cmd(chat_id, target=target_id)}; "
+                f"{_tmux_kill_cmd(chat_id, node=node)}; "
                 f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.stdout /tmp/cc-{chat_id}.stderr /tmp/cc-{chat_id}.exit 2>/dev/null"
             )
             logger.info("hard timeout: killed tmux session for chat_id={}", chat_id)

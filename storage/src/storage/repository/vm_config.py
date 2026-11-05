@@ -16,6 +16,9 @@ def _entity_to_dto(entity: VmConfigEntity) -> VmConfig:
         ec2_instance_id=entity.ec2_instance_id or "",
         ec2_region=entity.ec2_region or "",
         last_up=entity.last_up,
+        platform=entity.platform,
+        data_scope=entity.data_scope,
+        enabled=True if entity.enabled is None else bool(entity.enabled),
     )
 
 
@@ -28,6 +31,9 @@ def _dto_to_entity_fields(config: VmConfig) -> dict:
         ec2_instance_id=config.ec2_instance_id,
         ec2_region=config.ec2_region,
         last_up=config.last_up,
+        platform=config.platform,
+        data_scope=config.data_scope,
+        enabled=config.enabled,
     )
 
 
@@ -76,6 +82,16 @@ def get_config_by_work_dir(user_id: int, work_dir: str) -> Optional[VmConfig]:
         if row:
             return _entity_to_dto(row)
         return None
+
+
+def set_enabled(user_id: int, name: str, enabled: bool) -> Optional[VmConfig]:
+    with get_db() as session:
+        row = session.query(VmConfigEntity).filter_by(user_id=user_id, name=name).first()
+        if row is None:
+            return None
+        row.enabled = enabled
+        session.flush()
+        return _entity_to_dto(row)
 
 
 def update_last_up(user_id: int, name: str, last_up: int) -> None:

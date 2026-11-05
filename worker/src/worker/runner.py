@@ -763,9 +763,10 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
     user_prompt, user_images = _prompt_from_inputs(selected_inputs)
     reasoning_effort = resolve_reasoning_effort(selected_inputs, "claude_code")
 
-    vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
+    from agent.chat_target import layout
+    node = layout(user_id, getattr(chat, "execution_target", None))
     last_message_id = messages[-1].id if messages else None
-    cwd = vm_config.work_dir or os.path.expanduser(os.environ.get("VM_WORK_DIR_CLI") or os.getcwd())
+    cwd = work_dir or node.work_dir or os.path.expanduser(os.environ.get("VM_WORK_DIR_CLI") or os.getcwd())
     model = bot_config.model.strip('"').strip() if bot_config.model else None
     model = model or None
 
@@ -849,7 +850,7 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
         "cmd": cmd,
         "env": env,
         "cwd": cwd,
-        "vm_config": vm_config,
+        "node": node,
         "session_id": session_id,
         "resume": resume,
         "last_message_id": last_message_id,
@@ -923,11 +924,12 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
             user_id=user_id,
         )
 
-    # Wake EC2 if needed. It stays the tunnel host when the chat itself runs on mac.
-    ensure_and_touch_vm(params["vm_config"])
-    from agent.chat_target import apply_launch, resolve_target
-    target_id = resolve_target(getattr(chat, "execution_target", None))
-    params["cmd"], params["env"] = apply_launch(target_id, params["cmd"], params["env"])
+    # Wake the anchor node if needed. It stays the tunnel host when the chat
+    # itself runs on a jump node.
+    node = params["node"]
+    ensure_and_touch_vm(node.anchor)
+    from agent.chat_target import apply_launch
+    params["cmd"], params["env"] = apply_launch(node, params["cmd"], params["env"])
 
     # Start detached tmux session. The launch prompt is one stdin write, so all
     # the message ids folded into it share its native uuid; the ledger the
@@ -946,12 +948,11 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
             prompt=params["prompt"],
             cwd=cwd,
             chat_id=chat_id,
-            vm_config=params["vm_config"],
+            node=node,
             env=params["env"],
             images=params.get("images"),
             input_uuid=launch_uuid,
             mcp_material=mcp_material,
-            target=target_id,
         )
     except Exception:
         mcp_launch.end(mcp_material)
@@ -972,7 +973,7 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
     # Register in DynamoDB for monitoring
     try:
         register_process(
-            chat_id=chat_id, user_id=user_id, vm_name=params["vm_config"].name,
+            chat_id=chat_id, user_id=user_id, vm_name=node.anchor.name,
             bot_name=bot_config.name, trace_id=trace_id, role=role,
             post_hooks=post_hooks, work_dir=cwd, session_id=session_id,
             backend_type=effective_backend,
@@ -985,7 +986,7 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
             initial_message_ids=[m.id for m in chat.messages if m.id],
             run_seq=chat.run_seq,
             mcp_launch_id=mcp_material.launch_id,
-            target_id=target_id,
+            target_id=node.name,
         )
     except Exception as e:
         mcp_launch.end(mcp_material)

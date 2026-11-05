@@ -322,6 +322,14 @@ async def get_chat(user_id: int, chat_id: str) -> Optional[Chat]:
             return None
 
 
+def count_chats_with_execution_target(user_id: int, target_name: str) -> int:
+    """Chats pinned to an execution node, for the vm_config delete guard."""
+    with get_db() as session:
+        return session.query(ChatEntity.id).filter_by(
+            user_id=user_id, execution_target=target_name,
+        ).count()
+
+
 def chat_id_exists(user_id: int, chat_id: str) -> bool:
     """Return True if (user_id, chat_id) already has a row."""
     with get_db() as session:

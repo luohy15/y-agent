@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
 
 from loguru import logger
 
-from storage.entity.dto import Message, VmConfig
+from storage.entity.dto import Message
 from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
 from agent.input_ledger import InputLedger, SUBMITTED, native_input_uuid
 from agent.poll_loop import PollLoop
@@ -715,7 +715,7 @@ def _resume_refused_message(backend: str, suffix: str = "") -> str:
 
 
 def _no_result_error_message(client, chat_id: str, backend: str, stream_error: Optional[Exception] = None,
-                             resume_refused: bool = False, target: str = "ec2") -> str:
+                             resume_refused: bool = False, node=None) -> str:
     """Build a precise error message for a tmux session that ended without ever
     emitting a final result event.
 
@@ -746,7 +746,7 @@ def _no_result_error_message(client, chat_id: str, backend: str, stream_error: O
             f"(ssh error: {type(e).__name__}: {e}).{suffix}"
         )
     if not raw:
-        if not _tmux_session_alive(client, chat_id, target=target):
+        if not _tmux_session_alive(client, chat_id, node=node):
             return (
                 f"{backend}: tmux session vanished without exit status: "
                 f"wrapper or tmux server killed externally.{suffix}"
@@ -775,7 +775,7 @@ def _no_result_error_message(client, chat_id: str, backend: str, stream_error: O
     return generic
 
 
-def _tmux_session_alive(client, chat_id: str, target: str = "ec2") -> bool:
+def _tmux_session_alive(client, chat_id: str, node=None) -> bool:
     """Return True if the detached tmux session `cc-<chat_id>` still exists.
 
     Gates the no-result death report: the SSH tail stream can end while the
@@ -787,7 +787,7 @@ def _tmux_session_alive(client, chat_id: str, target: str = "ec2") -> bool:
     """
     from agent.detach import _tmux_alive_cmd
 
-    cmd = f"{_tmux_alive_cmd(chat_id, target=target)} && echo alive || echo dead"
+    cmd = f"{_tmux_alive_cmd(chat_id, node=node)} && echo alive || echo dead"
     try:
         return _ssh_exec(client, cmd).strip() == "alive"
     except Exception as e:
@@ -795,7 +795,7 @@ def _tmux_session_alive(client, chat_id: str, target: str = "ec2") -> bool:
         return True
 
 
-def _kill_and_verify_cmd(chat_id: str, target: str = "ec2") -> str:
+def _kill_and_verify_cmd(chat_id: str, node=None) -> str:
     """Marker + kill + cleanup, then a tmux liveness check.
 
     The marker+kill+cleanup chain is unchanged: `.killed` is written before
@@ -806,10 +806,10 @@ def _kill_and_verify_cmd(chat_id: str, target: str = "ec2") -> str:
     from agent.mcp.staging import cleanup_command
 
     return (
-        f"touch /tmp/cc-{chat_id}.killed && {_tmux_kill_cmd(chat_id, target=target)}; "
+        f"touch /tmp/cc-{chat_id}.killed && {_tmux_kill_cmd(chat_id, node=node)}; "
         f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null; "
         + cleanup_command(chat_id)
-        + f"; {_tmux_alive_cmd(chat_id, target=target)} && echo alive || echo gone"
+        + f"; {_tmux_alive_cmd(chat_id, node=node)} && echo alive || echo gone"
     )
 
 
@@ -818,23 +818,23 @@ def _output_last_line(output: str) -> str:
     return lines[-1] if lines else ""
 
 
-def _connect_fresh_client(vm_config, target: str = "ec2"):
+def _connect_fresh_client(node):
     """Open a one-shot SSH client for a kill retry. Caller closes it."""
     from agent.chat_target import open_owned_client
 
-    return open_owned_client(vm_config, target)
+    return open_owned_client(node)
 
 
-def _kill_session_marking_self_killed(client, chat_id: str, vm_config=None, target: str = "ec2") -> bool:
+def _kill_session_marking_self_killed(client, chat_id: str, node=None) -> bool:
     """Tear down the detached tmux session for a self-initiated kill (steer
     or interrupt), marking it as self-killed first.
 
     Returns True only when the remote command's last line is exactly `gone`.
-    An exception or any other output is a warning and, when `vm_config` is
-    given, one retry on a fresh client. A failed retry is logged at error and
+    An exception or any other output is a warning and, when `node` is given,
+    one retry on a fresh client. A failed retry is logged at error and
     returns False. The caller's client is never closed: other tails may share it.
     """
-    cmd = _kill_and_verify_cmd(chat_id, target=target)
+    cmd = _kill_and_verify_cmd(chat_id, node=node)
     try:
         output = _ssh_exec(client, cmd)
     except Exception as exc:
@@ -847,12 +847,12 @@ def _kill_session_marking_self_killed(client, chat_id: str, vm_config=None, targ
             chat_id, _output_last_line(output),
         )
 
-    if vm_config is None:
+    if node is None:
         return False
 
     fresh = None
     try:
-        fresh = _connect_fresh_client(vm_config, target)
+        fresh = _connect_fresh_client(node)
         output = _ssh_exec(fresh, cmd)
         if _output_last_line(output) == "gone":
             return True
@@ -899,7 +899,7 @@ def _pkill_tail_cmd(chat_id: str) -> str:
     return f"pkill -f {_shell_quote(pattern)} 2>/dev/null"
 
 
-def _build_tail_cmd(stdout_file: str, exit_file: str, offset: int, target: str = "ec2") -> str:
+def _build_tail_cmd(stdout_file: str, exit_file: str, offset: int, node=None) -> str:
     """Build the remote tail + watcher command for tailing a detached turn.
 
     Follow until the exit file appears or two ten-second probes find no session.
@@ -914,7 +914,7 @@ def _build_tail_cmd(stdout_file: str, exit_file: str, offset: int, target: str =
         f"(MISSES=0; TICKS=0; while ! test -f {_shell_quote(exit_file)}; do "
         f"kill -0 $TAIL_PID 2>/dev/null || exit; "
         f"if test $TICKS -eq 0; then "
-        f"if {_tmux_alive_cmd(chat_id, target=target)}; then MISSES=0; "
+        f"if {_tmux_alive_cmd(chat_id, node=node)}; then MISSES=0; "
         f"else MISSES=$((MISSES + 1)); fi; "
         f"test $MISSES -lt 2 || break; fi; "
         f"TICKS=$(((TICKS + 1) % 5)); sleep 2; done; "
@@ -1076,13 +1076,12 @@ async def start_detached_ssh(
     prompt: str,
     cwd: Optional[str],
     chat_id: str,
-    vm_config: "VmConfig",
+    node,
     env: Optional[Dict[str, str]] = None,
     images: Optional[List[str]] = None,
     ssh_client=None,
     input_uuid: Optional[str] = None,
     mcp_material=None,
-    target: str = "ec2",
 ) -> Optional[str]:
     """Start `claude -p` in a detached tmux session on remote host.
 
@@ -1101,18 +1100,17 @@ async def start_detached_ssh(
         prompt=prompt,
         cwd=cwd,
         chat_id=chat_id,
-        vm_config=vm_config,
+        node=node,
         spec=_claude_spec(input_uuid, mcp_material),
         env=env,
         images=images,
         ssh_client=ssh_client,
-        target=target,
     )
 
 
 async def tail_ssh_output(
     chat_id: str,
-    vm_config: "VmConfig",
+    node,
     offset: int = 0,
     last_message_id: Optional[str] = None,
     message_callback: Optional[Callable[[Message], None]] = None,
@@ -1124,7 +1122,6 @@ async def tail_ssh_output(
     pending_result: Optional[dict] = None,
     pending_context_usage: Optional[dict] = None,
     launch_input_uuid: Optional[str] = None,
-    target: str = "ec2",
 ) -> dict:
     """Tail a detached claude-code process's stdout file via SSH.
 
@@ -1150,7 +1147,7 @@ async def tail_ssh_output(
     if owns_client:
         from agent.chat_target import open_owned_client
 
-        ssh_client = open_owned_client(vm_config, target)
+        ssh_client = open_owned_client(node)
 
     client = ssh_client
     stdin_file = f"/tmp/cc-{chat_id}.stdin"
@@ -1184,7 +1181,7 @@ async def tail_ssh_output(
 
     try:
         # tail from offset, follow until exit file appears or deadline/interrupt
-        tail_cmd = _build_tail_cmd(stdout_file, exit_file, offset, target=target)
+        tail_cmd = _build_tail_cmd(stdout_file, exit_file, offset, node=node)
 
         stdin_ch, stdout_ch, stderr_ch = client.exec_command(tail_cmd)
 
@@ -1193,7 +1190,7 @@ async def tail_ssh_output(
             logger.info("interrupt watchdog (detached): killing tmux session cc-{}", chat_id)
             with steer_lock:
                 torn_down = True
-                if _kill_session_marking_self_killed(client, chat_id, vm_config, target=target):
+                if _kill_session_marking_self_killed(client, chat_id, node=node):
                     interrupt_kill_verified = True
                 try:
                     stdout_ch.channel.close()
@@ -1256,12 +1253,12 @@ async def tail_ssh_output(
             nonlocal torn_down, interrupt_kill_verified
             torn_down = True
             if self_killed:
-                if _kill_session_marking_self_killed(client, chat_id, vm_config, target=target):
+                if _kill_session_marking_self_killed(client, chat_id, node=node):
                     interrupt_kill_verified = True
             else:
                 try:
                     from agent.detach import _tmux_kill_cmd
-                    client.exec_command(_tmux_kill_cmd(chat_id, target=target))
+                    client.exec_command(_tmux_kill_cmd(chat_id, node=node))
                     client.exec_command(f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null")
                 except Exception:
                     pass
@@ -1460,16 +1457,16 @@ async def tail_ssh_output(
         if exit_reason is None and result_data is None:
             self_killed = _consume_self_kill_sentinel(client, chat_id)
             if not self_killed:
-                no_result_session_alive = _tmux_session_alive(client, chat_id, target=target)
+                no_result_session_alive = _tmux_session_alive(client, chat_id, node=node)
                 if not no_result_session_alive:
                     resume_refused = _resume_refused(client, chat_id)
                     no_result_error = _no_result_error_message(
                         client, chat_id, "Claude Code", stream_error,
-                        resume_refused=resume_refused, target=target,
+                        resume_refused=resume_refused, node=node,
                     )
 
         if (exit_reason is None and result_data is not None and ledger.outstanding()
-                and _tmux_session_alive(client, chat_id, target=target)):
+                and _tmux_session_alive(client, chat_id, node=node)):
             if owns_client:
                 from agent.chat_target import close_owned_client
                 close_owned_client(client)

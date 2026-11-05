@@ -106,7 +106,7 @@ def register_process(chat_id: str, user_id: int, vm_name: str,
         item["run_seq"] = {"N": str(run_seq)}
     if mcp_launch_id:
         item["mcp_launch_id"] = {"S": mcp_launch_id}
-    if target_id and target_id != "ec2":
+    if target_id and target_id != "default":
         item["target_id"] = {"S": target_id}
 
     _get_dynamodb().put_item(TableName=TABLE_NAME, Item=item)
