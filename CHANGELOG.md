@@ -20,6 +20,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Publication grant recovery (4168)**: a two-minute worker schedule retries a pending release-grant wakeup instead of relying on the single post-commit delivery.
 - **Execution nodes (4204)**: `y node list|add|show|enable|disable` manages owner-scoped `vm_config` nodes. `y chat --on <name>` starts a chat on a registered node through the existing EC2 SSH anchor, keeping the same chat interface and a sticky target. Generic file/git/terminal commands remain on the default node.
 - **Code block copy (4198)**: every non-artifact fenced code block has a Copy button in its upper-right corner, copying the raw parsed code. It shows on hover and focus and stays visible on touch pointers.
+- **Publish schema preflight (4218)**: `y dev commit` runs `scripts/preflight-publish` from the worktree before pushing, and a non-zero exit refuses the push. This repository's wrapper runs `scripts/schema_check.py`, which compares ORM columns against the production catalog. Repositories without the file are unaffected.
 
 ### Changed
 
