@@ -64,11 +64,12 @@ Other top-level dirs: `scripts/` (deploy, DNS, IAM), `template.yaml` / `samconfi
   `docs/prd/multi-machine-execution.md`.
 
 - **Bounded-job retirement (todo 4204)**: the former Codex browser-job API, CLI,
-  runner and storage code are removed. Legacy `task_type=remote_job` deliveries
-  are logged and dropped for one release. The physical `remote_job` and
-  `execution_target` tables and data are retained, not used as the node registry.
-  Machine module lifecycle changes are separate; host retirement does not
-  mutate its state.
+  runner and storage code are removed, and the UI-only Machine module's authoring
+  source is removed. Deleting the deployed module is the final step of that
+  retirement; after it runs, no Machines panel is live. Legacy
+  `task_type=remote_job` deliveries are logged and dropped for one release. The
+  physical `remote_job` and `execution_target` tables and data are retained, not
+  used as the node registry; no table or data cleanup is part of this retirement.
 
 These are the cross-cutting features to be aware of before touching the code. Each has
 entity + controller + service + CLI slices, and most have a web panel.

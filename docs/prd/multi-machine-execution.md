@@ -134,11 +134,19 @@ path. The worker logs and acknowledges legacy `task_type=remote_job` deliveries
 for one release without launching a process, updating a row or creating a
 completion receipt.
 
+The UI-only Machine module that presented those routes is retired with them. Its
+authoring source is removed from `code/y-module/machine`. Deleting the deployed
+module (`y module delete machine`) is the final step, run after that source
+change is reviewed; until it runs, a previously published version can still
+mount the Machines panel and detail. There is no replacement module and no module
+API. Deletion removes deployed module metadata and bytes only; it does not mutate
+host code, node registry rows or tables.
+
 The physical `remote_job` and `execution_target` tables and their existing data
 are retained. They are not the node registry, and deleting their ORM code does
-not drop them. Table cleanup requires separate explicit approval. This
-retirement does not disable, delete, publish or otherwise mutate the Machine
-module. Its lifecycle and any source archive belong to separate module work.
+not drop them. Table cleanup requires separate explicit approval. Node
+configuration continues to live in `vm_config` and is unaffected by this
+retirement.
 
 Before removing the old runtime, finish or account for any old active jobs;
 removing routes is not remote cancellation and does not prove termination.
@@ -158,7 +166,8 @@ Deterministic offline checks use fake rows and transports, not a database:
    wrong-owner/unknown/disabled rows and images on jump nodes.
 4. Node responses do not expose keys; omitted update fields preserve keys and
    enabled state; default and referenced-node deletion remain guarded.
-5. Retired routes, command registration and executable job sources are absent.
+5. Retired routes, command registration and executable job sources are absent,
+   and the Machine module source is absent from `code/y-module/machine`.
    Legacy queue payloads log and return done, without invoking a runner or chat.
    No table-drop migration is part of retirement.
 
@@ -168,6 +177,8 @@ message and stop behavior in the existing chat interface. Disable a disposable
 registered node and confirm that new launches reject while stop/monitor of an
 existing chat remain available. A newly registered supported node should work
 without another deploy once its prerequisites are in place. Verify authenticated
-requests to `/api/remote-jobs` return 404 and the upgraded CLI has no built-in
-`remote-job` command. These are post-deploy acceptance steps, not claims that a
-local build verifies live transport, schema or process termination.
+requests to `/api/remote-jobs` return 404, the upgraded CLI has no built-in
+`remote-job` command, and, once the deployed module is deleted, `y module list`
+has no `machine` row, so no Machines panel or detail is mountable. These are
+post-deploy acceptance steps, not claims that a local build verifies live
+transport, schema or process termination.

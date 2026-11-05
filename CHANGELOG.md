@@ -37,7 +37,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Removed
 
-- **Bounded Mac browser jobs (4204)**: removed `y remote-job`, `/api/remote-jobs`, and their runner, supervisor and storage implementation. Legacy queue deliveries are logged and dropped for one release; existing tables and data remain untouched. Mac chats now require a registered `vm_config` row instead of the transitional environment fallback.
+- **Bounded Mac browser jobs and Machines panel (4204)**: removed `y remote-job`, `/api/remote-jobs`, their runner, supervisor and storage implementation, and the UI-only Machine module's authoring source. Deleting the deployed module is the final step of that retirement. Legacy queue deliveries are logged and dropped for one release; the `remote_job` and `execution_target` tables and their data remain untouched. Mac chats now require a registered `vm_config` row instead of the transitional environment fallback.
 
 ## [0.5.33] - 2026-11-01
 
