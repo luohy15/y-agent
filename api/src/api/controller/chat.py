@@ -123,12 +123,14 @@ class StopChatRequest(BaseModel):
 _INLINE_STOP_BACKENDS = {"perplexity", "openai", "xai_web", "xai_x"}
 
 
-def admit_execution_target(requested, existing_target, has_images: bool):
+def admit_execution_target(requested, existing_target, has_images: bool, *, existing: bool = False):
     """Accept a target id or reject it with 422.
 
-    ``requested`` None keeps the chat's current machine. A stored NULL is ec2.
-    Changing ec2 to mac, or mac to anything else, is a mismatch. Images cannot
-    ride a mac chat. Returns the requested id (None when the caller omitted it).
+    ``existing`` is separate from the stored value: an ordinary EC2 chat stores
+    NULL, and NULL resolves to ec2. A create passes ``existing=False``. An
+    existing chat rejects any explicit request that differs from that resolved
+    machine, including ``mac`` against a NULL row. Omitting the request keeps
+    the current machine. Images cannot ride a mac chat.
     """
     from agent.chat_target import ChatTargetUnavailable, UnknownChatTarget, resolve_target
 
@@ -137,7 +139,7 @@ def admit_execution_target(requested, existing_target, has_images: bool):
         resolved = None if requested is None else resolve_target(requested)
     except (UnknownChatTarget, ChatTargetUnavailable) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    if existing_target not in (None, "") and resolved is not None and resolved != current:
+    if existing and resolved is not None and resolved != current:
         raise HTTPException(
             status_code=422,
             detail=f"execution_target mismatch: chat is '{current}', got '{resolved}'",
@@ -408,6 +410,7 @@ async def post_send_message(req: SendMessageRequest, request: Request):
         _admit_launch_effort(user_id, reasoning_effort, chat=chat, bot_name=req.bot_name, bot_tier=req.bot_tier)
         admit_execution_target(
             req.execution_target, chat.execution_target, _has_image_request(req.images, req.image_uploads),
+            existing=True,
         )
 
         from agent.config import resolve_vm_config
@@ -481,7 +484,7 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     from storage.repository.chat import EffortOnRunningChat
 
     async def deliver_existing(target):
-        admit_execution_target(req.execution_target, target.execution_target, has_images)
+        admit_execution_target(req.execution_target, target.execution_target, has_images, existing=True)
         images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-upload", vm_config=vm_config)
         handoff_state, handoff_warning = chat_service.build_target_reuse_check(
             target, from_chat_id=req.from_chat_id,
