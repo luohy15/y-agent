@@ -45,6 +45,16 @@ Other top-level dirs: `scripts/` (deploy, DNS, IAM), `template.yaml` / `samconfi
 
 ## Notable Subsystems
 
+- **Chat execution target (todo 4204)**: `chat.execution_target` is `NULL` / `ec2`
+  (the existing EC2 runtime) or `mac` (the owner's MacBook). `y chat --on mac`
+  selects the MacBook for a new chat; the target is immutable for existing chats.
+  The worker uses a Paramiko `direct-tcpip` jump over its existing EC2 SSH session
+  to run Claude Code in MacBook tmux, with stdin, stdout and the exit file on the
+  MacBook, through the same chat interface. `Y_AGENT_CHAT_MAC_TARGET` configures
+  the MacBook SSH address (`user@host:port`); missing or unusable configuration
+  fails closed, with no fallback to EC2. The Mac Mini / US work-only node is
+  excluded. See `docs/prd/multi-machine-execution.md`.
+
 - **Remote machine jobs (todo 4204)**: host `execution_target` / `remote_job`,
   `/api/remote-jobs`, and `y remote-job` provide the bounded Mac `browser_open`
   capability with Codex, not a new chat backend. Existing SQS starts an EC2
