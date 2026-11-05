@@ -923,8 +923,11 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
             user_id=user_id,
         )
 
-    # Wake EC2 if needed
+    # Wake EC2 if needed. It stays the tunnel host when the chat itself runs on mac.
     ensure_and_touch_vm(params["vm_config"])
+    from agent.chat_target import apply_launch, resolve_target
+    target_id = resolve_target(getattr(chat, "execution_target", None))
+    params["cmd"], params["env"] = apply_launch(target_id, params["cmd"], params["env"])
 
     # Start detached tmux session. The launch prompt is one stdin write, so all
     # the message ids folded into it share its native uuid; the ledger the
@@ -948,6 +951,7 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
             images=params.get("images"),
             input_uuid=launch_uuid,
             mcp_material=mcp_material,
+            target=target_id,
         )
     except Exception:
         mcp_launch.end(mcp_material)
@@ -981,6 +985,7 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
             initial_message_ids=[m.id for m in chat.messages if m.id],
             run_seq=chat.run_seq,
             mcp_launch_id=mcp_material.launch_id,
+            target_id=target_id,
         )
     except Exception as e:
         mcp_launch.end(mcp_material)

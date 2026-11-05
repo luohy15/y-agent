@@ -247,6 +247,7 @@ def _fire_and_forget(
     reasoning_effort: Optional[str],
     wait: bool = False,
     wait_timeout: int = 300,
+    execution_target: Optional[str] = None,
 ):
     """POST a message to /api/chat/message and print the resulting chat_id.
 
@@ -287,6 +288,8 @@ def _fire_and_forget(
         payload["trace_id"] = trace_id
     if work_dir:
         payload["work_dir"] = work_dir
+    if execution_target:
+        payload["execution_target"] = execution_target
     if from_chat_id:
         payload["from_chat_id"] = from_chat_id
     if bot:
@@ -358,11 +361,13 @@ def _interactive(
     bot_tier: Optional[str],
     prompt: Optional[str],
     reasoning_effort: Optional[str],
+    work_dir: Optional[str] = None,
+    execution_target: Optional[str] = None,
 ):
     """Interactive REPL (or one-off with -p)."""
     display_manager = DisplayManager()
     input_manager = InputManager(display_manager.console)
-    work_dir = os.getcwd()
+    work_dir = work_dir or os.getcwd()
 
     if latest:
         # Chat browsing is module-owned. If the module is unavailable, callers
@@ -384,6 +389,8 @@ def _interactive(
         payload = {"prompt": prompt, "bot_name": bot, "bot_tier": bot_tier, "work_dir": work_dir}
         if reasoning_effort:
             payload["reasoning_effort"] = reasoning_effort
+        if execution_target:
+            payload["execution_target"] = execution_target
         if chat_id:
             api_request("POST", "/api/chat/message", json={"chat_id": chat_id, **payload})
         else:
@@ -412,6 +419,8 @@ def _interactive(
         payload = {"prompt": user_input, "bot_name": bot, "bot_tier": bot_tier, "work_dir": work_dir}
         if reasoning_effort:
             payload["reasoning_effort"] = reasoning_effort
+        if execution_target:
+            payload["execution_target"] = execution_target
         if chat_id:
             api_request("POST", "/api/chat/message", json={"chat_id": chat_id, **payload})
         else:
@@ -433,6 +442,7 @@ def _interactive(
 @click.option('--topic', default=None, hidden=True)
 @click.option('--skill', default=None, help='Skill to load on the target chat (defaults to role for non-manager roles)')
 @click.option('--work-dir', default=None, help='Working directory for the chat')
+@click.option('--on', 'execution_target', type=click.Choice(['ec2', 'mac']), default=None, help='Machine that runs this chat (ec2 or mac). Sticky; omit to keep the chat on its current machine.')
 @click.option('--trace-id', default=None, help='Trace ID. Precedence: explicit flag > $Y_TRACE_ID env var > unset')
 @click.option('--new', 'force_new', is_flag=True, help='Force a new chat instead of resuming a role chat or reusing a same-phase worker')
 @click.option('--fresh', is_flag=True, hidden=True, help='Deprecated alias of --new')
@@ -441,7 +451,7 @@ def _interactive(
 @click.option('--from-chat-id', default=None, help='Caller chat ID. Precedence: explicit flag > $Y_CHAT_ID env var > unset')
 @click.option('--wait', is_flag=True, help='Block until the assistant reply is ready and print it (instead of just the chat_id)')
 @click.option('--wait-timeout', default=300, type=int, help='[--wait] Seconds to wait before falling back to the chat_id (default: 300)')
-@click.option('--at', default=None, help="Schedule a durable wakeup instead of sending now (todo 3655): requires --chat-id and -m, incompatible with --new/--role/--skill/--wait/--image/-i/--work-dir/--bot/--tier/--effort. Accepts a relative offset (+30m, +2h, +1d, +90s) or ISO 8601 (naive values are read in the configured timezone). See also `y chat wakeup list|cancel`.")
+@click.option('--at', default=None, help="Schedule a durable wakeup instead of sending now (todo 3655): requires --chat-id and -m, incompatible with --new/--role/--skill/--wait/--image/-i/--work-dir/--on/--bot/--tier/--effort. Accepts a relative offset (+30m, +2h, +1d, +90s) or ISO 8601 (naive values are read in the configured timezone). See also `y chat wakeup list|cancel`.")
 # Interactive REPL (-i mode)
 @click.option('--interactive', '-i', is_flag=True, help='Open the interactive REPL')
 @click.option('--latest', '-l', is_flag=True, help='[interactive] Continue from the latest chat via the active chat module list route. This can fail when the module is unavailable; use -c for an explicit chat or -m for dispatch.')
@@ -460,6 +470,7 @@ def chat_group(
     role: Optional[str],
     skill: Optional[str],
     work_dir: Optional[str],
+    execution_target: Optional[str],
     trace_id: Optional[str],
     force_new: bool,
     fresh: bool,
@@ -528,7 +539,7 @@ def chat_group(
             raise SystemExit(2)
         incompatible = {
             '--new': force_new, '--role': role, '--skill': skill, '--wait': wait,
-            '--image': images, '-i': interactive, '--work-dir': work_dir,
+            '--image': images, '-i': interactive, '--work-dir': work_dir, '--on': execution_target,
             '--bot': bot, '--tier': tier, '--effort': reasoning_effort,
         }
         conflicts = [flag for flag, value in incompatible.items() if value]
@@ -556,6 +567,7 @@ def chat_group(
             skill=skill,
             chat_id=chat_id,
             work_dir=work_dir,
+            execution_target=execution_target,
             trace_id=trace_id,
             force_new=force_new,
             fresh=fresh,
@@ -570,7 +582,10 @@ def chat_group(
         return
 
     if interactive:
-        _interactive(chat_id=chat_id, latest=latest, bot=bot, bot_tier=tier, prompt=prompt, reasoning_effort=reasoning_effort)
+        _interactive(
+            chat_id=chat_id, latest=latest, bot=bot, bot_tier=tier, prompt=prompt,
+            reasoning_effort=reasoning_effort, work_dir=work_dir, execution_target=execution_target,
+        )
         return
 
     click.echo("Error: pass -m <message> for fire-and-forget, or -i for the interactive REPL.", err=True)

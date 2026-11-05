@@ -23,36 +23,37 @@ from urllib.parse import urlparse
 from typing import Callable, Dict, List, Optional
 
 from agent.claude_code import (
-    _enable_keepalive,
-    _parse_ssh_target,
     _shell_quote,
     _ssh_exec,
     parse_stream_line,
 )
-from agent.ec2_wake import ensure_and_touch_vm
 
 
 logger = logging.getLogger(__name__)
 
-SSH_CONNECT_TIMEOUT_SECONDS = 30
 ORPHAN_WRAPPER_MIN_AGE_SECONDS = 120
 TMUX_SOCKET = "y-agent"
 
 
-def _tmux_command(args: str, legacy: bool = False) -> str:
+def _tmux_command(args: str, legacy: bool = False, target: str = "ec2") -> str:
     socket = "default" if legacy else TMUX_SOCKET
-    return f"tmux -L {socket} {args}"
+    binary = "tmux"
+    if target not in (None, "", "ec2"):
+        from agent.chat_target import layout
+
+        binary = layout(target).tmux_binary
+    return f"{binary} -L {socket} {args}"
 
 
-def _tmux_alive_cmd(chat_id: str) -> str:
+def _tmux_alive_cmd(chat_id: str, target: str = "ec2") -> str:
     # One-release transition: pre-deploy turns still live on the default socket.
     args = f"has-session -t {_shell_quote(f'=cc-{chat_id}')} 2>/dev/null"
-    return f"( {_tmux_command(args)} || {_tmux_command(args, legacy=True)} )"
+    return f"( {_tmux_command(args, target=target)} || {_tmux_command(args, legacy=True, target=target)} )"
 
 
-def _tmux_kill_cmd(chat_id: str) -> str:
+def _tmux_kill_cmd(chat_id: str, target: str = "ec2") -> str:
     args = f"kill-session -t {_shell_quote(f'=cc-{chat_id}')} 2>/dev/null"
-    return f"( {_tmux_command(args)}; {_tmux_command(args, legacy=True)} )"
+    return f"( {_tmux_command(args, target=target)}; {_tmux_command(args, legacy=True, target=target)} )"
 
 
 def _reap_orphan_wrappers_cmd(min_age_s: float = ORPHAN_WRAPPER_MIN_AGE_SECONDS, stdin_prefix: str = "/tmp/cc-") -> str:
@@ -64,38 +65,26 @@ def _reap_orphan_wrappers_cmd(min_age_s: float = ORPHAN_WRAPPER_MIN_AGE_SECONDS,
 
 
 @contextmanager
-def _with_ssh_client(vm_config, ssh_client=None):
-    """Yield a paramiko SSHClient, connecting from `vm_config` if not passed.
+def _with_ssh_client(vm_config, ssh_client=None, target: str = "ec2"):
+    """Yield a paramiko SSHClient for `target`, connecting if not passed.
 
     If the caller supplies `ssh_client` (from a pool), it is reused and left
-    open. Otherwise a fresh connection is opened and closed on exit.
+    open. Otherwise a fresh connection is opened and closed on exit. ``mac``
+    keeps the EC2 session only as the direct-tcpip outer hop.
     """
     owns_client = ssh_client is None
     if owns_client:
-        import io
-        import paramiko
+        from agent.chat_target import open_owned_client
 
-        ensure_and_touch_vm(vm_config)
-
-        user, host, port = _parse_ssh_target(vm_config.vm_name)
-        key = paramiko.Ed25519Key.from_private_key(io.StringIO(vm_config.api_token))
-
-        ssh_client = paramiko.SSHClient()
-        ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        ssh_client.connect(
-            host,
-            port=port,
-            username=user,
-            pkey=key,
-            timeout=SSH_CONNECT_TIMEOUT_SECONDS,
-        )
-        _enable_keepalive(ssh_client)
+        ssh_client = open_owned_client(vm_config, target)
 
     try:
         yield ssh_client
     finally:
         if owns_client:
-            ssh_client.close()
+            from agent.chat_target import close_owned_client
+
+            close_owned_client(ssh_client)
 
 
 @dataclass
@@ -152,6 +141,68 @@ def _is_s3_uri(uri: str) -> bool:
     return isinstance(uri, str) and uri.startswith("s3://")
 
 
+def assemble_inner(
+    *,
+    env,
+    cwd,
+    exec_cmd: str,
+    heartbeat: bool,
+    stdout_file: str,
+    stderr_file: str,
+    exit_file: str,
+    cleanup: Optional[str] = None,
+) -> str:
+    """Shell body tmux runs. EC2 keeps the last-seen heartbeat; mac does not."""
+    inner_parts = ["unset TMUX;"]
+    if heartbeat:
+        inner_parts.extend([
+            "date +%s > /tmp/ec2-ssh-last-seen;",
+            "( while :; do date +%s > /tmp/ec2-ssh-last-seen; sleep 60; done ) &",
+            "HEARTBEAT_PID=$!;",
+        ])
+    if cleanup:
+        inner_parts.append(f"trap {_shell_quote(cleanup)} EXIT;")
+    if env:
+        for key, value in env.items():
+            inner_parts.append(f"export {key}={_shell_quote(value)};")
+    if cwd:
+        inner_parts.append(f"cd {_shell_quote(cwd)} &&")
+    finish = (
+        f"{exec_cmd} "
+        f"> {_shell_quote(stdout_file)} "
+        f"2> {_shell_quote(stderr_file)}; "
+        "EC=$?; "
+    )
+    if heartbeat:
+        finish += "kill $HEARTBEAT_PID 2>/dev/null; "
+    finish += f"echo $EC > {_shell_quote(exit_file)}"
+    inner_parts.append(finish)
+    return " ".join(inner_parts)
+
+
+def build_launch_plan(target_id, chat_id: str, cmd, env=None, cwd=None, prompt: str = "") -> dict:
+    """Launch text for one target, with no SSH. Used by the mac command check."""
+    from agent.chat_target import apply_launch, layout
+    from agent.claude_code import _claude_build_exec
+
+    desc = layout(target_id)
+    argv, exported = apply_launch(target_id, cmd, env)
+    inner = assemble_inner(
+        env=exported,
+        cwd=cwd,
+        exec_cmd=_claude_build_exec(argv, chat_id, prompt, None),
+        heartbeat=desc.heartbeat,
+        stdout_file=f"/tmp/cc-{chat_id}.stdout",
+        stderr_file=f"/tmp/cc-{chat_id}.stderr",
+        exit_file=f"/tmp/cc-{chat_id}.exit",
+    )
+    return {
+        "inner": inner,
+        "reaper_command": _reap_orphan_wrappers_cmd() if desc.reaper else None,
+        "tmux_command": _tmux_command("new-session", target=desc.id),
+    }
+
+
 def _download_s3_to_tmp(uri: str, chat_id: str = "image") -> Path:
     parsed = urlparse(uri)
     if parsed.scheme != "s3" or not parsed.netloc or not parsed.path.lstrip("/"):
@@ -179,6 +230,7 @@ async def _start_detached_tmux(
     env: Optional[Dict[str, str]] = None,
     images: Optional[List[str]] = None,
     ssh_client=None,
+    target: str = "ec2",
 ) -> Optional[str]:
     """Shared skeleton for starting a detached tmux session over SSH.
 
@@ -196,7 +248,10 @@ async def _start_detached_tmux(
       5. Sleep briefly, read the first few stdout lines, and extract the
          initial id via `spec.parse_initial`.
     """
-    with _with_ssh_client(vm_config, ssh_client) as client:
+    from agent.chat_target import layout
+
+    desc = layout(target)
+    with _with_ssh_client(vm_config, ssh_client, target=target) as client:
         session_name = f"cc-{chat_id}"
         stdout_file = f"/tmp/cc-{chat_id}.stdout"
         stderr_file = f"/tmp/cc-{chat_id}.stderr"
@@ -206,19 +261,21 @@ async def _start_detached_tmux(
         from agent.mcp.staging import cleanup_command
         _ssh_exec(
             client,
-            f"{_tmux_kill_cmd(chat_id)}; "
+            f"{_tmux_kill_cmd(chat_id, target=target)}; "
             f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit /tmp/cc-{chat_id}.killed /tmp/cc-{chat_id}.claude-ec 2>/dev/null; "
             f"rm -rf /tmp/cc-{chat_id}-images 2>/dev/null; "
             + cleanup_command(chat_id),
         )
         # Host-wide guard: wrappers whose tmux session is gone but whose
         # process tree survived (todo 3819). Never fails the launch.
-        try:
-            reaped = _ssh_exec(client, _reap_orphan_wrappers_cmd()).strip()
-            if reaped and reaped != "reaped=0":
-                logger.warning("reaped orphaned session wrappers on launch of %s: %s", session_name, reaped)
-        except Exception as exc:
-            logger.warning("orphaned session wrapper reap failed on launch of %s: %s", session_name, exc)
+        # The reaper reads /proc, so it does not run on macOS.
+        if desc.reaper:
+            try:
+                reaped = _ssh_exec(client, _reap_orphan_wrappers_cmd()).strip()
+                if reaped and reaped != "reaped=0":
+                    logger.warning("reaped orphaned session wrappers on launch of %s: %s", session_name, reaped)
+            except Exception as exc:
+                logger.warning("orphaned session wrapper reap failed on launch of %s: %s", session_name, exc)
 
         exec_images = _upload_images(client, chat_id, images) if spec.upload_images else images
 
@@ -245,33 +302,21 @@ async def _start_detached_tmux(
                 return None
 
         # 3. Assemble tmux inner command
-        inner_parts = [
-            "unset TMUX;",
-            "date +%s > /tmp/ec2-ssh-last-seen;",
-            "( while :; do date +%s > /tmp/ec2-ssh-last-seen; sleep 60; done ) &",
-            "HEARTBEAT_PID=$!;",
-        ]
-        if spec.cleanup:
-            inner_parts.append(f"trap {_shell_quote(spec.cleanup())} EXIT;")
-        if env:
-            for k, v in env.items():
-                inner_parts.append(f"export {k}={_shell_quote(v)};")
-        if cwd:
-            inner_parts.append(f"cd {_shell_quote(cwd)} &&")
-
         exec_cmd = spec.build_exec(cmd, chat_id, prompt, exec_images)
-        inner_parts.append(
-            f"{exec_cmd} "
-            f"> {_shell_quote(stdout_file)} "
-            f"2> {_shell_quote(stderr_file)}; "
-            "EC=$?; "
-            "kill $HEARTBEAT_PID 2>/dev/null; "
-            f"echo $EC > {_shell_quote(exit_file)}"
+        inner = assemble_inner(
+            env=env,
+            cwd=cwd,
+            exec_cmd=exec_cmd,
+            heartbeat=desc.heartbeat,
+            stdout_file=stdout_file,
+            stderr_file=stderr_file,
+            exit_file=exit_file,
+            cleanup=spec.cleanup() if spec.cleanup else None,
         )
 
         tmux_cmd = (
-            f"{_tmux_command('new-session')} -d -s {_shell_quote(session_name)} "
-            f"{_shell_quote(' '.join(inner_parts))}"
+            f"{_tmux_command('new-session', target=target)} -d -s {_shell_quote(session_name)} "
+            f"{_shell_quote(inner)}"
         )
 
         # 4. Start tmux session. A zero exit here means tmux accepted the

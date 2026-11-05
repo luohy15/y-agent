@@ -19,6 +19,8 @@ class ChatEntity(Base, BaseEntity):
     skill = Column(String, nullable=True, index=True)
     trace_id = Column(String, nullable=True, index=True)
     routine_id = Column(String, nullable=True, index=True)
+    # NULL and ec2 are the EC2 machine. mac is sticky; see chat_target.
+    execution_target = Column(String, nullable=True)
     json_content = Column(Text, nullable=False)
     search_text = Column(Text, nullable=True)  # extracted message text for fast search
     status = Column(String, nullable=False, server_default="idle")
@@ -32,6 +34,10 @@ class ChatEntity(Base, BaseEntity):
     __table_args__ = (
         UniqueConstraint("user_id", "chat_id"),
         CheckConstraint("role IN ('manager', 'leader')", name="ck_chat_role"),
+        CheckConstraint(
+            "execution_target IS NULL OR execution_target IN ('ec2', 'mac')",
+            name="ck_chat_execution_target",
+        ),
         Index("ix_chat_user_role_trace", "user_id", "role", "trace_id",
               postgresql_where=text("role IS NOT NULL")),
     )

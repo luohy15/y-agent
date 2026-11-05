@@ -143,6 +143,7 @@ class Chat:
     trace_id: Optional[str] = None
     routine_id: Optional[str] = None  # set when chat was fired by a routine
     work_dir: Optional[str] = None
+    execution_target: Optional[str] = None  # None/ec2 on EC2; mac is sticky
     interrupted: bool = False
     running: bool = False
     # Run reservation identity. `run_seq` is bumped by whoever makes this chat
@@ -198,6 +199,7 @@ class Chat:
             trace_id=data.get('trace_id'),
             routine_id=data.get('routine_id'),
             work_dir=data.get('work_dir'),
+            execution_target=data.get('execution_target'),
             interrupted=data.get('interrupted', False),
             running=data.get('running', False),
             run_seq=data.get('run_seq', 0),
@@ -253,6 +255,8 @@ class Chat:
             result['routine_id'] = self.routine_id
         if self.work_dir is not None:
             result['work_dir'] = self.work_dir
+        if self.execution_target is not None:
+            result['execution_target'] = self.execution_target
         if self.interrupted:
             result['interrupted'] = self.interrupted
         if self.running:

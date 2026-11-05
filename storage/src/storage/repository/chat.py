@@ -141,6 +141,8 @@ def _entity_to_chat(entity: ChatEntity) -> Chat:
         chat.skill = entity.skill
     if entity.routine_id is not None:
         chat.routine_id = entity.routine_id
+    # Unconditional: NULL means ec2, and must beat a stale copy in the blob.
+    chat.execution_target = entity.execution_target
     return chat
 
 
@@ -372,6 +374,7 @@ def _insert_chat_sync(user_id: int, chat: Chat) -> Chat:
         skill=chat.skill,
         trace_id=chat.trace_id,
         routine_id=chat.routine_id,
+        execution_target=chat.execution_target,
         json_content=content,
         search_text=search_text,
         status=status,
@@ -532,6 +535,7 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
             entity.skill = _resolve_immutable_field(entity, chat, "skill")
             entity.trace_id = _resolve_immutable_field(entity, chat, "trace_id")
             entity.routine_id = _resolve_immutable_field(entity, chat, "routine_id")
+            entity.execution_target = _resolve_immutable_field(entity, chat, "execution_target")
             entity.status = status
         else:
             chat.topic = chat.role
@@ -550,6 +554,7 @@ def _save_chat_sync(user_id: int, chat: Chat) -> Chat:
                 skill=chat.skill,
                 trace_id=chat.trace_id,
                 routine_id=chat.routine_id,
+                execution_target=chat.execution_target,
                 json_content=content,
                 search_text=search_text,
                 status=status,
@@ -792,6 +797,7 @@ def _write_chat_to_row(entity: ChatEntity, chat: Chat) -> None:
     entity.skill = _resolve_immutable_field(entity, chat, "skill")
     entity.trace_id = _resolve_immutable_field(entity, chat, "trace_id")
     entity.routine_id = _resolve_immutable_field(entity, chat, "routine_id")
+    entity.execution_target = _resolve_immutable_field(entity, chat, "execution_target")
     entity.status = _chat_status(chat)
 
 
@@ -1035,6 +1041,7 @@ def find_phase_worker_row(
                     ChatEntity.tier,
                     ChatEntity.skill,
                     ChatEntity.routine_id,
+                    ChatEntity.execution_target,
                     func.length(ChatEntity.json_content).label("json_chars"),
                 )
                 .filter_by(user_id=user_id, trace_id=trace_id)
@@ -1069,6 +1076,7 @@ def find_phase_worker_row(
                 tier=metadata.tier,
                 skill=metadata.skill,
                 routine_id=metadata.routine_id,
+                execution_target=metadata.execution_target,
                 json_content=json_content,
             )
             chat = _entity_to_chat(row)

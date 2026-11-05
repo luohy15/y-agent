@@ -10,7 +10,7 @@ status: active
 
 ## Boundary
 
-The central EC2 remains the orchestrator. A remote machine is an operation target, not a chat backend. The initial slice supports only the owner's existing `ssh mac` alias, macOS, Codex, and `browser_open`. The future US work-isolated node, arbitrary commands, remote chat execution, git synchronization and credential replication are outside this slice.
+The central EC2 remains the orchestrator and holds logic, state and credentials. Two capabilities reach the owner's MacBook. One is a bounded Codex `browser_open` job over the existing `ssh mac` alias. The other is a Claude Code chat whose `execution_target` is `mac`: `claude -p` runs in tmux on the MacBook, with stdin, stdout and the exit file on that machine, and the worker reaches it by a direct-tcpip jump over the existing EC2 SSH session. The target is sticky. Image attachments, transcript ingest and a macOS orphan reaper are not part of that chat path. The Mac Mini / US work-isolated node, arbitrary commands, git synchronization and credential replication stay outside this feature.
 
 The host owns execution targets, job state, authenticated API, CLI, worker transport and completion receipts. The UI-only Machine module consumes host endpoints without a backend contract change. Deploy the additive host schema and host implementation before publishing that module.
 

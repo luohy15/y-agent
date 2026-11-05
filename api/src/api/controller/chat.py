@@ -48,6 +48,7 @@ class CreateChatRequest(BaseModel):
     work_dir: Optional[str] = None
     post_hooks: Optional[list] = None
     reasoning_effort: Optional[str] = None
+    execution_target: Optional[str] = None
 
 
 class CreateChatResponse(BaseModel):
@@ -81,6 +82,7 @@ class SendMessageRequest(BaseModel):
     force_new: Optional[bool] = False
     fresh: Optional[bool] = False
     resume_work: Optional[bool] = None
+    execution_target: Optional[str] = None
 
 
     @field_validator("role", "from_role")
@@ -119,6 +121,43 @@ class StopChatRequest(BaseModel):
 
 # Inline backends have no detached tmux session to tear down.
 _INLINE_STOP_BACKENDS = {"perplexity", "openai", "xai_web", "xai_x"}
+
+
+def admit_execution_target(requested, existing_target, has_images: bool):
+    """Accept a target id or reject it with 422.
+
+    ``requested`` None keeps the chat's current machine. A stored NULL is ec2.
+    Changing ec2 to mac, or mac to anything else, is a mismatch. Images cannot
+    ride a mac chat. Returns the requested id (None when the caller omitted it).
+    """
+    from agent.chat_target import ChatTargetUnavailable, UnknownChatTarget, resolve_target
+
+    try:
+        current = resolve_target(existing_target)
+        resolved = None if requested is None else resolve_target(requested)
+    except (UnknownChatTarget, ChatTargetUnavailable) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if existing_target not in (None, "") and resolved is not None and resolved != current:
+        raise HTTPException(
+            status_code=422,
+            detail=f"execution_target mismatch: chat is '{current}', got '{resolved}'",
+        )
+    effective = resolved if resolved is not None else current
+    if has_images and effective == "mac":
+        raise HTTPException(status_code=422, detail="image attachments are not supported on mac")
+    return resolved
+
+
+def execution_target_detail(chat) -> dict:
+    """Omit the machine on an ordinary EC2 chat. Return it for any other target."""
+    value = getattr(chat, "execution_target", None)
+    if value and value != "ec2":
+        return {"execution_target": value}
+    return {}
+
+
+def _has_image_request(images, image_uploads) -> bool:
+    return bool(images or image_uploads)
 
 
 class AttachImageRequest(BaseModel):
@@ -263,6 +302,9 @@ async def post_create_chat(req: CreateChatRequest, request: Request):
     )
     # Caller-supplied ids: single attempt, ChatIdCollision → 409.
     # Generated ids: create_chat retries allocate+insert on race (no pre-mint).
+    admitted = admit_execution_target(
+        req.execution_target, None, _has_image_request(req.images, req.image_uploads),
+    )
     from agent.config import resolve_vm_config
     vm_config = resolve_vm_config(user_id, req.vm_name, work_dir=req.work_dir)
     images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-upload", vm_config=vm_config)
@@ -279,8 +321,11 @@ async def post_create_chat(req: CreateChatRequest, request: Request):
     except ChatIdCollision as exc:
         raise HTTPException(status_code=409, detail=f"chat_id '{exc.chat_id}' already exists") from exc
 
-    # Set running immediately so frontend shows running state without waiting for worker
+    # Set running immediately so frontend shows running state without waiting for worker.
+    # mac is written before enqueue; NULL stays the EC2 default.
     chat.running = True
+    if admitted == "mac":
+        chat.execution_target = "mac"
     from storage.repository import chat as chat_repo
     await chat_repo.save_chat(user_id, chat)
 
@@ -361,6 +406,9 @@ async def post_send_message(req: SendMessageRequest, request: Request):
                 work_dir = chat.work_dir
 
         _admit_launch_effort(user_id, reasoning_effort, chat=chat, bot_name=req.bot_name, bot_tier=req.bot_tier)
+        admit_execution_target(
+            req.execution_target, chat.execution_target, _has_image_request(req.images, req.image_uploads),
+        )
 
         from agent.config import resolve_vm_config
         vm_config = resolve_vm_config(user_id, req.vm_name, work_dir=work_dir)
@@ -425,7 +473,7 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     vm_work_dir = req.work_dir or (existing_chat.work_dir if existing_chat else None)
     from agent.config import resolve_vm_config
     vm_config = resolve_vm_config(user_id, work_dir=vm_work_dir)
-    images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-upload", vm_config=vm_config)
+    has_images = _has_image_request(req.images, req.image_uploads)
 
     # Resolve work_dir and append/create chat
     work_dir = req.work_dir
@@ -433,6 +481,8 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     from storage.repository.chat import EffortOnRunningChat
 
     async def deliver_existing(target):
+        admit_execution_target(req.execution_target, target.execution_target, has_images)
+        images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-upload", vm_config=vm_config)
         handoff_state, handoff_warning = chat_service.build_target_reuse_check(
             target, from_chat_id=req.from_chat_id,
         )
@@ -489,6 +539,9 @@ async def post_send_message(req: SendMessageRequest, request: Request):
 
     # create_chat mints + inserts with race retry; rebuild the message so
     # to_chat: matches the final id.
+    admitted = admit_execution_target(req.execution_target, None, has_images)
+    images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-upload", vm_config=vm_config)
+
     def build(new_id: str):
         user_msg = Message.from_dict(
             _message_dict("user", _dispatch_content(new_id), images, reasoning_effort)
@@ -502,6 +555,7 @@ async def post_send_message(req: SendMessageRequest, request: Request):
             trace_id=req.trace_id if req.role != "manager" else None,
             skill=skill,
             work_dir=work_dir,
+            execution_target="mac" if admitted == "mac" else None,
             running=True,
         )
         return chat
@@ -586,15 +640,29 @@ async def post_stop_chat(req: StopChatRequest, request: Request):
 
     teardown = "unknown"
     try:
-        from agent.claude_code import _kill_and_verify_cmd
-        from agent.vm_command import run_vm_command
-        output = await run_vm_command(
-            _get_user_id(request),
-            ["sh", "-c", _kill_and_verify_cmd(req.chat_id)],
-            timeout=20,
-            vm_name=req.vm_name,
-            wake=False,
-        )
+        from agent.chat_target import build_stop_teardown, close_owned_client, open_owned_client
+        from agent.config import resolve_vm_config
+
+        spec = build_stop_teardown(getattr(chat, "execution_target", None), req.chat_id)
+        if spec.target == "ec2":
+            from agent.vm_command import run_vm_command
+            output = await run_vm_command(
+                _get_user_id(request),
+                ["sh", "-c", spec.command],
+                timeout=20,
+                vm_name=req.vm_name,
+                wake=False,
+            )
+        else:
+            vm_config = resolve_vm_config(
+                _get_user_id(request), req.vm_name, work_dir=getattr(chat, "work_dir", None),
+            )
+            client = await asyncio.to_thread(open_owned_client, vm_config, spec.target)
+            try:
+                from agent.claude_code import _ssh_exec
+                output = await asyncio.to_thread(_ssh_exec, client, spec.command)
+            finally:
+                await asyncio.to_thread(close_owned_client, client)
         last = ""
         if isinstance(output, str) and output.splitlines():
             last = output.splitlines()[-1]
@@ -752,6 +820,7 @@ async def get_chat_detail(chat_id: str = Query(...), request: Request = None):
         result["bot_name"] = chat.bot_name
     if chat.tier:
         result["tier"] = chat.tier
+    result.update(execution_target_detail(chat))
     if chat.context_window is not None:
         result["input_tokens"] = chat.input_tokens
         result["output_tokens"] = chat.output_tokens

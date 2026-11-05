@@ -228,9 +228,10 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
     session_id = proc.get("session_id")
 
     vm_config = resolve_vm_config(user_id, vm_name, work_dir=proc.get("work_dir"))
+    target_id = proc.get("target_id") or "ec2"
 
-    # Get pooled SSH client if pool is available
-    client = ssh_pool.get_or_create(vm_config) if ssh_pool else None
+    # Get pooled SSH client if pool is available. mac is a jump on that pool.
+    client = ssh_pool.get_or_create(vm_config, target=target_id) if ssh_pool else None
 
     started_at = proc.get("started_at", 0)
 
@@ -287,6 +288,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                                     if proc.get("scope_first_id") in ids), None),
             pending_result=_load_json_field(proc, "pending_result") or None,
             pending_context_usage=_load_json_field(proc, "pending_context_usage") or None,
+            target=target_id,
         )
 
     if result["is_done"] and result["status"] != "error":
@@ -468,6 +470,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             await _trigger_context_ingest(
                 vm_config, backend_type,
                 (result.get("result_data") or {}).get("session_id") or updated_session_id,
+                target_id=target_id,
             )
         else:
             complete_process(chat_id, status=result["status"])
@@ -487,8 +490,13 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
         logger.info("tail_and_process paused chat_id={} offset={}", chat_id, result["offset"])
 
 
-async def _trigger_context_ingest(vm_config, backend_type: str, session_id):
-    """Launch a scoped ingest after closeout; the hourly scan remains the backstop."""
+async def _trigger_context_ingest(vm_config, backend_type: str, session_id, target_id: str = "ec2"):
+    """Launch a scoped ingest after closeout; the hourly scan remains the backstop.
+
+    Mac transcripts live on the Mac. v1 does not copy them back, so skip ingest.
+    """
+    if target_id not in (None, "", "ec2"):
+        return
     if (backend_type != "claude_code" or not isinstance(session_id, str)
             or not re.fullmatch(r"[0-9a-fA-F-]{36}", session_id)):
         return
@@ -894,11 +902,12 @@ async def _handle_timeout(chat_id: str, proc: dict, ssh_pool=None):
     vm_name = proc["vm_name"]
     try:
         vm_config = resolve_vm_config(user_id, vm_name, work_dir=proc.get("work_dir"))
-        client = ssh_pool.get_or_create(vm_config) if ssh_pool else None
+        target_id = proc.get("target_id") or "ec2"
+        client = ssh_pool.get_or_create(vm_config, target=target_id) if ssh_pool else None
         if client:
             from agent.detach import _tmux_kill_cmd
             client.exec_command(
-                f"{_tmux_kill_cmd(chat_id)}; "
+                f"{_tmux_kill_cmd(chat_id, target=target_id)}; "
                 f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.stdout /tmp/cc-{chat_id}.stderr /tmp/cc-{chat_id}.exit 2>/dev/null"
             )
             logger.info("hard timeout: killed tmux session for chat_id={}", chat_id)
