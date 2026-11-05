@@ -56,7 +56,14 @@ cache.
 
 Generic VM commands, including file/git/terminal operations, stay on `default`.
 Non-default registry rows are chat-only and are filtered out of the file/git VM
-picker. A matching workspace must not auto-select a non-default node.
+picker. A matching workspace must not auto-select a non-default node. Workspace
+lookup filters by owner, exact path and `name=default`, rather than selecting an
+arbitrary matching row. Different nodes may share the same workspace path;
+`(user_id, name)` remains their unique identity. Existing databases need the
+legacy `uq_vm_config_user_work_dir` constraint removed via the separately applied
+`migration/4204_node_shared_work_dir.sql` before assigning duplicate paths. No
+replacement default-only workspace index is needed because owner/name uniqueness
+already permits only one default row per owner. No rows or tables are removed.
 
 ## CLI and HTTP contract
 

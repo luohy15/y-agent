@@ -77,8 +77,9 @@ def set_config(user_id: int, config: VmConfig) -> VmConfig:
 
 
 def get_config_by_work_dir(user_id: int, work_dir: str) -> Optional[VmConfig]:
+    """Match only the default node; other nodes may share its workspace path."""
     with get_db() as session:
-        row = session.query(VmConfigEntity).filter_by(user_id=user_id, work_dir=work_dir).first()
+        row = session.query(VmConfigEntity).filter_by(user_id=user_id, name="default", work_dir=work_dir).first()
         if row:
             return _entity_to_dto(row)
         return None

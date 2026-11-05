@@ -28,6 +28,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Fixed
 
+- **Shared node workspaces (4204)**: workspace lookup now selects only the owner's default node, so nodes can share a filesystem path without ambiguous routing. A separately applied migration removes the legacy per-owner workspace uniqueness constraint; node-name uniqueness remains intact.
 - **RSS item relabeling (4163)**: a browser visit is reused for an RSS link only when it is already an `rss` activity, so a plain visit stays a visit and the RSS row is inserted beside it.
 - **Context handoff reuse warning (4211)**: reusing an existing chat now returns a handoff state, and when that chat is over the threshold the CLI prints the prompt tokens, usage ratio and a `--new` recommendation while still accepting the message. Handoff checks read measured prompt tokens, and the reminder is placed after any trace metadata.
 - **ToolSearch allowlist (4197)**: `ToolSearch` stays in the fixed Claude Code tool allowlist, so OpenRouter-backed relay models no longer receive a deferred tool placeholder that fails with HTTP 400.
