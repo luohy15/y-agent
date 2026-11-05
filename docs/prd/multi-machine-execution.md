@@ -10,54 +10,157 @@ status: active
 
 ## Boundary
 
-The central EC2 remains the orchestrator and holds logic, state and credentials. Two capabilities reach the owner's MacBook. One is a bounded Codex `browser_open` job over the existing `ssh mac` alias. The other is a Claude Code chat whose `execution_target` is `mac`: `claude -p` runs in tmux on the MacBook, with stdin, stdout and the exit file on that machine, and the worker reaches it by a direct-tcpip jump over the existing EC2 SSH session. The target is sticky. Image attachments, transcript ingest and a macOS orphan reaper are not part of that chat path. The Mac Mini / US work-isolated node, arbitrary commands, git synchronization and credential replication stay outside this feature.
+A chat runs Claude Code on one explicitly selected execution node, through the
+same chat interface used for EC2 sessions. The central EC2 remains the
+orchestrator and SSH jump anchor. Host APIs, state, dispatch, credentials custody
+and the worker lifecycle remain central; the target holds its process, workspace,
+stdin, stdout and exit file. This is not a separate job API or a new agent backend.
 
-The host owns execution targets, job state, authenticated API, CLI, worker transport and completion receipts. The UI-only Machine module consumes host endpoints without a backend contract change. Deploy the additive host schema and host implementation before publishing that module.
+The owner's MacBook is the first non-default node. The Mac Mini / US work-only
+node is excluded until its separate onboarding and data-isolation work (todo
+4214). Do not add it to the registry for personal tasks. There is no automatic
+node selection, workspace synchronization, credential replication or remote
+machine provisioning.
 
-## Submission and authority
+## Node registry and selection
 
-`y remote-job target add mac` registers the existing alias. It does not provision SSH or copy a key. `y remote-job submit --target mac --fresh-post` requests the first fresh post from `https://www.xiaohongshu.com/explore`; `--url` instead takes one HTTPS URL on exactly xiaohongshu.com, www.xiaohongshu.com, xhslink.com or www.xhslink.com. Userinfo, control characters, backslashes and non-443 ports are rejected. The two input modes are mutually exclusive. No caller-supplied prompt is accepted.
+The registry is the authenticated owner's `vm_config` rows, not a separate
+execution-target table. Adding a supported node is a configuration write; it
+does not require a code change or deployment.
 
-The authenticated account owns every target and job. API results omit internal IDs and runner tokens. Traced submissions require an owner-bound callback chat on the same trace. The CLI inherits Y_TRACE_ID and Y_CHAT_ID. Untraced UI submissions can omit the callback. Callback messages contain the job ID and terminal state, not page content or secrets.
+| Field | Contract |
+|---|---|
+| `name` | Node identifier accepted by `y chat --on <name>`. `default` is the orchestrator and jump anchor. |
+| `vm_name` | SSH address in `[ssh:]user@host:port` form. |
+| `api_token` | SSH private key. An empty key on a non-default row inherits the default node's key. Keys are not returned by node list/show. |
+| `work_dir` | Default workspace on that node; it must already exist with the required files. |
+| `platform` | `linux` (also the meaning of NULL) or `darwin`; derives binaries, PATH and runtime capabilities. |
+| `data_scope` | `personal` (also the meaning of NULL) or `work`. Visible metadata only, not an enforced sandbox or routing rule. |
+| `enabled` | Soft enable/disable for admission and launch. Stop and monitoring can still resolve a disabled row. |
+| `ec2_instance_id`, `ec2_region`, `last_up` | Existing wake metadata, used on the default anchor rather than the jump node. |
 
-A queued job is sent on the existing SQS queue. The worker starts `y remote-job run <uuid>` in EC2 tmux. Only one API claim can move queued to dispatched, under the owner-scoped row lock. The claim returns a unique attempt token and private payload to that winner. Heartbeat and finish require that token and attempt. No automatic attempt restart exists. A persistent Mac job directory created with exclusive mkdir prevents a second launch even after its session exits.
+`chat.execution_target` snapshots the selected **name**, not the node's mutable
+connection settings. NULL, empty and the legacy `ec2` value mean `default`.
+Non-default names such as `mac` are stored as-is. Existing chats cannot be
+retargeted, including a chat originally created on the default node. Connection
+settings are resolved from the row; editing that row does not rename a chat's
+snapshot and can affect later connections.
 
-## Remote execution
+No `--on` on a new chat means `default`. An existing chat resumes its stored
+node. Admission and launch use owner-bound strict resolution: unknown,
+wrong-owner or disabled nodes fail rather than substituting another machine.
+The `mac` name is an ordinary registry row. There is no environment-variable
+fallback for it. An unusable address, key or SSH tunnel fails closed, never
+reroutes to EC2. Admission resolves uncached; worker layouts have a 30-second
+cache.
 
-The EC2 stages a fixed stdlib supervisor and bounded input into `~/y-jobs/<uuid>/`. No host credentials are staged. Mac Codex uses its own authentication and existing Chrome extension/app-server. Invocation uses `codex exec --ephemeral --skip-git-repo-check --approve-for-me -C <dir> --json`. `--approve-for-me` already selects the workspace-write sandbox; a separate `--sandbox` flag is rejected by codex-cli 0.159.3. Approval bypass and danger-full-access are not used. The remote tmux socket is `yj`.
+Generic VM commands, including file/git/terminal operations, stay on `default`.
+Non-default registry rows are chat-only and are filtered out of the file/git VM
+picker. A matching workspace must not auto-select a non-default node.
 
-The fixed prompt is a self-contained browser-client task, not a request to load a Codex browser skill. It names an authorized read-only task in Roy's Chrome on the Xiaohongshu origin, then a setup hint that imports `BROWSER_CLIENT_PATH` and calls `setupBrowserRuntime` (no navigation script), then the read-only constraints, and puts the server-validated target last. If the client or Chrome is unavailable, or the resolved path is the not-found sentinel, the turn fails with `BROWSER_UNAVAILABLE`. It still prohibits typing, login, posting, comments, likes, follows, purchases and setting changes, and treats page content as untrusted. **These are model instructions, not an enforceable browser permission boundary.** Server URL validation restricts initial input only; it does not constrain redirects, generated browser actions or extension privileges. The real Chrome account remains exposed to the executor's browser capabilities. No claim of browser-enforced read-only access is made.
+## CLI and HTTP contract
 
-Before starting Codex, the supervisor replaces only the first `BROWSER_CLIENT_PATH` marker with the newest `~/.codex/plugins/cache/openai-bundled/{browser,chrome}/*/scripts/browser-client.mjs` (numeric version, then family name). No match becomes `BROWSER_CLIENT_NOT_FOUND`. A later copy of the marker, including one inside the target URL, is left unchanged. The remote supervisor starts Codex in a process group, drains bounded log captures, enforces the independent 180-second default / 600-second maximum timeout, and handles a cancellation marker. It signals the process group and checks that it has disappeared before recording confirmed cancellation or timeout. Losing SSH never proves termination. The browser/app-server itself is pre-existing and is not killed; browser requests already sent may have effects after the Codex process ends.
+- `y node list`: owner-scoped rows, default first, then name order.
+- `y node show <name>`: key-free JSON for one row.
+- `y node add <name> --host <host> --user <user> [--port 22]
+  [--platform linux|darwin] --data-scope personal|work [--work-dir <path>]
+  [--key-file <path>|--inherit-key]`: create or update a non-default row.
+  A new row without a key inherits the default key. An omitted key on an update
+  preserves the existing key. The node must already authorize the chosen key.
+- `y node enable <name>` / `y node disable <name>`: change admission eligibility.
+- `y chat --on <name> ...`: choose the node for a new chat; subsequent messages
+  use the same chat ID and stored target.
 
-## State, result and recovery
+Node commands use the existing host `/api/vm-config` controller. GET
+`/api/vm-config/list` returns name, address, workspace, platform, scope, enabled,
+`is_default`, `chat_only` and wake metadata, never the private key. POST
+`/api/vm-config` creates/updates a row. An omitted key or enabled flag preserves
+that value on a non-default update. POST `/api/vm-config/{name}/enable` and
+`/disable` toggle a non-default row. The existing DELETE `/api/vm-config?name=...`
+refuses the default node or any node pinned by a chat (409); `y node` offers no
+hard-delete command. The existing full-config path still manages the default
+row, outside node-edit rules.
 
-States: queued, dispatched, running, completed, failed, cancelled, timeout, host_offline. Running requires confirmation of the Mac session or a fast completed exit file. Completed requires exit code zero. For `browser_open`, completed also requires a non-empty result title, a non-empty result url, and a valid JPEG artifact recorded by the runner. If any of those is missing, the runner records `failed` with `error_code` `BrowserTaskIncomplete` instead of `completed`. Terminal writes are first-wins; stale tokens cannot alter state. Queued cancellation needs no process termination. Active cancellation is a request until the remote supervisor confirms termination.
+Chat creation and dispatch use the existing chat endpoints and their optional
+`execution_target` field. Unknown/disabled targets and attempts to change an
+existing chat's target are rejected with 422. Images are rejected on jump nodes.
+No new module backend contract is introduced.
 
-Every remote stage, launch, confirmation and result probe runs through `zsh -lc` so the Mac login-shell PATH applies consistently. Confirmation prints `present` when the tmux session or exit file exists, otherwise `absent`, and retries up to three times one second apart before giving up.
+## Runtime and transport
 
-The runner probes every five seconds within a bounded deadline. Three consecutive failed probes (including malformed JSON responses), an unconfirmed termination, or a missing exit at the deadline result in terminal host_offline. Runner failures retain `RemoteUnconfirmed` and include a closed `reason=<stage>:<kind>[:<rc>]` token in `error`, never raw SSH output or exception text. SSH errors distinguish timeout, transport (255) and remote-command failure (other nonzero exit codes); other reasons identify confirmation, heartbeat, result parsing, artifact handling or deadline failure. A successful probe resets the consecutive-failure count. The terminal finish POST is retried once on an HTTP error with the same fenced payload, using first-terminal-write-wins idempotence. This is limited v1 recovery, not proof the remote stopped. The independent remote timeout survives EC2 or SSH loss. `y remote-job reap` marks dispatched/running jobs with a heartbeat older than 15 minutes host_offline without relaunching or claiming cancellation. Inspect the remote process and task directory before resubmitting. Automatic stale-run recovery is not included.
+For `default`, the worker uses the existing direct EC2 SSH runtime. For every
+other node, it opens a Paramiko `direct-tcpip` channel through the default SSH
+session, then a second SSH connection to the node. Wake-on-demand applies to the
+anchor only. A laptop must already be reachable and have SSH, tmux, Claude Code,
+its authentication, workspace and required tools/skills ready.
 
-A terminal write inserts an immediate `chat_wakeup` outbox receipt in the same database transaction. The existing scheduled delivery pass accepts it with a stable event ID, preserving exactly-once message append across retry and at-least-once broker delivery. This is event completion, not an agent timer or agent polling. A dead originating chat or dispatch refusal remains visible through the receipt. No callback exists for an untraced job.
+The existing detached launch skeleton starts Claude Code in node-local tmux on
+the `y-agent` socket. Input and output remain files on that node. The worker
+streams output and sends steer messages through the same chat lifecycle,
+including Lambda lease handoff and monitoring. Process records carry the target
+name so resumed monitoring and stop resolve the same node. An SSH disconnect is
+not proof that the remote process stopped; tmux may continue running. Stop uses
+the node's transport and teardown command, including when the row is disabled.
 
-Report views redact xsec_token values, sk-style keys, JWT-shaped values and credential-labelled fields. Raw payload is returned only to the winning runner. Remote private task files may contain tokenized URLs and are retained in v1. Redaction is heuristic, not a proof that arbitrary page content contains no private data. Screenshots may contain visible account/page information and stay local under `/Users/roy/luohy15/assets/screenshots/remote-job-<uuid>.jpg`; they are not published automatically. Logs/result are bounded at 64KB and screenshots at 10MB.
+Platform profiles deliberately stay small:
 
-## HTTP contract
+- `darwin`: `/opt/homebrew/bin/tmux`, `/Users/<user>/.local/bin/claude`, a derived
+  PATH including Homebrew and the user's local binaries, and `/tmp` runtime
+  files. No heartbeat or orphan reaper.
+- `linux`: the existing `tmux`/`claude` binaries and heartbeat behavior. Orphan
+  reaping is available only on the direct default transport.
+- Every jump node: no image attachments or transcript ingest. These facilities
+  remain on the default transport. There are no per-node binary/path overrides.
 
-- GET/POST `/api/remote-jobs/targets`: list or upsert the fixed Mac capability.
-- POST `/api/remote-jobs`: target, executor (codex), operation (browser_open), payload, timeout_seconds, optional todo_id/trace_id/callback_chat_id. Returns a redacted job record.
-- GET `/api/remote-jobs?limit=50`: newest first, maximum 100.
-- GET `/api/remote-jobs/{job_id}` and `/result`: redacted record including result, artifacts and diagnostics.
-- POST `/api/remote-jobs/{job_id}/cancel`: request cancellation, terminal no-op.
-- POST `/api/remote-jobs/{job_id}/claim`: private winner-only runner snapshot, null for duplicate claim.
-- POST `/api/remote-jobs/{job_id}/heartbeat`: attempt, claim_token, state.
-- POST `/api/remote-jobs/{job_id}/finish`: attempt, claim_token, terminal state, exit_code, termination_confirmed, bounded result/log/artifact fields.
-- POST `/api/remote-jobs/reap`: limited stale-run terminalization.
+The node registry is not a permission boundary for Claude's actions. A selected
+node may receive chat content and use its local tools and authentication. The
+`data_scope` label does not prevent personal content reaching a work node, nor
+does removal of the old bounded-job validator provide such a guarantee. Keep
+work-only nodes out until isolation is implemented and verified separately.
 
-Unknown targets return HostNotConfigured (404). Unsupported capabilities and malformed inputs reject before row creation (422). This slice requires the configured SQS queue. A reported enqueue failure terminalizes an unclaimed row; an ambiguous broker acknowledgement does not lead to another execution attempt.
+## Retired bounded-job interface
+
+The former Codex browser-job implementation is retired. `y remote-job` and
+`/api/remote-jobs` are removed, including the runner, supervisor, storage code and
+worker launch step. There is no replacement alias or browser-job submission
+path. The worker logs and acknowledges legacy `task_type=remote_job` deliveries
+for one release without launching a process, updating a row or creating a
+completion receipt.
+
+The physical `remote_job` and `execution_target` tables and their existing data
+are retained. They are not the node registry, and deleting their ORM code does
+not drop them. Table cleanup requires separate explicit approval. This
+retirement does not disable, delete, publish or otherwise mutate the Machine
+module. Its lifecycle and any source archive belong to separate module work.
+
+Before removing the old runtime, finish or account for any old active jobs;
+removing routes is not remote cancellation and does not prove termination.
+Before removing the transitional Mac configuration, create and verify the
+owner's `mac` row. Existing chat targets need resolvable registry rows.
 
 ## Acceptance
 
-Offline checks cover URL rejection, owner-scoped locking shape, duplicate claims, fencing, terminal idempotence and callback insertion, cancellation confirmation, bounded transport construction, runner outcome handling, redaction and route/CLI registration. Real transaction concurrency, Mac behavior and outbox delivery require deployed verification, not a local database test.
+Deterministic offline checks use fake rows and transports, not a database:
 
-After host deployment and module publication, submit one fresh-post job with a same-trace callback. Wait for the real callback, not agent polling. Verify completed/exit zero, a live post title and a JPEG artifact, and ask Roy to confirm the Mac Chrome tab and absence of account mutations. Separately verify queued and running cancellation, remote process-group termination and duplicate-delivery behavior. The earlier Mac probe is prerequisite evidence only, not feature acceptance.
+1. Default aliases resolve to the owner's default row; an unknown or disabled
+   target fails. Setting the former Mac environment variable cannot resolve a
+   missing `mac` row. Stop/monitor can resolve disabled rows.
+2. A configured Darwin row produces the jump transport, derived Mac binaries
+   and inherited key behavior. Default execution retains its direct profile.
+3. New-chat admission accepts a registered node and rejects retargeting,
+   wrong-owner/unknown/disabled rows and images on jump nodes.
+4. Node responses do not expose keys; omitted update fields preserve keys and
+   enabled state; default and referenced-node deletion remain guarded.
+5. Retired routes, command registration and executable job sources are absent.
+   Legacy queue payloads log and return done, without invoking a runner or chat.
+   No table-drop migration is part of retirement.
+
+After the corresponding host deployment succeeds, verify `y node list`, then
+create a chat with `y chat --on mac` and check its output, machine chip, follow-up
+message and stop behavior in the existing chat interface. Disable a disposable
+registered node and confirm that new launches reject while stop/monitor of an
+existing chat remain available. A newly registered supported node should work
+without another deploy once its prerequisites are in place. Verify authenticated
+requests to `/api/remote-jobs` return 404 and the upgraded CLI has no built-in
+`remote-job` command. These are post-deploy acceptance steps, not claims that a
+local build verifies live transport, schema or process termination.

@@ -1,13 +1,13 @@
 # y-agent
 
 Personal AI agent platform: React web UI + FastAPI backend + async worker, deployed as
-AWS Lambda (SAM). Runs Claude Code subprocesses remotely on EC2 over SSH, with
+AWS Lambda (SAM). Runs Claude Code on EC2 or registered SSH jump nodes, with
 a Telegram bot surface and cross-skill orchestration via trace context.
 
 ## Architecture
 
 ```
-Web (React)  ─┐                                ┌─→ Claude Code subprocess (EC2, SSH)
+Web (React)  ─┐                                ┌─→ Claude Code (EC2 or SSH jump node)
 Telegram Bot ─┼─→ API (FastAPI/Lambda) → SQS → Worker (Lambda) ─┤
 CLI (y)      ─┘                                                 └─→ Post-hooks (trace, telegram, todo)
 
@@ -45,24 +45,30 @@ Other top-level dirs: `scripts/` (deploy, DNS, IAM), `template.yaml` / `samconfi
 
 ## Notable Subsystems
 
-- **Chat execution target (todo 4204)**: `chat.execution_target` is `NULL` / `ec2`
-  (the existing EC2 runtime) or `mac` (the owner's MacBook). `y chat --on mac`
-  selects the MacBook for a new chat; the target is immutable for existing chats.
-  The worker uses a Paramiko `direct-tcpip` jump over its existing EC2 SSH session
-  to run Claude Code in MacBook tmux, with stdin, stdout and the exit file on the
-  MacBook, through the same chat interface. `Y_AGENT_CHAT_MAC_TARGET` configures
-  the MacBook SSH address (`user@host:port`); missing or unusable configuration
-  fails closed, with no fallback to EC2. The Mac Mini / US work-only node is
-  excluded. See `docs/prd/multi-machine-execution.md`.
+- **Execution nodes (todo 4204)**: owner-scoped `vm_config` rows are the node
+  registry. `y node list|add|show|enable|disable` manages non-default nodes;
+  `y chat --on <name>` selects one for a new chat. `chat.execution_target`
+  snapshots that immutable name (`NULL` / `ec2` mean `default`), not mutable
+  connection settings. The default row is the EC2 orchestrator and SSH jump
+  anchor. Other rows run Claude Code through Paramiko `direct-tcpip`, with tmux,
+  stdin, stdout and the exit file on the node, through the same chat interface.
+  `vm_name` stores `[ssh:]user@host:port`; an empty node `api_token` inherits the
+  anchor key. `platform` derives binaries/PATH, `data_scope` is metadata only
+  (not isolation), and `enabled` gates admission/launch. Stop/monitor can resolve
+  disabled rows. Unknown or unusable nodes fail closed, with no default or Mac
+  environment fallback. Generic file/git/terminal commands remain default-only;
+  non-default rows are chat-only and excluded from their picker. Jump nodes have
+  no image attachments or transcript ingest; Darwin nodes also have no heartbeat
+  or orphan reaper. The MacBook is the first jump node. The Mac Mini / US
+  work-only node remains excluded pending todo 4214. See
+  `docs/prd/multi-machine-execution.md`.
 
-- **Remote machine jobs (todo 4204)**: host `execution_target` / `remote_job`,
-  `/api/remote-jobs`, and `y remote-job` provide the bounded Mac `browser_open`
-  capability with Codex, not a new chat backend. Existing SQS starts an EC2
-  runner which claims once, stages a credential-free supervisor over `ssh mac`,
-  and records fenced results. Terminal state and an immediate `chat_wakeup`
-  completion receipt commit together. The Machine module is UI-only. Prompt
-  read-only instructions are not browser-enforced restrictions; host_offline
-  never confirms remote termination. See `docs/prd/multi-machine-execution.md`.
+- **Bounded-job retirement (todo 4204)**: the former Codex browser-job API, CLI,
+  runner and storage code are removed. Legacy `task_type=remote_job` deliveries
+  are logged and dropped for one release. The physical `remote_job` and
+  `execution_target` tables and data are retained, not used as the node registry.
+  Machine module lifecycle changes are separate; host retirement does not
+  mutate its state.
 
 These are the cross-cutting features to be aware of before touching the code. Each has
 entity + controller + service + CLI slices, and most have a web panel.
@@ -396,8 +402,9 @@ exceptions noted):
 - **Modules**: `module`, `module_version` (identity + immutable API/UI version rows;
   a version also carries its own `dispatch_scope` and `ui_surfaces` (legacy inert `ui_public` column retained), so
   exposure and claimed host slots roll back with the code)
-- **Configuration**: `bot_config`, `bot_route_state`, `vm_config` (legacy physical
-  column `vm_config.finance_config` is intentionally retained for a later contract).
+- **Configuration**: `bot_config`, `bot_route_state`, `vm_config` (execution-node
+  registry with `platform`, `data_scope`, `enabled`; legacy physical column
+  `vm_config.finance_config` is intentionally retained for a later contract).
   `bot_config` and `bot_route_state` are runtime kernel tables on the worker
   dispatch path; bot *management* is module-owned (see `code/y-module/bot/README.md`).
 - **Email**: `email`, `email_account`
@@ -435,7 +442,8 @@ Grouped by feature area:
 - **Infrastructure**: `telegram.py` (private-only webhook, bind/unbind, routing),
   `mcp.py` (the
   launch-grant-authenticated runtime gateway only; management and OAuth completion
-  are the `mcp` module over `mcp_*` host capabilities), `vm_config.py`,
+  are the `mcp` module over `mcp_*` host capabilities), `vm_config.py` (owner-scoped
+  node list/upsert, enable/disable, guarded delete; responses omit SSH keys),
   `dev_worktree.py` (supported compatibility worktree routes),
   `dev_release.py` (publication slot: detail / list / claim /
   check / release / handoff / publisher / takeover, plus the waiter queue:
@@ -444,6 +452,8 @@ Grouped by feature area:
 ### Agent (`agent/src/agent/`)
 - `claude_code.py` — spawn `claude -p`, stream-json parser
 - `detach.py` — shared detached-tmux launch skeleton (`DetachBackendSpec`)
+- `chat_target.py`: strict node resolution, cached `NodeTarget` layouts, SSH jump
+  transport and target-aware stop teardown
 - `perplexity.py`, `openai_chat.py`, `xai_search.py` — inline single-shot (non-agentic)
   backends; `xai_search.py` serves both `xai_web` and `xai_x`
 - `config.py` — provider factory, bot/vm config resolution
@@ -509,7 +519,8 @@ Grouped by feature area:
 ### CLI (`cli/src/yagent/`)
 - `command_option.py` — root `y` group
 - Built-in `commands/`: hybrid `chat` (dispatch/stop/attach/wakeup stay built-in; browse
-  falls through), `todo`, `calendar`, `entity`, `reminder`, `rss`, `link`,
+  falls through), `node` (execution-node registry), `todo`, `calendar`, `entity`,
+  `reminder`, `rss`, `link`,
   `image`, `trace`, `english`, `module`, `assoc`/`unassoc`, `init`/`login`/
   `logout`. Domain groups (`y dev`, `y email`, `y finance`, `y bot`, `y file`, `y note`, …) resolve
   lazily from `code/y-module/<slug>/cli.py`. `y assoc note` stays built-in (3041

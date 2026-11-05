@@ -18,7 +18,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Voice object storage (4165)**: backend contract v30 adds owner- and maintainer-bound voice put/get/delete over the private S3 bucket, with RIFF/WAVE, size, duration and checksum validation and pinned-version reads. Deployments pass a separate API-only `OPENROUTER_INFERENCE_API_KEY` so voice inference does not share the management key.
 - **RSS moved article URLs (4163)**: a new feed URL that matches an existing same-host, same-slug link only on a redirect or an equal title and published time moves the existing URL instead of inserting a duplicate.
 - **Publication grant recovery (4168)**: a two-minute worker schedule retries a pending release-grant wakeup instead of relying on the single post-commit delivery.
-- **Remote Mac browser jobs (4204)**: `y remote-job` submits owner-scoped Codex `browser_open` jobs to the existing `ssh mac` target through the normal SQS and worker path. Jobs move through queued, dispatched, running and terminal states under fenced claim tokens, with bounded logs and results, cancellation, an independent 180-second default timeout, and a completion receipt delivered as a `chat_wakeup` on the same trace. A `browser_open` job reports completed only after a non-empty title, URL and JPEG artifact are recorded.
+- **Execution nodes (4204)**: `y node list|add|show|enable|disable` manages owner-scoped `vm_config` nodes. `y chat --on <name>` starts a chat on a registered node through the existing EC2 SSH anchor, keeping the same chat interface and a sticky target. Generic file/git/terminal commands remain on the default node.
 - **Code block copy (4198)**: every non-artifact fenced code block has a Copy button in its upper-right corner, copying the raw parsed code. It shows on hover and focus and stays visible on touch pointers.
 
 ### Changed
@@ -35,6 +35,8 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Restored Food tabs (4203)**: open, active and preview tabs pointing at `ui:eat` migrate to `ui:food` once Food is enabled. A module list that only has `eat` is left unchanged.
 
 ### Removed
+
+- **Bounded Mac browser jobs (4204)**: removed `y remote-job`, `/api/remote-jobs`, and their runner, supervisor and storage implementation. Legacy queue deliveries are logged and dropped for one release; existing tables and data remain untouched. Mac chats now require a registered `vm_config` row instead of the transitional environment fallback.
 
 ## [0.5.33] - 2026-11-01
 

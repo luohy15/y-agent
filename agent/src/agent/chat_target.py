@@ -12,7 +12,6 @@ touches it on every monitor pass; admission resolves uncached.
 
 from __future__ import annotations
 
-import os
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -20,7 +19,6 @@ from typing import Optional
 from storage.entity.dto import VmConfig
 
 
-MAC_TARGET_ENV = "Y_AGENT_CHAT_MAC_TARGET"
 SSH_CONNECT_TIMEOUT_SECONDS = 30
 LAYOUT_CACHE_SECONDS = 30
 DEFAULT_NODE = "default"
@@ -82,9 +80,8 @@ def clear_layout_cache() -> None:
 def resolve_target(user_id: int, value: Optional[str], *, allow_disabled: bool = False) -> str:
     """Normalize a stored or requested node name and prove the row resolves.
 
-    ``None``/``""``/``ec2`` all mean ``default``. The mac environment fallback
-    keeps the one-release transition working before the ``mac`` row exists;
-    it is only used when no such row exists, never to bypass a disabled row.
+    ``None``/``""``/``ec2`` all mean ``default``. Every target must have an
+    owned registry row; environment configuration never substitutes for it.
     """
     from storage.service import vm_config as vm_service
 
@@ -92,8 +89,6 @@ def resolve_target(user_id: int, value: Optional[str], *, allow_disabled: bool =
     try:
         vm_service.resolve_node(user_id, canonical, allow_disabled=allow_disabled)
     except vm_service.UnknownNode as exc:
-        if canonical == "mac" and os.environ.get(MAC_TARGET_ENV):
-            return canonical
         raise UnknownChatTarget(str(exc)) from exc
     except vm_service.NodeDisabled as exc:
         raise ChatTargetUnavailable(str(exc)) from exc
@@ -127,11 +122,8 @@ def _build_layout(user_id: int, name: str, allow_disabled: bool) -> NodeTarget:
 
     node = vm_service.get_config(user_id, name)
     if node is None:
-        if name == "mac":
-            node = _mac_env_fallback(anchor)
-        else:
-            raise UnknownChatTarget(f"unknown execution node: {name}")
-    elif not node.enabled and not allow_disabled:
+        raise UnknownChatTarget(f"unknown execution node: {name}")
+    if not node.enabled and not allow_disabled:
         raise ChatTargetUnavailable(f"node is disabled: {name}")
 
     transport = "vm" if name == DEFAULT_NODE else "jump"
@@ -191,23 +183,6 @@ def _build_layout(user_id: int, name: str, allow_disabled: bool) -> NodeTarget:
         heartbeat=profile["heartbeat"],
         ingest_transcripts=transport == "vm",
         supports_images=transport == "vm",
-    )
-
-
-def _mac_env_fallback(anchor: VmConfig) -> VmConfig:
-    """One-release transition: the mac row may not exist yet."""
-    raw = os.environ.get(MAC_TARGET_ENV)
-    if not raw:
-        raise UnknownChatTarget("unknown execution node: mac")
-    if _parse_address(raw) is None:
-        raise ChatTargetUnavailable(f"{MAC_TARGET_ENV} must be user@host:port")
-    return VmConfig(
-        name="mac",
-        vm_name=raw,
-        work_dir=anchor.work_dir,
-        platform="darwin",
-        data_scope="personal",
-        enabled=True,
     )
 
 

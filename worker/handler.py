@@ -81,8 +81,8 @@ async def _process_record(body: dict) -> str:
         return "done"
 
     if task_type == "remote_job":
-        from worker.steps.run_remote_job import handle_remote_job
-        await handle_remote_job(body)
+        # Drain stale queue deliveries for one release after retirement (todo 4204).
+        logger.info("[worker] dropping retired remote_job task")
         return "done"
 
     if task_type == "continuation":
