@@ -1,0 +1,22 @@
+#!/bin/bash
+# Publish preflight for y dev commit (todo 4218).
+#
+# The dev module runs <worktree>/scripts/preflight-publish before git push
+# when this file exists, echoes its output, and refuses the push on any
+# non-zero status. Repositories without this file are unaffected.
+#
+# Always runs scripts/schema_check.py from this repository root (the parent
+# of scripts/) and exits with that process's status. stdout and stderr pass
+# through unchanged.
+
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$root"
+
+if ! command -v uv >/dev/null 2>&1; then
+  echo "preflight-publish: uv is required to run scripts/schema_check.py" >&2
+  exit 2
+fi
+
+exec uv run python scripts/schema_check.py
