@@ -33,6 +33,16 @@ class EffortCapabilityError(ValueError):
         super().__init__(message)
 
 
+class VmConfigError(ValueError):
+    """A generic VM command named a chat-only node.
+
+    Chat execution resolves nodes through `agent.chat_target`; generic file,
+    git and terminal work stays on the default orchestrator. Failing closed is
+    required because an inherited-key node row has an empty `api_token`, which
+    the executor would otherwise read as "run locally on the API host".
+    """
+
+
 # Claude Code is the only backend that accepts a launch effort flag.
 SUPPORTED_REASONING_EFFORT_BACKENDS = {"claude_code"}
 
@@ -367,12 +377,18 @@ def resolve_vm_config(user_id: int, vm_name: str = None, work_dir: str = None) -
 
     Chat execution does not use this: a chat resolves its node strictly from
     ``vm_config`` and never lets a work-dir match substitute another machine.
-    Here the work-dir auto-match is likewise limited to the default row, so a
-    node row sharing a work_dir cannot receive untargeted generic work.
+    Generic work is default-only. Naming a non-default node raises instead of
+    falling back, because a chat-only node row may inherit its SSH key (empty
+    ``api_token``) and the executor would treat that as local execution on the
+    API host. Here the work-dir auto-match is likewise limited to the default
+    row.
     """
-    vm_config = None
-    if vm_name:
-        vm_config = vm_service.get_config(user_id, vm_name)
+    canonical = vm_service.normalize_node_name(vm_name)
+    if canonical != vm_service.DEFAULT_NODE:
+        raise VmConfigError(
+            f"generic VM commands run on the default node only; node {canonical!r} is chat-only"
+        )
+    vm_config = vm_service.get_config(user_id, canonical)
     if not vm_config and work_dir:
         candidate = vm_service.get_config_by_work_dir(user_id, work_dir)
         if candidate is not None and candidate.name == "default":

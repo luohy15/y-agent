@@ -273,7 +273,8 @@ class ModuleVmWakingError(ModuleVmAsleepError):
 
 
 class ModuleVmNotConfiguredError(ModuleHostError):
-    """The authenticated owner has no VM configured, so a VM command cannot run.
+    """The authenticated owner has no VM configured, or a chat-only node was
+    named on the generic default-only path, so a VM command cannot run.
     There is deliberately NO fallback to another (e.g. the global default)
     user's VM: falling back would hand that account command execution on it."""
 
@@ -329,25 +330,28 @@ async def run_vm_command(
     stdin: Optional[str] = None,
     wake: bool | str = True,
 ) -> str:
-    """Run argv on the authenticated owner's VM (local when no api_token, SSH otherwise).
+    """Run argv on the authenticated owner's default VM (local when no api_token).
 
     argv is a list, never a shell string. The host shell-quotes each element
     on the SSH path. The user_id must equal the authenticated request's owner
     (bound by the dispatcher): a caller-chosen different id is rejected, and
     the VM is resolved strictly for that user with no default-user fallback
     (review finding 2). VM config is resolved strictly for the owner with no
-    fallback to another user's VM. `work_dir` overrides the configured directory
+    fallback to another user's VM. Generic execution is default-only: a
+    chat-only node name raises ModuleVmNotConfiguredError instead of resolving
+    its inherited-key row (which may have an empty api_token and must never be
+    read as local execution). `work_dir` overrides the configured directory
     when provided; `stdin` is passed without placing bytes in argv. Raises a
     typed error on a non-zero local or SSH exit status (or timeout); callers
     decide how to surface it. `wake=False` probes the owner's EC2 state
     off-loop when last_up is stale and raises ModuleVmAsleepError unless running,
     then skips the wake prelude. Fresh last_up skips the probe, like the wake
-    path. Non-EC2 VMs execute normally. A stop after confirmation still fails
-    through the command timeout; it never falls back to waking. `wake="nowait"`
-    never blocks on a wake: a stale EC2 VM that is stopped is started once, one
-    that is running gets a single short SSH probe, and any not-ready outcome
-    (including exceeding the 1s wall-clock budget) raises ModuleVmWakingError
-    (retry_after seconds) instead of waiting.
+    path. A default VM without an SSH key executes locally. A stop after
+    confirmation still fails through the command timeout; it never falls back
+    to waking. `wake="nowait"` never blocks on a wake: a stale EC2 VM that is
+    stopped is started once, one that is running gets a single short SSH probe,
+    and any not-ready outcome (including exceeding the 1s wall-clock budget)
+    raises ModuleVmWakingError (retry_after seconds) instead of waiting.
     """
     if not argv:
         raise ValueError("argv must be a non-empty list")
@@ -364,10 +368,16 @@ async def run_vm_command(
     # Lazy: keeps paramiko/boto3/cryptography off the import path of this module.
     from storage.service import vm_config as vm_service
 
-    vm_config = vm_service.get_config(user_id, vm_name or "default")
+    canonical = vm_service.normalize_node_name(vm_name)
+    if canonical != vm_service.DEFAULT_NODE:
+        raise ModuleVmNotConfiguredError(
+            f"generic VM commands run on the default node only; "
+            f"node {canonical!r} is chat-only"
+        )
+    vm_config = vm_service.get_config(user_id, canonical)
     if vm_config is None:
         raise ModuleVmNotConfiguredError(
-            f"no VM configured for owner {user_id} (vm={vm_name or 'default'})"
+            f"no VM configured for owner {user_id} (vm={canonical})"
         )
 
     from agent.vm_command import execute_vm_command

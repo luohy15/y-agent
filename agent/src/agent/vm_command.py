@@ -5,6 +5,15 @@ from __future__ import annotations
 from typing import Optional
 
 
+_DEFAULT_NODE_NAMES = frozenset({"", "default", "ec2"})
+
+
+def _is_default_node(vm_config) -> bool:
+    """Only the orchestrator may receive generic (non-chat) commands."""
+    name = getattr(vm_config, "name", None)
+    return name is None or name in _DEFAULT_NODE_NAMES
+
+
 async def execute_vm_command(
     vm_config,
     argv: list[str],
@@ -17,12 +26,23 @@ async def execute_vm_command(
 ) -> str:
     """Execute argv using a resolved VM config.
 
+    Generic execution is default-node only: a chat-only node raises before any
+    local or SSH path, because its inherited-key row may have an empty
+    ``api_token`` and must never be mistaken for local execution.
+
     `work_dir` overrides the config only when supplied. Callers resolve the VM
     according to their own ownership rules before reaching this primitive.
     `wake=False` skips `ensure_and_touch_vm` so a caller that already refused a
     stopped VM does not pay the unbounded cold-boot prelude; `wake="nowait"`
     skips it too (the caller already probed).
     """
+    if not _is_default_node(vm_config):
+        from agent.config import VmConfigError
+
+        raise VmConfigError(
+            f"generic VM commands run on the default node only; "
+            f"node {getattr(vm_config, 'name', None)!r} is chat-only"
+        )
     effective_work_dir = work_dir if work_dir is not None else vm_config.work_dir
     if not vm_config.api_token:
         from agent.tools.local_exec import local_exec
