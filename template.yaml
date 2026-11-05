@@ -447,6 +447,7 @@ Resources:
           Y_AGENT_PHOTO_BUCKET: !Ref PhotoBucket
           Y_AGENT_PHOTO_CORS_ORIGINS: "https://yovy.app"
           Y_AGENT_TIMEZONE: Asia/Shanghai
+          Y_AGENT_CHAT_MAC_TARGET: roy@100.70.153.126:22
           ALPHAVANTAGE_API_KEY: !Ref AlphaVantageApiKey
           OPENROUTER_API_KEY: !Ref OpenRouterApiKey
           OPENROUTER_INFERENCE_API_KEY: !Ref OpenRouterInferenceApiKey
@@ -497,6 +498,7 @@ Resources:
           Y_AGENT_PHOTO_BUCKET: !Ref PhotoBucket
           Y_AGENT_PHOTO_CORS_ORIGINS: "https://yovy.app"
           Y_AGENT_TIMEZONE: Asia/Shanghai
+          Y_AGENT_CHAT_MAC_TARGET: roy@100.70.153.126:22
           OXYLABS_USERNAME: !Ref OxylabsUsername
           OXYLABS_PASSWORD: !Ref OxylabsPassword
           CRAWLER_RATE_LIMIT: "10"
