@@ -1017,15 +1017,17 @@ def _claude_build_exec(cmd: List[str], chat_id: str, prompt: str, images: Option
     if not resume_session_id:
         return exec_cmd
 
-    # Claude cleanupPeriodDays can prune old sessions; backup-projects.sh keeps copies.
+    # Claude cleanupPeriodDays can prune old sessions; backup-sessions.sh keeps copies.
     restore_snippet = (
         f"_y_sid={_shell_quote(resume_session_id)}; "
-        "_y_proj=$(pwd | sed 's|/|-|g'); "
+        "_y_src=$(find /Users/roy/luohy15/lifelog/sessions/claude-code/projects "
+        "-maxdepth 2 -type f -name \"$_y_sid.jsonl\" -print -quit 2>/dev/null); "
+        "if [ -f \"$_y_src\" ]; then "
+        "_y_proj=$(basename \"$(dirname \"$_y_src\")\"); "
         "_y_dst=\"$HOME/.claude/projects/$_y_proj/$_y_sid.jsonl\"; "
-        "_y_src=\"/Users/roy/luohy15/assets/claude-code/projects/$_y_proj/$_y_sid.jsonl\"; "
-        "if [ ! -f \"$_y_dst\" ] && [ -f \"$_y_src\" ]; then "
+        "if [ ! -f \"$_y_dst\" ]; then "
         "mkdir -p \"$(dirname \"$_y_dst\")\"; cp -p \"$_y_src\" \"$_y_dst\"; touch \"$_y_dst\"; "
-        "fi; "
+        "fi; fi; "
     )
     return restore_snippet + exec_cmd
 

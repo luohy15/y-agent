@@ -551,9 +551,9 @@ def _apply_completion_metadata(fresh, result: dict, result_data: dict, proc: dic
         # Drop it, otherwise every future turn retries the same dead handle and
         # the conversation is wedged forever (todo 2930's migrated chats, and
         # any chat whose session file is gone). Nothing recoverable is lost:
-        # `_claude_build_exec` restores a pruned session file from the
-        # assets/claude-code backup *before* launching, so a refusal means
-        # neither copy exists for this work_dir.
+        # `_claude_build_exec` restores a pruned session file by session ID from
+        # lifelog/sessions/claude-code/projects *before* launching on the default
+        # node, preserving its backup project directory. Jump nodes have no restore.
         #
         # Gated on that affirmative signal and nothing else. Neither an error
         # status nor which branch the turn took is evidence about the handle:
