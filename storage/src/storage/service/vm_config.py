@@ -15,6 +15,7 @@ DEFAULT_NODE = "default"
 NODE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 NODE_PLATFORMS = frozenset({"linux", "darwin"})
 NODE_DATA_SCOPES = frozenset({"personal", "work"})
+NODE_AUTH_MODES = frozenset({"relay", "subscription"})
 
 
 class NodeError(ValueError):
@@ -89,13 +90,27 @@ def set_config(user_id: int, config: VmConfig) -> VmConfig:
     return vm_repo.set_config(user_id, config)
 
 
+def assign_auth_mode(config: VmConfig, existing: Optional[VmConfig], *, provided: bool) -> None:
+    """Keep an omitted auth mode. A new row with none given defaults to relay.
+
+    NULL stays NULL on an update that does not mention the field: launch treats
+    NULL as relay. An explicit value must be in ``NODE_AUTH_MODES``.
+    """
+    if not provided:
+        config.auth_mode = existing.auth_mode if existing is not None else "relay"
+        return
+    if config.auth_mode not in NODE_AUTH_MODES:
+        raise InvalidNode(f"auth_mode must be one of {sorted(NODE_AUTH_MODES)}")
+
+
 def set_node(user_id: int, config: VmConfig, *, api_token_provided: bool = True,
-             enabled_provided: bool = True) -> VmConfig:
+             enabled_provided: bool = True, auth_mode_provided: bool = False) -> VmConfig:
     """Create or update a non-default node.
 
     An omitted key inherits the default node's key (empty `api_token`), and an
     update that leaves the key out keeps the stored one. An omitted `enabled`
     keeps the stored value, so `y node add` does not re-enable a disabled node.
+    An omitted `auth_mode` keeps the stored value; a new row defaults to relay.
     """
     canonical = validate_node_name(normalize_node_name(config.name))
     if canonical == DEFAULT_NODE:
@@ -113,6 +128,7 @@ def set_node(user_id: int, config: VmConfig, *, api_token_provided: bool = True,
         config.api_token = existing.api_token if existing else ""
     if not enabled_provided:
         config.enabled = existing.enabled if existing else True
+    assign_auth_mode(config, existing, provided=auth_mode_provided)
     return vm_repo.set_config(user_id, config)
 
 

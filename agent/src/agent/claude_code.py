@@ -1082,6 +1082,7 @@ async def start_detached_ssh(
     ssh_client=None,
     input_uuid: Optional[str] = None,
     mcp_material=None,
+    unset_env: Optional[List[str]] = None,
 ) -> Optional[str]:
     """Start `claude -p` in a detached tmux session on remote host.
 
@@ -1105,6 +1106,7 @@ async def start_detached_ssh(
         env=env,
         images=images,
         ssh_client=ssh_client,
+        unset_env=unset_env,
     )
 
 

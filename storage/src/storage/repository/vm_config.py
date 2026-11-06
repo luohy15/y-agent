@@ -19,6 +19,7 @@ def _entity_to_dto(entity: VmConfigEntity) -> VmConfig:
         platform=entity.platform,
         data_scope=entity.data_scope,
         enabled=True if entity.enabled is None else bool(entity.enabled),
+        auth_mode=entity.auth_mode,
     )
 
 
@@ -34,6 +35,7 @@ def _dto_to_entity_fields(config: VmConfig) -> dict:
         platform=config.platform,
         data_scope=config.data_scope,
         enabled=config.enabled,
+        auth_mode=config.auth_mode,
     )
 
 

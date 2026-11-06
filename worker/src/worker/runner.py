@@ -750,6 +750,30 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
 
 
 
+# Relay credentials. Subscription mode removes every one of these and unsets
+# them in the remote shell so a stale tmux environment cannot keep the relay.
+_RELAY_AUTH_KEYS = (
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_API_KEY",
+    "_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL",
+)
+
+
+def _apply_auth_mode(env: dict, auth_mode: str | None) -> tuple[dict, list]:
+    """Return the launch env and the names the remote shell must unset.
+
+    NULL and ``relay`` keep the env (today's relay injection). ``subscription``,
+    and any other value, drops the four relay keys and names them for an
+    explicit ``unset``, so an unexpected mode never ships relay credentials.
+    The input dict is not mutated.
+    """
+    if auth_mode in (None, "", "relay"):
+        return env, []
+    cleaned = {key: value for key, value in env.items() if key not in _RELAY_AUTH_KEYS}
+    return cleaned, list(_RELAY_AUTH_KEYS)
+
+
 def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None,
                               work_dir: str = None, trace_id: str = None, role: str = None,
                               continuation_from_id: str = None,
@@ -842,6 +866,7 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
         env["Y_TOPIC"] = role  # transition mirror for old sessions/tools
     if last_message_id:
         env["Y_MESSAGE_ID"] = last_message_id
+    env, unset_env = _apply_auth_mode(env, getattr(node, "auth_mode", None))
 
     return {
         "prompt": user_prompt,
@@ -849,6 +874,7 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
         "input_ids": [m.id for m in selected_inputs if m.id],
         "cmd": cmd,
         "env": env,
+        "unset_env": unset_env,
         "cwd": cwd,
         "node": node,
         "session_id": session_id,
@@ -953,6 +979,7 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
             images=params.get("images"),
             input_uuid=launch_uuid,
             mcp_material=mcp_material,
+            unset_env=params.get("unset_env"),
         )
     except Exception:
         mcp_launch.end(mcp_material)

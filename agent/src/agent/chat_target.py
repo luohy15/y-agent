@@ -54,6 +54,7 @@ class NodeTarget:
     heartbeat: bool
     ingest_transcripts: bool
     supports_images: bool
+    auth_mode: str  # "relay" (also the meaning of a NULL row) or "subscription"
 
     @property
     def work_dir(self) -> str:
@@ -183,6 +184,7 @@ def _build_layout(user_id: int, name: str, allow_disabled: bool) -> NodeTarget:
         heartbeat=profile["heartbeat"],
         ingest_transcripts=transport == "vm",
         supports_images=transport == "vm",
+        auth_mode=node.auth_mode if node.auth_mode in ("relay", "subscription") else "relay",
     )
 
 

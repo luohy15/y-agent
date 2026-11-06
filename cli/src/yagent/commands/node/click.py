@@ -30,13 +30,14 @@ def node_list():
     if not nodes:
         click.echo('no nodes configured')
         return
-    headers = ('NAME', 'PLATFORM', 'SCOPE', 'ENABLED', 'ADDRESS', 'WORK_DIR')
+    headers = ('NAME', 'PLATFORM', 'SCOPE', 'ENABLED', 'AUTH', 'ADDRESS', 'WORK_DIR')
     rows = [
         (
             node.get('name', ''),
             node.get('platform') or 'linux',
             node.get('data_scope') or 'personal',
             'yes' if node.get('enabled', True) else 'no',
+            node.get('auth_mode') or 'relay',
             node.get('vm_name', ''),
             node.get('work_dir', ''),
         )
@@ -71,7 +72,9 @@ def node_show(name):
               help='Private key for this node. Omit to inherit the default node key.')
 @click.option('--inherit-key', is_flag=True, help='Explicitly inherit the default node key.')
 @click.option('--work-dir', default='', help='Default workspace on the node.')
-def node_add(name, host, user, port, platform, data_scope, key_file, inherit_key, work_dir):
+@click.option('--auth-mode', type=click.Choice(['relay', 'subscription']),
+              help='How claude authenticates on this node. Omit to keep the stored mode.')
+def node_add(name, host, user, port, platform, data_scope, key_file, inherit_key, work_dir, auth_mode):
     """Create or update a non-default node. No deploy is needed."""
     if key_file and inherit_key:
         raise click.UsageError('choose --key-file or --inherit-key, not both')
@@ -82,6 +85,8 @@ def node_add(name, host, user, port, platform, data_scope, key_file, inherit_key
         'data_scope': data_scope,
         'work_dir': work_dir,
     }
+    if auth_mode:
+        payload['auth_mode'] = auth_mode
     if key_file:
         payload['api_token'] = key_file.read_text()
     node = api_request('POST', '/api/vm-config', json=payload).json()

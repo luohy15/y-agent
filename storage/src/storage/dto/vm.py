@@ -14,6 +14,7 @@ class VmConfig:
     platform: Optional[str] = None  # NULL means linux
     data_scope: Optional[str] = None  # NULL means personal
     enabled: bool = True
+    auth_mode: Optional[str] = None  # NULL means relay
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'VmConfig':

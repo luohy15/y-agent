@@ -37,6 +37,7 @@ does not require a code change or deployment.
 | `platform` | `linux` (also the meaning of NULL) or `darwin`; derives binaries, PATH and runtime capabilities. |
 | `data_scope` | `personal` (also the meaning of NULL) or `work`. Visible metadata only, not an enforced sandbox or routing rule. |
 | `enabled` | Soft enable/disable for admission and launch. Stop and monitoring can still resolve a disabled row. |
+| `auth_mode` | NULL or `relay` injects the selected bot's relay environment at launch. `subscription` omits it and unsets it in the shell, so the node uses its own Claude login. The node decides; a chat has no credential preference. |
 | `ec2_instance_id`, `ec2_region`, `last_up` | Existing wake metadata, used on the default anchor rather than the jump node. |
 
 `chat.execution_target` snapshots the selected **name**, not the node's mutable
@@ -71,18 +72,23 @@ already permits only one default row per owner. No rows or tables are removed.
 - `y node show <name>`: key-free JSON for one row.
 - `y node add <name> --host <host> --user <user> [--port 22]
   [--platform linux|darwin] --data-scope personal|work [--work-dir <path>]
-  [--key-file <path>|--inherit-key]`: create or update a non-default row.
-  A new row without a key inherits the default key. An omitted key on an update
-  preserves the existing key. The node must already authorize the chosen key.
+  [--key-file <path>|--inherit-key] [--auth-mode relay|subscription]`: create or
+  update a non-default row. A new row without a key inherits the default key.
+  An omitted key on an update preserves the existing key. The node must already
+  authorize the chosen key. An omitted `--auth-mode` preserves the stored mode;
+  a new row defaults to relay. `y node list` prints an AUTH column. `y node show`
+  includes `auth_mode` in its JSON (NULL is reported as `relay`).
 - `y node enable <name>` / `y node disable <name>`: change admission eligibility.
 - `y chat --on <name> ...`: choose the node for a new chat; subsequent messages
   use the same chat ID and stored target.
 
 Node commands use the existing host `/api/vm-config` controller. GET
 `/api/vm-config/list` returns name, address, workspace, platform, scope, enabled,
-`is_default`, `chat_only` and wake metadata, never the private key. POST
-`/api/vm-config` creates/updates a row. An omitted key or enabled flag preserves
-that value on a non-default update. POST `/api/vm-config/{name}/enable` and
+`auth_mode`, `is_default`, `chat_only` and wake metadata, never the private key.
+POST `/api/vm-config` creates/updates a row. An omitted key, enabled flag or
+`auth_mode` preserves that value on a non-default update. The default-node
+write preserves an omitted `auth_mode` the same way. A value outside
+`relay` / `subscription` is 422. POST `/api/vm-config/{name}/enable` and
 `/disable` toggle a non-default row. The existing DELETE `/api/vm-config?name=...`
 refuses the default node or any node pinned by a chat (409); `y node` offers no
 hard-delete command. The existing full-config path still manages the default
@@ -124,6 +130,25 @@ node may receive chat content and use its local tools and authentication. The
 `data_scope` label does not prevent personal content reaching a work node, nor
 does removal of the old bounded-job validator provide such a guarantee. Keep
 work-only nodes out until isolation is implemented and verified separately.
+
+The worker reads `auth_mode` on every launch, including resume and continuation.
+Relay mode exports `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` and
+`_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL` as it does today. Subscription mode
+removes those plus `ANTHROPIC_API_KEY` from the launch environment and runs
+`unset` on all four before any export, so a stale shell cannot keep the relay
+token. No relay credential is sent to the node. Inline backends never receive
+this environment. A subscription node still needs a Claude-model bot, because
+`--model` comes from the bot config. A layout is cached for 30 seconds, so an
+edit can take that long to affect the next launch.
+
+Transcripts stay on the node that wrote them, under
+`$HOME/.claude/projects/<cwd with slashes replaced by dashes>/<session>.jsonl`.
+The same work directory produces the same project key, so a copied `.jsonl` can
+be resumed, but the launch path does not copy transcripts. Jump nodes do not
+ingest them. The only restore hook is a hardcoded assets path, not a sync. A
+chat therefore resumes only on the node that ran it unless that file is copied
+to the target. Sharing a work-directory string is not a workspace sync: do not
+copy the EC2 workspace root onto a work-only node.
 
 ## Retired bounded-job interface
 

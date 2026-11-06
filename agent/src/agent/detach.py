@@ -147,9 +147,16 @@ def assemble_inner(
     stderr_file: str,
     exit_file: str,
     cleanup: Optional[str] = None,
+    unset_env: Optional[List[str]] = None,
 ) -> str:
-    """Shell body tmux runs. EC2 keeps the last-seen heartbeat; mac does not."""
+    """Shell body tmux runs. EC2 keeps the last-seen heartbeat; mac does not.
+
+    ``unset_env`` is emitted before any export so a stale tmux environment
+    cannot keep relay credentials that this launch intentionally dropped.
+    """
     inner_parts = ["unset TMUX;"]
+    if unset_env:
+        inner_parts.append("unset " + " ".join(unset_env) + ";")
     if heartbeat:
         inner_parts.extend([
             "date +%s > /tmp/ec2-ssh-last-seen;",
@@ -176,7 +183,8 @@ def assemble_inner(
     return " ".join(inner_parts)
 
 
-def build_launch_plan(node, chat_id: str, cmd, env=None, cwd=None, prompt: str = "") -> dict:
+def build_launch_plan(node, chat_id: str, cmd, env=None, cwd=None, prompt: str = "",
+                      unset_env=None) -> dict:
     """Launch text for one node, with no SSH. Used by the mac command check."""
     from agent.chat_target import apply_launch
     from agent.claude_code import _claude_build_exec
@@ -190,6 +198,7 @@ def build_launch_plan(node, chat_id: str, cmd, env=None, cwd=None, prompt: str =
         stdout_file=f"/tmp/cc-{chat_id}.stdout",
         stderr_file=f"/tmp/cc-{chat_id}.stderr",
         exit_file=f"/tmp/cc-{chat_id}.exit",
+        unset_env=unset_env,
     )
     return {
         "inner": inner,
@@ -225,6 +234,7 @@ async def _start_detached_tmux(
     env: Optional[Dict[str, str]] = None,
     images: Optional[List[str]] = None,
     ssh_client=None,
+    unset_env: Optional[List[str]] = None,
 ) -> Optional[str]:
     """Shared skeleton for starting a detached tmux session over SSH.
 
@@ -303,6 +313,7 @@ async def _start_detached_tmux(
             stderr_file=stderr_file,
             exit_file=exit_file,
             cleanup=spec.cleanup() if spec.cleanup else None,
+            unset_env=unset_env,
         )
 
         tmux_cmd = (

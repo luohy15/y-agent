@@ -24,6 +24,8 @@ class VmConfigRequest(BaseModel):
     platform: Optional[str] = None
     data_scope: Optional[str] = None
     enabled: Optional[bool] = None
+    # None means omitted: keep the stored mode. A new row defaults to relay.
+    auth_mode: Optional[str] = None
 
 
 def _node_dict(config: VmConfig) -> dict:
@@ -35,6 +37,8 @@ def _node_dict(config: VmConfig) -> dict:
         "platform": config.platform,
         "data_scope": config.data_scope,
         "enabled": config.enabled,
+        # NULL is relay. The response always names the mode the next launch uses.
+        "auth_mode": config.auth_mode or "relay",
         "is_default": is_default,
         # Generic file/git/terminal execution stays on the default node in v1,
         # so every other row is a chat-only target.
@@ -65,13 +69,19 @@ async def set_vm_config(req: VmConfigRequest, request: Request):
         platform=req.platform,
         data_scope=req.data_scope,
         enabled=True if req.enabled is None else req.enabled,
+        auth_mode=req.auth_mode,
     )
     if name == vm_service.DEFAULT_NODE:
         # The default node is the orchestrator and is managed by the existing
         # full-config path, never through the node registry editing rules.
+        # An omitted auth_mode still preserves the stored value, same as a node.
+        existing = vm_service.get_config(user_id, name)
         if req.api_token is None:
-            existing = vm_service.get_config(user_id, name)
             config.api_token = existing.api_token if existing else ""
+        try:
+            vm_service.assign_auth_mode(config, existing, provided=req.auth_mode is not None)
+        except vm_service.InvalidNode as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         vm_service.set_config(user_id, config)
         return {"ok": True, "name": name}
     try:
@@ -79,6 +89,7 @@ async def set_vm_config(req: VmConfigRequest, request: Request):
             user_id, config,
             api_token_provided=req.api_token is not None,
             enabled_provided=req.enabled is not None,
+            auth_mode_provided=req.auth_mode is not None,
         )
     except vm_service.NodeProtected as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
