@@ -5,7 +5,7 @@ import os
 import random
 from typing import List, Optional
 
-from storage.dto.bot import TIERS, effective_effort_levels, tier_weight, tiers_of
+from storage.dto.bot import TIERS, effective_effort_levels, subscription_tiers_of, tier_weight, tiers_of
 from storage.entity.dto import BotConfig, VmConfig
 from storage.service import bot_config as bot_service
 from storage.service import vm_config as vm_service
@@ -58,9 +58,11 @@ def tier_of(bot_config: BotConfig) -> str:
     return tiers_of(bot_config)[0]
 
 
-def served_tier(bot_config: BotConfig, bot_tier: str = None) -> str:
+def served_tier(bot_config: BotConfig, bot_tier: str = None, auth_mode: str = "relay") -> str:
     """Record the requested tier if served, then the default, then strongest."""
-    tiers = tiers_of(bot_config)
+    tiers = list(subscription_tiers_of(bot_config) or {}) if auth_mode == "subscription" else tiers_of(bot_config)
+    if not tiers:
+        tiers = tiers_of(bot_config)
     return next((tier for tier in (bot_tier, "tier2") if tier in tiers), tiers[0])
 
 
@@ -71,12 +73,13 @@ class BotAuthModeError(ValueError):
 def bot_supports_auth_mode(config: BotConfig, auth_mode: str = "relay") -> bool:
     if auth_mode in (None, "", "relay"):
         return True
-    return auth_mode == "subscription" and config.subscription_weight is not None
+    return auth_mode == "subscription" and bool(subscription_tiers_of(config))
 
 
 def _pool_weight(config: BotConfig, tier: str = None, auth_mode: str = "relay") -> Optional[float]:
     if auth_mode == "subscription":
-        return config.subscription_weight
+        tiers = subscription_tiers_of(config) or {}
+        return tiers.get(tier or served_tier(config, auth_mode=auth_mode))
     return tier_weight(config, tier) if tier else config.route_weight
 
 
@@ -171,7 +174,7 @@ def _candidates(universe: List[BotConfig], bot_name: str = None, backend: str = 
     if tier:
         result = [
             cfg for cfg in result
-            if tier in tiers_of(cfg)
+            if tier in (subscription_tiers_of(cfg) or {} if auth_mode == "subscription" else tiers_of(cfg))
             and (getattr(cfg, "type", None) or "agent") != "model"
         ]
     if effort:

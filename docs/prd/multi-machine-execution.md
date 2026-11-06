@@ -97,7 +97,7 @@ row, outside node-edit rules.
 Chat creation and dispatch use the existing chat endpoints and their optional
 `execution_target` field. Unknown/disabled targets and attempts to change an
 existing chat's target are rejected with 422. Images are rejected on jump nodes.
-Backend contract v31 adds the owner-bound `bot_config_set_subscription_weight`
+Backend contract v32 adds the owner-bound `bot_config_set_subscription_tiers`
 capability and an `auth_mode` argument on the pure `bot_tier_pools` projection.
 
 ## Runtime and transport
@@ -142,10 +142,13 @@ this environment. The worker resolves the node's auth mode before choosing a
 bot. A layout is cached for 30 seconds, so an edit can take that long to affect
 the next launch.
 
-`bot_config.subscription_weight` is nullable: NULL excludes a bot from
-subscription pools; a finite nonnegative number declares eligibility and its
-subscription draw weight. Subscription pools keep the same tier membership but
-use this scalar instead of relay tier weights. Relay selection is unchanged.
+`bot_config.subscription_tiers` is a nullable JSON tier-to-weight map. NULL
+excludes a bot from subscription pools. A nonempty map declares independent
+subscription tier membership: each key must be a supported tier and each value
+must be null or a finite nonnegative number. Invalid stored maps are treated as
+absent. The node's auth mode selects the map: relay uses `tiers` and its legacy
+mirrors; subscription uses only `subscription_tiers`. Membership in the other
+map has no effect. Relay selection is unchanged.
 Automatic selection excludes an explicit zero even when it is the sole
 candidate; an unset weight remains usable only when sole. Multi-bot pools draw
 only positive weights. Explicit pins bypass weights. The runtime, pool
@@ -155,10 +158,15 @@ subscription tier2 pool. An empty subscription tier2 pool raises
 pin or re-bot fails the launch without substitution. A sticky bot that lost
 eligibility is re-pooled and the accepted name and tier are persisted.
 
-The narrow setter is the only write path for the subscription weight; full bot
-upserts deliberately omit it so an older module cannot clear it. Apply
-`migration/4224_bot_subscription_weight.sql` before deploying host contract v31,
-then publish the Bot module requiring v31 before configuring weights. The
+The narrow setter is the only write path for the subscription map; full bot
+upserts deliberately omit it so an older module cannot clear it. None clears
+the map; an empty map is rejected. Apply
+`migration/4224_bot_subscription_tiers.sql` before deploying host contract v32,
+then publish the Bot module requiring v32 before configuring weights. The
+superseded scalar column remains physically present for rolling v31 readers,
+but v32 neither maps nor reads/writes it. No backfill or column DROP is included.
+The Bot editor saves Relay Tiers and Subscription Tiers independently; clearing
+a subscription tier row removes that key from the map. The
 operator configuration uses existing `sonnet` (tier2, relay weight 0,
 subscription weight 1) and `opus` (tier1 only, relay weight 0, subscription
 weight 1), without adding bots. Relay tier0 is intentionally empty; tier0

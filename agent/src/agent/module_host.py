@@ -209,7 +209,7 @@ if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
 # v30: owner-and-maintainer bound private voice object capabilities (todo 4165).
-BACKEND_CONTRACT_VERSION = 31
+BACKEND_CONTRACT_VERSION = 32
 
 # Wall-clock budget for the wake="nowait" readiness check (todo 3777).
 NOWAIT_BUDGET_SECONDS = 1.0
@@ -517,9 +517,9 @@ def bot_config_set_effort_capability(user_id: int, name: str, levels: Optional[l
     return _bot_service(user_id).set_effort_capability(user_id, name, levels, evidence)
 
 
-def bot_config_set_subscription_weight(user_id: int, name: str, weight: Optional[float]) -> bool:
-    """Declare subscription eligibility and weight, or clear with None (v31)."""
-    return _bot_service(user_id).set_subscription_weight(user_id, name, weight)
+def bot_config_set_subscription_tiers(user_id: int, name: str, tiers: Optional[dict[str, Optional[float]]]) -> bool:
+    """Declare subscription tier membership and weights, or clear with None (v32)."""
+    return _bot_service(user_id).set_subscription_tiers(user_id, name, tiers)
 
 
 def bot_config_rename(user_id: int, old_name: str, new_name: str) -> bool:

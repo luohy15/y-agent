@@ -61,8 +61,9 @@ Other top-level dirs: `scripts/` (deploy, DNS, IAM), `template.yaml` / `samconfi
   no image attachments or transcript ingest; Darwin nodes also have no heartbeat
   or orphan reaper. The MacBook is the first jump node. The Mac Mini / US
   work-only node remains excluded pending todo 4214. Subscription nodes select
-  bots with non-NULL `subscription_weight` using independent weights; explicit
-  ineligible pins fail closed and sticky ineligible bots re-pool (contract v31).
+  bots using independent `subscription_tiers` membership and per-tier weights;
+  explicit pins without a valid subscription map fail closed and sticky
+  ineligible bots re-pool (contract v32).
   See
   `docs/prd/multi-machine-execution.md`.
 
@@ -215,7 +216,7 @@ entity + controller + service + CLI slices, and most have a web panel.
   conventional `common` (vendored at publish). Rollback/activate change code only;
   delete removes deployed metadata/bytes, not source/tables. No worker half:
   deterministic work is `routine` `vm_command`; judgment stays chat dispatch.
-  Backend host contract (`agent.module_host`) is **v31** (todo 3627's v18 adds
+  Backend host contract (`agent.module_host`) is **v32** (todo 3627's v18 adds
   owner-bound no-wake VM execution; v19 / v20 are todos 3777 / 3781; v21 adds the
   maintainer-bound `mcp_*` connector capabilities of todo 3796; v22 is its round 2
   loopback OAuth start/complete; v23 adds the private photo object primitives,
@@ -461,7 +462,7 @@ Grouped by feature area:
 - `perplexity.py`, `openai_chat.py`, `xai_search.py` — inline single-shot (non-agentic)
   backends; `xai_search.py` serves both `xai_web` and `xai_x`
 - `config.py` — provider factory, bot/vm config resolution
-- `module_host.py` — backend host contract for modules (`BACKEND_CONTRACT_VERSION = 31`:
+- `module_host.py` — backend host contract for modules (`BACKEND_CONTRACT_VERSION = 32`:
   `session`, `run_vm_command` with work_dir/stdin, `cli_user_id`, external-table
   protocol, plus request-scoped `bot_config_*`, `chat_*` with optional
   `sort_by`/`sort_order`, `note_list_at_path`, owner-bound `note_*`, `tag_*`

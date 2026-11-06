@@ -27,7 +27,7 @@ class BotConfig:
     tiers: Optional[Dict[str, Optional[float]]] = None
     type: Optional[str] = None
     route_weight: Optional[float] = None
-    subscription_weight: Optional[float] = None
+    subscription_tiers: Optional[Dict[str, Optional[float]]] = None
     enabled: bool = True
     ref_bot_name: Optional[str] = None
     effort_levels: Optional[List[str]] = None
@@ -82,6 +82,16 @@ def tier_weights_of(config) -> Dict[str, Optional[float]]:
         pass
     tier = config.tier if config.tier in TIERS else "tier3"
     return {tier: config.route_weight}
+
+
+def subscription_tiers_of(config) -> Optional[Dict[str, Optional[float]]]:
+    tiers = getattr(config, "subscription_tiers", None)
+    if tiers is None:
+        return None
+    try:
+        return normalize_tier_weights(tiers)
+    except (ValueError, TypeError, OverflowError):
+        return None
 
 
 def tiers_of(config) -> List[str]:

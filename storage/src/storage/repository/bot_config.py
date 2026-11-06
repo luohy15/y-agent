@@ -3,7 +3,7 @@
 from typing import List, Optional
 from storage.entity.bot_config import BotConfigEntity
 from storage.entity.dto import BotConfig
-from storage.dto.bot import normalize_tier_weights, tier_weights_of
+from storage.dto.bot import normalize_tier_weights, subscription_tiers_of, tier_weights_of
 from storage.database.base import get_db
 
 
@@ -25,7 +25,7 @@ def _entity_to_dto(entity: BotConfigEntity) -> BotConfig:
         tiers=tier_weights_of(entity),
         type=entity.type,
         route_weight=entity.route_weight,
-        subscription_weight=entity.subscription_weight,
+        subscription_tiers=subscription_tiers_of(entity),
         enabled=entity.enabled if entity.enabled is not None else True,
         ref_bot_name=entity.ref_bot_name,
         effort_levels=entity.effort_levels,
@@ -106,13 +106,13 @@ def set_effort_capability(user_id: int, name: str, levels: Optional[List[str]], 
         return True
 
 
-def set_subscription_weight(user_id: int, name: str, weight: Optional[float]) -> bool:
+def set_subscription_tiers(user_id: int, name: str, tiers: Optional[dict[str, Optional[float]]]) -> bool:
     with get_db() as session:
         entity = (session.query(BotConfigEntity).filter_by(user_id=user_id, name=name)
                   .with_for_update().first())
         if entity is None:
             return False
-        entity.subscription_weight = weight
+        entity.subscription_tiers = tiers
         session.flush()
         return True
 

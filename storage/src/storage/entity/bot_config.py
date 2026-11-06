@@ -23,7 +23,7 @@ class BotConfigEntity(Base, BaseEntity):
     tiers = Column(JSON, nullable=True)
     type = Column(String, nullable=True)
     route_weight = Column(Float, nullable=True)
-    subscription_weight = Column(Float, nullable=True)
+    subscription_tiers = Column(JSON, nullable=True)
     enabled = Column(Boolean, nullable=False, default=True)
     ref_bot_name = Column(String, nullable=True)
     effort_levels = Column(JSON, nullable=True)
