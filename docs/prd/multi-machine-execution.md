@@ -97,7 +97,8 @@ row, outside node-edit rules.
 Chat creation and dispatch use the existing chat endpoints and their optional
 `execution_target` field. Unknown/disabled targets and attempts to change an
 existing chat's target are rejected with 422. Images are rejected on jump nodes.
-No new module backend contract is introduced.
+Backend contract v31 adds the owner-bound `bot_config_set_subscription_weight`
+capability and an `auth_mode` argument on the pure `bot_tier_pools` projection.
 
 ## Runtime and transport
 
@@ -137,9 +138,42 @@ Relay mode exports `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` and
 removes those plus `ANTHROPIC_API_KEY` from the launch environment and runs
 `unset` on all four before any export, so a stale shell cannot keep the relay
 token. No relay credential is sent to the node. Inline backends never receive
-this environment. A subscription node still needs a Claude-model bot, because
-`--model` comes from the bot config. A layout is cached for 30 seconds, so an
-edit can take that long to affect the next launch.
+this environment. The worker resolves the node's auth mode before choosing a
+bot. A layout is cached for 30 seconds, so an edit can take that long to affect
+the next launch.
+
+`bot_config.subscription_weight` is nullable: NULL excludes a bot from
+subscription pools; a finite nonnegative number declares eligibility and its
+subscription draw weight. Subscription pools keep the same tier membership but
+use this scalar instead of relay tier weights. Relay selection is unchanged.
+Automatic selection excludes an explicit zero even when it is the sole
+candidate; an unset weight remains usable only when sole. Multi-bot pools draw
+only positive weights. Explicit pins bypass weights. The runtime, pool
+projection and effort preflight share the same viability predicate. An empty requested tier falls back to the
+subscription tier2 pool. An empty subscription tier2 pool raises
+`BotAuthModeError`, never the relay global default. An explicit ineligible bot
+pin or re-bot fails the launch without substitution. A sticky bot that lost
+eligibility is re-pooled and the accepted name and tier are persisted.
+
+The narrow setter is the only write path for the subscription weight; full bot
+upserts deliberately omit it so an older module cannot clear it. Apply
+`migration/4224_bot_subscription_weight.sql` before deploying host contract v31,
+then publish the Bot module requiring v31 before configuring weights. The
+operator configuration uses existing `sonnet` (tier2, relay weight 0,
+subscription weight 1) and `opus` (tier1 only, relay weight 0, subscription
+weight 1), without adding bots. Relay tier0 is intentionally empty; tier0
+requests without effort fall back to tier2, while an explicit effort fails
+when no candidate declares it. Subscription tier1 serves opus and tier2 serves
+sonnet. Moving opus out of tier0 requires the Bot module's `--allow-empty-tier`. Model strings are shared across auth modes:
+`sonnet[1m]` was verified with the node's subscription login, so no model override
+is needed. The API effort preflight remains on the relay universe; launch checks
+reject a subscription-only effort mismatch.
+
+Jump-node result `modelUsage` still updates cumulative chat tokens and context
+usage. Subscription launches do not enter relay spend (`model_usage_daily`
+source `crs`). Jump nodes skip per-request transcript usage and context analysis
+because `ingest_transcripts=False`; this feature adds no subscription cost
+attribution.
 
 Transcripts stay on the node that wrote them, under
 `$HOME/.claude/projects/<cwd with slashes replaced by dashes>/<session>.jsonl`.

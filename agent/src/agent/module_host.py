@@ -209,7 +209,7 @@ if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
 # v30: owner-and-maintainer bound private voice object capabilities (todo 4165).
-BACKEND_CONTRACT_VERSION = 30
+BACKEND_CONTRACT_VERSION = 31
 
 # Wall-clock budget for the wake="nowait" readiness check (todo 3777).
 NOWAIT_BUDGET_SECONDS = 1.0
@@ -475,11 +475,11 @@ def _bot_service(user_id: int):
     return bot_service
 
 
-def bot_tier_pools(configs: list[BotConfig]) -> dict[str, list[str]]:
-    """Pure viable tier-pool projection of caller-supplied configs (v29)."""
+def bot_tier_pools(configs: list[BotConfig], auth_mode: str = "relay") -> dict[str, list[str]]:
+    """Pure viable tier-pool projection (v29); auth-mode selection added in v31."""
     from agent.config import bot_tier_pools as project_pools
 
-    return project_pools(configs)
+    return project_pools(configs, auth_mode=auth_mode)
 
 
 def bot_config_list(user_id: int) -> list[BotConfig]:
@@ -515,6 +515,11 @@ def bot_config_set_enabled(user_id: int, name: str, enabled: bool) -> bool:
 def bot_config_set_effort_capability(user_id: int, name: str, levels: Optional[list[str]], evidence: Optional[str]) -> bool:
     """Declare configuration-bound effort levels, or clear with levels=None (v27)."""
     return _bot_service(user_id).set_effort_capability(user_id, name, levels, evidence)
+
+
+def bot_config_set_subscription_weight(user_id: int, name: str, weight: Optional[float]) -> bool:
+    """Declare subscription eligibility and weight, or clear with None (v31)."""
+    return _bot_service(user_id).set_subscription_weight(user_id, name, weight)
 
 
 def bot_config_rename(user_id: int, old_name: str, new_name: str) -> bool:

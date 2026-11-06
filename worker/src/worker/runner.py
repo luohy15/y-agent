@@ -472,7 +472,15 @@ async def _run_inline(chat, chat_id: str, user_id: int, bot_config, backend: str
             _run_post_hooks(fresh, user_id, post_hooks, trace_id=trace_id)
 
 
-def _resolve_rebot_target(user_id: int, bot_name: str, tier: str, chat_id: str, current_bot: str):
+def _launch_auth_mode(user_id: int, chat, backend: str = None) -> str | None:
+    if _inline_runner(backend):
+        return None
+    from agent.chat_target import layout
+    return layout(user_id, getattr(chat, "execution_target", None)).auth_mode or "relay"
+
+
+def _resolve_rebot_target(user_id: int, bot_name: str, tier: str, chat_id: str, current_bot: str,
+                          auth_mode: str = "relay", effort: str = None):
     """Resolve a mid-chat bot change, or None when the request cannot be honored.
 
     Only an affirmative pin counts as a re-bot. resolve_bot_config never fails a
@@ -480,7 +488,9 @@ def _resolve_rebot_target(user_id: int, bot_name: str, tier: str, chat_id: str, 
     tier all fall back to the tier2 pool, and that bot is claude_code too, so
     the caller's backend check would pass and the chat would be moved onto a bot
     nobody asked for. Resolving the pin on its own keeps "honored"
-    distinguishable from "fell back".
+    distinguishable from "fell back". Subscription pins are the exception:
+    an eligible pin excluded by its tier filter uses the tier2 subscription
+    fallback, while auth ineligibility and explicit effort failures abort.
 
     A raising pin (a broken alias chain) is swallowed here rather than left to
     run_chat's outer handler: that handler's hand-built fallback config carries
@@ -489,7 +499,15 @@ def _resolve_rebot_target(user_id: int, bot_name: str, tier: str, chat_id: str, 
     the chat's own bot with its real config.
     """
     try:
-        requested = agent_config.resolve_pinned_bot_config(user_id, bot_name, tier=tier)
+        requested = agent_config.resolve_pinned_bot_config(user_id, bot_name, tier=tier, auth_mode=auth_mode)
+        if requested is None and tier and auth_mode == "subscription":
+            # An eligible pin outside its requested tier loses the pin, not
+            # its auth eligibility. Use the same tier2 fallback as a fresh run.
+            requested = agent_config.resolve_bot_config(
+                user_id, bot_name, tier=tier, effort=effort, auth_mode=auth_mode,
+            )
+    except (agent_config.BotAuthModeError, agent_config.EffortCapabilityError):
+        raise
     except Exception as e:
         logger.warning(
             "Ignoring bot_name change for chat {}: resolving requested={} raised {}: {}; keeping existing={}",
@@ -608,6 +626,21 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
     # strand its session), and a request that does not resolve
     # (see _resolve_rebot_target). Refusing is always safe here, because it is
     # exactly the pre-2930 behavior: the chat keeps its bot and runs on it.
+    explicit_bot = bot_name
+    try:
+        launch_backend = chat.backend or backend
+        if not launch_backend and (bot_name or chat.bot_name):
+            try:
+                pinned = agent_config.resolve_pinned_bot_config(user_id, bot_name or chat.bot_name)
+                launch_backend = (pinned.backend or pinned.api_type) if pinned else None
+            except Exception as exc:
+                logger.warning("Cannot inspect pinned backend for chat {}: {}", chat_id, exc)
+        auth_mode = _launch_auth_mode(user_id, chat, launch_backend)
+    except Exception as exc:
+        _abort_unlaunched(chat, chat_id, user_id, exc)
+        raise
+
+    repooled = False
     rebot = bool(chat.bot_name and bot_name and bot_name != chat.bot_name)
     if chat.bot_name and not rebot:
         bot_name = chat.bot_name
@@ -630,7 +663,10 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
     # was not asked for.
     try:
         if rebot:
-            requested = _resolve_rebot_target(user_id, bot_name, bot_tier, chat_id, chat.bot_name)
+            requested = _resolve_rebot_target(
+                user_id, bot_name, bot_tier, chat_id, chat.bot_name,
+                auth_mode=auth_mode, effort=explicit_effort,
+            )
             if requested and explicit_effort and explicit_effort not in _declared_efforts(requested):
                 raise agent_config.EffortCapabilityError(explicit_effort, requested.name)
             requested_backend = (requested.backend or requested.api_type) if requested else None
@@ -653,20 +689,26 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
             if not rebot:
                 bot_name = chat.bot_name
         if not rebot:
+            if auth_mode == "subscription" and chat.bot_name and not explicit_bot:
+                sticky = agent_config.resolve_pinned_bot_config(user_id, chat.bot_name)
+                if sticky is None or not agent_config.bot_supports_auth_mode(sticky, auth_mode):
+                    bot_name = None
+                    repooled = True
             bot_config = agent_config.resolve_bot_config(
                 user_id, bot_name, backend=chat.backend or backend, tier=bot_tier,
-                effort=explicit_effort,
+                effort=explicit_effort, auth_mode=auth_mode,
             )
         if explicit_effort and (bot_config.backend or bot_config.api_type) not in SUPPORTED_REASONING_EFFORT_BACKENDS:
             unsupported = bot_config.backend or bot_config.api_type
             raise ValueError(f"reasoning_effort is only supported for claude_code, not {unsupported}")
     except Exception as e:
-        if explicit_effort:
+        if explicit_effort or isinstance(e, agent_config.BotAuthModeError):
             _abort_unlaunched(chat, chat_id, user_id, e)
             raise
         # The fallback config below is synthetic, so it must never be persisted
         # as an accepted re-bot, no matter what later edits raise inside the try.
         rebot = False
+        repooled = False
         fallback_backend = chat.backend or backend or "claude_code"
         logger.exception(
             "Bot resolve failed for chat {} (user_id={} bot_name={} backend={}); "
@@ -691,7 +733,7 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
         pending_ids = [message.id for message in selected_inputs if getattr(message, "id", None)]
         boundary_reliable = all(getattr(message, "id", None) for message in selected_inputs)
         current_limit, _pending_limit = limit_bounds(user_id, chat)
-        if rebot:
+        if rebot or repooled:
             pending_limit = effective_limit(bot_config)
         applicable = current_limit is not None or pending_limit is not None
         measurement = resolve_measurement(
@@ -714,8 +756,8 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
     # more age check after work-dir resolution, and a refusal there must leave
     # the original bot and tier in place. The handoff reads this chat object.
     next_backend = chat.backend or (bot_config.backend or bot_config.api_type)
-    next_bot = bot_config.name if (not chat.bot_name or rebot) else chat.bot_name
-    next_tier = resolved_tier if (not chat.tier or rebot) else chat.tier
+    next_bot = bot_config.name if (not chat.bot_name or rebot or repooled) else chat.bot_name
+    next_tier = resolved_tier if (not chat.tier or rebot or repooled) else chat.tier
     effective_backend = bot_config.backend or bot_config.api_type
     try:
         resolve_reasoning_effort(selected_inputs, effective_backend)

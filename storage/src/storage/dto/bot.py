@@ -27,6 +27,7 @@ class BotConfig:
     tiers: Optional[Dict[str, Optional[float]]] = None
     type: Optional[str] = None
     route_weight: Optional[float] = None
+    subscription_weight: Optional[float] = None
     enabled: bool = True
     ref_bot_name: Optional[str] = None
     effort_levels: Optional[List[str]] = None

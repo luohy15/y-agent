@@ -64,18 +64,36 @@ def served_tier(bot_config: BotConfig, bot_tier: str = None) -> str:
     return next((tier for tier in (bot_tier, "tier2") if tier in tiers), tiers[0])
 
 
-def _pool_weight(config: BotConfig, tier: str = None) -> Optional[float]:
+class BotAuthModeError(ValueError):
+    """The node's auth mode cannot serve the requested bot or pool."""
+
+
+def bot_supports_auth_mode(config: BotConfig, auth_mode: str = "relay") -> bool:
+    if auth_mode in (None, "", "relay"):
+        return True
+    return auth_mode == "subscription" and config.subscription_weight is not None
+
+
+def _pool_weight(config: BotConfig, tier: str = None, auth_mode: str = "relay") -> Optional[float]:
+    if auth_mode == "subscription":
+        return config.subscription_weight
     return tier_weight(config, tier) if tier else config.route_weight
 
 
-def bot_tier_pools(configs: List[BotConfig]) -> dict[str, List[str]]:
+def _pool_candidate_viable(config: BotConfig, pool_size: int, tier: str = None,
+                           auth_mode: str = "relay") -> bool:
+    weight = _pool_weight(config, tier, auth_mode)
+    return (weight is None and pool_size == 1) or (weight is not None and weight > 0)
+
+
+def bot_tier_pools(configs: List[BotConfig], auth_mode: str = "relay") -> dict[str, List[str]]:
     """Return viable draw members without reading or changing routing state."""
     universe = [cfg for cfg in configs if cfg.enabled and not cfg.ref_bot_name]
     pools = {}
     for tier in TIERS:
-        candidates = _candidates(universe, tier=tier)
-        if len(candidates) > 1:
-            candidates = [cfg for cfg in candidates if (_pool_weight(cfg, tier) or 0) > 0]
+        candidates = _candidates(universe, tier=tier, auth_mode=auth_mode)
+        candidates = [cfg for cfg in candidates
+                      if _pool_candidate_viable(cfg, len(candidates), tier, auth_mode)]
         pools[tier] = sorted(cfg.name for cfg in candidates)
     return pools
 
@@ -137,7 +155,7 @@ def _universe(user_id: int) -> List[BotConfig]:
     ]
 
 
-def _candidates(universe: List[BotConfig], bot_name: str = None, backend: str = None, tier: str = None, effort: str = None) -> List[BotConfig]:
+def _candidates(universe: List[BotConfig], bot_name: str = None, backend: str = None, tier: str = None, effort: str = None, auth_mode: str = "relay") -> List[BotConfig]:
     """Intersect the universe with the given filters.
 
     Filters combine with AND, not precedence: bot_name, backend, and tier
@@ -145,7 +163,7 @@ def _candidates(universe: List[BotConfig], bot_name: str = None, backend: str = 
     excludes model-type bots (the inline query bots are pin-only, not pool
     members).
     """
-    result = universe
+    result = [cfg for cfg in universe if bot_supports_auth_mode(cfg, auth_mode)]
     if bot_name:
         result = [cfg for cfg in result if cfg.name == bot_name]
     if backend:
@@ -161,14 +179,14 @@ def _candidates(universe: List[BotConfig], bot_name: str = None, backend: str = 
     return result
 
 
-def _pick_by_weight(bots: List[BotConfig], tier: str = None) -> Optional[BotConfig]:
+def _pick_by_weight(bots: List[BotConfig], tier: str = None, auth_mode: str = "relay") -> Optional[BotConfig]:
     """Weighted random pick from bots by route_weight.
 
     Probability = route_weight / sum(route_weights). Bots with
     route_weight <= 0 are excluded from the draw. Only called with 2+
-    candidates (see _select) so weight never gates a sole candidate.
+    candidates (see _select); an explicit zero also excludes a sole candidate.
     """
-    eligible = [(cfg, weight) for cfg in bots if (weight := _pool_weight(cfg, tier)) and weight > 0]
+    eligible = [(cfg, weight) for cfg in bots if (weight := _pool_weight(cfg, tier, auth_mode)) and weight > 0]
     if not eligible:
         return None
     choices, raw_weights = zip(*eligible, strict=True)
@@ -177,10 +195,10 @@ def _pick_by_weight(bots: List[BotConfig], tier: str = None) -> Optional[BotConf
     return random.choices(choices, weights=weights, k=1)[0]
 
 
-def _select(candidates: List[BotConfig], user_id: int = None, tier: str = None) -> Optional[BotConfig]:
+def _select(candidates: List[BotConfig], user_id: int = None, tier: str = None, auth_mode: str = "relay") -> Optional[BotConfig]:
     """Pick a config from a candidate pool.
 
-    A sole candidate is used directly regardless of its weight; a
+    A sole candidate is used unless its weight is explicitly zero; a
     multi-candidate tier pool uses persisted smooth weighted round-robin;
     other multi-candidate pools draw by weight. Both may come up empty if
     every candidate has zero/unset weight.
@@ -188,17 +206,17 @@ def _select(candidates: List[BotConfig], user_id: int = None, tier: str = None) 
     if not candidates:
         return None
     if len(candidates) == 1:
-        return candidates[0]
+        return candidates[0] if _pool_candidate_viable(candidates[0], 1, tier, auth_mode) else None
     if user_id is not None and tier:
         selected_name = bot_service.select_weighted_round_robin(
             user_id,
             tier,
-            [(cfg.name, weight) for cfg in candidates if (weight := _pool_weight(cfg, tier)) and weight > 0],
+            [(cfg.name, weight) for cfg in candidates if (weight := _pool_weight(cfg, tier, auth_mode)) and weight > 0],
         )
         if selected_name:
             return next(cfg for cfg in candidates if cfg.name == selected_name)
         return None
-    return _pick_by_weight(candidates, tier)
+    return _pick_by_weight(candidates, tier, auth_mode)
 
 
 def _global_default(user_id: int) -> BotConfig:
@@ -213,12 +231,12 @@ def _global_default(user_id: int) -> BotConfig:
 
 
 def _resolve_filters(user_id: int, universe: List[BotConfig], bot_name: str = None,
-                     backend: str = None, tier: str = None, effort: str = None) -> Optional[BotConfig]:
+                     backend: str = None, tier: str = None, effort: str = None, auth_mode: str = "relay") -> Optional[BotConfig]:
     """Intersect the filters over the universe, without the tier2 fallback."""
-    selected = _select(
-        _candidates(universe, bot_name=bot_name, backend=backend, tier=tier, effort=effort),
-        user_id=user_id if tier else None,
-        tier=tier,
+    candidates = _candidates(universe, bot_name=bot_name, backend=backend, tier=tier,
+                             effort=effort, auth_mode=auth_mode)
+    selected = candidates[0] if bot_name and len(candidates) == 1 else _select(
+        candidates, user_id=user_id if tier else None, tier=tier, auth_mode=auth_mode,
     )
     if not selected and bot_name and not backend and not tier:
         # Explicit name pins keep pointer-deref semantics even though
@@ -227,6 +245,12 @@ def _resolve_filters(user_id: int, universe: List[BotConfig], bot_name: str = No
         pinned = bot_service.get_config(user_id, bot_name)
         if pinned and pinned.ref_bot_name and pinned.enabled:
             selected = _deref_bot_config(user_id, pinned)
+    if bot_name and auth_mode == "subscription":
+        pinned = selected or _resolve_filters(user_id, universe, bot_name)
+        if pinned is None:
+            raise BotAuthModeError(f"bot {bot_name!r} is not a runnable named bot")
+        if not bot_supports_auth_mode(pinned, auth_mode):
+            raise BotAuthModeError(f"bot {bot_name!r} is not eligible for subscription auth")
     return selected
 
 
@@ -247,7 +271,7 @@ def _resolve_named(user_id: int, bot_name: str, backend: str = None, tier: str =
     return None
 
 
-def resolve_pinned_bot_config(user_id: int, bot_name: str, tier: str = None) -> Optional[BotConfig]:
+def resolve_pinned_bot_config(user_id: int, bot_name: str, tier: str = None, auth_mode: str = "relay") -> Optional[BotConfig]:
     """Resolve an explicit bot-name pin, or None when the pin does not resolve.
 
     Same candidate rules as resolve_bot_config for a name pin (pointer deref
@@ -258,7 +282,7 @@ def resolve_pinned_bot_config(user_id: int, bot_name: str, tier: str = None) -> 
     erases that difference so a dispatch always gets a bot. Raises on a broken
     ref chain, like resolve_bot_config.
     """
-    return _resolve_filters(user_id, _universe(user_id), bot_name, tier=tier)
+    return _resolve_filters(user_id, _universe(user_id), bot_name, tier=tier, auth_mode=auth_mode)
 
 
 def _require_declared(selected: Optional[BotConfig], effort: str, bot_name: str) -> None:
@@ -267,7 +291,7 @@ def _require_declared(selected: Optional[BotConfig], effort: str, bot_name: str)
         raise EffortCapabilityError(effort, bot_name)
 
 
-def resolve_bot_config(user_id: int, bot_name: str = None, backend: str = None, tier: str = None, effort: str = None) -> BotConfig:
+def resolve_bot_config(user_id: int, bot_name: str = None, backend: str = None, tier: str = None, effort: str = None, auth_mode: str = "relay") -> BotConfig:
     """Resolve a dispatch request to a bot config.
 
     Unified filter resolution (no precedence chain): bot_name / backend /
@@ -289,7 +313,7 @@ def resolve_bot_config(user_id: int, bot_name: str = None, backend: str = None, 
         # effort would hide the pin and look like "no such bot".
         selected = _resolve_filters(
             user_id, universe, bot_name, backend, tier,
-            effort=None if bot_name else effort,
+            effort=None if bot_name else effort, auth_mode=auth_mode,
         )
         if bot_name and effort:
             _require_declared(selected, effort, bot_name)
@@ -303,16 +327,20 @@ def resolve_bot_config(user_id: int, bot_name: str = None, backend: str = None, 
         )
     elif effort:
         selected = _select(
-            _candidates(universe, tier="tier2", effort=effort),
-            user_id=user_id, tier="tier2",
+            _candidates(universe, tier="tier2", effort=effort, auth_mode=auth_mode),
+            user_id=user_id, tier="tier2", auth_mode=auth_mode,
         )
         if not selected:
             raise EffortCapabilityError(effort)
         return selected
 
-    tier2 = _select(_candidates(universe, tier="tier2"), user_id=user_id, tier="tier2")
+    tier2 = _select(_candidates(universe, tier="tier2", auth_mode=auth_mode),
+                    user_id=user_id, tier="tier2", auth_mode=auth_mode)
     if tier2:
         return tier2
+
+    if auth_mode not in (None, "", "relay"):
+        raise BotAuthModeError(f"no runnable bot in {auth_mode!r} tier2 pool")
 
     logger.warning("Empty tier2 pool for user_id=%s; falling back to default bot", user_id)
     return _global_default(user_id)
@@ -323,8 +351,8 @@ def preflight_launch_effort(user_id: int, effort: str = None, *, chat=None, bot_
 
     Same decision as the worker gate: a re-bot target, a sticky or pinned bot,
     or the filtered pool. None returns before any bot read. A pool is admissible
-    only when the filtered candidates are non-empty and either exactly one or
-    any has a positive route weight. Never calls select_weighted_round_robin.
+    only when the filtered candidates have a viable weight: positive, or unset
+    for a sole candidate. An explicit zero is never an automatic draw. Never calls select_weighted_round_robin.
     """
     if effort is None:
         return
@@ -365,9 +393,7 @@ def preflight_launch_effort(user_id: int, effort: str = None, *, chat=None, bot_
     pool_backend = chat_backend or backend
     pool_tier = bot_tier if (bot_tier or pool_backend) else "tier2"
     candidates = _candidates(_universe(user_id), backend=pool_backend, tier=pool_tier, effort=effort)
-    viable = bool(candidates) and (
-        len(candidates) == 1 or any((_pool_weight(cfg, pool_tier) or 0) > 0 for cfg in candidates)
-    )
+    viable = any(_pool_candidate_viable(cfg, len(candidates), pool_tier) for cfg in candidates)
     if not viable:
         raise EffortCapabilityError(effort)
 

@@ -1,5 +1,6 @@
 """Bot configuration service."""
 
+import math
 from typing import List, Optional
 from storage.entity.dto import BotConfig
 from storage.repository import bot_config as bot_repo
@@ -44,6 +45,15 @@ def set_effort_capability(user_id: int, name: str, levels: Optional[List[str]], 
         levels = list(dict.fromkeys(levels))
         evidence = evidence.strip()
     return bot_repo.set_effort_capability(user_id, name, levels, evidence)
+
+
+def set_subscription_weight(user_id: int, name: str, weight: Optional[float]) -> bool:
+    if weight is not None and (
+        isinstance(weight, bool) or not isinstance(weight, (int, float))
+        or weight < 0 or not math.isfinite(weight)
+    ):
+        raise ValueError("subscription weight must be a finite nonnegative number or null")
+    return bot_repo.set_subscription_weight(user_id, name, weight)
 
 
 def delete_config(user_id: int, name: str) -> bool:
