@@ -376,6 +376,7 @@ The repo no longer contains an in-process agent loop — the worker shells out.
 By category (all entities get a Repository in `repository/` and a Service in `service/`;
 exceptions noted):
 
+- **Skill sharing (todo 4232)**: `skill_bundle` / `skill_pin`, owner-authenticated `/api/skill/{publish,list,unshare}` and `y skill publish|list|unshare`; verified private bundles override pinned relay-node skills through a per-launch `CLAUDE_CONFIG_DIR` overlay without editing local skills. Dependencies fail closed; unshare restores local discovery next launch. See `docs/skill-sharing.md`.
 - **Identity / chat**: `user`, `chat`
 - **Tasks / time**: `todo` (coordinator claim columns `leader_chat` / `leader_claimed_at` / `leader_state`, todo 4080), `calendar_event`, `reminder`, `chat_wakeup` (todo 3655),
   `trace_runtime_snapshot` (worker-written per-owner runtime evidence, todo 4070)

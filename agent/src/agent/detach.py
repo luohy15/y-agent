@@ -102,6 +102,7 @@ class DetachBackendSpec:
     setup: Optional[Callable[[object, str, str, Optional[List[str]]], None]] = None
     upload_images: bool = True
     cleanup: Optional[Callable[[], str]] = None
+    launch_env: Optional[Callable[[], Dict[str, str]]] = None
 
 
 def _upload_images(client, chat_id: str, images: Optional[List[str]]) -> Optional[List[str]]:
@@ -260,12 +261,13 @@ async def _start_detached_tmux(
 
         # 1. Stale cleanup
         from agent.mcp.staging import cleanup_command
+        from agent.skills_share import cleanup_command as skill_cleanup_command
         _ssh_exec(
             client,
             f"{_tmux_kill_cmd(chat_id, node=node)}; "
             f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit /tmp/cc-{chat_id}.killed /tmp/cc-{chat_id}.claude-ec 2>/dev/null; "
             f"rm -rf /tmp/cc-{chat_id}-images 2>/dev/null; "
-            + cleanup_command(chat_id),
+            + cleanup_command(chat_id) + '; ' + skill_cleanup_command(chat_id),
         )
         # Host-wide guard: wrappers whose tmux session is gone but whose
         # process tree survived (todo 3819). Never fails the launch.
@@ -282,7 +284,14 @@ async def _start_detached_tmux(
 
         # 2. Per-backend setup (e.g. write SFTP stdin file for claude)
         if spec.setup:
-            spec.setup(client, chat_id, prompt, exec_images)
+            try:
+                spec.setup(client, chat_id, prompt, exec_images)
+            except Exception:
+                if spec.cleanup:
+                    _ssh_exec(client, spec.cleanup())
+                raise
+        if spec.launch_env:
+            env = {**(env or {}), **spec.launch_env()}
 
         if cwd:
             cwd_exists = _ssh_exec(client, f"test -d {_shell_quote(cwd)} && echo ok || echo missing").strip() == "ok"
