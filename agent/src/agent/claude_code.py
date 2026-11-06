@@ -809,7 +809,7 @@ def _kill_and_verify_cmd(chat_id: str, node=None) -> str:
     return (
         f"touch /tmp/cc-{chat_id}.killed && {_tmux_kill_cmd(chat_id, node=node)}; "
         f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null; "
-        + cleanup_command(chat_id) + '; ' + skill_cleanup_command(chat_id)
+        + cleanup_command(chat_id) + '; ' + skill_cleanup_command(chat_id, getattr(node, 'name', None))
         + f"; {_tmux_alive_cmd(chat_id, node=node)} && echo alive || echo gone"
     )
 
@@ -1048,7 +1048,7 @@ def _claude_spec(input_uuid: Optional[str] = None, mcp_material=None, skill_mate
         nonlocal skill_root
         if skill_material:
             from agent.skills_share import stage_remote
-            skill_root = stage_remote(client, chat_id, skill_material['pins'], skill_material['fetch'])
+            skill_root = stage_remote(client, chat_id, skill_material['pins'], skill_material['fetch'], skill_material['node'])
         _claude_write_stdin(client, chat_id, prompt, images, input_uuid=input_uuid)
         if mcp_material is not None:
             from agent.mcp.staging import stage_remote
@@ -1069,8 +1069,11 @@ def _claude_spec(input_uuid: Optional[str] = None, mcp_material=None, skill_mate
 
     def cleanup():
         root = mcp_material.remote_dir if mcp_material else None
-        roots = [path for path in (root, skill_root) if path]
-        return 'rm -rf -- ' + ' '.join(_shell_quote(path) for path in roots) if roots else ':'
+        command = f'rm -rf -- {_shell_quote(root)}' if root else ':'
+        if skill_material:
+            from agent.skills_share import cleanup_command
+            command += '; ' + cleanup_command(skill_material['chat_id'], skill_material['node'])
+        return command
 
     return DetachBackendSpec(
         setup=setup,

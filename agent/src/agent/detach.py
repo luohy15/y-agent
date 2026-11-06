@@ -267,8 +267,13 @@ async def _start_detached_tmux(
             f"{_tmux_kill_cmd(chat_id, node=node)}; "
             f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit /tmp/cc-{chat_id}.killed /tmp/cc-{chat_id}.claude-ec 2>/dev/null; "
             f"rm -rf /tmp/cc-{chat_id}-images 2>/dev/null; "
-            + cleanup_command(chat_id) + '; ' + skill_cleanup_command(chat_id),
+            + cleanup_command(chat_id) + '; ' + skill_cleanup_command(chat_id, node.name),
         )
+        if node.name != 'macmini':
+            from agent.skills_share import sweep_command
+            _ssh_exec(client, sweep_command(
+                node.name, os.environ.get('Y_AGENT_SKILL_OVERLAY_TTL_DAYS', '7'),
+                getattr(node, 'tmux_binary', None) or 'tmux'))
         # Host-wide guard: wrappers whose tmux session is gone but whose
         # process tree survived (todo 3819). Never fails the launch.
         # The reaper reads /proc, so it does not run on macOS.

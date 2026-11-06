@@ -1010,10 +1010,11 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
     launch_uuid = native_input_uuid(chat_id, f"launch:{chat.run_seq}:{input_ids[-1] if input_ids else 'none'}")
     from agent.mcp import launch as mcp_launch
     from storage.service import skill_share
-    pins = await asyncio.to_thread(skill_share.list_pins, user_id, node.name)
+    pins = await asyncio.to_thread(skill_share.list_installs, user_id, node.name)
     if pins and ((node.auth_mode or 'relay') != 'relay' or node.name == 'macmini'):
         raise RuntimeError('skill_share_node_not_relay')
-    skill_material = {'pins': pins, 'fetch': lambda pin: skill_share.read_bundle(user_id, pin)} if pins else None
+    skill_material = {'pins': pins, 'node': node.name, 'chat_id': chat_id,
+                      'fetch': lambda pin: skill_share.read_bundle(user_id, pin)} if pins else None
     mcp_material = await asyncio.to_thread(mcp_launch.prepare, user_id, chat_id, chat.run_seq)
     try:
         session_id = await start_detached_ssh(

@@ -1,11 +1,13 @@
-"""Owner-scoped pins and private immutable skill bundle storage."""
+"""Owner-scoped skill versions and private immutable bundle storage."""
 import os
 from pathlib import Path
 from urllib.parse import quote
 
 from storage.repository import skill_share as repo
 from storage.service import user, vm_config
-from storage.skill_bundle import MAX_BYTES, validate_bundle, validate_name
+from storage.skill_bundle import MAX_BYTES, validate_bundle, validate_name, version_key
+from storage.project_key import normalize_project_key
+import re
 
 
 def _key(user_id, name, digest):
@@ -34,14 +36,12 @@ def _s3():
     return client, bucket
 
 
-def publish(user_id, name, data, manifest, bundle_sha, nodes, version=None):
+def publish(user_id, name, data, manifest, bundle_sha, version, source_commit, source_repo):
     validate_bundle(name, data, manifest, bundle_sha)
-    if not nodes or len(nodes) > 64 or len(set(nodes)) != len(nodes):
-        raise ValueError('select at least one distinct node')
-    for node in nodes:
-        config = vm_config.get_config(user_id, node)
-        if node == 'macmini' or not config or not config.enabled or (config.auth_mode or 'relay') != 'relay':
-            raise ValueError(f'skill node unavailable or not relay: {node}')
+    version_key(version)
+    if not re.fullmatch(r'[0-9a-f]{40}', source_commit):
+        raise ValueError('skill_invalid_source_commit')
+    source_repo = normalize_project_key(source_repo)
     key = _key(user_id, name, bundle_sha)
     if os.environ.get('Y_AGENT_S3_BUCKET'):
         client, bucket = _s3()
@@ -55,8 +55,7 @@ def publish(user_id, name, data, manifest, bundle_sha, nodes, version=None):
                 stream.write(data)
         except FileExistsError:
             validate_bundle(name, path.read_bytes(), manifest, bundle_sha)
-    repo.publish(user_id, name, bundle_sha, manifest, version, nodes)
-    return {'name': name, 'bundle_sha': bundle_sha, 'nodes': nodes, 'version': version}
+    return repo.publish(user_id, name, bundle_sha, manifest, version, source_commit, source_repo)
 
 
 def read_bundle(user_id, pin):
@@ -74,11 +73,35 @@ def read_bundle(user_id, pin):
     return validate_bundle(pin['name'], data, pin['manifest'], pin['bundle_sha'])
 
 
-def list_pins(user_id, node=None):
-    return repo.list_pins(user_id, node)
+def list_skills(user_id):
+    return repo.list_skills(user_id)
 
 
-def unshare(user_id, name):
+def show(user_id, name, version=None):
     validate_name(name)
-    repo.unshare(user_id, name)
-    return {'ok': True, 'name': name}
+    if version is not None:
+        version_key(version)
+    return repo.show(user_id, name, version)
+
+
+def list_installs(user_id, node=None):
+    return repo.list_installs(user_id, node)
+
+
+def change_install(user_id, name, node, operation, version=None):
+    validate_name(name)
+    vm_config.validate_node_name(node)
+    if operation not in ('install', 'upgrade', 'rollback', 'uninstall'):
+        raise ValueError('skill_invalid_operation')
+    if version is not None:
+        version_key(version)
+    if operation == 'install' and version is None:
+        raise ValueError('skill_exact_version_required')
+    if operation in ('rollback', 'uninstall') and version is not None:
+        raise ValueError('skill_version_not_allowed')
+
+    def validate_node():
+        config = vm_config.get_config(user_id, node)
+        if node == 'macmini' or not config or not config.enabled or (config.auth_mode or 'relay') != 'relay':
+            raise ValueError('skill_node_not_relay_or_unavailable')
+    return repo.change_install(user_id, name, node, operation, version, validate_node)

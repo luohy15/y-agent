@@ -1,74 +1,89 @@
-# Private skill sharing
+# Private skill registry
 
-`y skill` publishes one selected directory from `~/.agents/skills/<name>` through
-an authenticated API. It does not synchronize a config tree or expose anonymous
-bundle downloads.
+Publish committed source, then install an exact immutable version on a relay node:
 
 ```bash
-y skill publish note --node mac --version 3.2
+y skill publish note@3.2.0 --source /Users/roy/luohy15/.agents --sha HEAD
 y skill list
-y skill unshare note
+y skill show note
+y skill install note@3.2.0 --node mac
+y skill status --node mac
+y skill upgrade note --node mac
+y skill rollback note --node mac
+y skill uninstall note --node mac
 ```
 
-`--node` is required and repeatable. Publishing replaces the skill's complete
-node set. Nodes must exist, be enabled and use relay authentication. `macmini`
-and subscription authentication are excluded. Unshare removes all pins for that
-skill; it does not delete historical bundles or node caches. Running sessions
-keep their launch snapshot; the next launch uses the updated pins.
+Versions are canonical `MAJOR.MINOR.PATCH`, not front-matter labels. No ranges,
+prereleases or build metadata. The latest pointer follows numeric semver order.
+Republishing identical content at an existing version is a no-op; changing its
+content is a conflict. Publish does not install. Install requires an exact version
+and refuses to replace a different installed version; upgrade selects latest or
+an explicit version; rollback swaps current and previous versions.
 
-## Bundle contract
+## Source and storage
 
-Bundles contain regular files only, including `SKILL.md`. Names are lowercase
-letters/digits/hyphens (64 characters maximum). Symlinks, hidden path components,
-absolute member paths, traversal and special files are rejected. Limits are 256
-files and 4,000,000 bytes both compressed and expanded. The canonical manifest
-includes sorted paths, SHA-256 hashes, executable flags and dependencies; its
-SHA-256 is the bundle identity. A version is only a display label.
+The CLI resolves `--sha` (default HEAD) in `--source` (default the path above),
+reads `skills/<name>/` with `git ls-tree` and `git cat-file`, and records the full
+source commit and normalized origin repository. Dirty worktree bytes are not
+published. Symlinks, gitlinks, hidden files, traversal and special files are
+rejected. Bundles require `SKILL.md`, allow at most 256 files and 4,000,000 bytes
+compressed or expanded. Canonical manifests include hashes, executable bits and
+dependencies. The API verifies bundle identity and exposes no anonymous download.
 
-The CLI scans text files for `../<skill>/` references and concrete
-`/Users/roy/...` references. Referenced skills must also be pinned on the target.
-Absolute references must be concrete files readable by the publisher; their
-hashes are checked in place on the target, never copied or rewritten. Templated
-or directory absolute references need to be removed or made concrete before
-publishing. The API recomputes hashes and checks that detected references match
-the manifest. This scan is conservative, not a parser for arbitrary programs or
-an assurance that a skill has no dynamically constructed dependencies.
+Private bytes use `skill/<public_user_id>/<name>/<bundle_sha>.zip` in the existing
+S3 bucket (all four public-access blocks required). Without S3,
+`Y_AGENT_SKILL_BUNDLE_DIR` selects a shared API/worker filesystem store, default
+`~/.y-agent/skill-bundles`. Registry metadata lives in `skill`, `skill_version`,
+and `skill_install`, isolated by owner.
 
-## Launch and restore
+The static scan detects sibling skill references and concrete `/Users/roy/`
+file references. Required skills must be installed on the node at installation
+and launch. Absolute files are hashed and verified in place, never transferred.
+Dynamic references and cross-skill version compatibility are not inferred.
 
-The worker reads owner-scoped pins and stages over the node's existing SSH
-connection, with no API credential sent to the node. Verified cache generations
-live below `~/.y-agent/skill-cache/<bundle_sha>/`. A corrupt cache is refetched
-into a new generation rather than overwritten under a concurrent session.
+## Shared node generations
 
-If every pinned local tree already matches, no overlay is needed. Otherwise a
-private `/tmp/y-skill-<chat-hash>-<random>/` config directory links existing
-settings, projects, plugins and non-pinned skills; pinned skill directories are
-materialized from verified cache bytes. `CLAUDE_CONFIG_DIR` applies only to that
-launch. Exit, explicit stop and the next launch clean the chat's overlay, not
-the cache or original skill files. A hard host crash can leave an overlay until
-the next launch of the same chat.
+Launches snapshot installs and use the existing SSH connection, never node-side
+API credentials. If all installed local trees match, no overlay is needed.
+Otherwise `CLAUDE_CONFIG_DIR` points to
+`~/.y-agent/skill-overlay/<node>/<digest>/`. Installed skills are materialized;
+other local skills and config entries are symlinked. The digest covers installed
+bundle identities and local config/skill entry names, not uninstalled file bodies
+(which remain live through their symlinks).
 
-Missing dependencies, unavailable storage without verified cache, corrupt
-bundles and non-relay pins fail closed with `skill_*` errors. Restore by
-`y skill unshare <name>` and launch again. Nothing edits the original skills.
+Complete generations are atomically renamed from `.tmp/`; concurrent publication
+must reuse a verified winner. Corrupt final directories are retained while a unique
+sibling holds repaired content. Verified cache generations persist separately in
+`~/.y-agent/skill-cache/<bundle_sha>/`.
 
-## Deployment prerequisites and verification
+Launch references live under `.refs/<generation>/<chat_hash>`. Session exit,
+explicit stop and next launch remove only that chat's references, not shared
+bytes. An opportunistic sweep runs at each launch, including zero installs. It
+removes temporary builds older than one day and unused generations older than
+`Y_AGENT_SKILL_OVERLAY_TTL_DAYS` (default 7). Unknown process or tmux state retains
+data. No timer is created. Uninstall is DB-only: new launches immediately use
+local discovery, running sessions keep their generation, and stale generations
+wait for a later launch sweep. Cache pruning is out of scope.
 
-Apply the additive `migration/4232_skill_share.sql` before deploying the API and
-worker. There are no automatic migrations. Bundles use the existing private S3
-bucket under `skill/<public_user_id>/<name>/<sha>.zip`; all four S3 public-access
-blocks must be enabled. Without S3, `Y_AGENT_SKILL_BUNDLE_DIR` selects a shared
-private local store (default `~/.y-agent/skill-bundles`); API and worker must see
-the same store. The CLI and worker must be upgraded with the API.
+Only owner-bound enabled relay nodes accept install/upgrade/rollback. `macmini`
+and subscription nodes are excluded. Uninstall/status remain available when a
+node is disabled. Dependency/store/verification failures close the launch rather
+than silently selecting stale local skills.
 
-After successful deployment, record the mac local `note/SKILL.md` hash and skill
-count, publish `note` to `mac`, then launch a mac chat that loads `note` and prints
-its loaded path and version. Expect version 3.2 and `## Tags` under the overlay;
-load a non-pinned skill too. Recheck original hashes/counts. Unshare and launch a
-new mac chat: expect its original local version/path. A default-node chat must
-remain overlay-free. This live proof is separate from local deterministic tests.
+## Deployment and mac acceptance
 
-The existing `y chat --skill` caller-local name preflight remains unchanged:
-use a publishing machine with that skill installed, or request loading it in the
-message when dispatching from a machine without that local name.
+Apply the additive `migration/4232_skill_share.sql` before API/worker deployment;
+upgrade the CLI with them. There are no automatic migrations. Verify schema and
+existing Lambda S3 permissions before publication. Wait for successful deployment
+before testing live behavior.
+
+On mac only, record the original note hash and skill count. Publish `note@3.1.0`
+and `note@3.2.0` from the appropriate commits. Install 3.1.0 then upgrade to 3.2.0
+(to establish rollback history). Two chats must load the same digest directory,
+with unchanged directory mtime, and the shared 3.2 body including `## Tags`.
+A non-installed skill must still load; original hashes/counts must remain unchanged.
+Rollback restores 3.1, upgrade selects 3.2, uninstall restores local discovery.
+Backdate an unused generation and verify a later launch sweeps it. Default-node
+launches without installs remain overlay-free. Never test macmini.
+
+The caller-local `y chat --skill` name preflight remains unchanged.

@@ -13,6 +13,15 @@ NAME = re.compile(r'[a-z0-9][a-z0-9-]{0,63}\Z')
 SHA = re.compile(r'[0-9a-f]{64}\Z')
 
 
+VERSION = re.compile(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z')
+
+
+def version_key(version):
+    if not isinstance(version, str) or len(version) > 64 or not VERSION.fullmatch(version):
+        raise ValueError('skill_invalid_version')
+    return tuple(int(part) for part in version.split('.'))
+
+
 def validate_name(name):
     if not isinstance(name, str) or not NAME.fullmatch(name):
         raise ValueError('invalid skill name')

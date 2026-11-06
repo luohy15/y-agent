@@ -2,26 +2,40 @@ from sqlalchemy import Column, ForeignKey, ForeignKeyConstraint, Integer, JSON, 
 from storage.entity.base import Base, BaseEntity
 
 
-class SkillBundleEntity(Base, BaseEntity):
-    __tablename__ = 'skill_bundle'
+class SkillEntity(Base, BaseEntity):
+    __tablename__ = 'skill'
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey('user.id', ondelete='CASCADE'), nullable=False)
     name = Column(String, nullable=False)
+    latest_version = Column(String, nullable=False)
+    __table_args__ = (UniqueConstraint('user_id', 'name'),)
+
+
+class SkillVersionEntity(Base, BaseEntity):
+    __tablename__ = 'skill_version'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('user.id', ondelete='CASCADE'), nullable=False)
+    name = Column(String, nullable=False)
+    version = Column(String, nullable=False)
     bundle_sha = Column(String, nullable=False)
     manifest = Column(JSON, nullable=False)
-    version = Column(String, nullable=True)
-    __table_args__ = (UniqueConstraint('user_id', 'name', 'bundle_sha'),)
+    source_commit = Column(String, nullable=False)
+    source_repo = Column(String, nullable=False)
+    __table_args__ = (UniqueConstraint('user_id', 'name', 'version'),)
 
 
-class SkillPinEntity(Base, BaseEntity):
-    __tablename__ = 'skill_pin'
+class SkillInstallEntity(Base, BaseEntity):
+    __tablename__ = 'skill_install'
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey('user.id', ondelete='CASCADE'), nullable=False)
     name = Column(String, nullable=False)
     node = Column(String, nullable=False)
-    bundle_sha = Column(String, nullable=False)
+    version = Column(String, nullable=False)
+    previous_version = Column(String, nullable=True)
     __table_args__ = (
         UniqueConstraint('user_id', 'name', 'node'),
-        ForeignKeyConstraint(['user_id', 'name', 'bundle_sha'],
-                             ['skill_bundle.user_id', 'skill_bundle.name', 'skill_bundle.bundle_sha']),
+        ForeignKeyConstraint(['user_id', 'name', 'version'],
+                             ['skill_version.user_id', 'skill_version.name', 'skill_version.version']),
+        ForeignKeyConstraint(['user_id', 'name', 'previous_version'],
+                             ['skill_version.user_id', 'skill_version.name', 'skill_version.version']),
     )
