@@ -21,11 +21,14 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Execution nodes (4204)**: `y node list|add|show|enable|disable` manages owner-scoped `vm_config` nodes. `y chat --on <name>` starts a chat on a registered node through the existing EC2 SSH anchor, keeping the same chat interface and a sticky target. Generic file/git/terminal commands remain on the default node.
 - **Code block copy (4198)**: every non-artifact fenced code block has a Copy button in its upper-right corner, copying the raw parsed code. It shows on hover and focus and stays visible on touch pointers.
 - **Publish schema preflight (4218)**: `y dev commit` runs `scripts/preflight-publish` from the worktree before pushing, and a non-zero exit refuses the push. This repository's wrapper runs `scripts/schema_check.py`, which compares ORM columns against the production catalog. Repositories without the file are unaffected.
+- **Skill sharing (4232)**: `y skill publish|list|show|status|install|upgrade|rollback|uninstall` publishes a committed `skills/` tree as an immutable semver version and installs it per execution node. Nodes share one content-addressed `CLAUDE_CONFIG_DIR` generation, and a per-launch overlay lets a published skill win over a same-named stale local skill without rewriting the originals.
+- **Per-node Claude auth mode**: `vm_config.auth_mode` chooses how a node authenticates. `relay` injects the bot relay environment, while `subscription` strips `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY` and the assume-first-party flag so the node uses its own Claude login. `y node add|list|show` expose the field.
 
 ### Changed
 
 - **Same-phase chat worker (4159)**: a role-free dispatch carrying a trace, work directory and a `<phase> phase` token now delivers into the existing same-phase worker rather than creating a second chat. `--new` (or the hidden `--fresh` alias) forces a new chat.
 - **`y todo hold` (4207)**: `y todo hold` is the canonical command for declaring a bounded machine wait on an active todo. `y todo wait` remains a hidden alias with identical behavior.
+- **Auth-mode-aware bot pools**: a subscription execution node draws only bots with a `subscription_weight`, and `bot_config.subscription_tiers` sets a per-tier weight map shaped like relay tiers. A zero-weight bot is never drawn automatically, even as the sole candidate, while an explicit pin still selects it. `sub_ref_bot_name` lets a pointer bot resolve its relay target on relay nodes and its subscription target on subscription nodes; an unset value falls back to the tier2 subscription pool and a dangling target fails closed.
 
 ### Fixed
 
@@ -35,6 +38,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **ToolSearch allowlist (4197)**: `ToolSearch` stays in the fixed Claude Code tool allowlist, so OpenRouter-backed relay models no longer receive a deferred tool placeholder that fails with HTTP 400.
 - **Restored tab labels (4201)**: a restored `ui:` tab uses the cached module label while the enabled-module list is still resolving, instead of falling back to the slug.
 - **Restored Food tabs (4203)**: open, active and preview tabs pointing at `ui:eat` migrate to `ui:food` once Food is enabled. A module list that only has `eat` is left unchanged.
+- **Pruned session restore (4226)**: resuming a pruned session now looks it up by id under `lifelog/sessions/claude-code/projects` and keeps the archived project directory name, instead of reading the removed `assets/claude-code` path. Jump nodes stay a no-op.
 
 ### Removed
 
