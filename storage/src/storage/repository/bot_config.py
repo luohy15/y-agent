@@ -28,6 +28,7 @@ def _entity_to_dto(entity: BotConfigEntity) -> BotConfig:
         subscription_tiers=subscription_tiers_of(entity),
         enabled=entity.enabled if entity.enabled is not None else True,
         ref_bot_name=entity.ref_bot_name,
+        sub_ref_bot_name=entity.sub_ref_bot_name,
         effort_levels=entity.effort_levels,
         effort_evidence=entity.effort_evidence,
         effort_binding=entity.effort_binding,
@@ -106,6 +107,18 @@ def set_effort_capability(user_id: int, name: str, levels: Optional[List[str]], 
         return True
 
 
+def set_sub_ref(user_id: int, name: str, target: Optional[str]) -> bool:
+    """Update only `sub_ref_bot_name`. Never inserts. Returns False when absent."""
+    with get_db() as session:
+        entity = (session.query(BotConfigEntity).filter_by(user_id=user_id, name=name)
+                  .with_for_update().first())
+        if entity is None:
+            return False
+        entity.sub_ref_bot_name = target
+        session.flush()
+        return True
+
+
 def set_subscription_tiers(user_id: int, name: str, tiers: Optional[dict[str, Optional[float]]]) -> bool:
     with get_db() as session:
         entity = (session.query(BotConfigEntity).filter_by(user_id=user_id, name=name)
@@ -140,8 +153,8 @@ def delete_config(user_id: int, name: str) -> bool:
 
 def rename_config(user_id: int, old_name: str, new_name: str) -> bool:
     """Rename a bot config's name, cascading to other bot_config rows that
-    point at it via `ref_bot_name`. Does not touch `chat.bot_name` (see
-    `storage.repository.chat.rename_bot_name` for that cascade).
+    point at it via `ref_bot_name` or `sub_ref_bot_name`. Does not touch
+    `chat.bot_name` (see `storage.repository.chat.rename_bot_name`).
 
     Returns False if `old_name` doesn't exist, `new_name` is already taken,
     or `old_name` is the magic "default" bot name.
@@ -158,6 +171,9 @@ def rename_config(user_id: int, old_name: str, new_name: str) -> bool:
         entity.name = new_name
         session.query(BotConfigEntity).filter_by(user_id=user_id, ref_bot_name=old_name).update(
             {"ref_bot_name": new_name}
+        )
+        session.query(BotConfigEntity).filter_by(user_id=user_id, sub_ref_bot_name=old_name).update(
+            {"sub_ref_bot_name": new_name}
         )
         session.flush()
         return True

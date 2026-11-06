@@ -46,6 +46,35 @@ def set_effort_capability(user_id: int, name: str, levels: Optional[List[str]], 
     return bot_repo.set_effort_capability(user_id, name, levels, evidence)
 
 
+def set_sub_ref(user_id: int, name: str, target: Optional[str]) -> bool:
+    """Set or clear a pointer's subscription target.
+
+    The row must already be a pointer. A target must exist for the same owner,
+    be enabled, not itself be a pointer, and carry a nonempty subscription map.
+    None clears the column. Full upserts never write it.
+    """
+    from storage.dto.bot import subscription_tiers_of
+
+    pointer = bot_repo.get_config(user_id, name)
+    if pointer is None:
+        return False
+    if not pointer.ref_bot_name:
+        raise ValueError(f"bot {name!r} is not a pointer")
+    if target is not None:
+        if target == name:
+            raise ValueError(f"bot {name!r} cannot reference itself")
+        dest = bot_repo.get_config(user_id, target)
+        if dest is None:
+            raise ValueError(f"subscription ref target {target!r} not found")
+        if not dest.enabled:
+            raise ValueError(f"subscription ref target {target!r} is disabled")
+        if dest.ref_bot_name:
+            raise ValueError(f"subscription ref target {target!r} is a pointer")
+        if not subscription_tiers_of(dest):
+            raise ValueError(f"subscription ref target {target!r} has no subscription tiers")
+    return bot_repo.set_sub_ref(user_id, name, target)
+
+
 def set_subscription_tiers(user_id: int, name: str, tiers: Optional[dict[str, Optional[float]]]) -> bool:
     from storage.dto.bot import normalize_tier_weights
 
@@ -61,9 +90,10 @@ def delete_config(user_id: int, name: str) -> bool:
 
 
 def rename_config(user_id: int, old_name: str, new_name: str) -> bool:
-    """Rename a bot config, cascading to `bot_config.ref_bot_name` pointers
-    and `chat.bot_name`. See `bot_config_repo.rename_config` for the
-    validation rules (existence, name collision, "default" guard)."""
+    """Rename a bot config, cascading to `bot_config.ref_bot_name` and
+    `sub_ref_bot_name` pointers and `chat.bot_name`. See
+    `bot_config_repo.rename_config` for the validation rules (existence,
+    name collision, "default" guard)."""
     if not bot_repo.rename_config(user_id, old_name, new_name):
         return False
     chat_repo.rename_bot_name(user_id, old_name, new_name)

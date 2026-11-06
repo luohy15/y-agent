@@ -190,6 +190,10 @@ the same list policy.
 Modules declare the minimum version they use and an
 older host rejects their bundle. Every later addition to the surface above
 bumps the version and, for modules that need it, `min_backend_version`.
+Todo 4224 bumps 32 to 33: owner-bound `bot_config_set_sub_ref` sets or clears
+a pointer bot's subscription target (`sub_ref_bot_name`). Full upserts omit
+the column. Apply `migration/4224_sub_ref_bot_name.sql` before deploying this
+host; the bot module requires v33 and is published after the host.
 """
 
 from __future__ import annotations
@@ -208,8 +212,8 @@ from storage.project_key import ProjectKeyError as ProjectKeyError, normalize_pr
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-# v30: owner-and-maintainer bound private voice object capabilities (todo 4165).
-BACKEND_CONTRACT_VERSION = 32
+# v33: owner-bound bot_config_set_sub_ref (todo 4224).
+BACKEND_CONTRACT_VERSION = 33
 
 # Wall-clock budget for the wake="nowait" readiness check (todo 3777).
 NOWAIT_BUDGET_SECONDS = 1.0
@@ -520,6 +524,11 @@ def bot_config_set_effort_capability(user_id: int, name: str, levels: Optional[l
 def bot_config_set_subscription_tiers(user_id: int, name: str, tiers: Optional[dict[str, Optional[float]]]) -> bool:
     """Declare subscription tier membership and weights, or clear with None (v32)."""
     return _bot_service(user_id).set_subscription_tiers(user_id, name, tiers)
+
+
+def bot_config_set_sub_ref(user_id: int, name: str, target: Optional[str]) -> bool:
+    """Set or clear a pointer bot's subscription ref. None clears (v33)."""
+    return _bot_service(user_id).set_sub_ref(user_id, name, target)
 
 
 def bot_config_rename(user_id: int, old_name: str, new_name: str) -> bool:

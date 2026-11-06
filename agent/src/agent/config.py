@@ -101,14 +101,16 @@ def bot_tier_pools(configs: List[BotConfig], auth_mode: str = "relay") -> dict[s
     return pools
 
 
-def _deref_bot_config(user_id: int, bot_config: BotConfig, visited: Optional[set] = None, depth: int = 0) -> BotConfig:
+def _deref_bot_config(user_id: int, bot_config: BotConfig, visited: Optional[set] = None, depth: int = 0, auth_mode: str = "relay") -> BotConfig:
     """Recursively dereference a ref bot to its target config.
 
-    If bot_config.ref_bot_name is set, resolve it to the target bot config.
-    Returns the original config if ref_bot_name is not set.
-    Raises ValueError on circular refs or max depth exceeded.
+    Relay follows ref_bot_name. Subscription follows sub_ref_bot_name and
+    fails closed when that target is missing, disabled, a pointer, or not
+    subscription-eligible. Returns the original config when the followed
+    name is unset. Raises ValueError on circular refs or max depth exceeded.
     """
-    if not bot_config.ref_bot_name:
+    ref_name = bot_config.sub_ref_bot_name if auth_mode == "subscription" else bot_config.ref_bot_name
+    if not ref_name:
         return bot_config
 
     if depth >= _MAX_REF_DEPTH:
@@ -117,7 +119,6 @@ def _deref_bot_config(user_id: int, bot_config: BotConfig, visited: Optional[set
         )
 
     visited = visited or set()
-    ref_name = bot_config.ref_bot_name
     if ref_name in visited:
         raise ValueError(
             f"Circular ref detected: {bot_config.name} -> {ref_name} (already visited)"
@@ -130,11 +131,21 @@ def _deref_bot_config(user_id: int, bot_config: BotConfig, visited: Optional[set
         if default_user_id != user_id:
             target = bot_service.get_config(default_user_id, ref_name)
     if not target:
+        if auth_mode == "subscription":
+            raise BotAuthModeError(
+                f"pointer {bot_config.name!r} subscription ref {ref_name!r} is not a runnable subscription bot"
+            )
         raise ValueError(
             f"Ref target bot '{ref_name}' not found (resolving '{bot_config.name}')"
         )
+    if auth_mode == "subscription" and (
+        not target.enabled or target.ref_bot_name or not bot_supports_auth_mode(target, auth_mode)
+    ):
+        raise BotAuthModeError(
+            f"pointer {bot_config.name!r} subscription ref {ref_name!r} is not a runnable subscription bot"
+        )
 
-    return _deref_bot_config(user_id, target, visited, depth + 1)
+    return _deref_bot_config(user_id, target, visited, depth + 1, auth_mode)
 
 
 def _universe(user_id: int) -> List[BotConfig]:
@@ -222,6 +233,21 @@ def _select(candidates: List[BotConfig], user_id: int = None, tier: str = None, 
     return _pick_by_weight(candidates, tier, auth_mode)
 
 
+def _subscription_pointer(user_id: int, universe: List[BotConfig], pinned: BotConfig) -> BotConfig:
+    """Resolve an enabled pointer on a subscription node. Never follows ref_bot_name."""
+    if not pinned.sub_ref_bot_name:
+        selected = _select(
+            _candidates(universe, tier="tier2", auth_mode="subscription"),
+            user_id=user_id, tier="tier2", auth_mode="subscription",
+        )
+        if not selected:
+            raise BotAuthModeError(
+                f"pointer {pinned.name!r} has no subscription ref and no runnable subscription tier2 bot"
+            )
+        return selected
+    return _deref_bot_config(user_id, pinned, auth_mode="subscription")
+
+
 def _global_default(user_id: int) -> BotConfig:
     bot_config = bot_service.get_config(user_id)
     if not bot_config:
@@ -247,7 +273,10 @@ def _resolve_filters(user_id: int, universe: List[BotConfig], bot_name: str = No
         # (story 20 aliasing) should still reach the pointer's target.
         pinned = bot_service.get_config(user_id, bot_name)
         if pinned and pinned.ref_bot_name and pinned.enabled:
-            selected = _deref_bot_config(user_id, pinned)
+            if auth_mode == "subscription":
+                selected = _subscription_pointer(user_id, universe, pinned)
+            else:
+                selected = _deref_bot_config(user_id, pinned)
     if bot_name and auth_mode == "subscription":
         pinned = selected or _resolve_filters(user_id, universe, bot_name)
         if pinned is None:

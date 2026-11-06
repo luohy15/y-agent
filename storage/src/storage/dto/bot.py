@@ -30,6 +30,7 @@ class BotConfig:
     subscription_tiers: Optional[Dict[str, Optional[float]]] = None
     enabled: bool = True
     ref_bot_name: Optional[str] = None
+    sub_ref_bot_name: Optional[str] = None
     effort_levels: Optional[List[str]] = None
     effort_evidence: Optional[str] = None
     effort_binding: Optional[str] = None

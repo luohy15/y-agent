@@ -99,6 +99,7 @@ Chat creation and dispatch use the existing chat endpoints and their optional
 existing chat's target are rejected with 422. Images are rejected on jump nodes.
 Backend contract v32 adds the owner-bound `bot_config_set_subscription_tiers`
 capability and an `auth_mode` argument on the pure `bot_tier_pools` projection.
+Backend contract v33 adds the owner-bound `bot_config_set_sub_ref` capability.
 
 ## Runtime and transport
 
@@ -176,6 +177,26 @@ sonnet. Moving opus out of tier0 requires the Bot module's `--allow-empty-tier`.
 `sonnet[1m]` was verified with the node's subscription login, so no model override
 is needed. The API effort preflight remains on the relay universe; launch checks
 reject a subscription-only effort mismatch.
+
+A pointer bot (`ref_bot_name` set) resolves by the node's auth mode on a pure
+name pin (no backend and no tier filter). Relay follows `ref_bot_name` and
+ignores `sub_ref_bot_name`; depth, cycle, and missing-target errors stay as
+they are. Subscription follows `sub_ref_bot_name` and never follows
+`ref_bot_name`. An unset subscription ref resolves through the subscription
+tier2 pool, the same selection as a dispatch with no bot name. An empty pool
+raises `BotAuthModeError` naming the pointer. A stored target that is missing,
+disabled, itself a pointer, or no longer subscription-eligible raises
+`BotAuthModeError` naming the pointer and the target, with no relay fallback
+and no substitution. `--bot <pointer> --tier <tier>` keeps the previous
+behavior. `bot_config.sub_ref_bot_name` is a nullable varchar with no backfill.
+`bot_config_set_sub_ref` is the only write path: the row must already be a
+pointer, and the target must exist for the same owner, be enabled, not be a
+pointer, and have a nonempty `subscription_tiers`. A self-reference is
+rejected. None clears the column. Full bot upserts omit it, so an older module
+cannot clear or forge it. Renaming a bot cascades to both `ref_bot_name` and
+`sub_ref_bot_name`. Apply `migration/4224_sub_ref_bot_name.sql` before
+deploying host contract v33, then publish the Bot module requiring v33 before
+setting a subscription ref.
 
 Jump-node result `modelUsage` still updates cumulative chat tokens and context
 usage. Subscription launches do not enter relay spend (`model_usage_daily`
