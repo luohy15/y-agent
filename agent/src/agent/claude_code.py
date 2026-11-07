@@ -804,12 +804,11 @@ def _kill_and_verify_cmd(chat_id: str, node=None) -> str:
     """
     from agent.detach import _tmux_alive_cmd, _tmux_kill_cmd
     from agent.mcp.staging import cleanup_command
-    from agent.skills_share import cleanup_command as skill_cleanup_command
 
     return (
         f"touch /tmp/cc-{chat_id}.killed && {_tmux_kill_cmd(chat_id, node=node)}; "
         f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null; "
-        + cleanup_command(chat_id) + '; ' + skill_cleanup_command(chat_id, getattr(node, 'name', None))
+        + cleanup_command(chat_id)
         + f"; {_tmux_alive_cmd(chat_id, node=node)} && echo alive || echo gone"
     )
 
@@ -1039,16 +1038,10 @@ def _claude_parse_initial(obj: Dict) -> Optional[str]:
     return None
 
 
-def _claude_spec(input_uuid: Optional[str] = None, mcp_material=None, skill_material=None) -> "DetachBackendSpec":
+def _claude_spec(input_uuid: Optional[str] = None, mcp_material=None) -> "DetachBackendSpec":
     from agent.detach import DetachBackendSpec
 
-    skill_root = None
-
     def setup(client, chat_id, prompt, images):
-        nonlocal skill_root
-        if skill_material:
-            from agent.skills_share import stage_remote
-            skill_root = stage_remote(client, chat_id, skill_material['pins'], skill_material['fetch'], skill_material['node'])
         _claude_write_stdin(client, chat_id, prompt, images, input_uuid=input_uuid)
         if mcp_material is not None:
             from agent.mcp.staging import stage_remote
@@ -1069,15 +1062,10 @@ def _claude_spec(input_uuid: Optional[str] = None, mcp_material=None, skill_mate
 
     def cleanup():
         root = mcp_material.remote_dir if mcp_material else None
-        command = f'rm -rf -- {_shell_quote(root)}' if root else ':'
-        if skill_material:
-            from agent.skills_share import cleanup_command
-            command += '; ' + cleanup_command(skill_material['chat_id'], skill_material['node'])
-        return command
+        return f'rm -rf -- {_shell_quote(root)}' if root else ':'
 
     return DetachBackendSpec(
         setup=setup,
-        launch_env=lambda: {'CLAUDE_CONFIG_DIR': skill_root} if skill_root else {},
         build_exec=build_exec,
         cleanup=cleanup,
         parse_initial=_claude_parse_initial,
@@ -1096,7 +1084,6 @@ async def start_detached_ssh(
     ssh_client=None,
     input_uuid: Optional[str] = None,
     mcp_material=None,
-    skill_material=None,
     unset_env: Optional[List[str]] = None,
 ) -> Optional[str]:
     """Start `claude -p` in a detached tmux session on remote host.
@@ -1117,7 +1104,7 @@ async def start_detached_ssh(
         cwd=cwd,
         chat_id=chat_id,
         node=node,
-        spec=_claude_spec(input_uuid, mcp_material, skill_material),
+        spec=_claude_spec(input_uuid, mcp_material),
         env=env,
         images=images,
         ssh_client=ssh_client,

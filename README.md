@@ -30,7 +30,6 @@ Under the hood, a React web UI and Telegram feed a FastAPI API. The API queues w
 
 - **One workspace beyond code.** Work with todos, notes, links, calendars, email, and domain modules through the web and `y` CLI. The agent uses the same files and records, rather than a separate copy of your context.
 - **MacBook chat sessions.** Run a new chat on the MacBook with `y chat --on mac` and use the same chat interface to follow and steer it. EC2 remains the orchestration hop; the session runs on the MacBook. See [multi-machine execution](docs/prd/multi-machine-execution.md).
-- **Private skill registry.** `y skill publish note@3.2.0` publishes committed source; `y skill install note@3.2.0 --node mac` selects it for shared node overlays without overwriting local skills. Upgrade, rollback and uninstall manage exact versions. See [skill sharing](docs/skill-sharing.md).
 - **Task-linked context.** A todo connects discussions, plans, progress, and reviews. A new session reads that material instead of needing the entire previous conversation in its prompt.
 - **Orchestration outside the runtime.** One session can finish a small task; larger tasks can split into planning, implementation, and review sessions, each loading the skill it needs. A shared `trace_id` connects the tree, and sub-task chats remain visible and steerable.
 - **An inbox for your turn.** `awaiting` marks work needing a decision, authorization, or acceptance check. Publication approval is a separate boundary from implementation and review.

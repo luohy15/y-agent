@@ -14,7 +14,6 @@ from api.controller.chat import router as chat_router
 from api.controller.todo import router as todo_router
 from api.controller.calendar_event import router as calendar_router
 from api.controller.vm_config import router as vm_config_router
-from api.controller.skill_share import router as skill_share_router
 from api.controller.link import router as link_router
 from api.controller.email import router as email_router
 from api.controller.terminal import router as terminal_router
@@ -84,7 +83,6 @@ api_router.include_router(chat_router)
 api_router.include_router(todo_router)
 api_router.include_router(calendar_router)
 api_router.include_router(vm_config_router)
-api_router.include_router(skill_share_router)
 api_router.include_router(link_router)
 api_router.include_router(email_router)
 api_router.include_router(terminal_router)
