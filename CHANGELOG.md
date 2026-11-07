@@ -21,7 +21,6 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Execution nodes (4204)**: `y node list|add|show|enable|disable` manages owner-scoped `vm_config` nodes. `y chat --on <name>` starts a chat on a registered node through the existing EC2 SSH anchor, keeping the same chat interface and a sticky target. Generic file/git/terminal commands remain on the default node.
 - **Code block copy (4198)**: every non-artifact fenced code block has a Copy button in its upper-right corner, copying the raw parsed code. It shows on hover and focus and stays visible on touch pointers.
 - **Publish schema preflight (4218)**: `y dev commit` runs `scripts/preflight-publish` from the worktree before pushing, and a non-zero exit refuses the push. This repository's wrapper runs `scripts/schema_check.py`, which compares ORM columns against the production catalog. Repositories without the file are unaffected.
-- **Skill sharing (4232)**: `y skill publish|list|show|status|install|upgrade|rollback|uninstall` publishes a committed `skills/` tree as an immutable semver version and installs it per execution node. Nodes share one content-addressed `CLAUDE_CONFIG_DIR` generation, and a per-launch overlay lets a published skill win over a same-named stale local skill without rewriting the originals.
 - **Per-node Claude auth mode**: `vm_config.auth_mode` chooses how a node authenticates. `relay` injects the bot relay environment, while `subscription` strips `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY` and the assume-first-party flag so the node uses its own Claude login. `y node add|list|show` expose the field.
 
 ### Changed
@@ -42,6 +41,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Removed
 
+- **Skill registry (4234)**: the skill publish registry is withdrawn before release: its `y skill publish|list|show|status|install|upgrade|rollback|uninstall` CLI, `/api/skill/*` routes, skill/version/install storage and the per-launch `CLAUDE_CONFIG_DIR` overlay are removed. Node launches read the `~/.agents` tree directly, which a one-way sync publisher maintains; the three registry tables are dropped only after explicit confirmation.
 - **Bounded Mac browser jobs and Machines panel (4204)**: removed `y remote-job`, `/api/remote-jobs`, their runner, supervisor and storage implementation, and the UI-only Machine module's authoring source. Deleting the deployed module is the final step of that retirement. Legacy queue deliveries are logged and dropped for one release; the `remote_job` and `execution_target` tables and their data remain untouched. Mac chats now require a registered `vm_config` row instead of the transitional environment fallback.
 
 ## [0.5.33] - 2026-11-01
