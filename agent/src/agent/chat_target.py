@@ -38,7 +38,7 @@ class NodeTarget:
 
     name: str
     platform: str
-    data_scope: str
+    namespace: str
     anchor: VmConfig
     node: VmConfig
     transport: str  # "vm" (direct) or "jump" (through the default anchor)
@@ -129,7 +129,7 @@ def _build_layout(user_id: int, name: str, allow_disabled: bool) -> NodeTarget:
 
     transport = "vm" if name == DEFAULT_NODE else "jump"
     platform = node.platform or "linux"
-    data_scope = node.data_scope or "personal"
+    namespace = node.namespace or "default"
 
     if transport == "vm":
         user, host, port = _parse_address(anchor.vm_name) or (None, None, None)
@@ -168,7 +168,7 @@ def _build_layout(user_id: int, name: str, allow_disabled: bool) -> NodeTarget:
     return NodeTarget(
         name=name,
         platform=platform,
-        data_scope=data_scope,
+        namespace=namespace,
         anchor=anchor,
         node=node,
         transport=transport,

@@ -12,7 +12,7 @@ class VmConfig:
     ec2_region: str = ""
     last_up: Optional[int] = None  # unix timestamp
     platform: Optional[str] = None  # NULL means linux
-    data_scope: Optional[str] = None  # NULL means personal
+    namespace: Optional[str] = None  # NULL means the default namespace
     enabled: bool = True
     auth_mode: Optional[str] = None  # NULL means relay
 

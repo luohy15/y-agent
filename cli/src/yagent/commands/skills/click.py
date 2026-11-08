@@ -13,15 +13,8 @@ def _get(path, **kwargs):
     return api_request('GET', path, **kwargs).json()
 
 
-def _warn_legacy(namespace):
-    canonical, legacy = agents_publish.normalize_namespace(namespace)
-    if legacy:
-        click.echo(f'warning: namespace {namespace} canonicalizes to {canonical}', err=True)
-    return canonical
-
-
 def _report(source, namespace, policies, effective=None):
-    canonical = _warn_legacy(namespace)
+    canonical = agents_publish.normalize_namespace(namespace)
     result = agents_publish.assemble(source, canonical, get=_get, policies=policies)
     click.echo(result['summary'])
     if effective is not None:
@@ -40,7 +33,7 @@ def skills_group():
     """Check, export and publish a composed agents tree.
 
     Scope default is the unrestricted selection. It is not the node named default.
-    personal and work are legacy aliases. A node scope never falls back to default.
+    personal and work are rejected. An empty stored node namespace publishes as default.
     """
 
 
@@ -67,7 +60,7 @@ def skills_export(namespace, source, out):
     if namespace is None:
         raise click.UsageError('export requires an explicit registered --namespace')
     try:
-        canonical = _warn_legacy(namespace)
+        canonical = agents_publish.normalize_namespace(namespace)
         if canonical == 'default':
             raise click.UsageError('export requires an explicit registered --namespace')
         policies = agents_publish.load_registry(get=_get)
@@ -101,7 +94,7 @@ def skills_publish(run, dry_run, source, node, local_target, namespace):
         policies = agents_publish.load_registry(get=_get)
         if local_target:
             chosen = namespace or 'default'
-            canonical = _warn_legacy(chosen)
+            canonical = agents_publish.normalize_namespace(chosen)
             if canonical != 'default' and not policies['by_name'].get(canonical, {}).get('node_deliverable', False):
                 raise click.UsageError('namespace is not node-deliverable')
             if run:

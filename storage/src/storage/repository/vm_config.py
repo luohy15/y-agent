@@ -17,7 +17,7 @@ def _entity_to_dto(entity: VmConfigEntity) -> VmConfig:
         ec2_region=entity.ec2_region or "",
         last_up=entity.last_up,
         platform=entity.platform,
-        data_scope=entity.data_scope,
+        namespace=entity.namespace,
         enabled=True if entity.enabled is None else bool(entity.enabled),
         auth_mode=entity.auth_mode,
     )
@@ -33,7 +33,7 @@ def _dto_to_entity_fields(config: VmConfig) -> dict:
         ec2_region=config.ec2_region,
         last_up=config.last_up,
         platform=config.platform,
-        data_scope=config.data_scope,
+        namespace=config.namespace,
         enabled=config.enabled,
         auth_mode=config.auth_mode,
     )

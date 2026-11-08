@@ -14,7 +14,8 @@ from storage.repository import vm_config as vm_repo
 DEFAULT_NODE = "default"
 NODE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 NODE_PLATFORMS = frozenset({"linux", "darwin"})
-NODE_DATA_SCOPE_PATTERN = re.compile(r"[a-z][a-z0-9_-]{0,63}")
+NODE_NAMESPACE_PATTERN = re.compile(r"[a-z][a-z0-9_-]{0,63}")
+RETIRED_NODE_NAMESPACES = frozenset({"personal", "work"})
 NODE_AUTH_MODES = frozenset({"relay", "subscription"})
 
 
@@ -55,6 +56,20 @@ def validate_node_name(name: str) -> str:
     return name
 
 
+def validate_node_namespace(value: Optional[str]) -> Optional[str]:
+    """Return the stored namespace. Empty and ``default`` store NULL.
+
+    ``personal`` and ``work`` are retired and rejected. There is no read-time alias.
+    """
+    if value is None or value == "" or value == "default":
+        return None
+    if not isinstance(value, str) or not NODE_NAMESPACE_PATTERN.fullmatch(value):
+        raise InvalidNode("namespace must be a namespace token")
+    if value in RETIRED_NODE_NAMESPACES:
+        raise InvalidNode("namespace personal/work is retired")
+    return value
+
+
 def resolve_node(user_id: int, name: Optional[str], *, allow_disabled: bool = False) -> VmConfig:
     """Strictly resolve one owned node row. No default or work-dir fallback.
 
@@ -87,6 +102,7 @@ def get_config(user_id: int, name: str = "default") -> Optional[VmConfig]:
 
 
 def set_config(user_id: int, config: VmConfig) -> VmConfig:
+    config.namespace = validate_node_namespace(config.namespace)
     return vm_repo.set_config(user_id, config)
 
 
@@ -117,20 +133,16 @@ def set_node(user_id: int, config: VmConfig, *, api_token_provided: bool = True,
         raise NodeProtected("refusing to edit the default node; it is the orchestrator")
     if config.platform not in (None, "") and config.platform not in NODE_PLATFORMS:
         raise InvalidNode(f"platform must be one of {sorted(NODE_PLATFORMS)}")
-    if config.data_scope not in (None, "") and (
-            not isinstance(config.data_scope, str) or not NODE_DATA_SCOPE_PATTERN.fullmatch(config.data_scope)):
-        raise InvalidNode("data_scope must be a namespace token")
 
     config.name = canonical
     config.platform = config.platform or None
-    config.data_scope = config.data_scope or None
     existing = vm_repo.get_config(user_id, canonical)
     if not api_token_provided:
         config.api_token = existing.api_token if existing else ""
     if not enabled_provided:
         config.enabled = existing.enabled if existing else True
     assign_auth_mode(config, existing, provided=auth_mode_provided)
-    return vm_repo.set_config(user_id, config)
+    return set_config(user_id, config)
 
 
 def set_enabled(user_id: int, name: str, enabled: bool) -> VmConfig:

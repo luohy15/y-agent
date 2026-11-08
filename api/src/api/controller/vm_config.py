@@ -22,7 +22,7 @@ class VmConfigRequest(BaseModel):
     ec2_instance_id: str = ""
     ec2_region: str = ""
     platform: Optional[str] = None
-    data_scope: Optional[str] = None
+    namespace: Optional[str] = None
     enabled: Optional[bool] = None
     # None means omitted: keep the stored mode. A new row defaults to relay.
     auth_mode: Optional[str] = None
@@ -35,7 +35,7 @@ def _node_dict(config: VmConfig) -> dict:
         "vm_name": config.vm_name,
         "work_dir": config.work_dir,
         "platform": config.platform,
-        "data_scope": config.data_scope,
+        "namespace": config.namespace,
         "enabled": config.enabled,
         # NULL is relay. The response always names the mode the next launch uses.
         "auth_mode": config.auth_mode or "relay",
@@ -67,7 +67,7 @@ async def set_vm_config(req: VmConfigRequest, request: Request):
         ec2_instance_id=req.ec2_instance_id,
         ec2_region=req.ec2_region,
         platform=req.platform,
-        data_scope=req.data_scope,
+        namespace=req.namespace,
         enabled=True if req.enabled is None else req.enabled,
         auth_mode=req.auth_mode,
     )
@@ -80,9 +80,9 @@ async def set_vm_config(req: VmConfigRequest, request: Request):
             config.api_token = existing.api_token if existing else ""
         try:
             vm_service.assign_auth_mode(config, existing, provided=req.auth_mode is not None)
+            vm_service.set_config(user_id, config)
         except vm_service.InvalidNode as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-        vm_service.set_config(user_id, config)
         return {"ok": True, "name": name}
     try:
         stored = vm_service.set_node(

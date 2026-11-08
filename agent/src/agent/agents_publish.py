@@ -24,7 +24,7 @@ MARKER = "<!-- deployment overlay: {scope}; core rules follow verbatim -->"
 DENYLIST = "local/private-denylist.txt"
 BASELINE = "local/reference-baseline.tsv"
 ROOTS = "local/approved-roots.tsv"
-ALIASES = {"personal": "default", "work": "alphavantage"}
+RETIRED_NAMESPACES = frozenset({"personal", "work"})
 SCOPE_RE = re.compile(r"[a-z][a-z0-9_-]{0,63}")
 CANONICAL_ROOTS = {"skills", "references", "hooks", "commands", "synced", "local"}
 DENY_CATEGORIES = {"personal", "organization", "credential"}
@@ -48,10 +48,11 @@ def sha256(data):
 
 
 def normalize_namespace(namespace):
-    """Return (canonical, legacy). Unknown names fail before any caller reads or writes."""
-    if not isinstance(namespace, str) or not SCOPE_RE.fullmatch(namespace):
+    """Return one canonical name. Retired names and bad shapes fail before any read or write."""
+    if (not isinstance(namespace, str) or namespace in RETIRED_NAMESPACES
+            or not SCOPE_RE.fullmatch(namespace)):
         raise ValueError("Invalid namespace")
-    return ALIASES.get(namespace, namespace), namespace in ALIASES
+    return namespace
 
 
 def load_registry(get=None, policies=None):
@@ -67,8 +68,8 @@ def load_registry(get=None, policies=None):
         if not isinstance(row, dict):
             raise ValueError("Invalid namespace scope")
         name = row.get("name")
-        canonical, legacy = normalize_namespace(name)
-        if legacy or canonical == "default" or name in rows:
+        canonical = normalize_namespace(name)
+        if canonical == "default" or name in rows:
             raise ValueError("Invalid namespace registration")
         overlay, allowlist = row.get("overlay"), row.get("allowlist")
         if overlay is not None:
@@ -212,7 +213,7 @@ def _fetch_rules(get, namespace):
 
 
 def load_policy(namespace, registry, get=None):
-    canonical, legacy = normalize_namespace(namespace)
+    canonical = normalize_namespace(namespace)
     rows = registry["by_name"]
     chain = policy_chain(canonical, rows) if canonical != "default" else []
     policy = rows[canonical] if chain else {"overlay": "local", "markers": [], "node_deliverable": True}
@@ -222,7 +223,7 @@ def load_policy(namespace, registry, get=None):
         rules[name] = _fetch_rules(get, name) if get else tuple(rows[name].get("rules", ()))
         for value in rules[name]:
             safe_name(value)
-    return canonical, legacy, chain, policy, rules
+    return canonical, chain, policy, rules
 
 
 def check_policy(source, prefixes):
@@ -468,8 +469,8 @@ def approved_roots(source, registry):
         if (len(cols) != 3 or not cols[2].strip() or not SCOPE_RE.fullmatch(cols[0])
                 or cols[0] in CANONICAL_ROOTS or cols[0] in bindings):
             raise ValueError("Invalid approved root binding")
-        name, legacy = normalize_namespace(cols[1])
-        if legacy or name == "default":
+        name = normalize_namespace(cols[1])
+        if name == "default":
             raise ValueError("Invalid approved root namespace")
         bindings[cols[0]] = name
     for name, row in registry["by_name"].items():
@@ -606,7 +607,7 @@ def assemble(source, namespace, get=None, policies=None, out=None):
     """Build from one registry snapshot. Baseline exceptions require exact bytes."""
     normalize_namespace(namespace)
     registry = load_registry(get, policies)
-    canonical, legacy, chain, policy, rules = load_policy(namespace, registry, get)
+    canonical, chain, policy, rules = load_policy(namespace, registry, get)
     source = Path(source).resolve(strict=True)
     controls, control_bytes = _controls(source, registry)
     patterns = load_denylist(source / DENYLIST)
@@ -666,7 +667,7 @@ def assemble(source, namespace, get=None, policies=None, out=None):
     if out is not None:
         source, out = _refuse_inside(source, out)
         write_tree(out, files, manifest)
-    return {"namespace": canonical, "legacy": legacy, "files": files, "modes": modes,
+    return {"namespace": canonical, "files": files, "modes": modes,
             "rows": rows, "manifest": manifest, "source_digest": digest,
             "archive": archive, "summary": summary, "baseline_open": baseline_open}
 
@@ -733,7 +734,7 @@ def _previous_generated(path):
 
 def export_scope(source, out, namespace, **kwargs):
     """Write a registered composed selection without node manifests."""
-    if normalize_namespace(namespace)[0] == "default":
+    if normalize_namespace(namespace) == "default":
         raise ValueError("export requires a registered namespace")
     result = assemble(source, namespace, **kwargs)
     source = Path(source).resolve(strict=True)
@@ -880,7 +881,7 @@ def install_archive(data, target, expected_digest=None, source=None):
 
 
 def remote_command(namespace, digest, receiver):
-    canonical, _legacy = normalize_namespace(namespace)
+    canonical = normalize_namespace(namespace)
     if not re.fullmatch(r"[0-9a-f]{64}", digest):
         raise ValueError("Invalid remote archive identity")
     prefix = "s3:luohy15/.agents-archive/" + canonical
@@ -934,11 +935,12 @@ def node_namespaces(nodes, records, policies):
         if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*", node) or node in ("default", "ec2"):
             raise ValueError("Invalid publishing node: " + node)
         matches = [row for row in records if isinstance(row, dict) and row.get("name") == node]
-        if len(matches) != 1 or not matches[0].get("data_scope"):
+        if len(matches) != 1:
             raise ValueError("Unknown or invalid node scope: " + node)
         if matches[0].get("enabled") is not True:
             raise ValueError("Disabled publishing node: " + node)
-        scope, _legacy = normalize_namespace(matches[0]["data_scope"])
+        raw = matches[0].get("namespace")
+        scope = "default" if raw in (None, "") else normalize_namespace(raw)
         if scope != "default":
             if scope not in registry["by_name"] or not registry["by_name"][scope].get("node_deliverable", False):
                 raise ValueError("Namespace is not node-deliverable: " + scope)

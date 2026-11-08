@@ -53,9 +53,9 @@ Other top-level dirs: `scripts/` (deploy, DNS, IAM), `template.yaml` / `samconfi
   anchor. Other rows run Claude Code through Paramiko `direct-tcpip`, with tmux,
   stdin, stdout and the exit file on the node, through the same chat interface.
   `vm_name` stores `[ssh:]user@host:port`; an empty node `api_token` inherits the
-  anchor key. `platform` derives binaries/PATH, `data_scope` is metadata only
-  (not isolation), and `enabled` gates admission/launch. Stop/monitor can resolve
-  disabled rows. Unknown or unusable nodes fail closed, with no default or Mac
+  anchor key. `platform` derives binaries/PATH, `namespace` is the publish scope
+  (NULL means `default`; not isolation), and `enabled` gates admission/launch.
+  Stop/monitor can resolve disabled rows. Unknown or unusable nodes fail closed, with no default or Mac
   environment fallback. Generic file/git/terminal commands remain default-only;
   non-default rows are chat-only and excluded from their picker. Jump nodes have
   no image attachments or transcript ingest; Darwin nodes also have no heartbeat
@@ -415,7 +415,7 @@ exceptions noted):
   a version also carries its own `dispatch_scope` and `ui_surfaces` (legacy inert `ui_public` column retained), so
   exposure and claimed host slots roll back with the code)
 - **Configuration**: `bot_config`, `bot_route_state`, `vm_config` (execution-node
-  registry with `platform`, `data_scope`, `enabled`; legacy physical column
+  registry with `platform`, `namespace`, `enabled`; legacy physical column
   `vm_config.finance_config` is intentionally retained for a later contract).
   `bot_config` and `bot_route_state` are runtime kernel tables on the worker
   dispatch path; bot *management* is module-owned (see `code/y-module/bot/README.md`).

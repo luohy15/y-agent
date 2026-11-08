@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 import click
@@ -30,12 +31,12 @@ def node_list():
     if not nodes:
         click.echo('no nodes configured')
         return
-    headers = ('NAME', 'PLATFORM', 'SCOPE', 'ENABLED', 'AUTH', 'ADDRESS', 'WORK_DIR')
+    headers = ('NAME', 'PLATFORM', 'NAMESPACE', 'ENABLED', 'AUTH', 'ADDRESS', 'WORK_DIR')
     rows = [
         (
             node.get('name', ''),
             node.get('platform') or 'linux',
-            node.get('data_scope') or 'personal',
+            node.get('namespace') or 'default',
             'yes' if node.get('enabled', True) else 'no',
             node.get('auth_mode') or 'relay',
             node.get('vm_name', ''),
@@ -66,23 +67,27 @@ def node_show(name):
 @click.option('--port', default=22, type=click.IntRange(1, 65535), show_default=True)
 @click.option('--platform', type=click.Choice(['linux', 'darwin']), default='linux', show_default=True,
               help='Derives binaries and PATH on the node.')
-@click.option('--data-scope', type=str, required=True,
-              help='Namespace token. Publisher checks registration and delivery capability; not runtime isolation.')
+@click.option('--namespace', type=str, default=None,
+              help='Namespace token. Omit, empty, or default to store the default namespace. '
+                   'personal and work are rejected. Not runtime isolation.')
 @click.option('--key-file', type=click.Path(exists=True, dir_okay=False, path_type=Path),
               help='Private key for this node. Omit to inherit the default node key.')
 @click.option('--inherit-key', is_flag=True, help='Explicitly inherit the default node key.')
 @click.option('--work-dir', default='', help='Default workspace on the node.')
 @click.option('--auth-mode', type=click.Choice(['relay', 'subscription']),
               help='How claude authenticates on this node. Omit to keep the stored mode.')
-def node_add(name, host, user, port, platform, data_scope, key_file, inherit_key, work_dir, auth_mode):
+def node_add(name, host, user, port, platform, namespace, key_file, inherit_key, work_dir, auth_mode):
     """Create or update a non-default node. No deploy is needed."""
     if key_file and inherit_key:
         raise click.UsageError('choose --key-file or --inherit-key, not both')
+    if namespace not in (None, '', 'default') and (
+            namespace in ('personal', 'work') or not re.fullmatch(r'[a-z][a-z0-9_-]{0,63}', namespace)):
+        raise click.UsageError('namespace must be empty, default, or a namespace token; personal and work are retired')
     payload = {
         'name': name,
         'vm_name': f'ssh:{user}@{host}:{port}',
         'platform': platform,
-        'data_scope': data_scope,
+        'namespace': None if namespace in (None, '', 'default') else namespace,
         'work_dir': work_dir,
     }
     if auth_mode:

@@ -115,7 +115,7 @@ interface VmConfigItem {
   vm_name: string;
   work_dir: string;
   platform?: string | null;
-  data_scope?: string | null;
+  namespace?: string | null;
   enabled?: boolean;
   is_default?: boolean;
   // Non-default vm_config rows are chat-only in v1; file/git/terminal stay on

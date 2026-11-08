@@ -14,11 +14,12 @@ class VmConfigEntity(Base, BaseEntity):
     ec2_instance_id = Column(String, nullable=False, default="")
     ec2_region = Column(String, nullable=False, default="")
     last_up = Column(Integer, nullable=True)
-    # Execution-node metadata (todo 4204). A NULL platform means linux; a NULL
-    # data_scope means personal. Every row is a node in the registry; `default`
-    # is the orchestrator and the SSH jump anchor.
+    # Execution-node metadata (todo 4204). A NULL platform means linux. A NULL
+    # namespace is the default namespace (`default` is accepted on input and
+    # stored NULL). Every row is a node in the registry; `default` is the
+    # orchestrator and the SSH jump anchor.
     platform = Column(String, nullable=True)
-    data_scope = Column(String, nullable=True)
+    namespace = Column(String, nullable=True)
     enabled = Column(Boolean, nullable=False, server_default=text("true"), default=True)
     # NULL means relay: the worker injects the bot's relay env. `subscription`
     # strips that env so the node uses its own Claude login (todo 4224).
