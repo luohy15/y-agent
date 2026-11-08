@@ -194,6 +194,10 @@ Todo 4224 bumps 32 to 33: owner-bound `bot_config_set_sub_ref` sets or clears
 a pointer bot's subscription target (`sub_ref_bot_name`). Full upserts omit
 the column. Apply `migration/4224_sub_ref_bot_name.sql` before deploying this
 host; the bot module requires v33 and is published after the host.
+Todo 4246 bumps 33 to 34: `chat_list` rows carry the chat's
+`execution_target` (empty string means the default node) so a sidebar can
+badge the execution node without opening the chat. The chat module raises its
+floor to 34 when it renders the field; deploy this host first.
 """
 
 from __future__ import annotations
@@ -212,8 +216,8 @@ from storage.project_key import ProjectKeyError as ProjectKeyError, normalize_pr
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-# v33: owner-bound bot_config_set_sub_ref (todo 4224).
-BACKEND_CONTRACT_VERSION = 33
+# v34: chat_list rows carry execution_target (todo 4246).
+BACKEND_CONTRACT_VERSION = 34
 
 # Wall-clock budget for the wake="nowait" readiness check (todo 3777).
 NOWAIT_BUDGET_SECONDS = 1.0
@@ -639,6 +643,7 @@ async def chat_list(
             "backend": chat.backend,
             "bot_name": chat.bot_name,
             "tier": chat.tier,
+            "execution_target": chat.execution_target,
             "status": chat.status,
             "unread": chat.unread,
             "needs_attention": chat.needs_attention,

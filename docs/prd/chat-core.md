@@ -68,7 +68,9 @@ mode (`-i`) serves a human at a terminal.
 3. As a web user, I want each list row to show the title (first user
    message), timestamp, and badges for trace id, chat id, role, skill, and
    routine, so that I can identify a chat's place in the session tree at a
-   glance.
+   glance. List rows also carry `execution_target` (host contract v34; an
+   empty string means the default node) so a row can badge the execution node
+   without opening the chat (todo 4246).
 4. As a web user, I want a running spinner, an interrupted icon, and one
    attention marker per row, so that I can see which conversations need
    attention without opening them. The marker reflects one of three mutually

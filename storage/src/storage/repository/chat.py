@@ -77,6 +77,8 @@ class ChatSummary:
     backend: str = ""
     bot_name: str = ""
     tier: str = ""
+    # Empty means the default node; stored values mirror chat.execution_target.
+    execution_target: str = ""
     created_at_unix: int = 0
     updated_at_unix: int = 0
     status: str = "idle"
@@ -198,6 +200,7 @@ async def list_chats(
                     ChatEntity.backend,
                     ChatEntity.bot_name,
                     ChatEntity.tier,
+                    ChatEntity.execution_target,
                     ChatEntity.status,
                     ChatEntity.unread,
                     ChatEntity.needs_attention,
@@ -302,6 +305,7 @@ async def list_chats(
                 backend=row.backend or "",
                 bot_name=row.bot_name or "",
                 tier=row.tier or "",
+                execution_target=row.execution_target or "",
                 status=row.status or "idle",
                 unread=bool(row.unread),
                 needs_attention=bool(row.needs_attention),
@@ -1164,6 +1168,7 @@ def find_chats_by_trace_id(user_id: int, trace_id: str) -> List[ChatSummary]:
                 routine_id=row.routine_id or "",
                 backend=row.backend or "",
                 bot_name=row.bot_name or "",
+                execution_target=row.execution_target or "",
                 created_at_unix=row.created_at_unix or 0,
                 updated_at_unix=row.updated_at_unix or 0,
                 status=row.status or "idle",
