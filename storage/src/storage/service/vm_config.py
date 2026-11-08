@@ -14,7 +14,7 @@ from storage.repository import vm_config as vm_repo
 DEFAULT_NODE = "default"
 NODE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 NODE_PLATFORMS = frozenset({"linux", "darwin"})
-NODE_DATA_SCOPES = frozenset({"personal", "work"})
+NODE_DATA_SCOPE_PATTERN = re.compile(r"[a-z][a-z0-9_-]{0,63}")
 NODE_AUTH_MODES = frozenset({"relay", "subscription"})
 
 
@@ -117,8 +117,9 @@ def set_node(user_id: int, config: VmConfig, *, api_token_provided: bool = True,
         raise NodeProtected("refusing to edit the default node; it is the orchestrator")
     if config.platform not in (None, "") and config.platform not in NODE_PLATFORMS:
         raise InvalidNode(f"platform must be one of {sorted(NODE_PLATFORMS)}")
-    if config.data_scope not in (None, "") and config.data_scope not in NODE_DATA_SCOPES:
-        raise InvalidNode(f"data_scope must be one of {sorted(NODE_DATA_SCOPES)}")
+    if config.data_scope not in (None, "") and (
+            not isinstance(config.data_scope, str) or not NODE_DATA_SCOPE_PATTERN.fullmatch(config.data_scope)):
+        raise InvalidNode("data_scope must be a namespace token")
 
     config.name = canonical
     config.platform = config.platform or None

@@ -66,8 +66,8 @@ def node_show(name):
 @click.option('--port', default=22, type=click.IntRange(1, 65535), show_default=True)
 @click.option('--platform', type=click.Choice(['linux', 'darwin']), default='linux', show_default=True,
               help='Derives binaries and PATH on the node.')
-@click.option('--data-scope', type=click.Choice(['personal', 'work']), required=True,
-              help='Visible metadata only: what kind of data this node carries.')
+@click.option('--data-scope', type=str, required=True,
+              help='Namespace token. Publisher checks registration and delivery capability; not runtime isolation.')
 @click.option('--key-file', type=click.Path(exists=True, dir_okay=False, path_type=Path),
               help='Private key for this node. Omit to inherit the default node key.')
 @click.option('--inherit-key', is_flag=True, help='Explicitly inherit the default node key.')
