@@ -21,12 +21,13 @@ import uuid
 
 
 MARKER = "<!-- deployment overlay: {scope}; core rules follow verbatim -->"
-DENYLIST = "local/private-denylist.txt"
-BASELINE = "local/reference-baseline.tsv"
-ROOTS = "local/approved-roots.tsv"
+DENYLIST = "private/private-denylist.txt"
+BASELINE = "private/reference-baseline.tsv"
+ROOTS = "private/approved-roots.tsv"
 RETIRED_NAMESPACES = frozenset({"personal", "work"})
 SCOPE_RE = re.compile(r"[a-z][a-z0-9_-]{0,63}")
-CANONICAL_ROOTS = {"skills", "references", "hooks", "commands", "synced", "local"}
+# "local" stays reserved so a stale registry row that still names it fails closed.
+CANONICAL_ROOTS = {"skills", "references", "hooks", "commands", "synced", "private", "local"}
 DENY_CATEGORIES = {"personal", "organization", "credential"}
 LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\s]+?\.md)(?:#[^)]*)?\)")
 TOK_RE = re.compile(r"`([^`]+)`")
@@ -77,7 +78,7 @@ def load_registry(get=None, policies=None):
                 raise ValueError("Invalid overlay directory")
         if allowlist is not None:
             safe_name(allowlist)
-            if not allowlist.startswith("local/") or allowlist == DENYLIST or not overlay:
+            if not allowlist.startswith("private/") or allowlist == DENYLIST or not overlay:
                 raise ValueError("Invalid scope allowlist")
         markers = row.get("markers", [])
         if (not isinstance(markers, list) or any(not isinstance(item, str) for item in markers)
@@ -100,7 +101,7 @@ def load_registry(get=None, policies=None):
             raise ValueError("Invalid excluded overlay")
     for path in exclusions["allowlists"]:
         safe_name(path)
-        if not path.startswith("local/"):
+        if not path.startswith("private/"):
             raise ValueError("Invalid excluded allowlist")
     if (not set(overlays).issubset(exclusions["overlays"])
             or not {row["allowlist"] for row in rows.values() if row.get("allowlist")}.issubset(exclusions["allowlists"])):
@@ -206,8 +207,8 @@ def _fetch_rules(get, namespace):
         elif kind != "path":
             raise ValueError("Invalid namespace rule kind")
         safe_name(value)
-        if value == "local" or value.startswith("local/"):
-            raise ValueError("local/ in selection: " + value)
+        if value in ("local", "private") or value.startswith(("local/", "private/")):
+            raise ValueError("private/ in selection: " + value)
         selected.add(value)
     return tuple(sorted(selected))
 
@@ -216,7 +217,7 @@ def load_policy(namespace, registry, get=None):
     canonical = normalize_namespace(namespace)
     rows = registry["by_name"]
     chain = policy_chain(canonical, rows) if canonical != "default" else []
-    policy = rows[canonical] if chain else {"overlay": "local", "markers": [], "node_deliverable": True}
+    policy = rows[canonical] if chain else {"overlay": "private", "markers": [], "node_deliverable": True}
     rules = {}
     # Default also validates active membership before excluding private sources.
     for name in (chain if chain else sorted(rows)):
@@ -248,9 +249,9 @@ def classify(entries, scope, allowlist, prefixes, policy, controls, excluded):
             continue
         if rel in allowlist:
             overlay[rel[len(policy["overlay"]) + 1:]] = (rel, data, mode)
-        elif rel.startswith("local/"):
-            if scope == "default":
-                overlay[rel[len("local/"):]] = (rel, data, mode)
+        elif rel.startswith("private/") or rel.startswith("local/"):
+            if scope == "default" and rel.startswith("private/"):
+                overlay[rel[len("private/"):]] = (rel, data, mode)
         elif _matches(rel, excluded):
             continue
         elif scope == "default" or _matches(rel, prefixes):
@@ -377,7 +378,7 @@ def scan_sources(sources, patterns, scope, allowset, markers):
 
 def assert_no_pointers(files):
     for rel, data in files.items():
-        if b"$Y_AGENTS_ROOT/local/" in data or b"<overlay>" in data:
+        if b"$Y_AGENTS_ROOT/local/" in data or b"$Y_AGENTS_ROOT/private/" in data or b"<overlay>" in data:
             raise ValueError("overlay pointer: " + rel)
 
 
@@ -399,9 +400,9 @@ def ref_candidates(token, file):
     parts = file.split("/")
     if parts[0] == "skills" and len(parts) > 2:
         found.append(str(PurePosixPath("skills", parts[1], target)))
-        found.append(str(PurePosixPath("local", "skills", parts[1], target)))
-    if len(parts) > 3 and parts[0] == "local" and parts[1] == "skills":
-        found.append(str(PurePosixPath("local", "skills", parts[2], target)))
+        found.append(str(PurePosixPath("private", "skills", parts[1], target)))
+    if len(parts) > 3 and parts[0] == "private" and parts[1] == "skills":
+        found.append(str(PurePosixPath("private", "skills", parts[2], target)))
         found.append(str(PurePosixPath("skills", parts[2], target)))
     found.append(str(PurePosixPath(file).parent / target))
     found.append(target)
@@ -626,7 +627,7 @@ def assemble(source, namespace, get=None, policies=None, out=None):
                 if value not in allowlists[name]:
                     raise ValueError("unapproved namespace rule: " + value)
                 continue
-            if value.startswith("local/") or value == "local" or _matches(value, excluded):
+            if value in ("local", "private") or value.startswith(("local/", "private/")) or _matches(value, excluded):
                 raise ValueError("private path in selection: " + value)
             if any(_matches(path, (value,)) for path in excluded + tuple(controls)):
                 raise ValueError("private prefix overlap: " + value)
