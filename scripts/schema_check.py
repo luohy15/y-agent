@@ -2,6 +2,11 @@
 """Check candidate ORM columns against the proven production database.
 
 Run from this checkout: uv run python scripts/schema_check.py
+Optional range: ... schema_check.py --base <rev> --candidate <rev>
+A range with no tracked storage/src/storage/entity/** change and no tracked
+migration file prints [schema-gate] not-required and exits 0. migration/ is
+gitignored, so on-disk SQL is not inspected. Anything else, including no
+range, compares ORM columns to the proven production database.
 Optional explicit apply: ... schema_check.py apply --file migration/add.sql
 Apply supports only simple ADD COLUMN statements with built-in types and literal
  defaults. Other SQL must be reviewed/applied separately, then checked here.
@@ -79,16 +84,16 @@ def prove_target(url):
     proxies = [proxy for page in rds.get_paginator("describe_db_proxies").paginate()
                for proxy in page["DBProxies"] if proxy["Endpoint"] == deployed.host]
     if len(proxies) != 1 or deployed.query:
-        raise GateError("endpoint-unproven")
+        raise GateError("endpoint-unproven:db-proxy")
     targets = [target for page in rds.get_paginator("describe_db_proxy_targets").paginate(
         DBProxyName=proxies[0]["DBProxyName"], TargetGroupName="default")
         for target in page["Targets"] if target.get("Type") == "RDS_INSTANCE"]
     if len(targets) != 1 or targets[0].get("TargetHealth", {}).get("State") != "AVAILABLE":
-        raise GateError("endpoint-unproven")
+        raise GateError("endpoint-unproven:proxy-target")
     target = targets[0]
     proof = Target(deployed.host, target["Endpoint"], int(target["Port"]), deployed.database)
     if (deployed.port or 5432) != proof.port:
-        raise GateError("endpoint-unproven")
+        raise GateError("endpoint-unproven:target-port")
     validate_url(url, proof)
     return proof
 
@@ -100,7 +105,7 @@ def validate_url(url, target):
             or url.database != target.database or not url.username
             or any(key not in {"sslmode", "sslrootcert"} for key in url.query)
             or url.query.get("sslmode", "require") not in {"require", "verify-ca", "verify-full"}):
-        raise GateError("endpoint-unproven")
+        raise GateError("endpoint-unproven:database-url")
 
 
 def connection_args(url):
@@ -121,7 +126,7 @@ def read_catalog(url, target):
             cursor.execute("SELECT current_database(), host(inet_server_addr()), inet_server_port()")
             database, address, port = cursor.fetchone()
             if database != target.database or address not in addresses or port != target.port:
-                raise GateError("endpoint-unproven")
+                raise GateError("endpoint-unproven:server-address")
             cursor.execute("SELECT table_schema, table_name, column_name FROM information_schema.columns")
             return set(cursor.fetchall())
 
@@ -163,14 +168,96 @@ def apply_file(path, url):
         raise GateError("apply-failed")
 
 
+_ENTITY_PREFIX = "storage/src/storage/entity/"
+_MIGRATION_SQL = re.compile(r"^migration/[0-9]+_.+\.sql$")
+
+
+def paths_require_schema(paths):
+    """True when the tracked diff names an entity path or a tracked migration file.
+
+    ``migration/`` is gitignored, so a file that exists only on disk is never in
+    ``paths``. Callers must not describe a false result as "no migration SQL".
+    """
+    for path in paths:
+        if path == "storage/src/storage/entity" or path.startswith(_ENTITY_PREFIX):
+            return True
+        if _MIGRATION_SQL.fullmatch(path):
+            return True
+    return False
+
+
+def changed_paths(base, candidate):
+    """Paths added, removed, or renamed between two revisions. Both rename ends count."""
+    root = Path(__file__).resolve().parents[1]
+    proc = subprocess.run(
+        ["git", "-C", str(root), "diff", "-z", "--name-status", "--find-renames", base, candidate],
+        capture_output=True, check=False,
+    )
+    if proc.returncode != 0:
+        raise GateError("range-diff-failed")
+    parts = proc.stdout.split(b"\0")
+    if parts and parts[-1] == b"":
+        parts.pop()
+    paths = []
+    index = 0
+    while index < len(parts):
+        try:
+            status = parts[index].decode()
+        except UnicodeError as exc:
+            raise GateError("range-diff-failed") from exc
+        index += 1
+        width = 2 if status[:1] in {"R", "C"} else 1
+        if index + width > len(parts):
+            raise GateError("range-diff-failed")
+        for raw in parts[index:index + width]:
+            try:
+                paths.append(raw.decode())
+            except UnicodeError as exc:
+                raise GateError("range-diff-failed") from exc
+        index += width
+    return paths
+
+
+def _short_rev(value):
+    text = str(value).strip()
+    if re.fullmatch(r"[0-9a-fA-F]{7,64}", text):
+        return text[:12].lower()
+    return text[:40]
+
+
+def schema_not_required(base, candidate):
+    """Print the skip line when this range cannot change the schema gate's inputs.
+
+    Returns True when the caller should exit 0 without contacting the database.
+    """
+    if not paths_require_schema(changed_paths(base, candidate)):
+        print(
+            "[schema-gate] not-required "
+            "reason=no tracked storage/src/storage/entity change and no tracked "
+            "migration file "
+            f"in {_short_rev(base)}..{_short_rev(candidate)}; "
+            "on-disk migration/ is gitignored and not inspected"
+        )
+        return True
+    return False
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--base", default=None, help="Start of the outgoing range")
+    parser.add_argument("--candidate", default=None, help="End of the outgoing range")
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("check")
     apply = sub.add_parser("apply")
     apply.add_argument("--file", type=Path, required=True)
     args = parser.parse_args(argv)
+    if (args.base is None) != (args.candidate is None):
+        print("[schema-gate] env=prod error=range-incomplete", file=sys.stderr)
+        return 2
     try:
+        if (args.command != "apply" and args.base is not None
+                and schema_not_required(args.base, args.candidate)):
+            return 0
         expected = collect_expected()
         url = load_url()
         target = prove_target(url)

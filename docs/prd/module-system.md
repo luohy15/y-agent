@@ -1263,13 +1263,16 @@ module_version
 
 #### Publish provenance
 
-`y module publish <slug> --source-sha <sha>` builds and uploads only when the
+`y module publish [<slug>] [--source-sha <sha>]` builds and uploads only when the
 canonical checkout `/Users/roy/luohy15/code/y-module` satisfies all of the
 following. Otherwise it fails closed before any API call. There is no bypass
 and no historical-SHA mode.
 
-- `--source-sha` is required and is the full 40-hex lowercase SHA of the
-  approved candidate. The CLI never substitutes a newer tip.
+- The slug defaults to the first directory under that checkout that contains
+  the current working directory. `--source-sha` defaults to `git rev-parse HEAD`
+  of that checkout. When passed, it is the full 40-hex lowercase SHA of the
+  approved candidate. Either way the resolved SHA must be the live tip. The CLI
+  never substitutes a newer tip. `-d` defaults to the HEAD commit subject.
 - Remote truth is `git ls-remote origin refs/heads/main` (read-only, 30s
   timeout). The stale local `origin/main` ref is not consulted. A failure,
   empty output or timeout refuses.

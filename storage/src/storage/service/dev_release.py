@@ -325,13 +325,14 @@ def list_waiters(user_id: int, *, project: Optional[str] = None,
 
 
 def grant_message(waiter: DevReleaseWaiter) -> str:
-    """One line: what was granted and how to look the rest up."""
+    """One human line: project, holder, and the next command.
+
+    Claim, waiter, event and generation ids stay off this line. The receipt
+    still carries them for ``y dev release waiters --verbose``.
+    """
     return (
-        f"Publication slot granted for {waiter.project_key}: "
-        f"waiter={waiter.waiter_id} event={waiter.event_id} "
-        f"claim={waiter.granted_claim_id} generation={waiter.granted_generation}. "
-        f"Re-check that this claim is still active and re-verify your frozen candidate "
-        f"(y dev release waiters) before any publication side effect."
+        f"Publication slot for {waiter.project_key} is yours "
+        f"(trace {waiter.trace_id}). Next: y dev release status --next."
     )
 
 

@@ -1,12 +1,16 @@
 #!/bin/bash
-# Publish preflight for y dev commit (todo 4218).
+# Publish preflight for y dev commit (todo 4218, range skip todo 4248).
 #
 # The dev module runs <worktree>/scripts/preflight-publish before git push
 # when this file exists, echoes its output, and refuses the push on any
 # non-zero status. Repositories without this file are unaffected.
 #
-# Always runs scripts/schema_check.py from this repository root (the parent
-# of scripts/) and exits with that process's status. stdout and stderr pass
+# The outgoing range is PREFLIGHT_BASE + PREFLIGHT_CANDIDATE (set by
+# y dev commit) or two positional revisions. A range with no tracked
+# storage/src/storage/entity/** path and no tracked migration file prints
+# [schema-gate] not-required and exits 0. migration/ is gitignored, so this
+# does not look at on-disk SQL. A schema-bearing range, or no range at all,
+# runs scripts/schema_check.py and keeps its status. stdout and stderr pass
 # through unchanged.
 
 set -euo pipefail
@@ -19,4 +23,21 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 2
 fi
 
-exec uv run python scripts/schema_check.py
+args=()
+if [[ $# -gt 0 ]]; then
+  if [[ $# -ne 2 ]]; then
+    echo "preflight-publish: expected <base> <candidate>, or no arguments" >&2
+    exit 2
+  fi
+  args=(--base "$1" --candidate "$2")
+elif [[ -n "${PREFLIGHT_BASE:-}" || -n "${PREFLIGHT_CANDIDATE:-}" ]]; then
+  if [[ -z "${PREFLIGHT_BASE:-}" || -z "${PREFLIGHT_CANDIDATE:-}" ]]; then
+    echo "preflight-publish: PREFLIGHT_BASE and PREFLIGHT_CANDIDATE are both required" >&2
+    exit 2
+  fi
+  args=(--base "$PREFLIGHT_BASE" --candidate "$PREFLIGHT_CANDIDATE")
+fi
+
+# ${args[@]+...} is empty when the array is empty. A bare "${args[@]}"
+# under set -u is an unbound-variable error on bash 3.2.
+exec uv run python scripts/schema_check.py ${args[@]+"${args[@]}"}

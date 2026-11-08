@@ -198,7 +198,7 @@ entity + controller + service + CLI slices, and most have a web panel.
   (`/Users/roy/luohy15/code/y-module`, standalone, independent of `Y_AGENT_HOME`):
   `module.json`, import-free `__init__.py`, optional `api.py`/`cli.py`,
   `ui/index.tsx`, optional `entities/`/`repository/`/`migration/`/`tests/`.
-  `y <slug>` loads only the same-named local source lazily. HTTP dispatch resolves only the requested slug without resource-path or JSON rewrites. Family Finance replaces Household without aliases (todo 4143); a retained disabled module returns 403, an absent module 404. Published import names replace slug hyphens. `y module publish <slug> --source-sha <sha>` builds API+UI
+  `y <slug>` loads only the same-named local source lazily. HTTP dispatch resolves only the requested slug without resource-path or JSON rewrites. Family Finance replaces Household without aliases (todo 4143); a retained disabled module returns 403, an absent module 404. Published import names replace slug hyphens. `y module publish [<slug>]` builds API+UI
   together only when the canonical checkout HEAD equals that live origin/main tip, verifies hashes and schema preflight, creates one immutable
   `module_version`, and moves the active pointer. API dispatches
   `/api/module/<slug>/*` via a lazy hash-verified per-version sub-app. Web loader
@@ -639,7 +639,9 @@ y module create <slug> --icon <key|file.svg> [--label <text>] [--force] [--no-re
 y module list
 y module versions <slug>
 y module schema-sql <slug>  # print DDL only; migrations are maintainer-applied SQL
-y module publish <slug> --source-sha <sha> [--no-activate] [--label <text>] [--icon <key>] [-d|--desc <text>]
+# slug defaults to cwd under code/y-module/<slug>; --source-sha defaults to that
+# repo's HEAD; -d defaults to the HEAD commit subject. Live tip still must match.
+y module publish [<slug>] [--source-sha <sha>] [--no-activate] [--label <text>] [--icon <key>] [-d|--desc <text>]
 y module rollback <slug>
 y module activate <slug> <version_no>
 y module enable <slug> | y module disable <slug>

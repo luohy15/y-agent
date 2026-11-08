@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -15,7 +16,7 @@ from storage.service.module_icon import normalize_module_icon
 
 from ._api import publish_bundle, resolve_or_create
 from ._build import build_api_bundle, build_artifact
-from ._paths import meta_path, source_dir, source_path, ui_dir, validate_slug
+from ._paths import meta_path, modules_dir, source_dir, source_path, ui_dir, validate_slug
 from ._sdk import load_contract
 from ._source import find_icon_conflict, verify_source_snapshot
 
@@ -25,11 +26,67 @@ _SOURCE_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
 def _validate_source_sha(ctx, param, value):
+    if value is None:
+        return None
     if not isinstance(value, str) or not _SOURCE_SHA_RE.fullmatch(value):
         raise click.BadParameter(
             "must be the full 40-hex lowercase SHA of the approved origin/main tip"
         )
     return value
+
+
+def slug_from_directory(cwd: Path, root: Path) -> str:
+    """Slug of the module that contains ``cwd`` under the module source root."""
+    try:
+        relative = Path(cwd).resolve().relative_to(Path(root).resolve())
+    except ValueError as exc:
+        raise click.ClickException(
+            f"pass a slug, or run from a directory under {root}/<slug>"
+        ) from exc
+    if not relative.parts:
+        raise click.ClickException(
+            f"pass a slug: {root} is the module source root, not a module"
+        )
+    try:
+        return validate_slug(relative.parts[0])
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def git_head_sha(root: Path) -> str:
+    """Full HEAD SHA of the module source checkout. This is the default --source-sha."""
+    sha = _git_line(root, ["rev-parse", "HEAD"], "could not read HEAD for --source-sha")
+    if not _SOURCE_SHA_RE.fullmatch(sha):
+        raise click.ClickException(f"HEAD of {root} is not a full 40-hex SHA ({sha!r})")
+    return sha
+
+
+def git_head_subject(root: Path) -> str:
+    """HEAD commit subject. This is the default ``-d`` description."""
+    subject = _git_line(
+        root,
+        ["log", "-1", "--format=%s"],
+        "could not read the HEAD commit subject for -d",
+    )
+    if not subject:
+        raise click.ClickException("HEAD commit subject is empty; pass -d")
+    return subject
+
+
+def _git_line(root: Path, args: list[str], failure: str) -> str:
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), *args],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise click.ClickException(failure) from exc
+    if proc.returncode != 0:
+        raise click.ClickException(failure)
+    return proc.stdout.strip()
 
 
 def _validate_surfaces(surfaces) -> str:
@@ -55,7 +112,7 @@ def _validate_surfaces(surfaces) -> str:
 
 
 @click.command("publish")
-@click.argument("slug")
+@click.argument("slug", required=False)
 @click.option(
     "--no-activate",
     is_flag=True,
@@ -63,7 +120,12 @@ def _validate_surfaces(surfaces) -> str:
 )
 @click.option("--label", default=None, help="Override sidebar label from module.json")
 @click.option("--icon", default=None, help="Override sidebar icon from module.json")
-@click.option("-d", "--desc", default=None, help="Description/tag for this version")
+@click.option(
+    "-d",
+    "--desc",
+    default=None,
+    help="Description/tag for this version. Defaults to the module source HEAD commit subject.",
+)
 @click.option(
     "--trace-id",
     default=None,
@@ -71,16 +133,31 @@ def _validate_surfaces(surfaces) -> str:
 )
 @click.option(
     "--source-sha",
-    required=True,
+    default=None,
     callback=_validate_source_sha,
-    help="Full 40-hex SHA of the approved origin/main tip. Refused if it is not the live tip.",
+    help="Full 40-hex SHA of the approved origin/main tip. Defaults to the module "
+    "source checkout HEAD. Refused if it is not the live tip.",
 )
 def module_publish(slug, no_activate, label, icon, desc, trace_id, source_sha):
-    """Build the module and publish it. A build error leaves the active version untouched."""
-    try:
-        slug = validate_slug(slug)
-    except ValueError as exc:
-        raise click.ClickException(str(exc)) from exc
+    """Build the module and publish it. A build error leaves the active version untouched.
+
+    Slug defaults to the first directory under the module source root that contains
+    the current working directory. --source-sha defaults to that checkout's HEAD,
+    and -d defaults to the HEAD commit subject. The live-tip and clean-input checks
+    still run before either build.
+    """
+    root = modules_dir()
+    if slug is None:
+        slug = slug_from_directory(Path.cwd(), root)
+    else:
+        try:
+            slug = validate_slug(slug)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+    if source_sha is None:
+        source_sha = git_head_sha(root)
+    if desc is None:
+        desc = git_head_subject(root)
 
     trace_id = trace_id or os.environ.get("Y_TRACE_ID") or None
     # Before metadata and either build: a mismatch must not start a build.
