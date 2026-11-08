@@ -259,7 +259,7 @@ declare module "@y/host" {
   export function actionBadgeClass(action: string): string;
   export function getTopicColor(topic: string): { bg: string; text: string };
   export function getTopicChartColors(topic: string): { fill: string; stroke: string };
-  /** Strip a leading `[trace:<id> ...]` prefix from message content. */
+  /** Strip a leading `[trace:<id> ...]` / `[from:... to_chat:...]` / `[routine:<name>]` prefix from message content. */
   export function stripTracePrefix(content: string): string;
 
   // navigation.ts — push history + popstate (artifacts cannot import react-router)

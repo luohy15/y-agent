@@ -1,4 +1,5 @@
 // Shared badge styles for trace_id, chat_id, and topic across the app
+import { parseChatPrefix } from "../utils/chatPrefix";
 
 // --- Topic → solarized color token ---
 const TOPIC_SOL_COLOR: Record<string, string> = {
@@ -61,6 +62,9 @@ export const TRACE_BADGE = `${BADGE_BASE} bg-sol-base01/20 text-sol-base01`;
 // chat_id: blue
 export const CHAT_BADGE = `${BADGE_BASE} bg-sol-blue/20 text-sol-blue`;
 
+// routine: cyan (matches the chat list routine badge)
+export const ROUTINE_BADGE = `${BADGE_BASE} bg-sol-cyan/20 text-sol-cyan`;
+
 // topic: dynamic color from map
 export function topicBadgeClass(topic: string) {
   const c = getTopicColor(topic);
@@ -114,8 +118,9 @@ export function actionBadgeClass(action: string): string {
   return ACTION_COLOR[action] || "bg-sol-base02 text-sol-base0";
 }
 
-// Strip [trace:<id> ...] prefix from message content. Permissive: only `trace:` is required;
-// any of `from`, `to`, `from_chat`, `to_chat` may be missing in any order.
+// Strip a leading dispatch / trace / routine prefix from message content.
+// Shares the message-chrome parsing rules: only a well-formed known-key prefix
+// is removed, anything else stays as-is.
 export function stripTracePrefix(content: string): string {
-  return content.replace(/^\[trace:\S+(?:\s+\w+:\S+)*\]\n?/, "");
+  return parseChatPrefix(content)?.cleanContent ?? content;
 }

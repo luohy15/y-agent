@@ -1,32 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { CHAT_BADGE, TRACE_BADGE, topicBadgeClass } from "../badges";
-
-export interface TraceInfo {
-  traceId: string;
-  fromSkill?: string;
-  toSkill?: string;
-  fromChatId?: string;
-  toChatId?: string;
-  cleanContent: string;
-}
-
-export function parseTracePrefix(content: string): TraceInfo | null {
-  const match = content.match(/^\[trace:(\S+)((?:\s+\w+:\S+)*)\]\n?/);
-  if (!match) return null;
-  const rest = match[2];
-  const get = (key: string): string | undefined => {
-    const found = rest.match(new RegExp(`\\s${key}:(\\S+)`));
-    return found ? found[1] : undefined;
-  };
-  return {
-    traceId: match[1],
-    fromSkill: get("from"),
-    toSkill: get("to"),
-    fromChatId: get("from_chat"),
-    toChatId: get("to_chat"),
-    cleanContent: content.slice(match[0].length),
-  };
-}
+import { CHAT_BADGE, ROUTINE_BADGE, TRACE_BADGE, topicBadgeClass } from "../badges";
 
 function formatDateTime(timestamp?: string): string {
   if (!timestamp) return "";
@@ -92,6 +65,7 @@ export function CopyButton({ text, className, label = "Copy message" }: { text: 
 export function TimestampLine({
   timestamp,
   traceId,
+  routine,
   fromSkill,
   toSkill,
   fromChatId,
@@ -101,6 +75,7 @@ export function TimestampLine({
 }: {
   timestamp?: string;
   traceId?: string;
+  routine?: string;
   fromSkill?: string;
   toSkill?: string;
   fromChatId?: string;
@@ -109,7 +84,7 @@ export function TimestampLine({
   onSelectTrace?: (traceId: string) => void;
 }) {
   const formatted = formatDateTime(timestamp);
-  const hasAny = formatted || traceId || fromSkill || toSkill || fromChatId || toChatId;
+  const hasAny = formatted || traceId || routine || fromSkill || toSkill || fromChatId || toChatId;
   if (!hasAny) return null;
   const hasFrom = fromSkill || fromChatId;
   const hasTo = toSkill || toChatId;
@@ -132,6 +107,7 @@ export function TimestampLine({
           #{traceId}
         </span>
       )}
+      {routine && <span className={`ml-1.5 text-[0.6rem] ${ROUTINE_BADGE}`}>{routine}</span>}
       {fromSkill && <span className={`ml-1.5 text-[0.6rem] ${topicBadgeClass(fromSkill)}`}>{fromSkill}</span>}
       {fromChatId && chatClass(fromChatId, onSelectChat)}
       {hasFrom && hasTo && <span className="ml-1 text-sol-base01">→</span>}

@@ -6,7 +6,8 @@ import { ChatImage, ChatMessageImages } from "../ChatImage";
 import { citationDomain, citationHostname } from "../citationDomain";
 import { normalizeLinks, type NormalizedCitationLink } from "../citationLinks";
 import remarkStripComments from "../../utils/remarkStripComments";
-import { CopyButton, TimestampLine, nodeText, parseTracePrefix } from "./messageChrome";
+import { parseChatPrefix } from "../../utils/chatPrefix";
+import { CopyButton, TimestampLine, nodeText } from "./messageChrome";
 import { ToolCallView, type GetPresentedContent, type LoadPresentedContent, type PresentedContentState } from "./toolCallView";
 
 export type ChatMessageRole = "user" | "assistant" | "tool_pending" | "tool_result" | "tool_denied" | "system";
@@ -165,8 +166,8 @@ function UserMessage({ content, images, timestamp, onSelectChat, onSelectTrace }
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [clamped, setClamped] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const traceInfo = parseTracePrefix(content);
-  const displayContent = traceInfo ? traceInfo.cleanContent : content;
+  const prefixInfo = parseChatPrefix(content);
+  const displayContent = prefixInfo ? prefixInfo.cleanContent : content;
   useEffect(() => {
     const el = contentRef.current;
     if (!el) return;
@@ -175,7 +176,7 @@ function UserMessage({ content, images, timestamp, onSelectChat, onSelectTrace }
   }, [displayContent]);
   return (
     <div data-testid="message-user">
-      <TimestampLine timestamp={timestamp} traceId={traceInfo?.traceId} fromSkill={traceInfo?.fromSkill} toSkill={traceInfo?.toSkill} fromChatId={traceInfo?.fromChatId} toChatId={traceInfo?.toChatId} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} />
+      <TimestampLine timestamp={timestamp} traceId={prefixInfo?.traceId} routine={prefixInfo?.routine} fromSkill={prefixInfo?.fromSkill} toSkill={prefixInfo?.toSkill} fromChatId={prefixInfo?.fromChatId} toChatId={prefixInfo?.toChatId} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} />
       <div className="group relative bg-sol-base02 rounded px-2 py-1.5 -mx-2">
         <CopyButton text={displayContent} className="absolute right-1 top-1 opacity-0 transition-opacity group-hover:opacity-100" />
         <div className="flex items-baseline">
