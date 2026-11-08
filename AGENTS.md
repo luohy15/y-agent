@@ -367,7 +367,14 @@ The repo no longer contains an in-process agent loop — the worker shells out.
 - **Tools** — `agent/tools/` holds shims for `bash`, `file_read/write/edit`, `local_exec`,
   `ssh_exec`. These are surfaced to Claude Code as JSON tool descriptors.
 - **Skills** — discovered from `~/.agents/skills/`; each skill is a directory with
-  `SKILL.md`.
+  `SKILL.md`. Host `agent/agents_publish.py` and built-in `y skills publish|check`
+  deliver the EC2 tree with the existing tar/manifest receiver format (todo 4240).
+  `publish` defaults to dry-run and node `mac`; explicit nodes use SSH-config aliases
+  and scope from `/api/vm-config/list`. Only selected namespaces are built/uploaded.
+  Work rules come from `/api/module/namespace/rules`, fail closed, and normalize
+  skill names to directory prefixes. Personal needs no module. Dry-run performs
+  read-only API calls but no upload/SSH/target writes. Rule CRUD belongs to the
+  namespace module; scope is a delivery filter, not a runtime sandbox.
 
 ## Key Files
 

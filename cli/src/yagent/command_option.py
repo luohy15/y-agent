@@ -23,6 +23,7 @@ from yagent.commands.usage.click import usage_group
 from yagent.commands.module.click import module_group
 from yagent.commands.module._lazy import LazyModuleGroup
 from yagent.commands.node.click import node_group
+from yagent.commands.skills.click import skills_group
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 
 @click.group(cls=LazyModuleGroup, context_settings=CONTEXT_SETTINGS)
@@ -54,3 +55,4 @@ cli.add_command(cookies_group)
 cli.add_command(usage_group)
 cli.add_command(module_group)
 cli.add_command(node_group)
+cli.add_command(skills_group)
