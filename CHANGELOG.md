@@ -14,6 +14,25 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Added
 
+- **Namespaced agents publishing (4235, 4240, 4250)**: `y skills check|export|publish` builds an agents tree from `~/.agents` by composing the registered namespace chain. `work` reads namespace module rules and fails closed when the module is unavailable, and publish stays dry-run unless `--run` is passed. `private/` is the reserved overlay directory, and a stale `local/` reference fails closed.
+- **Chat list execution target (4246)**: chat list rows carry `execution_target` (backend contract v34), so the sidebar can badge the node without opening the chat. An empty value means the default node.
+- **Dispatch prefix metadata**: a leading dispatch, trace or routine prefix renders in the badge row and its raw bracket line is hidden, falling back to the raw text when the prefix is malformed or partial.
+
+### Changed
+
+- **Node namespace field**: the node field, API and CLI rename `data_scope` to `namespace`. `personal` and `work` are rejected instead of aliased, and an empty value or `default` means the personal tree.
+- **Publication commands (4248)**: release-grant messages print one human-readable line without waiter, event, claim or generation identifiers; the preflight and schema check accept a commit range and skip the endpoint proof for non-schema changes; `y module publish` defaults the slug from the current directory, the source SHA from HEAD and the description from the HEAD subject, keeping the live-tip and clean-input checks.
+
+### Fixed
+
+### Removed
+
+- **Electron desktop client (4245)**: removed the unused Electron desktop client source and build files.
+
+## [0.5.34] - 2026-11-08
+
+### Added
+
 - **Persistent todo conversation (4185)**: `y todo handle <todo_id> --chat <chat_id>` sets the conversation opened with a todo, and Todo detail exposes it as a "Talk to" link. The pointer survives status changes and replies, clearing only on completion or deletion; without a valid pointer, opening falls back to the coordinator or newest chat.
 - **Voice object storage (4165)**: backend contract v30 adds owner- and maintainer-bound voice put/get/delete over the private S3 bucket, with RIFF/WAVE, size, duration and checksum validation and pinned-version reads. Deployments pass a separate API-only `OPENROUTER_INFERENCE_API_KEY` so voice inference does not share the management key.
 - **RSS moved article URLs (4163)**: a new feed URL that matches an existing same-host, same-slug link only on a redirect or an equal title and published time moves the existing URL instead of inserting a duplicate.
