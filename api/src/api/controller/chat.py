@@ -257,6 +257,22 @@ def _deliver_attached_images_to_telegram(user_id: int, chat, target, image_paths
 REASONING_EFFORT_LEVELS = {"low", "medium", "high", "xhigh", "max"}
 
 
+def _admit_bot_pin(user_id: int, bot_name: Optional[str], bot_tier: Optional[str]) -> None:
+    """Reject unresolved explicit names before uploads, chat writes, or enqueue."""
+    if not bot_name:
+        return
+    from agent.config import resolve_pinned_bot_config
+    try:
+        config = resolve_pinned_bot_config(user_id, bot_name, tier=bot_tier)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if config is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"bot '{bot_name}' is unknown, disabled, or outside the requested tier",
+        )
+
+
 def _admit_launch_effort(user_id: int, effort: Optional[str], *, chat=None, bot_name: Optional[str] = None, bot_tier: Optional[str] = None) -> None:
     """Reject an effort the launch bot cannot run before any chat write.
 
@@ -314,6 +330,7 @@ async def get_bot_options(request: Request):
 @router.post("")
 async def post_create_chat(req: CreateChatRequest, request: Request):
     user_id = _get_user_id(request)
+    _admit_bot_pin(user_id, req.bot_name, req.bot_tier)
     # Reject an unsupported effort before image upload or any chat write.
     _admit_launch_effort(
         user_id, _normalize_reasoning_effort(req.reasoning_effort),
@@ -401,6 +418,7 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     `deliver_user_message` accept-body primitive instead of duplicating it.
     """
     user_id = _get_user_id(request)
+    _admit_bot_pin(user_id, req.bot_name, req.bot_tier)
     dispatch_shaped = _is_dispatch_shaped(req)
     reasoning_effort = _normalize_reasoning_effort(req.reasoning_effort)
 
