@@ -25,6 +25,8 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Fixed
 
+- **Explicit bot pin admission (4252)**: an explicitly named bot that is unknown, disabled or outside the requested tier is rejected with a 400 before any image upload, chat write or enqueue, instead of failing later in the worker.
+
 ### Removed
 
 - **Electron desktop client (4245)**: removed the unused Electron desktop client source and build files.
