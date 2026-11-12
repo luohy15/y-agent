@@ -44,6 +44,7 @@ interface Entry {
 
 interface Controller {
   mode: ChatImageScopeMode;
+  allowLocal: () => boolean;
   get: (key: string) => Entry | undefined;
   ensure: (raw: string, kind: "attachment" | "markdown") => Entry | null;
   admit: (key: string) => void;
@@ -315,9 +316,10 @@ export function ChatImageScope({
 
   const get = useCallback((key: string) => storeRef.current.get(key), []);
 
+  const allowLocal = useCallback(() => allowLocalAttachments !== false && allowLocalRef.current && Boolean(getToken()), [allowLocalAttachments]);
   const controller = useMemo<Controller>(
-    () => ({ mode, get, ensure, admit, registerSlot }),
-    [admit, ensure, get, mode, registerSlot],
+    () => ({ mode, allowLocal, get, ensure, admit, registerSlot }),
+    [admit, allowLocal, ensure, get, mode, registerSlot],
   );
 
   return (
@@ -396,6 +398,60 @@ export function ChatMessageImages({ images }: { images?: string[] }) {
         onPrev={() => setLightbox((index) => (index - 1 + paths.length) % paths.length)}
       />
     </div>
+  );
+}
+
+export function ChatMessageFiles({ files }: { files?: string[] }) {
+  if (!files?.length) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-2">
+      {files.map((path, index) => <ChatMessageFile key={`${path}:${index}`} path={path} />)}
+    </div>
+  );
+}
+
+function ChatMessageFile({ path }: { path: string }) {
+  const controller = useChatImageController();
+  const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const inFlight = useRef(false);
+  const name = path.split("/").pop() || "attached file";
+  const extension = name.includes(".") ? name.split(".").pop()?.toUpperCase() : "FILE";
+  const allowed = controller?.allowLocal() ?? false;
+  const download = async () => {
+    if (!controller?.allowLocal() || inFlight.current) return;
+    inFlight.current = true;
+    setLoading(true);
+    setFailed(false);
+    try {
+      const response = await authFetch(`${API}/api/module/file/raw?path=${encodeURIComponent(path)}`);
+      if (!response.ok) throw new Error("failed to download file");
+      const blob = await response.blob();
+      if (!controller.allowLocal()) return;
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = name;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch {
+      setFailed(true);
+    } finally {
+      inFlight.current = false;
+      setLoading(false);
+    }
+  };
+  return (
+    <span className="inline-flex max-w-full flex-col items-start gap-1">
+      <button type="button" title={path} disabled={!allowed || loading} onClick={() => void download()} className="inline-flex max-w-full items-center gap-2 rounded border border-sol-base01/30 bg-sol-base02 px-2 py-1 text-xs text-sol-base0 enabled:cursor-pointer enabled:hover:border-sol-blue disabled:opacity-50">
+        <span className="shrink-0 font-mono text-[0.65rem] font-semibold text-sol-base01">{extension || "FILE"}</span>
+        <span className="truncate">{name}</span>
+        {loading && <span className="shrink-0 text-sol-base01">Downloading...</span>}
+      </button>
+      {failed && <span role="alert" className="text-xs text-sol-red">Download failed. Try again.</span>}
+    </span>
   );
 }
 

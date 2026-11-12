@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import ArtifactView, { type ArtifactMode, type ArtifactType } from "../ArtifactView";
-import { ChatImage, ChatMessageImages } from "../ChatImage";
+import { ChatImage, ChatMessageFiles, ChatMessageImages } from "../ChatImage";
 import { citationDomain, citationHostname } from "../citationDomain";
 import { normalizeLinks, type NormalizedCitationLink } from "../citationLinks";
 import remarkStripComments from "../../utils/remarkStripComments";
@@ -36,6 +36,7 @@ export interface ChatMessagePresentationProps {
   arguments?: Record<string, unknown>;
   timestamp?: string;
   images?: string[];
+  files?: string[];
   links?: PresentedCitationLink[];
   dimmed?: boolean;
   toolCallId?: string;
@@ -162,7 +163,7 @@ function artifactKey(type: ArtifactType, spec: string): string {
 
 const USER_MSG_MAX_LINES = 3;
 
-function UserMessage({ content, images, timestamp, onSelectChat, onSelectTrace }: Pick<ChatMessagePresentationProps, "content" | "images" | "timestamp" | "onSelectChat" | "onSelectTrace">) {
+function UserMessage({ content, images, files, timestamp, onSelectChat, onSelectTrace }: Pick<ChatMessagePresentationProps, "content" | "images" | "files" | "timestamp" | "onSelectChat" | "onSelectTrace">) {
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [clamped, setClamped] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -185,6 +186,7 @@ function UserMessage({ content, images, timestamp, onSelectChat, onSelectTrace }
             <div ref={contentRef} className={`y-chat-message-text text-sol-base1 whitespace-pre-wrap break-words min-w-0${!expanded && clamped ? " line-clamp-3" : ""}`}>{displayContent}</div>
             {clamped && <button type="button" onClick={() => setExpanded(!expanded)} className="text-sol-blue text-xs mt-0.5 hover:underline cursor-pointer">{expanded ? "Show less" : "Show more"}</button>}
             <ChatMessageImages images={images} />
+            <ChatMessageFiles files={files} />
           </div>
         </div>
       </div>
@@ -215,7 +217,7 @@ function SourceDisclosure({ links, onShowSources, rawLinks }: { links: Normalize
 
 export default function ChatMessagePresentation(props: ChatMessagePresentationProps) {
   const {
-    role, content, images, links, toolName, arguments: args, timestamp, dimmed, toolCallId,
+    role, content, images, files, links, toolName, arguments: args, timestamp, dimmed, toolCallId,
     contentTruncated, contentLength, onLoadFullContent, getFullContent, onOpenFile, onShowSources,
     onSelectChat, onSelectTrace, onOpenArtifact, resolveFileReference,
   } = props;
@@ -238,7 +240,7 @@ export default function ChatMessagePresentation(props: ChatMessagePresentationPr
       />
     );
   }
-  if (role === "user") return <UserMessage content={content} images={images} timestamp={timestamp} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} />;
+  if (role === "user") return <UserMessage content={content} images={images} files={files} timestamp={timestamp} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} />;
 
   const markdownContent = preprocessCitationLinks(content, links);
   const citationLinks = normalizeLinks(links);
@@ -298,6 +300,7 @@ export default function ChatMessagePresentation(props: ChatMessagePresentationPr
         >{markdownContent}</ReactMarkdown>
         <SourceDisclosure links={citationLinks} onShowSources={onShowSources} rawLinks={links} />
         <ChatMessageImages images={images} />
+        <ChatMessageFiles files={files} />
       </div>
     </div>
   );

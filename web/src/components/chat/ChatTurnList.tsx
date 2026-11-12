@@ -19,6 +19,7 @@ export interface ChatTurnMessage extends GroupableMessage {
   toolCallId?: string;
   timestamp?: string;
   images?: string[];
+  files?: string[];
   links?: PresentedCitationLink[];
   contentTruncated?: boolean;
   contentLength?: number;
@@ -49,7 +50,7 @@ export interface ChatTurnListProps {
 type Capabilities = Pick<ChatTurnListProps, "resolveFileReference" | "onOpenFile" | "onSelectChat" | "onSelectTrace" | "onOpenArtifact" | "onLoadFullContent" | "getFullContent">;
 
 function Bubble({ message, caps, dimmed, onShowSources }: { message: ChatTurnMessage; caps: Capabilities; dimmed?: boolean; onShowSources?: ChatMessagePresentationProps["onShowSources"] }) {
-  return <ChatMessagePresentation role={message.role} content={message.content} images={message.images} links={message.links} toolName={message.toolName} arguments={message.arguments} timestamp={message.timestamp} dimmed={dimmed} toolCallId={message.toolCallId} contentTruncated={message.contentTruncated} contentLength={message.contentLength} onShowSources={onShowSources} {...caps} />;
+  return <ChatMessagePresentation role={message.role} content={message.content} images={message.images} files={message.files} links={message.links} toolName={message.toolName} arguments={message.arguments} timestamp={message.timestamp} dimmed={dimmed} toolCallId={message.toolCallId} contentTruncated={message.contentTruncated} contentLength={message.contentLength} onShowSources={onShowSources} {...caps} />;
 }
 
 function FileToolGroup({ kind, messages, startIndex, caps }: { kind: string; messages: ChatTurnMessage[]; startIndex: number; caps: Capabilities }) {

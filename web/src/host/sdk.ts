@@ -35,7 +35,7 @@ import MarkdownBodyPreview from "../components/shell/MarkdownBodyPreview";
 import { FrontMatterCard, MARKDOWN_ARTICLE_TABLE_CLASSES } from "../components/shell/FrontMatterCard";
 import ChatMessagePresentation from "../components/chat/ChatMessagePresentation";
 import ChatTurnList from "../components/chat/ChatTurnList";
-import { ChatImage, ChatImageScope, ChatMessageImages } from "../components/ChatImage";
+import { ChatImage, ChatImageScope, ChatMessageFiles, ChatMessageImages } from "../components/ChatImage";
 import ImageLightbox from "../components/ImageLightbox";
 import ResolvedRangeLabel from "../components/ResolvedRangeLabel";
 import TagsEditor from "../components/TagsEditor";
@@ -129,6 +129,7 @@ export const hostSdk = {
   ChatImageScope,
   ChatImage,
   ChatMessageImages,
+  ChatMessageFiles,
 
   // CodeEditor.tsx (contract v7, todo 3068 H3) — host-owned CodeMirror leaf.
   // Keeps lazy per-language loading (codeEditorLangs.ts) inside the host so a

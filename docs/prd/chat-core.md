@@ -36,6 +36,16 @@ immediately), with an opt-in `--wait` mode that blocks until the assistant
 reply is ready and prints the reply text instead. A separate interactive REPL
 mode (`-i`) serves a human at a terminal.
 
+- **File attachments (browser contract v32):** the host-owned `ChatMessageFiles`
+  leaf renders `Message.files` after images in user and assistant bubbles,
+  including fallback/share/snapshot and PNG export. Chips show an extension
+  badge and basename, with the full path as their title. Clicking downloads
+  bytes through `authFetch` and `/api/module/file/raw?path=`; render/export
+  never fetches them. Without an image scope or token, or with
+  `allowLocalAttachments=false`, chips are dimmed and inert. The chat module
+  carries the field into the shared host presentation. No assistant attachment
+  producer, composer upload, inline preview or Telegram outbound change is added.
+
 ## User Stories
 
 ### GUI: chat list
@@ -187,6 +197,12 @@ mode (`-i`) serves a human at a terminal.
      and waits for them before capture. Switching chats may release
      resources; a hidden public-trace snapshot pane must not fetch while it
      is not shown. Native `loading="lazy"` is not this contract.
+
+21b. As a chat reader, I want non-image `Message.files` attachments in user
+     and assistant messages to show filename chips that download on click.
+     File-only assistant messages must survive parsing and empty-tail filtering.
+     Public shares and snapshots must show inert chips even if the browser has
+     an owner token. PNG exports include the chips without downloading files.
 
 ### GUI: sending
 

@@ -10,6 +10,7 @@ export interface HostMessage {
   toolCallId?: string;
   timestamp?: string;
   images?: string[];
+  files?: string[];
   links?: HostCitationLink[];
 }
 
@@ -41,7 +42,7 @@ export function filterTrailingEmptyAssistantMessages(messages: HostMessage[]): H
     }
     for (let i = turnStart; i < end; i += 1) {
       const message = messages[i];
-      if (lastContent >= 0 && i > lastContent && message.role === "assistant" && !message.content.trim() && !message.images?.length && !message.links?.length) continue;
+      if (lastContent >= 0 && i > lastContent && message.role === "assistant" && !message.content.trim() && !message.images?.length && !message.files?.length && !message.links?.length) continue;
       result.push(message);
     }
   };
@@ -65,10 +66,10 @@ export function parseRawChatMessage(event: any): HostMessage[] {
   const message = event.data || event;
   const role = message.role || "assistant";
   const content = extractContent(message.content);
-  const common = { timestamp: message.timestamp, images: message.images, links: message.links };
+  const common = { timestamp: message.timestamp, images: message.images, files: message.files, links: message.links };
   if (role === "user") return [{ role, content, ...common }];
   if (role === "assistant" && message.tool_calls) {
-    const result: HostMessage[] = content.trim() ? [{ role: "assistant", content, ...common }] : [];
+    const result: HostMessage[] = (content.trim() || message.files?.length) ? [{ role: "assistant", content, ...common }] : [];
     for (const call of message.tool_calls) {
       let args = {};
       try { args = JSON.parse(call.function?.arguments || "{}"); } catch {}

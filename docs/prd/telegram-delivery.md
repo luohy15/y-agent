@@ -67,8 +67,8 @@ The cap is 20 MB (pre-checked from `file_size`, re-checked on the downloaded
 bytes). Executable and installer suffixes are rejected. Oversize, blocked, and
 failed transfers get a clear Telegram reply instead of a silent drop. A file
 whose route (`/<chat_id>` or `/<todo_id>`) lands on a jump node is rejected
-the same way, because that node cannot read the EC2 asset path. Web chat does
-not render `files`.
+the same way, because that node cannot read the EC2 asset path. Web rendering
+of `Message.files` is owned by [chat-core](chat-core.md).
 
 The `tg_topic` binding table, its repository/service/entity/DTO/API
 registration, forum-topic auto-discovery, thread lookup, and General-topic
@@ -137,7 +137,8 @@ best-effort drop.
   openrouter-credit-check,news-ingest-monitor}/`) off `--topic` /
   `notify_topic` — those live outside this repository and are delivered as
   todo 3468 sub-task 6 by a separate session.
-- Web chat file-upload UI and chat-module rendering of `Message.files`.
+- Web chat file-upload UI. File-chip rendering of `Message.files` belongs to
+  [chat-core](chat-core.md).
 - Inbound video, audio, voice, and stickers (still ignored), and outbound
   document sending (`y telegram send` stays images and text).
 - Making a photo that was routed to a jump node readable. That gap already

@@ -404,6 +404,9 @@ declare module "@y/host" {
     title?: string;
   }): any;
   export function ChatMessageImages(props: { images?: string[] }): any;
+  // Contract v32: click-to-download file chips; inert without a scope/token
+  // or when allowLocalAttachments is false. No fetch on render or export.
+  export function ChatMessageFiles(props: { files?: string[] }): any;
 
   // CodeEditor.tsx (contract v7, todo 3068 H3) — host-owned CodeMirror leaf.
   // Language grammars stay host-lazy via codeEditorLangs.ts; modules only pass
@@ -502,6 +505,7 @@ declare module "@y/host" {
     arguments?: Record<string, unknown>;
     timestamp?: string;
     images?: string[];
+    files?: string[];
     links?: Array<string | { url: string; title?: string; snippet?: string; last_updated?: string }>;
     dimmed?: boolean;
     toolCallId?: string;
@@ -527,6 +531,7 @@ declare module "@y/host" {
     toolCallId?: string;
     timestamp?: string;
     images?: string[];
+    files?: string[];
     links?: ChatMessagePresentationProps["links"];
     contentTruncated?: boolean;
     contentLength?: number;
@@ -752,6 +757,7 @@ declare module "@y/host" {
     toolCallId?: string;
     timestamp?: string;
     images?: string[];
+    files?: string[];
     links?: NormalizedCitationLink[] | string[];
   }
   export function parseRawChatMessage(evt: unknown): ChatMessage[];

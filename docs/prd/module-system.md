@@ -1362,6 +1362,14 @@ which returns the same glyph the activity bar uses. The registry is not
 extended. The host still owns the registry SVGs, so an existing key can gain a
 corrected glyph through an ordinary host deploy.
 
+Browser contract **v31 → v32** (todo 4283) adds `ChatMessageFiles({ files })`
+and optional `files: string[]` on `ChatMessagePresentationProps` and
+`ChatTurnMessage`. The host renders user and assistant file chips and owns
+click-to-download through the authenticated File module raw route. Without a
+`ChatImageScope`, a token, or permission for local attachments, chips are inert.
+Rendering and PNG export never fetch file bytes. Deploy host v32 before
+publishing a chat module that passes files; that module requires host v32.
+
 **The CLI part is deliberately not versioned.** It is never published and never
 stored; it is always read from local source on disk. This is a real asymmetry and
 is stated rather than hidden: the CLI is the *development* surface and the
