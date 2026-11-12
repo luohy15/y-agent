@@ -39,12 +39,18 @@ mode (`-i`) serves a human at a terminal.
 - **File attachments (browser contract v32):** the host-owned `ChatMessageFiles`
   leaf renders `Message.files` after images in user and assistant bubbles,
   including fallback/share/snapshot and PNG export. Chips show an extension
-  badge and basename, with the full path as their title. Clicking downloads
-  bytes through `authFetch` and `/api/module/file/raw?path=`; render/export
-  never fetches them. Without an image scope or token, or with
-  `allowLocalAttachments=false`, chips are dimmed and inert. The chat module
-  carries the field into the shared host presentation. No assistant attachment
-  producer, composer upload, inline preview or Telegram outbound change is added.
+  badge and basename, with the full path as their title.
+  Clicking opens the file in the host File tab through `file.open`, with no
+  `vmName` or `workDir`
+  (absolute attachment paths live on the default execution node). The File
+  detail owns preview, download, and unviewable-type handling: a binary `/read`
+  415 or a file over 10 MB shows that tab's download-only pane. The chip never
+  downloads directly, and render/export never fetches file bytes. Without an
+  image scope or token, or with `allowLocalAttachments=false`, chips are dimmed
+  and inert. A missing File module shows "Files module is unavailable." The
+  chat module carries the field into the shared host presentation. No assistant
+  attachment producer, composer upload, inline preview or Telegram outbound
+  change is added.
 
 ## User Stories
 
@@ -199,10 +205,13 @@ mode (`-i`) serves a human at a terminal.
      is not shown. Native `loading="lazy"` is not this contract.
 
 21b. As a chat reader, I want non-image `Message.files` attachments in user
-     and assistant messages to show filename chips that download on click.
-     File-only assistant messages must survive parsing and empty-tail filtering.
-     Public shares and snapshots must show inert chips even if the browser has
-     an owner token. PNG exports include the chips without downloading files.
+     and assistant messages to show filename chips.
+     Clicking opens the file in the host File tab. A type that tab cannot
+     render (binary, or over 10 MB)
+     falls back to its download-only pane. File-only assistant messages must
+     survive parsing and empty-tail filtering. Public shares and snapshots must
+     show inert chips even if the browser has an owner token. PNG exports
+     include the chips without opening a tab or fetching file bytes.
 
 ### GUI: sending
 

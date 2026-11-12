@@ -1364,8 +1364,9 @@ corrected glyph through an ordinary host deploy.
 
 Browser contract **v31 → v32** (todo 4283) adds `ChatMessageFiles({ files })`
 and optional `files: string[]` on `ChatMessagePresentationProps` and
-`ChatTurnMessage`. The host renders user and assistant file chips and owns
-click-to-download through the authenticated File module raw route. Without a
+`ChatTurnMessage`. The host renders user and assistant file chips. A click
+opens the file in the host File tab through `file.open`; the File detail owns
+preview and download. Without a
 `ChatImageScope`, a token, or permission for local attachments, chips are inert.
 Rendering and PNG export never fetch file bytes. Deploy host v32 before
 publishing a chat module that passes files; that module requires host v32.

@@ -10,6 +10,7 @@ import {
   type RefObject,
 } from "react";
 import { API, authFetch, getToken } from "../api";
+import { runHostCommand } from "../host/commands";
 import ImageLightbox from "./ImageLightbox";
 
 export const CHAT_IMAGE_PENDING_ATTR = "data-chat-image-pending";
@@ -412,45 +413,24 @@ export function ChatMessageFiles({ files }: { files?: string[] }) {
 
 function ChatMessageFile({ path }: { path: string }) {
   const controller = useChatImageController();
-  const [loading, setLoading] = useState(false);
-  const [failed, setFailed] = useState(false);
-  const inFlight = useRef(false);
   const name = path.split("/").pop() || "attached file";
   const extension = name.includes(".") ? name.split(".").pop()?.toUpperCase() : "FILE";
   const allowed = controller?.allowLocal() ?? false;
-  const download = async () => {
-    if (!controller?.allowLocal() || inFlight.current) return;
-    inFlight.current = true;
-    setLoading(true);
-    setFailed(false);
-    try {
-      const response = await authFetch(`${API}/api/module/file/raw?path=${encodeURIComponent(path)}`);
-      if (!response.ok) throw new Error("failed to download file");
-      const blob = await response.blob();
-      if (!controller.allowLocal()) return;
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = name;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } catch {
-      setFailed(true);
-    } finally {
-      inFlight.current = false;
-      setLoading(false);
-    }
-  };
   return (
     <span className="inline-flex max-w-full flex-col items-start gap-1">
-      <button type="button" title={path} disabled={!allowed || loading} onClick={() => void download()} className="inline-flex max-w-full items-center gap-2 rounded border border-sol-base01/30 bg-sol-base02 px-2 py-1 text-xs text-sol-base0 enabled:cursor-pointer enabled:hover:border-sol-blue disabled:opacity-50">
+      <button
+        type="button"
+        title={path}
+        disabled={!allowed}
+        onClick={() => {
+          if (!controller?.allowLocal()) return;
+          runHostCommand("file.open", { path });
+        }}
+        className="inline-flex max-w-full items-center gap-2 rounded border border-sol-base01/30 bg-sol-base02 px-2 py-1 text-xs text-sol-base0 enabled:cursor-pointer enabled:hover:border-sol-blue disabled:opacity-50"
+      >
         <span className="shrink-0 font-mono text-[0.65rem] font-semibold text-sol-base01">{extension || "FILE"}</span>
         <span className="truncate">{name}</span>
-        {loading && <span className="shrink-0 text-sol-base01">Downloading...</span>}
       </button>
-      {failed && <span role="alert" className="text-xs text-sol-red">Download failed. Try again.</span>}
     </span>
   );
 }
