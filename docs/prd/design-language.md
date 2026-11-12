@@ -207,6 +207,35 @@ with Model / % / Tokens / Cost always visible, Requests / Sessions / Turns /
 Avg / Input / Output revealed at 560px, and Cache (cr/rd) / Cache Hit at 700px
 (container widths); totals mirror the same reveals.
 
+### Table horizontal scroll (D16 / todo 4279)
+
+A data table scrolls sideways inside one viewport. That viewport is `@y/design`
+`TableContainer` (`overflow-x-auto`, already vendored in the SDK). Do not add a
+second scroll component, and do not add a per-table `min-w-*` just to force the
+scroll. Wrap each data `<table>` once. An existing ad-hoc `overflow-x-auto`
+wrapper stays until that file is edited for another reason; convert it then.
+
+A vertical sticky header must not sit inside a nested horizontal wrapper. The
+wrapper becomes the sticky scroll container, so the header stops sticking to
+the pane. Where the pane already scrolls (`dev/ui/worktrees.tsx`,
+`todo/ui/load.tsx`), that pane is `overflow-auto`, `overflow-x-hidden` is
+dropped, and there is no nested wrapper. Load keeps `min-w-[720px]` on the
+table; the pane is the viewport. This is also the correction for the v51 Load
+regression, where the nested wrapper broke the sticky header.
+
+Host markdown tables are not data tables. `web/src/style.css` `.prose table`
+is `display: block; max-width: 100%; overflow-x: auto`. Chat, shared notes, and
+module prose inherit the host stylesheet, so they need no extra wrapper and no
+host code change.
+
+Named exceptions, which do not use `TableContainer`:
+
+- `todo/ui/table.tsx` hides columns below 720px. That layout stays.
+- `link/ui/content-table.tsx` is a code viewer that wraps.
+- `bot/ui/usage/hourly-usage-grid.tsx` scales to fit.
+- `email/ui/detail.tsx` is a metadata popover, not a data table. Its width is a
+  follow-up, not this rule.
+
 ## Testing Decisions
 
 - Open the HTML through the y-agent FileViewer Preview and verify it renders
