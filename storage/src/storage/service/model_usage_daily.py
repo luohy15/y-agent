@@ -136,7 +136,7 @@ def _derive_provider(model: str) -> str:
 def _local_today() -> str:
     """Today's date in the configured timezone (CRS stamps daily keys in its app
     TZ; we mirror Y_AGENT_TIMEZONE via storage.util.local_today(), the single
-    source shared with the read-path fava day resolution — todo 2953)."""
+    source shared with the read-path relative day resolution (todo 2953))."""
     return local_today().isoformat()
 
 

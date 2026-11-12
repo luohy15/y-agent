@@ -1405,13 +1405,17 @@ later delivery.
   remain as a fallback; with no range at all, both default to local today.
   Relative tokens (`day`/`today`, `week`, `month`, `ytd`/`mtd`/`qtd`/`wtd`, and
   `day-N` ranges) always resolve against `Y_AGENT_TIMEZONE`, never the process
-  timezone: Fava's underlying day resolver (`fava.util.date.local_today`,
-  otherwise plain `datetime.date.today()`) is rebound at import in
-  `storage/service/time_range.py` to a configured-TZ `local_today()` helper in
-  `storage/util.py`, the same helper the write path's day-stamping uses. Lambda
-  and the VM both run the process in UTC while `Y_AGENT_TIMEZONE` defaults to
-  `Asia/Shanghai`, so without this bind every relative token resolved to
-  yesterday's window for the first 8 hours of each local day (todo 2953).
+  timezone, unless a caller supplies an explicit `tz` override.
+  `storage/service/time_range.py` owns the parser and passes the date from
+  `storage/util.py`'s `local_today(tz)` explicitly, using the same configured
+  timezone as write-path day stamping without rebinding module globals.
+  The grammar preserves the former Fava 1.30.12 behavior, including ISO weeks,
+  quarters, December-31 fiscal years, exclusive end bounds, unrecognized inputs
+  returning null bounds, and invalid literal dates raising `ValueError`.
+  Shared storage/API parsing does not import or depend on Fava. The CLI alone
+  pins Fava below 1.31 for the finance module's separate beancount parser until
+  that consumer migrates. A fresh CLI installation must not depend on Fava's
+  removed internal `parse_date` for startup or shared time filters.
 - **Heatmap totals endpoint.** A separate daily-totals endpoint returns
   per-day sums (tokens, cost, requests) across all models over the heatmap
   window: a given calendar year, or the month-aligned past 12 months (the

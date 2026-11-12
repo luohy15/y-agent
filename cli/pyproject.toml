@@ -23,7 +23,8 @@ dependencies = [
     "Pillow>=10.0.0",
     "numpy>=1.24.0",
     "beancount>=2.3.0",
-    "fava>=1.30.12",
+    # The finance module's beancount CLI still uses parse_date, removed in 1.31.
+    "fava>=1.30.12,<1.31",
     "google-genai>=0.3.0",
     "openai>=1.50.0",
     "tinify>=1.6.0",

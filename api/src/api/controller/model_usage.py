@@ -41,7 +41,7 @@ async def list_model_daily(
     """Per-model daily usage rows. Defaults to source='crs' and today's date
     (the freshest CRS snapshot) when no range is given. When `time` is given it
     is parsed server-side with the shared finance time grammar (specific dates,
-    quarters, ranges, ytd/mtd/etc.); fava's exclusive end boundary is converted
+    quarters, ranges, ytd/mtd/etc.); the parser's exclusive end boundary is converted
     to the repo's inclusive `<=` semantics via −1 day. `tz` (a client's browser
     IANA timezone) resolves relative tokens / the no-range "today" default
     against that timezone's current date instead of the configured
@@ -164,7 +164,7 @@ async def get_range(
 ):
     """Resolve the shared time grammar to inclusive display bounds without
     fetching any rows. Additive superset of `{from_date, to_date}` (todo 3580):
-    also `input` and `recognized`. Same fava-exclusive-end -> inclusive
+    also `input` and `recognized`. Same exclusive-end -> inclusive
     conversion as `model-daily`/`model-hourly`. A malformed literal date that
     used to 500 is `recognized=false` with null bounds. Null/unbounded tokens
     like `all` stay recognized with null bounds."""

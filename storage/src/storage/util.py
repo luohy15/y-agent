@@ -35,7 +35,7 @@ def local_today(tz: Optional[str] = None):
     """Today's date in `tz` if given, else the configured timezone
     (Y_AGENT_TIMEZONE), falling back to system local — the single source for
     "today" shared by the write path (model_usage_daily) and the read path
-    (time_range's fava day resolution), which previously disagreed by a day
+    (time_range's relative day resolution), which previously disagreed by a day
     for 8 hours after local midnight (todo 2953). Callers that omit `tz`
     (CLI, agent, routines) are unaffected."""
     return datetime.now(_time_filter_tz(tz)).date()
