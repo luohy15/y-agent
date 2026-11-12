@@ -125,6 +125,8 @@ class ApiLatencyMiddleware:
         started_at = datetime.now(timezone.utc)
         started = time.monotonic()
         finished = None
+        terminal_sampled = False
+        terminal_gap_ms = None
         status = None
         disconnected = False
         completion = "normal"
@@ -138,7 +140,7 @@ class ApiLatencyMiddleware:
             return message
 
         async def monitored_send(message):
-            nonlocal disconnected, finished, status
+            nonlocal disconnected, finished, status, terminal_sampled, terminal_gap_ms
             if message.get("type") == "http.response.start":
                 status = message.get("status")
             terminal = (
@@ -148,11 +150,16 @@ class ApiLatencyMiddleware:
             # Sample before the handoff. A freeze after the outer send has the
             # body, but before this coroutine resumes, must not extend duration.
             candidate = time.monotonic() if terminal else None
+            if candidate is not None:
+                terminal_sampled = True
             try:
                 await send(message)
             except OSError:
                 disconnected = True
                 raise
+            finally:
+                if candidate is not None:
+                    terminal_gap_ms = max(0.0, (time.monotonic() - candidate) * 1000.0)
             if candidate is not None:
                 finished = candidate
 
@@ -171,12 +178,26 @@ class ApiLatencyMiddleware:
         finally:
             try:
                 ended = finished if finished is not None else time.monotonic()
+                duration_ms = max(0.0, (ended - started) * 1000.0)
+                capture_lag_ms = max(0.0, (time.monotonic() - ended) * 1000.0)
+                if duration_ms > 60_000 or capture_lag_ms > 60_000:
+                    try:
+                        logger.warning(
+                            "api latency outlier terminal_sampled={} terminal_gap_ms={} "
+                            "capture_lag_ms={} duration_ms={}",
+                            terminal_sampled,
+                            terminal_gap_ms,
+                            capture_lag_ms,
+                            duration_ms,
+                        )
+                    except Exception:
+                        pass
                 monitor = scope.get(MONITOR_SCOPE_KEY) or {}
                 if completion == "normal" and finished is None:
                     completion = "disconnect" if disconnected else "internal_failure"
                 latency_service.capture({
                     "started_at": started_at,
-                    "duration_ms": max(0.0, (ended - started) * 1000.0),
+                    "duration_ms": duration_ms,
                     "method": normalize_method(scope.get("method")),
                     "route": matched_route_template(scope, self.routes()),
                     "status_class": normalize_status_class(status),

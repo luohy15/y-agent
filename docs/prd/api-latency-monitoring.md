@@ -76,7 +76,9 @@ monitoring queries and UI evolution on the module publish loop.
    measurement includes streaming up to that handoff and excludes time spent
    inside the final send itself (adapter backpressure, or a process freeze
    after the response is already complete). A failed or cancelled handoff is
-   not a successful finish: it is measured through the unwind instead.
+   not a successful finish: it is measured through the unwind instead. This is an
+   application-boundary measurement, not proof of client-observed latency; extreme
+   outliers need independent request-lifecycle evidence before attribution.
 3. As a user, I want streaming and long-lived responses measured through their
    final body frame, so that a stream is not reported as fast merely because its
    headers were produced quickly.
@@ -353,6 +355,26 @@ monitoring queries and UI evolution on the module publish loop.
   exception escaping the application remain distinct bounded completion classes.
   Historical rows already stored under the previous boundary are left as they
   are; they age out with the 14-day raw retention.
+- Known limitation: investigated extreme outliers substantially exceed both the
+  corresponding Lambda `REPORT` duration and independently observed client elapsed
+  time, with their calculated end aligned to the next invocation. This strongly
+  correlates with environment freeze/thaw, but the exact mechanism is unresolved:
+  these normal-completion rows contradict the expected pre-send boundary. Neither
+  a large duration nor a short Lambda `REPORT` alone proves freeze/thaw or rules
+  out real slowness. Do not treat these rows alone as evidence that a client waited
+  that long, or classify every outlier as contamination. Stored durations,
+  completion classes, percentiles, and historical rows remain unchanged.
+- A log-only diagnostic emits at most one warning per eligible attempt when its
+  duration or capture lag is strictly greater than 60 seconds. It logs only
+  `terminal_sampled` (whether a terminal pre-send sample was taken),
+  `terminal_gap_ms` (time inside the terminal send through return or unwind, null
+  if no terminal frame occurred), `capture_lag_ms` (time from the retained duration
+  endpoint to capture finalization), and the unchanged `duration_ms`. Capture lag
+  includes terminal send time when the pre-send sample was retained. These are
+  diagnostic timings, not new stored dimensions or a freeze/thaw classifier.
+  Ordinary requests emit no diagnostic; diagnostic logging failure does not skip
+  capture or change the response. No identifiers, paths, headers, or payloads are
+  added to this warning.
 - Method, normalized route template, status class, and completion class are the
   core dimensions. Any additional dimension requires an enumerated value set,
   cardinality budget, privacy review, and explicit schema field. Arbitrary label
