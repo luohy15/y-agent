@@ -1,11 +1,73 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { MODES, type Mode, type ThemePrefs } from "../utils/theme";
+import { listAudioInputs, readInputDeviceId, writeInputDeviceId, type AudioInput } from "../utils/voiceInput";
 
 interface SettingsModalProps {
   open: boolean;
   prefs: ThemePrefs;
   onModeChange: (mode: Mode) => void;
   onClose: () => void;
+}
+
+function MicrophoneField() {
+  const [devices, setDevices] = useState<AudioInput[]>([]);
+  const [deviceId, setDeviceId] = useState(() => readInputDeviceId(window.localStorage));
+  const [unavailable, setUnavailable] = useState(false);
+
+  useEffect(() => {
+    const media = navigator.mediaDevices;
+    let cancelled = false;
+    const load = async () => {
+      if (!media?.enumerateDevices) {
+        if (!cancelled) setUnavailable(true);
+        return;
+      }
+      try {
+        const listed = await media.enumerateDevices();
+        if (cancelled) return;
+        setUnavailable(false);
+        setDevices(listAudioInputs(listed));
+      } catch {
+        if (!cancelled) setUnavailable(true);
+      }
+    };
+    void load();
+    const onChange = () => { void load(); };
+    media?.addEventListener("devicechange", onChange);
+    return () => {
+      cancelled = true;
+      media?.removeEventListener("devicechange", onChange);
+    };
+  }, []);
+
+  const known = devices.some((device) => device.deviceId === deviceId);
+  return (
+    <div>
+      <label htmlFor="settings-microphone" className="text-xs font-medium text-sol-base1">Microphone</label>
+      <select
+        id="settings-microphone"
+        aria-label="Microphone"
+        value={deviceId}
+        onChange={(event) => {
+          const next = event.target.value;
+          writeInputDeviceId(window.localStorage, next);
+          setDeviceId(next);
+        }}
+        className="y-field mt-2 w-full rounded px-2 py-1.5 text-sm"
+      >
+        <option value="">Default</option>
+        {devices.map((device) => (
+          <option key={device.deviceId} value={device.deviceId}>{device.label}</option>
+        ))}
+        {deviceId && !known ? <option value={deviceId}>Saved microphone</option> : null}
+      </select>
+      <p className="mt-1 text-sol-base01 text-xs">
+        {unavailable
+          ? "Microphone list unavailable in this browser."
+          : "Saved in this browser. The next recording uses it."}
+      </p>
+    </div>
+  );
 }
 
 export default function SettingsModal({ open, prefs, onModeChange, onClose }: SettingsModalProps) {
@@ -73,6 +135,7 @@ export default function SettingsModal({ open, prefs, onModeChange, onClose }: Se
               })}
             </div>
           </div>
+          <MicrophoneField />
         </div>
       </div>
     </div>
