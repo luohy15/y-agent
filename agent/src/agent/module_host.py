@@ -198,6 +198,11 @@ Todo 4246 bumps 33 to 34: `chat_list` rows carry the chat's
 `execution_target` (empty string means the default node) so a sidebar can
 badge the execution node without opening the chat. The chat module raises its
 floor to 34 when it renders the field; deploy this host first.
+Todo 4275 bumps 34 to 35: voice_put_part, voice_finalize_parts and
+voice_delete_parts replace the single-shot voice upload capability. Owner and
+maintainer binding remain mandatory. Deploy host v35 before publishing Voice
+and Chat's chunked clients; disable or roll back those modules before rolling
+the host below v35. Old Voice upload bundles cannot run on this host.
 """
 
 from __future__ import annotations
@@ -216,8 +221,8 @@ from storage.project_key import ProjectKeyError as ProjectKeyError, normalize_pr
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-# v34: chat_list rows carry execution_target (todo 4246).
-BACKEND_CONTRACT_VERSION = 34
+# v35: ordered voice parts, finalize and cancel replace single-shot upload (todo 4275).
+BACKEND_CONTRACT_VERSION = 35
 
 # Wall-clock budget for the wake="nowait" readiness check (todo 3777).
 NOWAIT_BUDGET_SECONDS = 1.0
@@ -1648,14 +1653,34 @@ def photo_delete_objects(user_id: int, photo_id: str) -> dict[str, Any]:
 # service also enforces the configured maintainer; callers never supply keys.
 
 
-def voice_put_object(
-    user_id: int, take_id: str, *, data: bytes, duration_ms: int,
+def voice_put_part(
+    user_id: int, take_id: str, index: int, offset: int, *, data: bytes, audio_format: str,
 ) -> dict[str, Any]:
-    """Write a WAV (4 MB, declared duration up to 120s); return version and digest."""
+    """Store one ordered part (1 MB maximum); identical retries do not write."""
     _require_tag_owner(user_id)
     from storage.service import voice_store
 
-    return voice_store.put_object(user_id, take_id, data=data, duration_ms=duration_ms)
+    return voice_store.put_part(user_id, take_id, index, offset, data=data, audio_format=audio_format)
+
+
+def voice_finalize_parts(
+    user_id: int, take_id: str, *, part_count: int, audio_format: str, duration_ms: int,
+) -> dict[str, Any]:
+    """Commit PCM16 mono 16 kHz or WAV parts as WAV (4 MB, 120s); replay is pinned."""
+    _require_tag_owner(user_id)
+    from storage.service import voice_store
+
+    return voice_store.finalize_parts(
+        user_id, take_id, part_count=part_count, audio_format=audio_format, duration_ms=duration_ms,
+    )
+
+
+def voice_delete_parts(user_id: int, take_id: str) -> dict[str, Any]:
+    """Cancel an upload by deleting every transient part version and marker."""
+    _require_tag_owner(user_id)
+    from storage.service import voice_store
+
+    return voice_store.delete_parts(user_id, take_id)
 
 
 def voice_get_object(user_id: int, take_id: str, *, version_id: str) -> bytes:

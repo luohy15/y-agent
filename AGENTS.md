@@ -216,7 +216,7 @@ entity + controller + service + CLI slices, and most have a web panel.
   conventional `common` (vendored at publish). Rollback/activate change code only;
   delete removes deployed metadata/bytes, not source/tables. No worker half:
   deterministic work is `routine` `vm_command`; judgment stays chat dispatch.
-  Backend host contract (`agent.module_host`) is **v34** (todo 3627's v18 adds
+  Backend host contract (`agent.module_host`) is **v35** (todo 3627's v18 adds
   owner-bound no-wake VM execution; v19 / v20 are todos 3777 / 3781; v21 adds the
   maintainer-bound `mcp_*` connector capabilities of todo 3796; v22 is its round 2
   loopback OAuth start/complete; v23 adds the private photo object primitives,
@@ -239,15 +239,25 @@ entity + controller + service + CLI slices, and most have a web panel.
   resolved module child-route identity. Host-owned raw/hourly/daily telemetry is
   rolled up and retained by the worker schedule. The `monitor` module reads it only
   through four configured-maintainer-only `api_latency_*` backend contract v10 queries.
-- **Voice objects (todo 4165)**: backend contract v30 adds request-owner and
-  configured-maintainer bound `voice_put_object`, `voice_get_object`, and
-  `voice_delete_objects`. `storage/service/voice_store.py` uses the existing private
-  `Y_AGENT_S3_BUCKET` under `voice/<public_user_id>/<take_id>/original`.
-  Server writes validate a RIFF/WAVE header, 4,000,000-byte maximum and declared
-  duration up to 120s, returning the S3 version and computed SHA-256. Reads require
-  that pinned version; deletion removes all versions and markers. No presigned
-  upload URLs are issued. Deploy v30 before publishing Voice. The module owns
-  take rows, idempotency, concurrent-operation serialization and transcription.
+- **Voice objects (todos 4165 / 4275)**: backend contract v35 replaces single-shot
+  upload with request-owner and configured-maintainer bound `voice_put_part`,
+  `voice_finalize_parts`, and `voice_delete_parts`; `voice_get_object` and
+  `voice_delete_objects` remain. `storage/service/voice_store.py` stores ordered,
+  idempotent parts (up to 300, each 1 MB) in the existing private `Y_AGENT_S3_BUCKET`
+  under `voice-parts/<public_user_id>/<take_id>/<index:06d>`. Finalize validates
+  the exact part set, offsets, format header, 4,000,000-byte stored total and declared
+  duration up to 120s, then pins `voice/<public_user_id>/<take_id>/original`.
+  Intake accepts `pcm` (headerless PCM16 mono 16 kHz, even-length parts) or `wav`.
+  PCM assembly is capped at 3,999,956 bytes and gains a canonical 44-byte WAV
+  header; stored bytes and returned metadata are always WAV. No schema change
+  or audio-format column is needed.
+  Finalize replay returns the same version; reads require that version. Cancel
+  deletes all part versions and markers; take deletion also removes the original.
+  Bucket privacy/versioning/encryption audits cache successful results for 60s.
+  No presigned URLs are issued. Apply a one-day parts lifecycle out of band,
+  deploy v35, then publish Voice and Chat together. Old Voice uploads no longer
+  work; roll back or disable these modules before rolling the host below v35.
+  The module owns take rows, concurrent-operation serialization and transcription.
 - **Image transport** — API image ingestion stores bytes only under
   `/Users/roy/luohy15/assets/images/`: local writes when available, otherwise SSH-push
   to EC2. Workers SSH-fetch local EC2 paths before Telegram delivery. `Message.images`
@@ -469,7 +479,7 @@ Grouped by feature area:
 - `perplexity.py`, `openai_chat.py`, `xai_search.py` — inline single-shot (non-agentic)
   backends; `xai_search.py` serves both `xai_web` and `xai_x`
 - `config.py` — provider factory, bot/vm config resolution
-- `module_host.py` — backend host contract for modules (`BACKEND_CONTRACT_VERSION = 34`:
+- `module_host.py` — backend host contract for modules (`BACKEND_CONTRACT_VERSION = 35`:
   `session`, `run_vm_command` with work_dir/stdin, `cli_user_id`, external-table
   protocol, plus request-scoped `bot_config_*`, `chat_*` with optional
   `sort_by`/`sort_order`, `note_list_at_path`, owner-bound `note_*`, `tag_*`
