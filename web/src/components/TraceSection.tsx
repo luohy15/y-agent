@@ -25,8 +25,8 @@ export default function TraceSection({ chats, onSelectChat, onOpenContext }: Tra
         className="w-full flex items-center gap-2 px-2 py-1 text-xs text-sol-base01 hover:text-sol-base0 cursor-pointer"
       >
         <span className="text-[0.6rem]">{traceOpen ? "▼" : "▶"}</span>
-        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <path d="M2 2a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2.586l1.707 1.707a1 1 0 0 0 1.414 0L9.414 14H14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H2zm2 3h8v1H4V5zm0 3h6v1H4V8z" />
         </svg>
         <span className="font-medium text-sol-base0">Chat ({chats.length})</span>
       </button>
