@@ -4,6 +4,9 @@ import { API, getToken, setToken, clearToken, getStoredEmail } from "../api";
 const GOOGLE_CLIENT_ID = (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID || "";
 const MAIN_DOMAIN = (import.meta as any).env?.VITE_MAIN_DOMAIN || "yovy.app";
 const isPreview = window.location.hostname !== MAIN_DOMAIN && window.location.hostname !== "localhost";
+// useAuth is mounted more than once per page (RootGate, App, Landing). GIS
+// warns when initialize runs again, so the call is once per page load.
+let gsiInitialized = false;
 
 function redirectToLocalCallback(target: string, token: string, email: string) {
   try {
@@ -130,10 +133,13 @@ export function useAuth() {
     const interval = setInterval(() => {
       if ((window as any).google?.accounts?.id) {
         clearInterval(interval);
-        (window as any).google.accounts.id.initialize({
-          client_id: GOOGLE_CLIENT_ID,
-          callback: (window as any).handleGoogleCredential,
-        });
+        if (!gsiInitialized) {
+          gsiInitialized = true;
+          (window as any).google.accounts.id.initialize({
+            client_id: GOOGLE_CLIENT_ID,
+            callback: (window as any).handleGoogleCredential,
+          });
+        }
         setGsiReady(true);
       }
     }, 100);

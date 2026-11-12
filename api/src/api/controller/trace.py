@@ -316,8 +316,10 @@ async def get_my_share(request: Request, trace_id: str = Query(...)):
 
     user_id = _get_user_id(request)
     share = get_by_trace_id(user_id, trace_id)
+    # Empty is a normal result. 404 shows up as a browser console network error
+    # even when the client treats it as "no share".
     if not share:
-        raise HTTPException(status_code=404, detail="Share not found")
+        return None
     return {
         "share_id": share.share_id,
         "trace_id": share.trace_id,

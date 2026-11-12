@@ -23,7 +23,13 @@ def trace_unshare(share_id: Optional[str], trace_id: Optional[str]):
     if trace_id:
         try:
             resp = api_request("GET", "/api/trace/share/mine", params={"trace_id": trace_id})
-            share_id = resp.json()["share_id"]
+            body = resp.json()
+            # Current servers return JSON null when the trace has no share.
+            # A 404 below is the same answer from an older server.
+            if body is None:
+                click.echo(f"No share found for trace {trace_id}")
+                raise click.Abort()
+            share_id = body["share_id"]
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 click.echo(f"No share found for trace {trace_id}")
