@@ -273,8 +273,11 @@ confirmation. No existing todo is deleted or reclassified automatically.
   - Long-term: pinned, regardless of any stored date.
 - Every open non-pinned todo with an SLA appears in exactly one of Overdue,
   Today, This Week, This Month or Later.
-- Ordering inside a group is promised date ascending, then priority (high,
-  medium, low, none), then a stable todo-ID tiebreak.
+- Default ordering inside a group is promised date ascending, then priority
+  (high, medium, low, none), then a stable todo-ID tiebreak. This applies until
+  the user clicks a sortable column header. The selected column and direction
+  then override that default within every Load group, without changing group
+  membership or group order.
 - The list API accepts a derived open-set filter, an overdue filter and a
   promised-date sort. The Load view reads the open set once and derives the
   groups and counts client-side, so the header counts always match the rows.
@@ -305,6 +308,10 @@ confirmation. No existing todo is deleted or reclassified automatically.
 - Each group is a section with a header that names the group and shows its
   count. Rows reuse the existing row presentation, including status, priority,
   tags, waiting and running indicators, and the pinned marker.
+- Load groups share the table tab's sortable column headers. Clicking a header
+  in any group applies the same selected column and sort direction within every
+  group, using the table tab's header-click behavior rather than a separate
+  per-group sort.
 - Load is read-only with respect to status: no drag and drop, no status edit
   from the group. Existing row actions and detail navigation stay available.
 - Opening a row uses the existing detail and trace path. Load does not add a
