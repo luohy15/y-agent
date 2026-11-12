@@ -133,7 +133,7 @@ async def deliver_death(chat_id, proc, outcome, error):
                 return None
         if any(r.chat_id != chat_id and (r.updated_at_unix or 0) >= proc["started_at"] * 1000 for r in rows):
             return None
-        return inbox_fault_detail(prefix, error_text), chat_id
+        return inbox_fault_detail(prefix, error_text), chat_id, False
 
     try:
         _todo, changed = todo_service.claim_fault(

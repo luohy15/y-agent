@@ -28,6 +28,7 @@ from loguru import logger
 from storage.database.base import get_db
 from storage.entity.chat import ChatEntity
 from storage.entity.todo import TodoEntity
+from storage.repository import chat as chat_repo
 from storage.repository import chat_wakeup as wakeup_repo
 from storage.repository import dev_release as dev_release_repo
 from storage.repository.trace_runtime import get_snapshots, trace_runtime_roles
@@ -137,9 +138,10 @@ def claim_idle_trace(user_id: int, todo, reason: str, observed_after_ms: int) ->
         if wakeup_repo.has_pending_wakeup(session, user_id, todo_id, now_ms):
             seen["evidence"] = "wakeup"
             return None
-        chats = (session.query(ChatEntity.chat_id, ChatEntity.status, ChatEntity.updated_at_unix)
+        chats = (session.query(ChatEntity.chat_id, ChatEntity.status, ChatEntity.updated_at_unix,
+                               ChatEntity.needs_attention)
                  .filter_by(user_id=user_id, trace_id=todo_id)
-                 .order_by(ChatEntity.updated_at_unix.desc()).all())
+                 .order_by(ChatEntity.updated_at_unix.desc(), ChatEntity.chat_id.desc()).all())
         if any(c.status == "running" for c in chats):
             seen["evidence"] = "session"
             return None
@@ -162,6 +164,10 @@ def claim_idle_trace(user_id: int, todo, reason: str, observed_after_ms: int) ->
         )
         if current is None:
             return None
+        attention = next((c for c in chats if c.status == "idle" and c.needs_attention), None)
+        if attention:
+            seen["chat_id"] = attention.chat_id
+            return f"Chat {attention.chat_id} is waiting for your reply.", attention.chat_id, True
         chat_id = chats[0].chat_id if chats else None
         outcome = (newest_record or {}).get("status") or "unknown"
         error_text = None
@@ -172,7 +178,7 @@ def claim_idle_trace(user_id: int, todo, reason: str, observed_after_ms: int) ->
         seen["chat_id"] = chat_id
         # The caller's reason labels the detail; `current` only re-validates
         # that a fault still applies under the lock.
-        return _fault_detail(reason, chat_id, outcome, error_text), chat_id
+        return _fault_detail(reason, chat_id, outcome, error_text), chat_id, False
 
     try:
         _todo, changed = todo_service.claim_fault(
@@ -226,6 +232,7 @@ async def run_pass(now_ms: Optional[int] = None, pass_started_ms: Optional[int] 
             roles = trace_runtime_roles(session, user_ids, trace_ids)
             snapshots = get_snapshots(session, user_ids)
             wakeup_traces = wakeup_repo.pending_wakeup_traces(session, user_ids, trace_ids, now_ms)
+            attention_traces = chat_repo.idle_attention_traces(session, user_ids, trace_ids)
         counts["scanned"] += len(todos)
         for todo in todos:
             key = (todo.user_id, todo.todo_id)
@@ -233,7 +240,8 @@ async def run_pass(now_ms: Optional[int] = None, pass_started_ms: Optional[int] 
                 roles.get(key), snapshots.get(todo.user_id), todo.todo_id, now_ms,
                 observed_after_ms=pass_started_ms, machine_wait=todo.machine_wait,
             )
-            if runtime["state"] in SUPPRESSING_STATES:
+            attention_wait = runtime["state"] == "wait" and key in attention_traces
+            if runtime["state"] in SUPPRESSING_STATES and not attention_wait:
                 counts["suppressed"] += 1
                 continue
             if runtime["state"] == "unknown":

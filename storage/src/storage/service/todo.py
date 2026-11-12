@@ -570,7 +570,7 @@ def claim_fault(user_id: int, todo_id: str, *, expected_updated_at_unix: int, re
     """Watchdog/death fault claim: active -> awaiting under fresh under-lock evidence.
 
     `recheck(session, row)` re-validates the fault against the locked row and
-    returns `(detail_text, pointer_chat_id)` to claim with, or `None` to abort
+    returns `(detail_text, pointer_chat_id, user_blocked)` to claim with, or `None` to abort
     without mutation. `detail_text` is bounded fault evidence folded into the
     same history entry as the status change and into the owner notice; it is
     never read back from a persisted reason field. Only an `active` row with
@@ -583,13 +583,13 @@ def claim_fault(user_id: int, todo_id: str, *, expected_updated_at_unix: int, re
         if row.status != "active" or row.updated_at_unix != expected_updated_at_unix:
             return False
         wait = row.machine_wait
-        if machine_wait_live(wait, get_unix_timestamp()):
-            return False
         outcome = recheck(session, row)
         if outcome is None:
             return False
-        detail, pointer_chat_id = outcome
-        if wait:
+        detail, pointer_chat_id, user_blocked = outcome
+        if machine_wait_live(wait, get_unix_timestamp()) and not user_blocked:
+            return False
+        if wait and not user_blocked:
             lapsed = datetime.fromtimestamp(wait["until"] / 1000, tz=timezone.utc).isoformat()
             detail = f'Declared machine wait "{wait["on"]}" lapsed at {lapsed} with no callback.'
         claimed["detail"] = detail

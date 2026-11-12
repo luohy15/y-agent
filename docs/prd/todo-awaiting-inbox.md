@@ -239,9 +239,12 @@ live work exists; enablement remains a separate rollout step.
     configuration to name the exact command for the two legal trace-level
     endings (`y todo status <id> awaiting` with optional `--chat`), so that
     "put the todo in the inbox" is executable and not a paraphrase.
-39. As Roy, I want the existing chat attention flag left untouched and
-    unused by this feature, so that no removal migration or contract bump is
-    spent on dead code here.
+39. As Roy, I want the existing `chat.needs_attention` flag reused as the
+    explicit user-checkpoint signal, so that the shared idle recheck can put
+    the trace in awaiting with the reply chat pointer, including under a live
+    machine wait once all live-evidence suppressors are cleared. Todo 4278
+    supersedes the earlier decision not to consume this flag; no new column
+    or contract bump is required.
 40. As a leaf session, I never declare the whole trace awaiting for
     verification; my legal turn ending is the callback, so that a finished
     phase does not put the whole trace in the inbox.
@@ -414,9 +417,18 @@ y todo list --status awaiting
 - **Finish and delete** (single, bulk, or generic status update) move
   awaiting to completed/deleted and clear the pointer. Deactivate moves it
   to pending and clears the pointer.
-- **The existing `chat.needs_attention` column, its API, CLI command, and
-  module wiring stay in place and unused.** Nothing reads or writes it from
-  this feature.
+- **`chat.needs_attention` is the explicit user-checkpoint signal.** At every
+  checkpoint, including the first before any user reply, a session records
+  progress/note and runs `y chat attention` before stopping. The shared idle
+  recheck selects the newest idle same-owner, same-trace attention chat (by
+  updated time, then chat id), sets `awaiting_chat` to it and reports
+  `Chat <id> is waiting for your reply.` This also overrides a live declared
+  machine wait, but never running chats/processes/tmux, unknown or stale
+  runtime, pending release waiters or registered wakeups. Human replies clear
+  attention through the existing acceptance path and resume awaiting work.
+  Only the runtime fault claim consumes the marker; the reporting-session
+  rule for explicit awaiting writes and the one-terminal-callback rule stay
+  unchanged. A direct-dialogue child is not a machine dependency to hold on.
 
 ### Reading
 
@@ -502,20 +514,31 @@ chat clears it atomically with acceptance, regardless of human/dispatch provenan
 another chat, a duplicate delivery or a worker start does not. This does not change
 human-only awaiting auto-resume semantics.
 
-All automatic awaiting writers share `claim_fault`: a live declaration suppresses
-under the todo lock before the caller's recheck. Once the deadline lapses, normal
-evidence checks apply; a successful fault claim clears the wait and reports
-`Declared machine wait "<on>" lapsed at <iso> with no callback.` Unknown snapshot
-or other live evidence still suppresses. The watchdog batch counts a live wait as
-suppressed. No timer is created and no automatic continuation is dispatched.
+All automatic awaiting writers share `claim_fault`: the caller's evidence
+recheck runs under the todo lock and returns detail, a chat pointer and a
+`user_blocked` flag. A live declaration suppresses unless that recheck proves
+an idle attention checkpoint. Session closeout and the watchdog share the idle
+recheck: fresh ended runtime, no running chat/process, no release waiter and
+no registered wakeup are required before attention is selected. The watchdog
+batches idle attention traces as candidate hints; it never claims from that
+unlocked hint without rechecking. The death-delivery fallback returns
+`user_blocked=False` and continues to honor live declarations.
+
+A successful user-blocked claim clears the wait and keeps the reply notice,
+even if the declaration has expired. Other successful fault claims after expiry
+report `Declared machine wait "<on>" lapsed at <iso> with no callback.` Unknown
+snapshot or other live evidence still suppresses. A child that omits attention
+under a live hold remains suppressed until expiry; checkpoint rules are the
+mitigation, not prose inference. No timer is created and no automatic
+continuation is dispatched.
 
 Display precedence is session, child, tmux, declared wait, then snapshot
 unknown/ended. The wait runtime payload is `{state: "wait", on, until_unix}`.
 The todo module shows `Waiting on <on> · until HH:MM`; `y todo get` shows
 `Waiting: <on> until <local time> (chat <id>)`. An expired declaration falls
 through to snapshot runtime evidence. Status filters and kanban columns stay
-unchanged. A real user decision still requires explicit awaiting, even with a job
-running.
+unchanged. A real user decision while a job is still running requires explicit
+awaiting; attention alone cannot override live work.
 
 Apply expand-only `migration/4100_todo_machine_wait.sql` before the host deploy.
 Old UI readers may omit the unknown `wait` runtime state until the todo module
@@ -1152,8 +1175,9 @@ Tests are local-only and untracked per repo convention.
   health check.** All rejected in the approved proposal.
 - **Restating or changing the no-poll rules** for agents. The watchdog is
   the single system-side reconciler; agents keep the existing prohibition.
-- **Removing `chat.needs_attention`** and its API, CLI, module wiring, and
-  contract version. Left as dead code for a later cleanup.
+- **Removing `chat.needs_attention`** or its API, CLI and module wiring.
+  Todo 4278 reuses this existing contract as the user-checkpoint signal for
+  the shared idle recheck; removal is not part of this feature.
 - **Direct delivery for the tail-retry-exhausted and orphan-running-chat
   paths.** Covered by the watchdog once the orphan sweep clears the
   SQL-running row, not by targeted messages.

@@ -1210,6 +1210,17 @@ def find_latest_chat_by_trace_id(user_id: int, trace_id: str) -> Optional[Chat]:
             return None
 
 
+def idle_attention_traces(session, user_ids: set, trace_ids: set) -> set:
+    """Batch candidate hints; the fault claim rechecks attention under the todo lock."""
+    if not user_ids or not trace_ids:
+        return set()
+    rows = (session.query(ChatEntity.user_id, ChatEntity.trace_id)
+            .filter(ChatEntity.user_id.in_(user_ids), ChatEntity.trace_id.in_(trace_ids),
+                    ChatEntity.status == "idle", ChatEntity.needs_attention.is_(True))
+            .distinct().all())
+    return {(row.user_id, row.trace_id) for row in rows}
+
+
 def get_trace_chat_status(user_id: int, trace_ids: list) -> dict:
     """Return {trace_id: {"has_running": bool, "has_unread": bool}} for given trace_ids."""
     from sqlalchemy import case
