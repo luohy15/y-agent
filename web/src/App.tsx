@@ -167,6 +167,13 @@ export default function App() {
     auth.isLoggedIn ? `${API}/api/module/list` : null,
     jsonFetcher,
   );
+  const paletteModules = useMemo(
+    () => modulesFromPayload(moduleListResponse).map((module) => ({
+      slug: module.slug,
+      label: module.active_version?.label?.trim() || module.slug,
+    })),
+    [moduleListResponse],
+  );
   const activityBarPins = useActivityBarVisibility(auth.isLoggedIn ? auth.email : null);
   const authorizedModuleSlugs = useMemo(
     () => new Set(modulesFromPayload(moduleListResponse).map((artifact) => artifact.slug)),
@@ -1852,6 +1859,7 @@ export default function App() {
         vmName={fileSearchContext.vmName}
         workDir={fileSearchContext.workDir ?? undefined}
         openFiles={openFiles.map((key) => fileTabs[key]?.path ?? key)}
+        modules={paletteModules}
         onCloseAll={handleCloseAllFiles}
       />
     </div>

@@ -1,5 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { Fragment, useState, useEffect, useRef, useCallback } from "react";
 import { API, authFetch } from "../api";
+import { runHostCommand } from "../host/commands";
+import { buildPaletteEntries, type PaletteEntry, type PaletteModule } from "../utils/paletteEntries";
 
 interface FileSearchDialogProps {
   open: boolean;
@@ -8,10 +10,11 @@ interface FileSearchDialogProps {
   vmName?: string | null;
   workDir?: string;
   openFiles?: string[];
+  modules?: PaletteModule[];
   onCloseAll?: () => void;
 }
 
-export default function FileSearchDialog({ open, onClose, onSelectFile, vmName, workDir, openFiles = [], onCloseAll }: FileSearchDialogProps) {
+export default function FileSearchDialog({ open, onClose, onSelectFile, vmName, workDir, openFiles = [], modules = [], onCloseAll }: FileSearchDialogProps) {
   const vmQuery = (vmName ? `&vm_name=${encodeURIComponent(vmName)}` : "") + (workDir ? `&work_dir=${encodeURIComponent(workDir)}` : "");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<string[]>([]);
@@ -61,29 +64,31 @@ export default function FileSearchDialog({ open, onClose, onSelectFile, vmName, 
     }
   }, [vmQuery, workDir]);
 
-  const handleSelect = (path: string) => {
-    onSelectFile(path);
+  const handleSelect = (entry: PaletteEntry) => {
+    if (entry.kind === "module") {
+      runHostCommand("module.openView", { slug: entry.slug });
+    } else {
+      onSelectFile(entry.path);
+    }
     onClose();
   };
 
-  // Filter open files by query (before submit)
-  const filteredOpenFiles = query.trim()
-    ? openFiles.filter((f) => f.toLowerCase().includes(query.trim().toLowerCase()))
-    : openFiles;
-  const showOpenFiles = !searched && filteredOpenFiles.length > 0;
-  const displayList = showOpenFiles ? filteredOpenFiles : results;
+  const displayList: PaletteEntry[] = searched
+    ? results.map((path) => ({ kind: "tab", path, label: path }))
+    : buildPaletteEntries(openFiles, modules, query);
+  const activeIndex = Math.min(selectedIndex, Math.max(0, displayList.length - 1));
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setSelectedIndex((i) => (i + 1) % (displayList.length || 1));
+      setSelectedIndex((activeIndex + 1) % (displayList.length || 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setSelectedIndex((i) => (i - 1 + (displayList.length || 1)) % (displayList.length || 1));
+      setSelectedIndex((activeIndex - 1 + (displayList.length || 1)) % (displayList.length || 1));
     } else if (e.key === "Enter") {
       e.preventDefault();
       if (displayList.length > 0) {
-        handleSelect(displayList[selectedIndex]);
+        handleSelect(displayList[activeIndex]);
       } else {
         doSearch(query);
       }
@@ -105,9 +110,16 @@ export default function FileSearchDialog({ open, onClose, onSelectFile, vmName, 
             ref={inputRef}
             type="text"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              searchAbortRef.current?.abort();
+              setLoading(false);
+              setQuery(e.target.value);
+              setSelectedIndex(0);
+              setSearched(false);
+              setResults([]);
+            }}
             onKeyDown={handleKeyDown}
-            placeholder="Search files by name..."
+            placeholder="Search tabs, modules, or files..."
             className="flex-1 bg-transparent text-sm text-sol-base1 outline-none placeholder:text-sol-base01"
           />
           {loading && <span className="text-sol-base01 text-xs ml-2">...</span>}
@@ -123,30 +135,31 @@ export default function FileSearchDialog({ open, onClose, onSelectFile, vmName, 
         </div>
         {displayList.length > 0 && (
           <div className="max-h-64 overflow-y-auto py-1">
-            {showOpenFiles && (
-              <div className="flex items-center justify-between px-3 py-1">
-                <span className="text-xs text-sol-base01">Open files</span>
-                {onCloseAll && (
-                  <button
-                    onClick={() => { onCloseAll(); onClose(); }}
-                    className="text-xs text-sol-base01 hover:text-sol-base1 cursor-pointer"
-                    title="Close all open files"
-                  >
-                    Close all
-                  </button>
+            {displayList.map((entry, i) => (
+              <Fragment key={entry.kind === "tab" ? `tab:${entry.path}` : `module:${entry.slug}`}>
+                {!searched && (i === 0 || displayList[i - 1].kind !== entry.kind) && (
+                  <div className="flex items-center justify-between px-3 py-1">
+                    <span className="text-xs text-sol-base01">{entry.kind === "tab" ? "Open tabs" : "Modules"}</span>
+                    {entry.kind === "tab" && onCloseAll && (
+                      <button
+                        onClick={() => { onCloseAll(); onClose(); }}
+                        className="text-xs text-sol-base01 hover:text-sol-base1 cursor-pointer"
+                        title="Close all open files"
+                      >
+                        Close all
+                      </button>
+                    )}
+                  </div>
                 )}
-              </div>
-            )}
-            {displayList.map((file, i) => (
-              <div
-                key={file}
-                onClick={() => handleSelect(file)}
-                className={`px-3 py-1 text-xs cursor-pointer truncate ${
-                  i === selectedIndex ? "bg-sol-base02 text-sol-base1" : "text-sol-base0 hover:bg-sol-base02"
-                }`}
-              >
-                {file}
-              </div>
+                <div
+                  onClick={() => handleSelect(entry)}
+                  className={`px-3 py-1 text-xs cursor-pointer truncate ${
+                    i === activeIndex ? "bg-sol-base02 text-sol-base1" : "text-sol-base0 hover:bg-sol-base02"
+                  }`}
+                >
+                  {entry.label}
+                </div>
+              </Fragment>
             ))}
           </div>
         )}
