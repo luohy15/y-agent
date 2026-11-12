@@ -17,15 +17,24 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Namespaced agents publishing (4235, 4240, 4250)**: `y skills check|export|publish` builds an agents tree from `~/.agents` by composing the registered namespace chain. `work` reads namespace module rules and fails closed when the module is unavailable, and publish stays dry-run unless `--run` is passed. `private/` is the reserved overlay directory, and a stale `local/` reference fails closed.
 - **Chat list execution target (4246)**: chat list rows carry `execution_target` (backend contract v34), so the sidebar can badge the node without opening the chat. An empty value means the default node.
 - **Dispatch prefix metadata**: a leading dispatch, trace or routine prefix renders in the badge row and its raw bracket line is hidden, falling back to the raw text when the prefix is malformed or partial.
+- **Todo completion SLA (4279)**: a non-pinned todo gets a completion date, defaulting to 3 days for high, 7 for medium or unset, and 14 for low, never more than 14 days out. Pinning clears the promise. `y todo renew` sets a fresh date, `y todo audit` and the daily digest list overdue and due-today items, and the list can filter overdue work and sort by the due date.
+- **File attachments (4283)**: a private Telegram document is stored and shown on the message as a file chip, the same way images are. Clicking the chip opens the host File tab instead of downloading the bytes. Oversize, executable, failed, and jump-node files are rejected with a Telegram reply.
+- **Chunked voice upload (4275)**: a voice take uploads as ordered PCM or WAV parts and finalizes into one WAV (host contract v35). Settings can pick a microphone for the voice composer; choosing Default clears the saved input, and the picker does not ask for microphone permission.
+- **Command palette modules (4285)**: Ctrl+P lists open tabs and modules that are not already open. Choosing a module opens it, typing filters both, and Enter on an empty list still searches files.
 
 ### Changed
 
 - **Node namespace field**: the node field, API and CLI rename `data_scope` to `namespace`. `personal` and `work` are rejected instead of aliased, and an empty value or `default` means the personal tree.
 - **Publication commands (4248)**: release-grant messages print one human-readable line without waiter, event, claim or generation identifiers; the preflight and schema check accept a commit range and skip the endpoint proof for non-schema changes; `y module publish` defaults the slug from the current directory, the source SHA from HEAD and the description from the HEAD subject, keeping the live-tip and clean-input checks.
+- **Chat wording for traces (4287)**: user-facing trace labels, including the todo detail section, say Chat, and that section uses the chat module icon. Internal names, routes, and flags stay the same.
 
 ### Fixed
 
 - **Explicit bot pin admission (4252)**: an explicitly named bot that is unknown, disabled or outside the requested tier is rejected with a 400 before any image upload, chat write or enqueue, instead of failing later in the worker.
+- **Canonical tags (4277)**: adding tags checks the whole batch against the existing vocabulary before any write. New tag names are flat lowercase words with hyphens, at most 40 characters, and a new name of 20 or more characters with no hyphen needs an explicit acknowledgement.
+- **Awaiting during a machine wait (4278)**: an active todo with a live machine wait still moves to awaiting when the only remaining work is an idle chat waiting on the user. The newest such chat is the pointer.
+- **Sign-in and empty shares (4286)**: Google Identity Services initializes once per page, and a trace with no share returns an empty 200 instead of a 404.
+- **Date filters without Fava (4288)**: shared relative date parsing no longer depends on Fava internals, so a Fava upgrade cannot break CLI startup or time filters. The previous range grammar is unchanged.
 
 ### Removed
 
