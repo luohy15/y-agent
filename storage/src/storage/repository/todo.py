@@ -12,7 +12,8 @@ from storage.repository import entity_tag as tag_repo
 from storage.repository import tag_vocabulary as vocabulary_repo
 from storage.database.base import get_db
 from storage import todo_list_timing
-from storage.util import apply_time_filter
+from storage.util import apply_time_filter, local_today
+from storage.todo_sla import OPEN_STATUSES
 
 # Match web UI sort: high=0, medium=1, low=2, other=3
 _PRIORITY_ORDER = case(
@@ -23,7 +24,7 @@ _PRIORITY_ORDER = case(
 )
 
 # Explicit sidebar sort. asc is none/NULL, low, medium, high.
-_EXPLICIT_SORTS = frozenset({"todo_id", "priority", "updated_at"})
+_EXPLICIT_SORTS = frozenset({"todo_id", "priority", "updated_at", "sla_due_at"})
 _EXPLICIT_ORDERS = frozenset({"asc", "desc"})
 _EXPLICIT_PRIORITY_RANK = case(
     (TodoEntity.priority == "high", 3),
@@ -50,6 +51,9 @@ def _explicit_sort_clauses(sort: str, order: str, effective_updated):
         raise ValueError(f"invalid order: {order}")
     updated = func.coalesce(effective_updated, 0)
     id_len = func.length(TodoEntity.todo_id)
+    if sort == "sla_due_at":
+        return [_directed(TodoEntity.sla_due_at, order).nullslast(),
+                _PRIORITY_ORDER.asc(), id_len.asc(), TodoEntity.todo_id.asc()]
     if sort == "todo_id":
         return [_directed(id_len, order), _directed(TodoEntity.todo_id, order)]
     primary = _directed(_EXPLICIT_PRIORITY_RANK if sort == "priority" else updated, order)
@@ -69,6 +73,7 @@ def _entity_to_dto(entity: TodoEntity, *, include_history: bool = True) -> Todo:
         desc=entity.desc,
         tags=entity.tags,
         due_date=entity.due_date,
+        sla_due_at=entity.sla_due_at,
         priority=entity.priority,
         pinned=bool(entity.pinned) if entity.pinned is not None else False,
         status=entity.status,
@@ -125,6 +130,8 @@ def list_todos(
     include_history: bool = True,
     sort: Optional[str] = None,
     order: str = "desc",
+    open: Optional[bool] = None,
+    overdue: Optional[bool] = None,
 ) -> List[Todo]:
     with get_db() as session:
         if todo_list_timing.active():
@@ -164,6 +171,15 @@ def list_todos(
             q = q.options(defer(TodoEntity.history, raiseload=True))
         if status:
             q = q.filter(TodoEntity.status == status)
+        if open is not None:
+            clause = TodoEntity.status.in_(OPEN_STATUSES)
+            q = q.filter(clause if open else ~clause)
+        if overdue is not None:
+            clause = (TodoEntity.status.in_(OPEN_STATUSES)
+                      & func.coalesce(TodoEntity.pinned, False).is_(False)
+                      & TodoEntity.sla_due_at.isnot(None)
+                      & (TodoEntity.sla_due_at < local_today().isoformat()))
+            q = q.filter(clause if overdue else ~clause)
         if priority:
             q = q.filter(TodoEntity.priority == priority)
         if query:
@@ -295,6 +311,7 @@ def save_todo(user_id: int, todo: Todo) -> Todo:
             desc=todo.desc,
             tags=todo.tags,
             due_date=todo.due_date,
+            sla_due_at=todo.sla_due_at,
             priority=todo.priority,
             pinned=todo.pinned,
             status=todo.status,
@@ -357,3 +374,17 @@ def delete_todo(user_id: int, todo_id: str) -> bool:
         count = session.query(TodoEntity).filter_by(user_id=user_id, todo_id=todo_id).delete()
         session.flush()
         return count > 0
+
+
+def list_open_todos(user_id: int) -> List[Todo]:
+    with get_db() as session:
+        rows = (session.query(TodoEntity).filter_by(user_id=user_id)
+                .filter(TodoEntity.status.in_(OPEN_STATUSES))
+                .options(defer(TodoEntity.history, raiseload=True)).all())
+        return [_entity_to_dto(row, include_history=False) for row in rows]
+
+
+def list_open_todo_user_ids() -> List[int]:
+    with get_db() as session:
+        return [row[0] for row in session.query(TodoEntity.user_id)
+                .filter(TodoEntity.status.in_(OPEN_STATUSES)).distinct().all()]

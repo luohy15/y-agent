@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 from datetime import datetime
+from storage.todo_sla import is_overdue
+from storage.util import local_today
 
 @dataclass
 class TodoHistoryEntry:
@@ -37,6 +39,7 @@ class Todo:
     desc: Optional[str] = None
     tags: Optional[List[str]] = None
     due_date: Optional[str] = None
+    sla_due_at: Optional[str] = None
     priority: Optional[str] = None
     pinned: bool = False
     status: str = "pending"
@@ -70,6 +73,7 @@ class Todo:
             desc=data.get('desc'),
             tags=data.get('tags'),
             due_date=data.get('due_date'),
+            sla_due_at=data.get('sla_due_at'),
             priority=data.get('priority'),
             pinned=data.get('pinned', False),
             status=data.get('status', 'pending'),
@@ -88,11 +92,17 @@ class Todo:
             updated_at_unix=data.get('updated_at_unix'),
         )
 
+    @property
+    def overdue(self) -> bool:
+        return is_overdue(self.sla_due_at, self.pinned, self.status, local_today())
+
     def to_dict(self) -> Dict:
         result = {
             'todo_id': self.todo_id,
             'name': self.name,
             'pinned': self.pinned,
+            'sla_due_at': self.sla_due_at,
+            'overdue': self.overdue,
             'status': self.status,
             'awaiting_chat': self.awaiting_chat,
             'handle_chat': self.handle_chat,

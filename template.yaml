@@ -644,6 +644,11 @@ Resources:
           Properties:
             Schedule: rate(1 minute)
             Input: '{"action": "check_reminders"}'
+        TodoSlaDigestSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 1 * * ? *)
+            Input: '{"action": "todo_sla_digest"}'
         TickRoutinesSchedule:
           Type: Schedule
           Properties:

@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 import click
+from .sla_text import sla_label
 from yagent.time_util import utc_to_local
 from yagent.api_client import api_request
 from yagent.commands.todo.wakeup_text import release_slot_label, wakeup_label
@@ -33,6 +34,8 @@ def todo_get(todo_id):
         click.echo(f"Waiting:   {wait['on']} until {until} (chat {wait['chat_id']})")
     click.echo(f"Priority:  {todo.get('priority') or '-'}")
     click.echo(f"Due:       {todo.get('due_date') or '-'}")
+    click.echo(f"Pinned:    {bool(todo.get('pinned'))}")
+    click.echo(f"SLA:       {sla_label(todo)}")
     label = wakeup_label(todo)
     if label:
         click.echo(f"Wakeup:    {label}")

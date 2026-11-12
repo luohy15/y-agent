@@ -27,6 +27,9 @@ def lambda_handler(event, context):
     if action == "check_reminders":
         return _check_reminders()
 
+    if action == "todo_sla_digest":
+        return _todo_sla_digest()
+
     if action == "tick_routines":
         return _tick_routines()
 
@@ -87,6 +90,22 @@ def _check_reminders():
     if errors:
         result["errors"] = errors
     return result
+
+
+def _todo_sla_digest():
+    from storage.repository import todo as todo_repo
+    from storage.service import todo as todo_svc
+
+    sent = 0
+    errors = []
+    for user_id in todo_repo.list_open_todo_user_ids():
+        try:
+            sent += int(todo_svc.notify_sla_digest(user_id))
+        except Exception:
+            logger.exception("[todo_sla_digest] failed for owner {}", user_id)
+            errors.append("owner digest failed")
+    return {"status": "error" if errors else "ok", "action": "todo_sla_digest",
+            "sent": sent, "errors": errors}
 
 
 def _tick_routines():

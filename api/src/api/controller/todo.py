@@ -19,6 +19,8 @@ def _get_user_id(request: Request) -> int:
 
 
 class CreateTodoRequest(BaseModel):
+    sla: Optional[str] = None
+    pinned: bool = False
     name: str
     desc: Optional[str] = None
     tags: Optional[List[str]] = None
@@ -27,6 +29,8 @@ class CreateTodoRequest(BaseModel):
 
 
 class UpdateTodoRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
     todo_id: str
     name: Optional[str] = None
     desc: Optional[str] = None
@@ -47,6 +51,8 @@ async def list_todos(
     priority: Optional[str] = Query(None),
     query: Optional[str] = Query(None),
     unread: Optional[bool] = Query(None),
+    open: Optional[bool] = Query(None),
+    overdue: Optional[bool] = Query(None),
     tag: Optional[str] = Query(None),
     on: Optional[str] = Query(None),
     from_: Optional[str] = Query(None, alias="from"),
@@ -61,7 +67,7 @@ async def list_todos(
     offset: int = Query(0),
     awaiting: Optional[str] = Query(None),
     include_history: bool = Query(False),
-    sort: Optional[Literal["todo_id", "priority", "updated_at"]] = Query(None),
+    sort: Optional[Literal["todo_id", "priority", "updated_at", "sla_due_at"]] = Query(None),
     order: Literal["asc", "desc"] = Query("desc"),
 ):
     timing = todo_list_timing.begin()
@@ -79,6 +85,8 @@ async def list_todos(
             priority=priority,
             query=query,
             unread=unread,
+            open=open,
+            overdue=overdue,
             tag=tag,
             on=on, from_=from_, to=to,
             created_on=created_on, created_from=created_from, created_to=created_to,
@@ -156,7 +164,7 @@ async def create_todo(req: CreateTodoRequest, request: Request):
     try:
         todo = todo_service.create_todo(
             user_id, req.name, desc=req.desc, tags=req.tags,
-            due_date=req.due_date, priority=req.priority,
+            due_date=req.due_date, priority=req.priority, sla=req.sla, pinned=req.pinned,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -225,6 +233,7 @@ async def machine_wait(req: MachineWaitRequest, request: Request):
 
 
 class PinTodoRequest(BaseModel):
+    sla: Optional[str] = None
     todo_id: str
     pinned: bool
 
@@ -232,7 +241,10 @@ class PinTodoRequest(BaseModel):
 @router.post("/pin")
 async def pin_todo(req: PinTodoRequest, request: Request):
     user_id = _get_user_id(request)
-    todo = todo_service.pin_todo(user_id, req.todo_id, req.pinned)
+    try:
+        todo = todo_service.pin_todo(user_id, req.todo_id, req.pinned, req.sla)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not todo:
         raise HTTPException(status_code=404, detail="Todo not found")
     return todo.to_dict()
@@ -331,3 +343,30 @@ async def bulk_update(req: BulkUpdateRequest, request: Request):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"ok": True, "count": count}
+
+
+class RenewTodoRequest(BaseModel):
+    todo_id: str
+    sla: Optional[str] = None
+
+
+@router.post("/renew")
+async def renew_todo(req: RenewTodoRequest, request: Request):
+    try:
+        todo = todo_service.renew_todo(_get_user_id(request), req.todo_id, req.sla)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not todo:
+        raise HTTPException(status_code=404, detail="Todo not found")
+    return todo.to_dict()
+
+
+@router.get("/audit")
+async def audit_todos(request: Request):
+    return todo_service.audit_todos(_get_user_id(request))
+
+
+@router.post("/audit/notify")
+async def notify_sla_digest(request: Request):
+    sent = await asyncio.to_thread(todo_service.notify_sla_digest, _get_user_id(request))
+    return {"sent": sent}

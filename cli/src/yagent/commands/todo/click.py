@@ -1,6 +1,8 @@
 import click
 
 from .add import todo_add
+from .renew import todo_renew
+from .audit import todo_audit
 from .list import todo_list
 from .get import todo_get
 from .update import todo_update
@@ -39,3 +41,6 @@ todo_group.add_command(todo_unpin)
 todo_group.add_command(todo_usage)
 todo_group.add_command(todo_claim)
 todo_group.add_command(todo_release)
+
+todo_group.add_command(todo_renew)
+todo_group.add_command(todo_audit)

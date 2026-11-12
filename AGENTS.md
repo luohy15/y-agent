@@ -95,6 +95,15 @@ entity + controller + service + CLI slices, and most have a web panel.
   to root topics never invoke the LLM. `POST /api/chat/notify` was removed
   outright (todo 3167): every CLI install upgrades in lockstep with the API, so
   no compatibility alias was kept.
+- **Todo completion SLA (todo 4279)**: `todo.sla_due_at` is a nullable ISO date
+  interpreted in the deployment timezone. Non-pinned creation defaults to high 3d,
+  medium/none 7d, low 14d, capped at 14 days. Pin means long-term and clears the
+  promise; pending preserves the pin, closed statuses clear it. Unpin and
+  `y todo renew` assign a fresh promise; priority edits do not. The authenticated
+  list supports `open`, `overdue`, and `sort=sla_due_at`; payloads derive `overdue`.
+  `y todo audit` and the admin `todo_sla_digest` daily schedule share read-only
+  audit data. Backfill is separate, approval-gated SQL, never automatic. See
+  `docs/prd/todo-admission-sla.md`.
 - **Declared machine wait (todo 4100)**: `y todo hold <id> --on <dependency> --chat <id> [--until +6h]` (with `wait` retained as a hidden alias) stores bounded `todo.machine_wait` on active work and suppresses automatic awaiting claims until lapse, except when the shared idle recheck proves no live work and finds an idle same-trace `chat.needs_attention` checkpoint (todo 4278). That checkpoint enters awaiting with the chat pointer and a reply notice; running work, unknown runtime, release waiters and wakeups still suppress. The declaration clears on a real status change, a new accepted message into the declaring chat, or `--clear`.
 - **Role**: every chat has an optional closed `role` (`manager` or `leader`).
   Manager is the singleton root conversation; leader identifies coordinators.

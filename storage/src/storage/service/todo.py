@@ -14,7 +14,8 @@ from storage.repository import trace_runtime as runtime_repo
 from storage.repository import entity_tag as tag_repo
 from storage.service import telegram as telegram_service
 from storage.service.trace_runtime import derive_runtime, machine_wait_live
-from storage.util import get_utc_iso8601_timestamp, get_unix_timestamp
+from storage.util import get_utc_iso8601_timestamp, get_unix_timestamp, local_today
+from storage.todo_sla import OPEN_STATUSES, resolve_sla, is_overdue, format_digest
 
 _CHANGED_NOTE_PREFIX = "changed: "
 
@@ -40,6 +41,8 @@ def list_todos(
     include_history: bool = True,
     sort: Optional[str] = None,
     order: str = "desc",
+    open: Optional[bool] = None,
+    overdue: Optional[bool] = None,
 ) -> List[Todo]:
     """Preserve the repository's list result and optional internal trace flags."""
     return todo_repo.list_todos(
@@ -63,6 +66,8 @@ def list_todos(
         include_history=include_history,
         sort=sort,
         order=order,
+        open=open,
+        overdue=overdue,
     )
 
 
@@ -137,7 +142,12 @@ def create_todo(
     tags: Optional[List[str]] = None,
     due_date: Optional[str] = None,
     priority: Optional[str] = None,
+    sla: Optional[str] = None,
+    pinned: bool = False,
 ) -> Todo:
+    if pinned and sla is not None:
+        raise ValueError("A pinned long-term goal takes no SLA")
+    sla_due_at = None if pinned else resolve_sla(sla, priority, local_today())
     # Find smallest available positive integer ID for this user
     existing_ids = todo_repo.get_all_todo_ids(user_id)
     used = set()
@@ -158,7 +168,10 @@ def create_todo(
         due_date=due_date,
         priority=priority,
         status="pending",
-        history=[TodoHistoryEntry(timestamp=get_utc_iso8601_timestamp(), unix_timestamp=get_unix_timestamp(), action="created")],
+        pinned=pinned,
+        sla_due_at=sla_due_at,
+        history=[TodoHistoryEntry(timestamp=get_utc_iso8601_timestamp(), unix_timestamp=get_unix_timestamp(), action="created",
+                                  note=f"pinned={pinned!r}, sla_due_at={sla_due_at!r}")],
     )
     return todo_repo.save_todo(user_id, todo)
 
@@ -207,7 +220,7 @@ STATUS_ACTION = {
     "pending": "deactivated", "active": "activated",
     "awaiting": "awaiting", "completed": "completed", "deleted": "deleted",
 }
-UNPIN_STATUSES = {"pending", "completed", "deleted"}
+UNPIN_STATUSES = {"completed", "deleted"}
 LEGACY_AWAITING_FIELDS = {"awaiting", "awaiting_until"}
 _RESUME_GUIDANCE = {
     "pending": "Cannot auto-resume an unstarted task; use status=active",
@@ -421,7 +434,7 @@ def _mutate_transition(user_id: int, todo_id: str, mutate, *, lock_tags: bool = 
 
 def update_todo(user_id: int, todo_id: str, **fields) -> Optional[Todo]:
     allowed = {"name", "desc", "tags", "due_date", "priority", "progress", "status",
-               "awaiting_chat", "pinned"}
+               "awaiting_chat"}
     unknown = fields.keys() - allowed - LEGACY_AWAITING_FIELDS
     if unknown:
         raise ValueError("Unknown todo fields")
@@ -480,9 +493,63 @@ def clear_machine_wait(user_id: int, todo_id: str) -> Optional[Todo]:
     return todo_repo.mutate_todo(user_id, todo_id, clear_machine_wait_locked)
 
 
-def pin_todo(user_id: int, todo_id: str, pinned: bool) -> Optional[Todo]:
-    return todo_repo.mutate_todo(user_id, todo_id, lambda session, row: _transition_locked(
-        session, row, {"pinned": pinned}, action="pinned" if pinned else "unpinned"))
+def pin_todo(user_id: int, todo_id: str, pinned: bool, sla: Optional[str] = None) -> Optional[Todo]:
+    if pinned and sla is not None:
+        raise ValueError("A pinned long-term goal takes no SLA")
+
+    def apply(session, row):
+        if row.status not in OPEN_STATUSES:
+            raise ValueError("Pin/unpin requires an open todo")
+        if bool(row.pinned) == pinned:
+            if sla is not None:
+                raise ValueError("Todo is already unpinned; use renew to change its SLA")
+            return False
+        due = None if pinned else resolve_sla(sla, row.priority, local_today())
+        return _transition_locked(session, row, {"pinned": pinned, "sla_due_at": due},
+                                  action="pinned" if pinned else "unpinned")
+
+    return todo_repo.mutate_todo(user_id, todo_id, apply)
+
+
+def renew_todo(user_id: int, todo_id: str, sla: Optional[str] = None) -> Optional[Todo]:
+    def apply(session, row):
+        if row.pinned or row.status not in OPEN_STATUSES:
+            raise ValueError("Renew requires an open, non-pinned todo; unpin a long-term goal first")
+        due = resolve_sla(sla, row.priority, local_today())
+        changed = _transition_locked(session, row, {"sla_due_at": due}, action="sla renewed")
+        if not changed:
+            row.history = [*(row.history or []), TodoHistoryEntry(
+                timestamp=get_utc_iso8601_timestamp(), unix_timestamp=get_unix_timestamp(),
+                action="sla renewed", note=f"sla_due_at={due!r}",
+            ).to_dict()]
+
+    return todo_repo.mutate_todo(user_id, todo_id, apply)
+
+
+def audit_todos(user_id: int) -> dict:
+    today = local_today()
+    todos = todo_repo.list_open_todos(user_id)
+    rows = [todo.to_dict() for todo in todos]
+    rank = {"high": 0, "medium": 1, "low": 2}
+    rows.sort(key=lambda t: (t["sla_due_at"] or "9999-12-31",
+                            rank.get(t.get("priority"), 3), len(t["todo_id"]), t["todo_id"]))
+    overdue = [t for t in rows if is_overdue(t["sla_due_at"], t["pinned"], t["status"], today)]
+    return {
+        "today": today.isoformat(), "total": len(rows),
+        "status_counts": {status: sum(t["status"] == status for t in rows) for status in OPEN_STATUSES},
+        "priority_counts": {priority: sum((t.get("priority") or "none") == priority for t in rows)
+                            for priority in ("high", "medium", "low", "none")},
+        "overdue_count": len(overdue), "overdue": overdue,
+        "due_today": [t for t in rows if not t["pinned"] and t["sla_due_at"] == today.isoformat()],
+        "oldest": sorted((t for t in rows if not t["pinned"]),
+                         key=lambda t: (t.get("created_at_unix") or 0, t["todo_id"]))[:10],
+        "pinned": [t for t in rows if t["pinned"]],
+    }
+
+
+def notify_sla_digest(user_id: int) -> bool:
+    text = format_digest(audit_todos(user_id))
+    return telegram_service.send_owner_notice(user_id, text) if text else False
 
 
 def update_status(

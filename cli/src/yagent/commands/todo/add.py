@@ -11,11 +11,17 @@ from yagent.tag_option import resolve_tags
 @click.option('--priority', '-p', default=None, type=click.Choice(['low', 'medium', 'high', 'none']), help='Priority')
 @click.option('--tags', '-t', 'tags', multiple=True,
               help='Tags: repeat -t and/or comma-separate (e.g. -t cli -t "agent-config,tags")')
+@click.option('--sla', default=None, help='Completion promise: Nd, Nw or YYYY-MM-DD (at most 14 days)')
+@click.option('--pin', is_flag=True, help='Create a long-term goal without an SLA')
 @click.option('--activate', is_flag=True, help='Create the todo already active')
 @click.option('--quiet', '-q', is_flag=True, help='Print only the new todo ID (for ID=$(y todo add ...))')
-def todo_add(name, desc, due, priority, tags, activate, quiet):
+def todo_add(name, desc, due, priority, tags, activate, quiet, sla, pin):
     """Add a new todo."""
-    body = {"name": name}
+    if pin and sla is not None:
+        raise click.UsageError("--pin cannot be combined with --sla")
+    body = {"name": name, "pinned": pin}
+    if sla is not None:
+        body["sla"] = sla
     if desc is not None:
         body["desc"] = desc
     if due is not None:

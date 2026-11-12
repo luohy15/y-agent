@@ -14,6 +14,7 @@ class TodoEntity(Base, BaseEntity):
     desc = Column(Text, nullable=True)
     tags = Column(JSON, nullable=True)
     due_date = Column(String, nullable=True)
+    sla_due_at = Column(String(10), nullable=True)
     priority = Column(String, nullable=True)
     status = Column(String, nullable=False, default="pending")
     awaiting_chat = Column(String, nullable=True)

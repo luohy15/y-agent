@@ -1,5 +1,6 @@
 import click
 from tabulate import tabulate
+from .sla_text import sla_label
 from yagent.api_client import api_request
 from yagent.commands.todo.wakeup_text import release_slot_label, wakeup_label
 from yagent.time_filter import collect_time_params, time_filter_options
@@ -9,12 +10,18 @@ from yagent.time_filter import collect_time_params, time_filter_options
 @click.option('--status', '-s', default=None, help='Filter by status (pending/active/awaiting/completed/deleted)')
 @click.option('--priority', '-p', default=None, help='Filter by priority')
 @click.option('--tag', default=None, help='Filter by tag (via entity_tag)')
+@click.option('--overdue', is_flag=True, help='Only open non-pinned todos past their SLA')
+@click.option('--open', 'open_only', is_flag=True, help='Only pending, active and awaiting todos')
 @time_filter_options
 @click.option('--limit', '-l', default=50, help='Max results')
 def todo_list(status, priority, tag, on, from_, to, created_on, created_from, created_to,
-              updated_on, updated_from, updated_to, limit):
+              updated_on, updated_from, updated_to, limit, overdue, open_only):
     """List todos. Canonical time field: completed_at. Inbox is --status awaiting."""
     params = {"limit": limit}
+    if overdue:
+        params["overdue"] = True
+    if open_only:
+        params["open"] = True
     if status is not None:
         params["status"] = status
     if priority is not None:
@@ -43,8 +50,9 @@ def todo_list(status, priority, tag, on, from_, to, created_on, created_from, cr
             t.get("awaiting_chat") or "-",
             t.get("priority") or "-",
             t.get("due_date") or "-",
+            sla_label(t),
             wakeup_label(t) or "-",
             release_slot_label(t) or "-",
             ",".join(t["tags"]) if t.get("tags") else "-",
         ])
-    click.echo(tabulate(table, headers=["ID", "Name", "Status", "Chat", "Priority", "Due", "Wakeup", "Release", "Tags"], tablefmt="simple"))
+    click.echo(tabulate(table, headers=["ID", "Name", "Status", "Chat", "Priority", "Due", "SLA", "Wakeup", "Release", "Tags"], tablefmt="simple"))
