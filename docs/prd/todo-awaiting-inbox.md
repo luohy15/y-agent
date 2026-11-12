@@ -1166,6 +1166,10 @@ Tests are local-only and untracked per repo convention.
 
 ## Out of Scope
 
+- **Completion promises, overdue derivation and the Load view**: owned by
+  [todo-admission-sla](todo-admission-sla.md). This PRD keeps the five
+  statuses and the inbox semantics unchanged; an overdue item keeps its real
+  status.
 - **Inbox items without a todo**: routine alerts (daily scan, ingest
   monitor, credit check) and self-started design or PRD chats. They still
   push to Telegram and still scroll away. Bringing them in would abandon

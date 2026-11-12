@@ -304,7 +304,10 @@ payload keep their original order.
 - **Redesigning the Todo list.** Table and kanban modes, their filters, and
   sorting are unchanged apart from what the detail round trip requires. The
   module-owned detail activity rail is removed in todo 3582; stored history
-  and the host History section stay.
+  and the host History section stay. The Load view mode, completion promises
+  and overdue grouping are owned by
+  [todo-admission-sla](todo-admission-sla.md); the existing table, kanban and
+  detail round trip are unchanged by that feature.
 - **New todo actions or permission changes.** Existing actions carry over with
   identical permissions; nothing is added, widened, or narrowed.
 - **Changing the public trace share page's own contract.** Its token-scoped,
