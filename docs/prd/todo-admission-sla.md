@@ -57,8 +57,9 @@ digest lists overdue and due-today items, and `y todo audit` provides the same
 data on demand. Each overdue item needs a renew or archive decision from Roy;
 archive uses the existing soft delete.
 
-The Todo full view gains a Load tab. With no stored view preference it is the
-default. It groups committed work into Overdue, Today, This Week, This Month,
+The Todo full view gains a Load tab, with tabs ordered kanban, load, table.
+With no stored view preference, kanban is the default; a stored preference
+still wins. Load groups committed work into Overdue, Today, This Week, This Month,
 Later and Long-term (pinned), with a count on each group header. The buckets use
 the promised date only. Completed and deleted items are excluded, while pending,
 active and awaiting items share the buckets, with their existing waiting and
@@ -156,10 +157,11 @@ confirmation. No existing todo is deleted or reclassified automatically.
 
 33. As the user, I want a Load tab in the Todo full view, so I can see what I
     intend to finish today, this week and this month.
-34. As the user, I want Load to be the full view's default when no view
-    preference is stored, so the load is the first thing I see.
-35. As the user, I want my stored table or kanban choice to still win, so the
-    new default does not override an explicit preference.
+34. As the user, I want kanban to be the full view's default when no view
+    preference is stored, with tabs ordered kanban, load, table, so the status
+    board is the first thing I see.
+35. As the user, I want my stored kanban, load or table choice to still win, so
+    the default does not override an explicit preference.
 36. As the user, I want Today to contain items promised for today, so the
     current day's commitment is unambiguous.
 37. As the user, I want This Week to contain the rest of the current
@@ -293,9 +295,9 @@ confirmation. No existing todo is deleted or reclassified automatically.
 
 ### Full view
 
-- `load` joins `table` and `kanban` as a view mode. It is the default when no
-  `todoViewMode` preference is stored. A stored `table` or `kanban` choice still
-  wins, matching the 4280 behavior.
+- The view tabs are ordered `kanban`, `load`, `table`. `kanban` is the default
+  when no `todoViewMode` preference is stored. A stored `kanban`, `load` or
+  `table` choice still wins, preserving explicit preferences.
 - Load follows the approved 4280 full view: the same page header, view tabs,
   controls row and section framing. The status segmented filter is hidden in
   Load because the groups are the status dimension; the name search still
