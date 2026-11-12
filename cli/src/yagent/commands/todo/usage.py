@@ -1,4 +1,4 @@
-"""`y todo usage <todo_id>`: the chats on a trace and what they cost in tokens.
+"""`y todo usage <todo_id>`: the chats on a todo and what they cost in tokens.
 
 The numbers come from GET /api/trace/usage. Cost is shown as unavailable
 because no per-request price is recorded, and historical completeness is
@@ -127,7 +127,7 @@ def fetch_usage(todo_id: str) -> dict:
 @click.argument("todo_id")
 @click.option("--json", "as_json", is_flag=True, help="Print the raw response instead of the report")
 def todo_usage(todo_id, as_json):
-    """Show bot usage for every chat on a todo's trace."""
+    """Show bot usage for every chat on a todo."""
     envelope = fetch_usage(todo_id)
     if as_json:
         click.echo(json.dumps(envelope, default=str))

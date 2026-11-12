@@ -85,7 +85,7 @@ async def deliver_death(chat_id, proc, outcome, error):
             or not current_run(chat_id, proc)):
         return "obsolete"
     chat_service.mark_chat_completion_unread(user_id, chat_id)
-    prefix = f"Trace {chat.trace_id or 'unknown'}, child {chat_id}: observed {outcome}."
+    prefix = f"Todo {chat.trace_id or 'unknown'}, chat {chat_id}: observed {outcome}."
     error_text = str(error or "No error detail available.")[:1800]
     text = f"{prefix} {error_text}"
     if chat.role == "manager":

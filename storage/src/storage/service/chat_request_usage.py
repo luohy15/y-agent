@@ -473,7 +473,7 @@ def _inbound(json_content: str) -> int:
 def aggregate_for_trace(user_id: int, trace_id: str, now: datetime | None = None) -> dict:
     """Totals, per model and per chat for one trace, plus scan freshness.
 
-    `sessions` counts chats on the trace. `transcripts` counts distinct session
+    `sessions` counts chats associated with the trace. `transcripts` counts distinct session
     ids in the uploaded rows. `turns` comes from the derived activity table and
     `inbound` from the chat body. A chat that is not claude_code reports
     collected: false instead of a zero that would look like a scanned session.

@@ -242,7 +242,7 @@ def _pointer_chat(session, row, chat_id: str, field: str = "awaiting_chat") -> N
     if not session.query(ChatEntity.id).filter_by(
         user_id=row.user_id, chat_id=chat_id, trace_id=row.todo_id,
     ).first():
-        raise ValueError(f"{field} must name a same-owner, same-trace chat")
+        raise ValueError(f"{field} must name a same-owner, same-todo chat")
 
 
 def _status_side_effects(row, fields, status: str) -> None:
@@ -477,7 +477,7 @@ def set_machine_wait(user_id: int, todo_id: str, on: str, chat_id: str,
         if not session.query(ChatEntity.id).filter_by(
             user_id=row.user_id, chat_id=chat_id, trace_id=row.todo_id,
         ).first():
-            raise ValueError("chat_id must name a same-owner, same-trace chat")
+            raise ValueError("chat_id must name a same-owner, same-todo chat")
         return _transition_locked(session, row, {"machine_wait": {
             "on": on.strip(), "chat_id": chat_id, "since": now, "until": deadline,
         }}, action="waiting")

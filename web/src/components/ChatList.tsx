@@ -161,7 +161,7 @@ export default function ChatList({ isLoggedIn, selectedChatId, onSelectChat, ref
                         <button
                           onClick={(e) => { e.stopPropagation(); if (onSelectTrace) onSelectTrace(firstTraceId); else navigator.clipboard.writeText(firstTraceId); }}
                           className={`text-[0.55rem] cursor-pointer ${TRACE_BADGE}`}
-                          title="View trace"
+                          title="Copy todo ID"
                         >
                           #{firstTraceId.slice(0, 8)}
                         </button>

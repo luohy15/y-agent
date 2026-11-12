@@ -71,7 +71,7 @@ export default function PublicTraceApp() {
     if (r.status === 401) { setPasswordRequired(true); setLoading(false); return; }
     if (r.status === 403) { setPasswordError("Wrong password"); return; }
     if (r.status === 429) { setPasswordError("Too many attempts — try again later"); return; }
-    if (!r.ok) throw new Error("Shared trace not found");
+    if (!r.ok) throw new Error("Shared chat not found");
     const d: TraceShareResponse = await r.json();
     setData(d);
     setPasswordRequired(false);
@@ -248,7 +248,7 @@ export default function PublicTraceApp() {
         <button onClick={() => setRightPanel("links")} className={tabBtnClass(rightPanel === "links")} title="Links">
           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
         </button>
-        <button onClick={handleRefresh} className="ml-auto p-1 text-sol-base01 hover:text-sol-base1 rounded cursor-pointer" title="Refresh trace">
+        <button onClick={handleRefresh} className="ml-auto p-1 text-sol-base01 hover:text-sol-base1 rounded cursor-pointer" title="Refresh">
           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
         </button>
         <button onClick={() => setRightPanelOpen(false)} className="md:hidden p-1 text-sol-base01 hover:text-sol-base1 rounded cursor-pointer" title="Close">
@@ -281,7 +281,7 @@ export default function PublicTraceApp() {
     <div className="h-dvh flex flex-col overflow-hidden bg-sol-base03">
       {/* Full-width page header: centered todo title + badges, above the center|right split */}
       <div className="flex flex-wrap items-center justify-center gap-1.5 px-2 pt-2.5 pb-2 bg-sol-base03 shrink-0">
-        <span className="text-sol-base1 text-sm font-medium truncate">{data.todo_name || "Trace"}</span>
+        <span className="text-sol-base1 text-sm font-medium truncate">{data.todo_name || "Chat"}</span>
         {data.todo_status && <span className={`text-[0.6rem] px-1 rounded ${statusBadgeClass(data.todo_status)}`}>{data.todo_status}</span>}
         <div className="flex flex-wrap gap-0.5">
           {skills.map((s) => <span key={s} className={`text-[0.6rem] ${topicBadgeClass(s)}`}>{s}</span>)}
@@ -295,7 +295,7 @@ export default function PublicTraceApp() {
             {/* Brand */}
             <div>
               <div className="text-sol-base1 font-semibold text-base leading-tight">y-agent</div>
-              <div className="text-sol-base01 text-xs">shared trace</div>
+              <div className="text-sol-base01 text-xs">shared chat</div>
             </div>
             {/* Trace meta: copyable #todo_id chip + status badge */}
             {(data.todo?.todo_id || data.todo_status) && (
@@ -304,7 +304,7 @@ export default function PublicTraceApp() {
                   <button
                     onClick={() => { navigator.clipboard.writeText(data.todo!.todo_id); setIdCopied(true); setTimeout(() => setIdCopied(false), 1500); }}
                     className={`font-mono text-[0.7rem] px-2 py-0.5 rounded cursor-pointer ${idCopied ? "bg-sol-green text-sol-base03" : "bg-sol-base02 text-sol-base01 hover:text-sol-base1"}`}
-                    title="Copy trace id"
+                    title="Copy todo ID"
                   >
                     {idCopied ? "copied!" : `#${data.todo.todo_id}`}
                   </button>

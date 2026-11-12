@@ -103,7 +103,7 @@ function PublicFileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, on
   }, [activeFile, cache]);
 
   const labelFor = (shareId: string) => {
-    if (shareId === PUBLIC_TRACE_TAB) return "trace";
+    if (shareId === PUBLIC_TRACE_TAB) return "chat";
     const ck = noteMeta[shareId]?.content_key || shareId;
     return ck.replace(/^.*\//, "").replace(/\.md$/, "");
   };

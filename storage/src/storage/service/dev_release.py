@@ -74,9 +74,9 @@ def _validate_session(user_id: int, trace_id: str, chat_id: str) -> None:
     """The chat must be a persisted chat of this account inside that trace."""
     chats = chat_repo.find_chats_by_trace_id(user_id, trace_id)
     if not chats:
-        raise DevReleaseInvalid(f"trace {trace_id!r} has no chats for this account")
+        raise DevReleaseInvalid(f"todo {trace_id!r} has no chats for this account")
     if chat_id not in {c.chat_id for c in chats}:
-        raise DevReleaseInvalid(f"chat {chat_id!r} does not participate in trace {trace_id!r}")
+        raise DevReleaseInvalid(f"chat {chat_id!r} does not participate on todo {trace_id!r}")
 
 
 def _validate_chat(user_id: int, chat_id: str) -> None:
@@ -236,7 +236,7 @@ def check(user_id: int, *, project: str, trace_id: str, chat_id: str, claim_id: 
     elif slot.generation != generation:
         reason = f"expected generation {generation}, slot is at {slot.generation}"
     elif trace_id != slot.owner_trace_id:
-        reason = "trace_id is not the owning trace"
+        reason = "trace_id is not the owning todo ID"
     elif role == "owner":
         if chat_id != slot.owner_chat_id:
             reason = "chat_id is not the owning session"
@@ -332,7 +332,7 @@ def grant_message(waiter: DevReleaseWaiter) -> str:
     """
     return (
         f"Publication slot for {waiter.project_key} is yours "
-        f"(trace {waiter.trace_id}). Next: y dev release status --next."
+        f"(todo {waiter.trace_id}). Next: y dev release status --next."
     )
 
 

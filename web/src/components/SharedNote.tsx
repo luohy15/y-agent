@@ -40,7 +40,7 @@ function isHtmlContentKey(contentKey: string): boolean {
 interface SharedNoteProps {
   /** Note share id (the `/n/<shareId>` segment). */
   shareId: string;
-  /** When provided, renders a "← Back to trace" button and is called on click. */
+  /** When provided, renders a "← Back to chat" button and is called on click. */
   onBack?: () => void;
 }
 
@@ -244,7 +244,7 @@ export default function SharedNote({ shareId, onBack }: SharedNoteProps) {
                 onClick={onBack}
                 className="shrink-0 font-mono cursor-pointer px-2 py-1 rounded text-xs font-semibold bg-sol-base02 text-sol-base01 hover:text-sol-base0"
               >
-                ← Back to trace
+                ← Back to chat
               </button>
             )}
             <div className="min-w-0">

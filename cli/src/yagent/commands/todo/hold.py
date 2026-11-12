@@ -8,7 +8,7 @@ from yagent.time_util import resolve_due_at
 def _options(fn):
     fn = click.option("--clear", is_flag=True, help="Clear the declared machine wait")(fn)
     fn = click.option("--until", default=None, help="Deadline: +Nm, +Nh or ISO timestamp (default +6h, max +24h)")(fn)
-    fn = click.option("--chat", "chat_id", default=None, help="Same-owner same-trace callback chat ID")(fn)
+    fn = click.option("--chat", "chat_id", default=None, help="Same-owner same-todo callback chat ID")(fn)
     fn = click.option("--on", default=None, help="Machine dependency (at most 120 characters)")(fn)
     return click.argument("todo_id")(fn)
 

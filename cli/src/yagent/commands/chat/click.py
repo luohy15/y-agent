@@ -443,7 +443,7 @@ def _interactive(
 @click.option('--skill', default=None, help='Skill to load on the target chat (defaults to role for non-manager roles)')
 @click.option('--work-dir', default=None, help='Working directory for the chat')
 @click.option('--on', 'execution_target', default=None, help='Execution node that runs this chat (see `y node list`; default/ec2 mean the orchestrator). Sticky; omit to keep the chat on its current node.')
-@click.option('--trace-id', default=None, help='Trace ID. Precedence: explicit flag > $Y_TRACE_ID env var > unset')
+@click.option('--trace-id', default=None, help='Todo ID for todo-backed work. Precedence: explicit flag > $Y_TRACE_ID env var > unset')
 @click.option('--new', 'force_new', is_flag=True, help='Force a new chat instead of resuming a role chat or reusing a same-phase worker')
 @click.option('--fresh', is_flag=True, hidden=True, help='Deprecated alias of --new')
 @click.option('--from-topic', default=None, hidden=True)

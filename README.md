@@ -32,12 +32,12 @@ Under the hood, a React web UI and Telegram feed a FastAPI API. The API queues w
 - **MacBook chat sessions.** Run a new chat on the MacBook with `y chat --on mac` and use the same chat interface to follow and steer it. EC2 remains the orchestration hop; the session runs on the MacBook. See [multi-machine execution](docs/prd/multi-machine-execution.md).
 - **One-way skills delivery.** `y skills check --namespace work` validates namespace-module rules against EC2's `~/.agents`. `y skills publish --dry-run` previews the default Mac delivery; `--run` uploads and installs it. Remote scope comes from the node registry, work delivery fails closed without its rules, and personal delivery needs no namespace module. This is a delivery filter, not a runtime sandbox.
 - **Task-linked context.** A todo connects discussions, plans, progress, and reviews. A new session reads that material instead of needing the entire previous conversation in its prompt.
-- **Orchestration outside the runtime.** One session can finish a small task; larger tasks can split into planning, implementation, and review sessions, each loading the skill it needs. A shared `trace_id` connects the tree, and sub-task chats remain visible and steerable.
+- **Orchestration outside the runtime.** One session can finish a small task; larger tasks can split into planning, implementation, and review sessions, each loading the skill it needs. A shared todo ID connects the tree, and sub-task chats remain visible and steerable.
 - **An inbox for your turn.** `awaiting` marks work needing a decision, authorization, or acceptance check. Publication approval is a separate boundary from implementation and review.
 - **Extensible surfaces.** Hot-loadable modules can add UI, API, CLI, and data. Chat can render Mermaid diagrams, Vega-Lite charts, and sanitized SVG artifacts. See the [module contract](docs/prd/module-system.md).
 - **MCP connectors.** Connect remote HTTPS MCP servers (OAuth, static header, or no auth; Alpha Vantage first) once (OAuth via `y mcp connect` loopback login), approve tools explicitly, and every Claude Code session gets them from its next launch. Credentials stay central in the API and are never returned by any read; sessions only see approved tools through a launch-scoped gateway. See the [MCP connectors PRD](docs/prd/mcp-connectors.md) and [runbook](docs/mcp-connectors.md).
 
-See a [real task trace](https://yovy.app/t/6fc5c4).
+See a [real task chat](https://yovy.app/t/6fc5c4).
 
 ## Get started
 

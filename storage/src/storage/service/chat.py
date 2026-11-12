@@ -205,7 +205,7 @@ def find_phase_worker(
     phase: Optional[str],
     work_dir: Optional[str],
 ) -> Optional[dict]:
-    """Find a same-trace phase worker; lookup failures and budgets fail open."""
+    """Find a phase worker sharing the trace; lookup failures and budgets fail open."""
     if not trace_id or not phase or not work_dir:
         return None
     try:

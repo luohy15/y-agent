@@ -117,7 +117,7 @@ export default function LandingTour() {
           {/* ring of tags (dashed), gap at finance */}
           <path className={edgeClass("ring", "tag")} d="M563 370 A180 170 0 1 1 690 420" />
           {EDGES.map(([k, d, kind]) => <path key={k} className={edgeClass(k, kind)} d={d} />)}
-          <text className={`lt-elabel${s.edges.includes("trace") ? " on" : ""}`} x="525" y="243" textAnchor="middle">trace = task ID</text>
+          <text className={`lt-elabel${s.edges.includes("trace") ? " on" : ""}`} x="525" y="243" textAnchor="middle">chats share the task ID</text>
 
           {CLIENT_BOXES.map(c => (
             <g key={c.key} {...partProps(c.key, PARTS[c.key][0])}>

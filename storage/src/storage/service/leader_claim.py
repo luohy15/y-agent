@@ -83,7 +83,7 @@ def _validate_chat(session, row, chat_id: str) -> None:
     )
     if chat is None:
         raise LeaderClaimInvalid(
-            f"chat {chat_id!r} is not a chat of this account in trace {row.todo_id!r}"
+            f"chat {chat_id!r} is not a chat of this account on todo {row.todo_id!r}"
         )
     if not chat.is_leader:
         raise LeaderClaimInvalid("only a leader-role chat can hold the leader claim")

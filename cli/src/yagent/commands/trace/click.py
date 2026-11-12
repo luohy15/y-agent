@@ -6,13 +6,13 @@ from .share_list import trace_share_list
 
 @click.group('trace')
 def trace_group():
-    """Manage trace shares."""
+    """Manage todo chat shares."""
     pass
 
 
 @trace_group.group('share')
 def trace_share_group():
-    """Manage trace share links."""
+    """Manage todo chat share links."""
     pass
 
 

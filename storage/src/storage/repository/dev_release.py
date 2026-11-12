@@ -463,12 +463,12 @@ def _validate_coordinator(session, user_id: int, trace_id: str, chat_id: str) ->
     chat = (session.query(effective_role_expr("manager").label("is_manager")).select_from(ChatEntity)
             .filter_by(user_id=user_id, chat_id=chat_id, trace_id=trace_id).first())
     if chat is None:
-        return f"chat {chat_id!r} is not a chat of this account in trace {trace_id!r}"
+        return f"chat {chat_id!r} is not a chat of this account on todo {trace_id!r}"
     if chat.is_manager:
         return "a root-role chat cannot be a publication coordinator"
     todo = session.query(TodoEntity.id).filter_by(user_id=user_id, todo_id=trace_id).first()
     if todo is None:
-        return f"trace {trace_id!r} has no todo for this account"
+        return f"todo {trace_id!r} does not exist for this account"
     return None
 
 
@@ -586,9 +586,9 @@ def enqueue(*, project_key: str, user_id: int, actor_user_id: str, waiter_id: st
                               status="pending").first())
         if pending is not None:
             raise DevReleaseConflict(
-                f"trace {trace_id!r} already has waiter {pending.waiter_id!r} pending", current())
+                f"todo {trace_id!r} already has waiter {pending.waiter_id!r} pending", current())
         if row.active and row.user_id == user_id and row.owner_trace_id == trace_id:
-            raise DevReleaseConflict(f"trace {trace_id!r} already owns this project", current())
+            raise DevReleaseConflict(f"todo {trace_id!r} already owns this project", current())
         if len(row.waiters or []) >= MAX_PENDING_WAITERS:
             raise DevReleaseConflict(
                 f"waiter queue is full ({MAX_PENDING_WAITERS} pending)", current())

@@ -79,8 +79,8 @@ def _process_snapshot():
 def _fault_detail(reason, chat_id, outcome, error_text) -> str:
     detail = {
         "idle": "No running session.",
-        "backstop": f"Active for over {ZERO_CHAT_BACKSTOP_SECONDS // 3600} hours with no chat on the trace.",
-        "session_end": "Session ended; nothing else is running on the trace.",
+        "backstop": f"Active for over {ZERO_CHAT_BACKSTOP_SECONDS // 3600} hours with no chat on the todo.",
+        "session_end": "Session ended; nothing else is running on the todo.",
     }[reason]
     if chat_id:
         detail += f" Last chat {chat_id}: exit {outcome}."

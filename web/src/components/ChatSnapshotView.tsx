@@ -20,7 +20,7 @@ export default function ChatSnapshotView({ chatId, messages: rawMessages, onRefr
       <HostMessageView messages={messages} centered scopeId={chatId} scrollContainerRef={scrollRef} allowLocalAttachments={false} />
       {onRefresh && (
         <div className="mx-4 border-t border-sol-base02 shrink-0 px-2 py-2">
-          <button onClick={onRefresh} className="inline-flex items-center gap-1 px-2 py-0.5 bg-sol-base02 text-sol-base1 rounded text-xs font-semibold cursor-pointer hover:bg-sol-base01/30" title="Refresh trace">
+          <button onClick={onRefresh} className="inline-flex items-center gap-1 px-2 py-0.5 bg-sol-base02 text-sol-base1 rounded text-xs font-semibold cursor-pointer hover:bg-sol-base01/30" title="Refresh chat">
             <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
             Refresh
           </button>

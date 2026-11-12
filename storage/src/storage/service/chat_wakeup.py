@@ -57,9 +57,9 @@ async def create_wakeup(user_id: int, chat_id: str, message: str, due_at: str, *
     except ValueError as exc:
         raise ChatWakeupInvalid(str(exc)) from exc
     if not chat.trace_id:
-        raise ChatWakeupInvalid("target chat has no trace_id; a wakeup requires a traced chat")
+        raise ChatWakeupInvalid("target chat has no trace_id; a wakeup requires a chat linked to a todo")
     if trace_id and trace_id != chat.trace_id:
-        raise ChatWakeupInvalid("trace_id does not match the chat's trace")
+        raise ChatWakeupInvalid("trace_id does not match the chat's todo ID")
 
     due_at_unix = _parse_due_at(due_at)
     now_ms = get_unix_timestamp()

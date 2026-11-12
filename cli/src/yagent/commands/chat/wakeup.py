@@ -21,7 +21,7 @@ def chat_wakeup_group():
 
 
 @chat_wakeup_group.command("list")
-@click.option("--trace-id", default=None, help="Filter to wakeups on this trace")
+@click.option("--trace-id", default=None, help="Filter to wakeups on this todo")
 @click.option("--all", "show_all", is_flag=True, help="Include delivered/cancelled wakeups (default: pending/accepted only)")
 @click.option("--limit", "-l", default=50, help="Max results")
 def wakeup_list(trace_id, show_all, limit):
@@ -44,7 +44,7 @@ def wakeup_list(trace_id, show_all, limit):
     for w in wakeups:
         due_at = utc_to_local(_unix_to_utc_iso(w["due_at_unix"]))
         table.append([w["wakeup_id"], w["chat_id"], w["trace_id"], due_at, w["status"]])
-    click.echo(tabulate(table, headers=["ID", "Chat", "Trace", "Due At", "Status"], tablefmt="simple"))
+    click.echo(tabulate(table, headers=["ID", "Chat", "Todo", "Due At", "Status"], tablefmt="simple"))
 
 
 def _unix_to_utc_iso(unix_ms: int) -> str:

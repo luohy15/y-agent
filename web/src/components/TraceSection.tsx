@@ -28,7 +28,7 @@ export default function TraceSection({ chats, onSelectChat, onOpenContext }: Tra
         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
         </svg>
-        <span className="font-medium text-sol-base0">Trace ({chats.length})</span>
+        <span className="font-medium text-sol-base0">Chat ({chats.length})</span>
       </button>
       {traceOpen && (
         <div className="px-2 pb-2">
