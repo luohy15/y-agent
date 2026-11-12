@@ -13,11 +13,9 @@ trims, and maps underscore to hyphen. Project tags always use the hyphen form
 even when the repo directory under code/ uses underscores (e.g.
 code/alpha_vantage_mcp → alpha-vantage-mcp). No auto-singularize.
 
-Compatibility registration (todo 3290): add_tag() and sync_tags() also
-register each normalized tag in tag_vocabulary, in the same transaction as
-the entity_tag write, so any caller (including callers that predate the
-create-vocabulary route) keeps the vocabulary durable and the entity_tag
-projection a subset of it.
+Membership writes require existing owner vocabulary (todo 4277). Validation
+and projection changes share the owner lock and transaction with carrier saves;
+only explicit vocabulary creation and coordinated rename register new names.
 """
 
 from typing import Iterable, List, Optional, Tuple, Union
@@ -55,26 +53,45 @@ def normalize_tags(tags: Optional[Union[str, Iterable]]) -> List[str]:
     return out
 
 
+class UnknownTagError(ValueError):
+    """A membership write referenced an unregistered vocabulary spelling."""
+
+
+def require_known_tags(session, user_id: int, tags) -> List[str]:
+    """Normalize and validate the complete set while holding the owner lock."""
+    from storage.entity.tag_vocabulary import TagVocabularyEntity
+
+    vocabulary_repo.lock_owner(session, user_id)
+    normalized = normalize_tags(tags)
+    if normalized:
+        known = {row[0] for row in session.query(TagVocabularyEntity.tag).filter(
+            TagVocabularyEntity.user_id == user_id,
+            TagVocabularyEntity.tag.in_(normalized),
+        ).all()}
+        unknown = [tag for tag in normalized if tag not in known]
+        if unknown:
+            raise UnknownTagError(f"unknown tag(s): {', '.join(unknown)}; see y tag list")
+    return normalized
+
+
+def sync_tags_locked(session, user_id: int, entity_type: str, entity_id: str, tags) -> None:
+    """Validate and reconcile in the carrier's transaction, before saving it."""
+    wanted = set(require_known_tags(session, user_id, tags))
+    existing = session.query(EntityTagEntity).filter_by(
+        user_id=user_id, entity_type=entity_type, entity_id=entity_id
+    ).all()
+    existing_tags = {row.tag for row in existing}
+    for row in existing:
+        if row.tag not in wanted:
+            session.delete(row)
+    for tag in wanted - existing_tags:
+        session.add(EntityTagEntity(user_id=user_id, entity_type=entity_type, entity_id=entity_id, tag=tag))
+
+
 def sync_tags(user_id: int, entity_type: str, entity_id: str, tags: List[str]) -> None:
     """Reconcile entity_tag rows for (entity_type, entity_id) to exactly `tags`."""
-    wanted = set(normalize_tags(tags))
     with get_db() as session:
-        vocabulary_repo.lock_owner(session, user_id)
-        # Register vocabulary before touching entity_tag: ensure() may run a
-        # nested SAVEPOINT on SQLite whose flush would otherwise sweep up any
-        # already-pending entity_tag delete/add and roll it back together with
-        # a spurious vocabulary race.
-        for tag in wanted:
-            vocabulary_repo.ensure(session, user_id, tag)
-        existing = session.query(EntityTagEntity).filter_by(
-            user_id=user_id, entity_type=entity_type, entity_id=entity_id
-        ).all()
-        existing_tags = {row.tag for row in existing}
-        for row in existing:
-            if row.tag not in wanted:
-                session.delete(row)
-        for tag in wanted - existing_tags:
-            session.add(EntityTagEntity(user_id=user_id, entity_type=entity_type, entity_id=entity_id, tag=tag))
+        sync_tags_locked(session, user_id, entity_type, entity_id, tags)
 
 
 def add_tag_locked(
@@ -84,23 +101,16 @@ def add_tag_locked(
     entity_id: str,
     tag: str,
     *,
-    require_existing: bool = False,
+    require_existing: bool = True,
 ) -> bool:
     """Add one tag inside a caller transaction that already holds the owner lock.
 
-    `require_existing` refuses a spelling that is not already in the owner's
-    vocabulary (photo editors) instead of registering it.
+    `require_existing` is retained for callers; False no longer permits creation.
     """
     tag = normalize_tag(tag)
     if not tag:
         return False
-    if require_existing:
-        from storage.entity.tag_vocabulary import TagVocabularyEntity
-        known = session.query(TagVocabularyEntity.id).filter_by(user_id=user_id, tag=tag).first()
-        if known is None:
-            raise LookupError("tag is not in the vocabulary")
-    else:
-        vocabulary_repo.ensure(session, user_id, tag)
+    require_known_tags(session, user_id, [tag])
     exists = session.query(EntityTagEntity).filter_by(
         user_id=user_id, entity_type=entity_type, entity_id=entity_id, tag=tag
     ).first()
@@ -116,7 +126,7 @@ def add_tag(
     entity_id: str,
     tag: str,
     *,
-    require_existing: bool = False,
+    require_existing: bool = True,
 ) -> bool:
     """Add a single tag. Returns True if created, False if already present."""
     if not normalize_tag(tag):

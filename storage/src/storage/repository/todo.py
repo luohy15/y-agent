@@ -8,6 +8,8 @@ from storage.entity.todo import TodoEntity
 from storage.entity.chat import ChatEntity
 from storage.entity.entity_tag import EntityTagEntity
 from storage.entity.dto import Todo, TodoHistoryEntry
+from storage.repository import entity_tag as tag_repo
+from storage.repository import tag_vocabulary as vocabulary_repo
 from storage.database.base import get_db
 from storage import todo_list_timing
 from storage.util import apply_time_filter
@@ -272,8 +274,10 @@ def lock_todo(session, user_id: int, todo_id: str):
             .populate_existing().with_for_update().first())
 
 
-def mutate_todo(user_id: int, todo_id: str, mutate) -> Optional[Todo]:
+def mutate_todo(user_id: int, todo_id: str, mutate, *, lock_tags: bool = False) -> Optional[Todo]:
     with get_db() as session:
+        if lock_tags:
+            vocabulary_repo.lock_owner(session, user_id)
         row = lock_todo(session, user_id, todo_id)
         if row is None:
             return None
@@ -284,6 +288,8 @@ def mutate_todo(user_id: int, todo_id: str, mutate) -> Optional[Todo]:
 
 def save_todo(user_id: int, todo: Todo) -> Todo:
     with get_db() as session:
+        todo.tags = tag_repo.require_known_tags(session, user_id, todo.tags)
+        tag_repo.sync_tags_locked(session, user_id, "todo", todo.todo_id, todo.tags)
         fields = dict(
             name=todo.name,
             desc=todo.desc,

@@ -150,32 +150,38 @@ def _require_module_target(user_id: int, entity_type: str, entity_id: str) -> No
         raise LookupError("carrier target was not found")
 
 
+def add_tags(user_id: int, entity_type: str, entity_id: str, tags: List[str]) -> List[str]:
+    """Validate a complete batch before any membership write, in one transaction."""
+    from storage.service.module_carrier import is_known_module_carrier
+
+    if entity_type == "email":
+        from storage.service import email as email_service
+        email_service._require_thread(user_id, entity_id)
+        tags = [email_service._canonical_vocabulary_tag(tag) for tag in tags]
+    module_carrier = (is_known_module_carrier(entity_type)
+                      or _module_carrier_slug(user_id, entity_type) is not None)
+    if module_carrier:
+        _require_module_id(entity_id)
+    with get_db() as session:
+        _lock_owner_bounded(session, user_id)
+        normalized = tag_repo.require_known_tags(session, user_id, tags)
+        if module_carrier:
+            _require_module_target(user_id, entity_type, entity_id)
+        return [tag for tag in normalized if tag_repo.add_tag_locked(
+            session, user_id, entity_type, entity_id, tag,
+        )]
+
+
 def add_tag(
     user_id: int,
     entity_type: str,
     entity_id: str,
     tag: str,
     *,
-    require_existing: bool = False,
+    require_existing: bool = True,
 ) -> bool:
-    if entity_type == "email":
-        from storage.service import email as email_service
-        if require_existing:
-            raise ValueError("email tags use the email service")
-        return email_service.add_tag(user_id, entity_id, tag)
-    from storage.service.module_carrier import is_known_module_carrier
-
-    if not is_known_module_carrier(entity_type) and _module_carrier_slug(user_id, entity_type) is None:
-        return tag_repo.add_tag(user_id, entity_type, entity_id, tag, require_existing=require_existing)
-    if not normalize_tag(tag):
-        return False
-    _require_module_id(entity_id)
-    with get_db() as session:
-        _lock_owner_bounded(session, user_id)
-        _require_module_target(user_id, entity_type, entity_id)
-        return tag_repo.add_tag_locked(
-            session, user_id, entity_type, entity_id, tag, require_existing=require_existing
-        )
+    """Add an existing tag; the compatibility flag cannot enable creation."""
+    return bool(add_tags(user_id, entity_type, entity_id, [tag]))
 
 
 def remove_tag(user_id: int, entity_type: str, entity_id: str, tag: str) -> bool:
@@ -436,36 +442,33 @@ _TAG_SEGMENT_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
 def _validate_tag_syntax(tag: str) -> None:
-    """Raise TagVocabularyError unless `tag` is slash-delimited lowercase hyphen slugs.
-
-    Each `/`-delimited segment must match `[a-z0-9]+(?:-[a-z0-9]+)*`: empty
-    segments (so leading/trailing/doubled slashes are rejected), whitespace,
-    punctuation other than `-`, and leading/trailing hyphens are all invalid.
-    Semantic rules (identity vs topic, singular/plural, usefulness) are human
-    policy and are deliberately not checked here.
-    """
-    for segment in tag.split("/"):
-        if not segment or not _TAG_SEGMENT_RE.match(segment):
-            raise TagVocabularyError(
-                f"invalid tag syntax: {tag!r} (segment {segment!r} must be "
-                "lowercase alphanumeric words joined by single hyphens)"
-            )
+    """Validate new flat names; registered legacy spellings remain usable."""
+    if len(tag) > 40 or not _TAG_SEGMENT_RE.fullmatch(tag):
+        raise TagVocabularyError(
+            f"invalid tag syntax: {tag!r}; use lowercase alphanumeric words "
+            "joined by single hyphens, at most 40 characters (no slashes)"
+        )
 
 
-def create_vocabulary(user_id: int, tag: str) -> Dict[str, object]:
-    """Normalize, validate, and idempotently register a canonical vocabulary tag.
+def create_vocabulary(user_id: int, tag: str, *, allow_unusual: bool = False) -> Dict[str, object]:
+    """Explicit registration; unusual new names require acknowledgement."""
+    from storage.entity.tag_vocabulary import TagVocabularyEntity
 
-    Returns {"tag": canonical, "created": bool}; `created` is False when the
-    canonical spelling already exists (including when a concurrent create won
-    the uniqueness race). Raises TagVocabularyError on blank or syntactically
-    invalid input, and never writes on that path.
-    """
     canonical = normalize_tag(tag)
     if not canonical:
         raise TagVocabularyError("tag must not be blank")
-    _validate_tag_syntax(canonical)
-    canonical, created = vocabulary_repo.create(user_id, canonical)
-    return {"tag": canonical, "created": created}
+    with get_db() as session:
+        vocabulary_repo.lock_owner(session, user_id)
+        if session.query(TagVocabularyEntity.id).filter_by(user_id=user_id, tag=canonical).first():
+            return {"tag": canonical, "created": False}
+        _validate_tag_syntax(canonical)
+        if len(canonical) >= 20 and "-" not in canonical and not allow_unusual:
+            raise TagVocabularyError(
+                "unusual tag requires acknowledgement: retry with allow_unusual=true "
+                "(CLI: --allow-unusual) only if this spelling is intentional"
+            )
+        created = vocabulary_repo.ensure(session, user_id, canonical)
+        return {"tag": canonical, "created": created}
 
 
 def delete_vocabulary(user_id: int, tag: str) -> Dict[str, object]:
@@ -530,6 +533,18 @@ def _iter_todos(user_id: int):
         offset += _PAGE_SIZE
 
 
+def _backfill_carrier(user_id, entity_type, entity_id, tags, dry_run, stats):
+    try:
+        with get_db() as session:
+            tag_repo.require_known_tags(session, user_id, tags)
+            if not dry_run:
+                tag_repo.sync_tags_locked(session, user_id, entity_type, entity_id, tags)
+    except tag_repo.UnknownTagError as exc:
+        stats["skipped"].append({"id": entity_id, "reason": str(exc)})
+        return False
+    return True
+
+
 def backfill_tags(
     user_id: int,
     *,
@@ -558,15 +573,15 @@ def backfill_tags(
     total_tag_rows = 0
 
     if "note" in wanted:
-        stats = {"scanned": 0, "with_tags": 0, "synced": 0, "tag_rows": 0}
+        stats = {"scanned": 0, "with_tags": 0, "synced": 0, "tag_rows": 0, "skipped": []}
         for note in _iter_notes(user_id):
             stats["scanned"] += 1
             tags = _tags_from_front_matter(note.front_matter)
             if not tags:
                 continue
             stats["with_tags"] += 1
-            if not dry_run:
-                tag_repo.sync_tags(user_id, "note", note.note_id, tags)
+            if not _backfill_carrier(user_id, "note", note.note_id, tags, dry_run, stats):
+                continue
             stats["synced"] += 1
             stats["tag_rows"] += len(tags)
             if limit is not None and stats["synced"] >= limit:
@@ -576,15 +591,15 @@ def backfill_tags(
         total_tag_rows += stats["tag_rows"]
 
     if "entity" in wanted:
-        stats = {"scanned": 0, "with_tags": 0, "synced": 0, "tag_rows": 0}
+        stats = {"scanned": 0, "with_tags": 0, "synced": 0, "tag_rows": 0, "skipped": []}
         for entity in _iter_entities(user_id):
             stats["scanned"] += 1
             tags = _tags_from_front_matter(entity.front_matter)
             if not tags:
                 continue
             stats["with_tags"] += 1
-            if not dry_run:
-                tag_repo.sync_tags(user_id, "entity", entity.entity_id, tags)
+            if not _backfill_carrier(user_id, "entity", entity.entity_id, tags, dry_run, stats):
+                continue
             stats["synced"] += 1
             stats["tag_rows"] += len(tags)
             if limit is not None and stats["synced"] >= limit:
@@ -594,15 +609,15 @@ def backfill_tags(
         total_tag_rows += stats["tag_rows"]
 
     if "todo" in wanted:
-        stats = {"scanned": 0, "with_tags": 0, "synced": 0, "tag_rows": 0}
+        stats = {"scanned": 0, "with_tags": 0, "synced": 0, "tag_rows": 0, "skipped": []}
         for todo in _iter_todos(user_id):
             stats["scanned"] += 1
             tags = normalize_tags(todo.tags)
             if not tags:
                 continue
             stats["with_tags"] += 1
-            if not dry_run:
-                tag_repo.sync_tags(user_id, "todo", todo.todo_id, tags)
+            if not _backfill_carrier(user_id, "todo", todo.todo_id, tags, dry_run, stats):
+                continue
             stats["synced"] += 1
             stats["tag_rows"] += len(tags)
             if limit is not None and stats["synced"] >= limit:
@@ -750,6 +765,13 @@ def compute_plan_hash(plan: Dict) -> str:
 
 def _build_rename_plan(session, user_id: int, source: str, target: str) -> Dict:
     targets = _validate_rename_args(source, target)
+    if not session.query(TagVocabularyEntity.id).filter_by(user_id=user_id, tag=target).first():
+        try:
+            _validate_tag_syntax(target)
+        except TagVocabularyError as exc:
+            raise TagRenameError(str(exc)) from exc
+        if len(target) >= 20 and "-" not in target:
+            raise TagRenameError("unusual rename target must first be explicitly created with acknowledgement")
     mapping = {source: targets}
 
     source_pairs = (

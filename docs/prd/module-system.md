@@ -884,7 +884,8 @@ Frozen signatures (`agent.module_host`):
 - `photo_delete_objects(user_id, photo_id) -> {photo_id, deleted, cache_control}`
 - `published_module_json(user_id, slug, method, path, *, body=None, timeout=5.0) -> dict`
 - `async published_module_json_async(user_id, slug, method, path, *, body=None, timeout=5.0) -> dict`
-- `tag_add(..., *, require_existing=False)`
+- `tag_add(..., *, require_existing=True)` (v36: the compatibility flag cannot enable implicit creation; the complete batch validates and persists atomically)
+- `tag_create_vocabulary(user_id, tag, *, allow_unusual=False)` (v36: new flat names are at most 40 characters; names of at least 20 characters without hyphens require explicit acknowledgement; existing vocabulary remains idempotent)
 - `tag_memberships(user_id, entity_type, entity_ids) -> {id: [tag]}`
 - `tag_ids_for_exact_tag(user_id, entity_type, tag, *, cursor=None, limit=200) -> {ids, next_cursor}`
 - `tag_delete_memberships(user_id, entity_type, entity_id) -> {entity_type, entity_id, deleted}`

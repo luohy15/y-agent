@@ -7,6 +7,7 @@ from storage.entity.note import NoteEntity
 from storage.entity.entity_tag import EntityTagEntity
 from storage.dto.note import Note
 from storage.database.base import get_db
+from storage.repository import entity_tag as tag_repo
 from storage.util import apply_time_filter
 
 
@@ -151,6 +152,10 @@ def find_tag_rows_by_ids(user_id: int, note_ids: List[str]) -> Dict[str, Dict]:
 def save_note(user_id: int, note: Note) -> Note:
     """Upsert a note by user_id + note_id."""
     with get_db() as session:
+        if note.front_matter is not None:
+            tags = tag_repo.require_known_tags(session, user_id, note.front_matter.get("tags"))
+            note.front_matter = {**note.front_matter, "tags": tags}
+            tag_repo.sync_tags_locked(session, user_id, "note", note.note_id, tags)
         entity = session.query(NoteEntity).filter_by(user_id=user_id, note_id=note.note_id).first()
         if entity:
             entity.content_key = note.content_key

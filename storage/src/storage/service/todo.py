@@ -6,14 +6,12 @@ from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 from loguru import logger
 from storage.entity.dto import Todo, TodoHistoryEntry
-from storage.entity.tag_vocabulary import TagVocabularyEntity
 from storage.database.base import get_db
 from storage.repository import chat_wakeup as wakeup_repo
 from storage.repository import dev_release as release_repo
 from storage.repository import todo as todo_repo
 from storage.repository import trace_runtime as runtime_repo
 from storage.repository import entity_tag as tag_repo
-from storage.repository.entity_tag import normalize_tags
 from storage.service import telegram as telegram_service
 from storage.service.trace_runtime import derive_runtime, machine_wait_live
 from storage.util import get_utc_iso8601_timestamp, get_unix_timestamp
@@ -127,33 +125,6 @@ def attach_runtime_evidence(user_id: int, todos: List[Todo], now_ms: Optional[in
         )
 
 
-def _require_known_tags(session, user_id: int, tags: Optional[List[str]], existing: Optional[List[str]] = None) -> Optional[List[str]]:
-    """Normalize `tags` and reject spellings newly added that are not in this owner's vocabulary.
-
-    Removal and tags already on the row stay allowed, so a todo can drop or keep a
-    tag that has since left the vocabulary. `None` means the caller did not set tags.
-    `session` is the caller's transaction: the update path is already holding the
-    todo row lock, and a nested session would commit independently of it.
-    """
-    if tags is None:
-        return None
-    normalized = normalize_tags(tags)
-    already = set(normalize_tags(existing or []))
-    added = [tag for tag in normalized if tag not in already]
-    if not added:
-        return normalized
-    known = {
-        row[0]
-        for row in session.query(TagVocabularyEntity.tag)
-        .filter(TagVocabularyEntity.user_id == user_id, TagVocabularyEntity.tag.in_(added))
-        .all()
-    }
-    unknown = [tag for tag in added if tag not in known]
-    if unknown:
-        raise ValueError(f"unknown tag(s): {', '.join(unknown)}; see y tag list")
-    return normalized
-
-
 def find_todos_by_ids(user_id: int, todo_ids: List[str]) -> dict:
     """Return {todo_id: Todo} for owner-scoped tag hydration."""
     return todo_repo.find_todos_by_ids(user_id, todo_ids)
@@ -179,10 +150,6 @@ def create_todo(
     while next_id in used:
         next_id += 1
 
-    if tags is not None:
-        with get_db() as session:
-            tags = _require_known_tags(session, user_id, tags)
-
     todo = Todo(
         todo_id=str(next_id),
         name=name,
@@ -193,9 +160,7 @@ def create_todo(
         status="pending",
         history=[TodoHistoryEntry(timestamp=get_utc_iso8601_timestamp(), unix_timestamp=get_unix_timestamp(), action="created")],
     )
-    saved = todo_repo.save_todo(user_id, todo)
-    tag_repo.sync_tags(user_id, "todo", saved.todo_id, saved.tags or [])
-    return saved
+    return todo_repo.save_todo(user_id, todo)
 
 
 def _changed_progress_value(note: str) -> Optional[str]:
@@ -317,7 +282,8 @@ def _transition_locked(session, row, fields, *, action="updated", extra_note=Non
             raise ValueError("awaiting_chat is only valid while status is awaiting")
         _pointer_chat(session, row, fields["awaiting_chat"])
     if "tags" in fields:
-        fields["tags"] = _require_known_tags(session, row.user_id, fields["tags"], existing=row.tags)
+        fields["tags"] = tag_repo.require_known_tags(session, row.user_id, fields["tags"])
+        tag_repo.sync_tags_locked(session, row.user_id, "todo", row.todo_id, fields["tags"])
     changed = {k: v for k, v in fields.items() if getattr(row, k) != v}
     if not changed:
         return False
@@ -439,7 +405,7 @@ def _maybe_notice(user_id: int, todo_id: str, todo: Optional[Todo], entered: boo
     return todo
 
 
-def _mutate_transition(user_id: int, todo_id: str, mutate) -> Tuple[Optional[Todo], bool, bool]:
+def _mutate_transition(user_id: int, todo_id: str, mutate, *, lock_tags: bool = False) -> Tuple[Optional[Todo], bool, bool]:
     entered = False
     changed = False
 
@@ -450,7 +416,7 @@ def _mutate_transition(user_id: int, todo_id: str, mutate) -> Tuple[Optional[Tod
         entered = changed and before != "awaiting" and row.status == "awaiting"
         return changed
 
-    return todo_repo.mutate_todo(user_id, todo_id, apply), entered, changed
+    return todo_repo.mutate_todo(user_id, todo_id, apply, lock_tags=lock_tags), entered, changed
 
 
 def update_todo(user_id: int, todo_id: str, **fields) -> Optional[Todo]:
@@ -464,9 +430,7 @@ def update_todo(user_id: int, todo_id: str, **fields) -> Optional[Todo]:
     def apply(session, row):
         return _transition_locked(session, row, fields)
 
-    todo, entered, _changed = _mutate_transition(user_id, todo_id, apply)
-    if todo and "tags" in fields:
-        tag_repo.sync_tags(user_id, "todo", todo.todo_id, todo.tags or [])
+    todo, entered, _changed = _mutate_transition(user_id, todo_id, apply, lock_tags="tags" in fields)
     return _maybe_notice(user_id, todo_id, todo, entered)
 
 

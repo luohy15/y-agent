@@ -7,10 +7,10 @@ class TagVocabularyEntity(Base, BaseEntity):
 
     Unlike entity_tag (a usage projection over carriers), a row here can exist
     with zero entity_tag uses: creating a tag is a first-class action, not
-    something inferred only from tagging a carrier. Every normalized
-    entity_tag write also registers its tag here in the same transaction (see
-    storage.repository.entity_tag), so distinct entity_tag.tag values for a
-    user are always a subset of that user's tag_vocabulary.tag values.
+    something inferred only from tagging a carrier. Membership writes require
+    existing vocabulary under the owner lock (see storage.repository.entity_tag).
+    Only explicit creation and coordinated rename register new spellings, so
+    membership writes cannot introduce unknown tags.
     """
 
     __tablename__ = "tag_vocabulary"

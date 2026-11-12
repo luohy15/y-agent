@@ -41,27 +41,36 @@ class DeleteEntityRequest(BaseModel):
 @router.post("")
 async def create_entity(req: CreateEntityRequest, request: Request):
     user_id = _get_user_id(request)
-    entity = entity_service.create_entity(user_id, req.name, req.type, front_matter=req.front_matter)
+    try:
+        entity = entity_service.create_entity(user_id, req.name, req.type, front_matter=req.front_matter)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return entity.to_dict()
 
 
 @router.post("/import")
 async def import_entity(req: ImportEntityRequest, request: Request):
     user_id = _get_user_id(request)
-    entity = entity_service.import_entity(user_id, req.name, req.type, front_matter=req.front_matter)
+    try:
+        entity = entity_service.import_entity(user_id, req.name, req.type, front_matter=req.front_matter)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return entity.to_dict()
 
 
 @router.post("/update")
 async def update_entity(req: UpdateEntityRequest, request: Request):
     user_id = _get_user_id(request)
-    entity = entity_service.update_entity(
-        user_id,
-        req.entity_id,
-        name=req.name,
-        type=req.type,
-        front_matter=req.front_matter,
-    )
+    try:
+        entity = entity_service.update_entity(
+            user_id,
+            req.entity_id,
+            name=req.name,
+            type=req.type,
+            front_matter=req.front_matter,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not entity:
         raise HTTPException(status_code=404, detail="Entity not found")
     return entity.to_dict()

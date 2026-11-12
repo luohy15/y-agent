@@ -35,8 +35,6 @@ def update_note(user_id: int, note_id: str, content_key: Optional[str] = None, f
         front_matter = _with_normalized_tags(front_matter)
         existing.front_matter = front_matter
     note = note_repo.save_note(user_id, existing)
-    if front_matter is not None:
-        tag_repo.sync_tags(user_id, "note", note.note_id, front_matter.get("tags") or [])
     return note
 
 
@@ -50,8 +48,6 @@ def import_note(user_id: int, content_key: str, front_matter: Optional[Dict] = N
         note = note_repo.save_note(user_id, existing)
     else:
         note = create_note(user_id, content_key, front_matter=front_matter)
-    if front_matter is not None:
-        tag_repo.sync_tags(user_id, "note", note.note_id, front_matter.get("tags") or [])
     return note
 
 

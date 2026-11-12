@@ -203,6 +203,10 @@ voice_delete_parts replace the single-shot voice upload capability. Owner and
 maintainer binding remain mandatory. Deploy host v35 before publishing Voice
 and Chat's chunked clients; disable or roll back those modules before rolling
 the host below v35. Old Voice upload bundles cannot run on this host.
+Todo 4277 bumps 35 to 36: tag_create_vocabulary accepts allow_unusual=False,
+requiring explicit acknowledgement for unusual new spellings. Membership writes
+require existing vocabulary and tag_add batches are atomic. Deploy host v36
+before publishing the Tag module that forwards the acknowledgement keyword.
 """
 
 from __future__ import annotations
@@ -221,8 +225,8 @@ from storage.project_key import ProjectKeyError as ProjectKeyError, normalize_pr
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-# v35: ordered voice parts, finalize and cancel replace single-shot upload (todo 4275).
-BACKEND_CONTRACT_VERSION = 35
+# v36: explicit unusual-tag acknowledgement and existing-vocabulary writes (todo 4277).
+BACKEND_CONTRACT_VERSION = 36
 
 # Wall-clock budget for the wake="nowait" readiness check (todo 3777).
 NOWAIT_BUDGET_SECONDS = 1.0
@@ -804,7 +808,10 @@ def note_create(
     _validate_content_key(content_key)
     from storage.service import note as note_service
 
-    return _note_to_dict(note_service.create_note(user_id, content_key, front_matter=front_matter))
+    try:
+        return _note_to_dict(note_service.create_note(user_id, content_key, front_matter=front_matter))
+    except ValueError as exc:
+        raise ModuleHostValidationError(str(exc)) from exc
 
 
 def note_import(
@@ -818,7 +825,10 @@ def note_import(
     _validate_content_key(content_key)
     from storage.service import note as note_service
 
-    return _note_to_dict(note_service.import_note(user_id, content_key, front_matter=front_matter))
+    try:
+        return _note_to_dict(note_service.import_note(user_id, content_key, front_matter=front_matter))
+    except ValueError as exc:
+        raise ModuleHostValidationError(str(exc)) from exc
 
 
 def note_update(
@@ -834,9 +844,12 @@ def note_update(
         _validate_content_key(content_key)
     from storage.service import note as note_service
 
-    note = note_service.update_note(
-        user_id, note_id, content_key=content_key, front_matter=front_matter
-    )
+    try:
+        note = note_service.update_note(
+            user_id, note_id, content_key=content_key, front_matter=front_matter
+        )
+    except ValueError as exc:
+        raise ModuleHostValidationError(str(exc)) from exc
     if note is None:
         return None
     return _note_to_dict(note)
@@ -966,24 +979,13 @@ def tag_add(
     entity_id: str,
     tags: List[str],
     *,
-    require_existing: bool = False,
+    require_existing: bool = True,
 ) -> dict[str, list[str]]:
-    """Add projection tags for one owner-scoped entity; email entity IDs are thread keys.
-
-    `require_existing` (todo 3838) refuses spellings that are not already in the
-    owner's vocabulary. It does not create vocabulary rows.
-    """
+    """Atomically add registered tags; False cannot enable implicit creation."""
     _require_tag_owner(user_id)
     from storage.service import tag as tag_service
 
-    # Default calls keep the pre-3838 positional shape; only the opt-in is forwarded.
-    options = {"require_existing": True} if require_existing else {}
-    added = [
-        tag
-        for tag in tags
-        if tag_service.add_tag(user_id, entity_type, entity_id, tag, **options)
-    ]
-    return {"added": added}
+    return {"added": tag_service.add_tags(user_id, entity_type, entity_id, tags)}
 
 
 def tag_remove(
@@ -1184,7 +1186,7 @@ def api_latency_meta(user_id: int) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def tag_create_vocabulary(user_id: int, tag: str) -> dict[str, Any]:
+def tag_create_vocabulary(user_id: int, tag: str, *, allow_unusual: bool = False) -> dict[str, Any]:
     """Normalize, validate, and idempotently register a canonical vocabulary tag.
 
     Returns {"tag": canonical, "created": bool}. Raises ValueError (a
@@ -1194,7 +1196,7 @@ def tag_create_vocabulary(user_id: int, tag: str) -> dict[str, Any]:
     _require_tag_owner(user_id)
     from storage.service import tag as tag_service
 
-    return tag_service.create_vocabulary(user_id, tag)
+    return tag_service.create_vocabulary(user_id, tag, allow_unusual=allow_unusual)
 
 
 def tag_delete_vocabulary(user_id: int, tag: str) -> dict[str, Any]:

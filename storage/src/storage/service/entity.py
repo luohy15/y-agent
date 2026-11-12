@@ -51,8 +51,6 @@ def update_entity(
         front_matter = _with_normalized_tags(front_matter)
         existing.front_matter = front_matter
     entity = entity_repo.save_entity(user_id, existing)
-    if front_matter is not None:
-        tag_repo.sync_tags(user_id, "entity", entity.entity_id, front_matter.get("tags") or [])
     return entity
 
 
@@ -72,8 +70,6 @@ def import_entity(
         entity = entity_repo.save_entity(user_id, existing)
     else:
         entity = create_entity(user_id, name, type, front_matter=front_matter)
-    if front_matter is not None:
-        tag_repo.sync_tags(user_id, "entity", entity.entity_id, front_matter.get("tags") or [])
     return entity
 
 

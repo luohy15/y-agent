@@ -3,10 +3,8 @@
 tag_vocabulary is a durable, owner-scoped canonical tag registry keyed by
 (user_id, tag) (todo 3290). Unlike entity_tag (a usage projection), a row
 here can exist with zero uses. `ensure()` is the session-scoped, race-safe
-upsert both `create()` and the entity_tag write paths (add_tag/sync_tags in
-storage.repository.entity_tag) call, so every normalized tag write registers
-vocabulary atomically with its carrier write rather than needing a second,
-separately-committed transaction.
+upsert for explicit creation and coordinated rename only. Membership writers
+validate existing vocabulary under the same owner lock; they never register it.
 """
 
 from typing import Tuple
