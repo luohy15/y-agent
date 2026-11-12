@@ -57,6 +57,19 @@ Markdown blockquote (selected `quote.text`, else the direct reply target's
 `text`, else its `caption`; a non-text target leaves the message unchanged)
 before it is stored and handed to the model.
 
+A private-chat document (one file per update; albums arrive as separate
+updates) is downloaded and stored under
+`/Users/roy/luohy15/assets/attachments` (`Y_AGENT_ATTACHMENTS_DIR`): local write,
+then the same SSH-push fallback as images. The stored path is not an image
+block. `Message.files` carries it, and both the launch prompt and a mid-turn
+steer append one line per file: `[attached file] <name> (<mime>) at <path>`.
+The cap is 20 MB (pre-checked from `file_size`, re-checked on the downloaded
+bytes). Executable and installer suffixes are rejected. Oversize, blocked, and
+failed transfers get a clear Telegram reply instead of a silent drop. A file
+whose route (`/<chat_id>` or `/<todo_id>`) lands on a jump node is rejected
+the same way, because that node cannot read the EC2 asset path. Web chat does
+not render `files`.
+
 The `tg_topic` binding table, its repository/service/entity/DTO/API
 registration, forum-topic auto-discovery, thread lookup, and General-topic
 fallback are removed from the codebase. `y telegram send --topic` (and the
@@ -93,6 +106,10 @@ best-effort drop.
    blockquote ahead of my own message, so that the assistant sees which earlier
    message I am referring to. A reply target with no text or caption stays a
    plain message.
+8. As a user, I want a non-image file I send in a private chat to be saved and
+   named in the agent's prompt (filename, type, stored path), and I want an
+   oversize, blocked, failed, or jump-node file to get a clear reply instead of
+   silence.
 
 ## Out of Scope
 
@@ -120,3 +137,8 @@ best-effort drop.
   openrouter-credit-check,news-ingest-monitor}/`) off `--topic` /
   `notify_topic` — those live outside this repository and are delivered as
   todo 3468 sub-task 6 by a separate session.
+- Web chat file-upload UI and chat-module rendering of `Message.files`.
+- Inbound video, audio, voice, and stickers (still ignored), and outbound
+  document sending (`y telegram send` stays images and text).
+- Making a photo that was routed to a jump node readable. That gap already
+  existed; this delivery only rejects documents on that node.

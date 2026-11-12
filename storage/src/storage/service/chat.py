@@ -486,6 +486,7 @@ async def accept_user_message(
     *,
     human_reply: bool = False,
     images: Optional[List[str]] = None,
+    files: Optional[List[str]] = None,
     reasoning_effort: Optional[str] = None,
     source: Optional[str] = None,
     event_id: Optional[str] = None,
@@ -523,6 +524,8 @@ async def accept_user_message(
     }
     if images:
         msg_dict["images"] = images
+    if files:
+        msg_dict["files"] = files
     if reasoning_effort is not None:
         msg_dict["reasoning_effort"] = reasoning_effort
     if source is not None:
@@ -590,6 +593,7 @@ async def deliver_user_message(
     *,
     human_reply: bool = False,
     images: Optional[List[str]] = None,
+    files: Optional[List[str]] = None,
     reasoning_effort: Optional[str] = None,
     source: Optional[str] = None,
     bot_name: Optional[str] = None,
@@ -614,7 +618,7 @@ async def deliver_user_message(
     validated/normalized by the caller; this raises no HTTP-shaped errors.
     """
     acceptance = await accept_user_message(
-        user_id, chat, content, human_reply=human_reply, images=images,
+        user_id, chat, content, human_reply=human_reply, images=images, files=files,
         reasoning_effort=reasoning_effort, source=source, event_id=event_id,
         trace_id=trace_id, role=role, skill=skill, bot_name=bot_name, bot_tier=bot_tier,
     )

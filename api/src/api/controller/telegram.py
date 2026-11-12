@@ -14,6 +14,7 @@ from storage.service.telegram import resolve_target
 from storage.entity.dto import Message
 from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp, get_telegram_bot_token, send_telegram_message, send_telegram_photo_bytes
 # generate_id remains for non-chat identifiers (e.g. safe_file_id fallback).
+from api.util.attachments import classify_document, save_attachment_bytes, MAX_ATTACHMENT_BYTES
 from api.util.images import decode_send_image_upload, resolve_send_image_path, save_image_bytes
 
 router = APIRouter(prefix="/telegram")
@@ -197,6 +198,7 @@ async def telegram_webhook(request: Request):
 
     # Handle photo messages
     images = []
+    files: List[str] = []
     if message.get("photo"):
         user = get_user_by_telegram_id(telegram_user_id)
         if not user:
@@ -206,6 +208,33 @@ async def telegram_webhook(request: Request):
         from agent.config import resolve_vm_config
         vm_config = resolve_vm_config(user.id)
         images = await _download_telegram_photos(message["photo"], vm_config=vm_config)
+
+    # A private-chat document is one file. Albums arrive as separate updates.
+    # Photos stay on the image path; a document is never sent as an image block.
+    document = message.get("document") if not message.get("photo") else None
+    if isinstance(document, dict):
+        user = get_user_by_telegram_id(telegram_user_id)
+        if not user:
+            await _send_message(telegram_chat_id, "Please /bind your account first.")
+            return {"ok": True}
+        text = (message.get("caption") or "").strip() or "请看这个文件"
+        kind = classify_document(document)
+        if kind:
+            await _send_message(telegram_chat_id, _document_reply(kind))
+            return {"ok": True}
+        action, block = await _document_node_block(user, text)
+        if action == "reply":
+            await _send_message(telegram_chat_id, block or _document_reply("download_failed"))
+            return {"ok": True}
+        if action == "store":
+            from agent.config import resolve_vm_config
+            saved, kind = await _download_telegram_document(
+                document, vm_config=resolve_vm_config(user.id),
+            )
+            if kind or not saved:
+                await _send_message(telegram_chat_id, _document_reply(kind or "download_failed"))
+                return {"ok": True}
+            files = [saved]
 
     if not text:
         logger.info("telegram webhook: empty text")
@@ -246,7 +275,7 @@ async def telegram_webhook(request: Request):
         body = _with_reply_context(text[route_match.end():], reply_context)
         return await _handle_routed_message(
             telegram_chat_id, telegram_user_id, target_chat_id, body,
-            images=images,
+            images=images, files=files,
         )
 
     # Explicit todo routing: `/{todo_id} <message>` resolves to the most
@@ -266,13 +295,103 @@ async def telegram_webhook(request: Request):
             return {"ok": True}
         return await _handle_routed_message(
             telegram_chat_id, telegram_user_id, target_chat.id, body,
-            images=images,
+            images=images, files=files,
         )
 
     # Regular message — route to chat
     return await _handle_message(
-        telegram_chat_id, telegram_user_id, _with_reply_context(text, reply_context), images=images,
+        telegram_chat_id, telegram_user_id, _with_reply_context(text, reply_context),
+        images=images, files=files,
     )
+
+
+def _document_reply(kind: str) -> str:
+    if kind == "too_large":
+        return "That file is larger than 20 MB, so it was not saved."
+    if kind == "unsupported_type":
+        return "That file type is not supported."
+    return "Could not download that file from Telegram. Nothing was saved."
+
+
+def _files_node_block_message(user_id: int, execution_target) -> Optional[str]:
+    """Clear reply when this node cannot read an EC2 asset path, else None."""
+    from agent.chat_target import ChatTargetUnavailable, UnknownChatTarget, layout
+
+    try:
+        node = layout(user_id, execution_target, use_cache=False)
+    except (UnknownChatTarget, ChatTargetUnavailable) as exc:
+        return f"File attachments are not supported: {exc}"
+    if not node.supports_images:
+        return (
+            f"File attachments are not supported on node '{node.name}'. "
+            "That node cannot read the stored file."
+        )
+    return None
+
+
+async def _document_node_block(user, text: str) -> tuple[str, Optional[str]]:
+    """Decide whether a document may be stored before the webhook routes it.
+
+    Returns `("store", None)`, `("skip", None)`, or `("reply", message)`.
+    Skip covers commands, an empty route body, and a route whose chat does not
+    exist: nothing is stored, and the normal command or not-found reply still
+    runs. A brand-new manager chat stores, because it runs on the default node.
+    """
+    route_match = _TG_ROUTE_PREFIX_RE.match(text)
+    todo_match = None if route_match else _TG_ROUTE_TODO_PREFIX_RE.match(text)
+    target = None
+    if route_match:
+        if not text[route_match.end():].strip():
+            return "skip", None
+        from storage.repository import chat as chat_repo
+        target = await chat_repo.get_chat(user.id, route_match.group(1))
+        if not target:
+            return "skip", None
+    elif todo_match:
+        if not text[todo_match.end():].strip():
+            return "skip", None
+        target = find_latest_chat_by_trace_id(user.id, todo_match.group(1))
+        if not target:
+            return "skip", None
+    elif text.startswith("/bind") or text in {"/unbind", "/clear", "/start"}:
+        return "skip", None
+    else:
+        target = find_latest_chat_by_role(user.id, "manager")
+        if not target:
+            return "store", None
+    block = _files_node_block_message(user.id, target.execution_target)
+    if block:
+        return "reply", block
+    return "store", None
+
+
+async def _download_telegram_document(document: dict, *, vm_config=None):
+    """Download one document. Returns (path, None) or (None, error code)."""
+    file_id = document.get("file_id")
+    filename = document.get("file_name") or "file"
+    if not file_id or not TELEGRAM_BOT_TOKEN:
+        return None, "download_failed"
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(_bot_api_url("getFile"), params={"file_id": file_id})
+            if not resp.is_success:
+                logger.error("telegram document getFile failed: {}", resp.text)
+                return None, "download_failed"
+            file_path = resp.json()["result"]["file_path"]
+            file_url = f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}"
+            resp = await client.get(file_url)
+            if not resp.is_success:
+                logger.error("telegram document download failed: {}", resp.status_code)
+                return None, "download_failed"
+            if len(resp.content) > MAX_ATTACHMENT_BYTES:
+                return None, "too_large"
+            saved = save_attachment_bytes(
+                resp.content, filename, prefix="telegram", vm_config=vm_config,
+            )
+            return saved, None
+    except Exception as e:
+        logger.exception("telegram document download error: {}", e)
+        return None, "download_failed"
 
 
 async def _download_telegram_photos(photo_sizes: list, *, vm_config=None) -> List[str]:
@@ -359,7 +478,7 @@ async def _handle_clear(telegram_chat_id, telegram_user_id):
     return {"ok": True}
 
 
-async def _handle_routed_message(telegram_chat_id, telegram_user_id, target_chat_id: str, text: str, images: Optional[List[str]] = None):
+async def _handle_routed_message(telegram_chat_id, telegram_user_id, target_chat_id: str, text: str, images: Optional[List[str]] = None, files: Optional[List[str]] = None):
     r"""Route a Telegram message to an explicit chat by id.
 
     Triggered when the DM matches `^/<6hex>\s+...`. Looks up the chat scoped
@@ -384,11 +503,17 @@ async def _handle_routed_message(telegram_chat_id, telegram_user_id, target_chat
         await _send_message(telegram_chat_id, f"chat /{target_chat_id} not found")
         return {"ok": True}
 
+    if files:
+        block = _files_node_block_message(user.id, target_chat.execution_target)
+        if block:
+            await _send_message(telegram_chat_id, block)
+            return {"ok": True}
+
     from storage.service import chat as chat_service
     try:
         await chat_service.deliver_user_message(
             user.id, target_chat, text,
-            images=images, source="telegram", human_reply=True,
+            images=images, files=files, source="telegram", human_reply=True,
             trace_id=target_chat.trace_id, role=target_chat.role,
             skill=target_chat.skill, backend=target_chat.backend,
             work_dir=target_chat.work_dir,
@@ -400,8 +525,8 @@ async def _handle_routed_message(telegram_chat_id, telegram_user_id, target_chat
     return {"ok": True}
 
 
-async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images: Optional[List[str]] = None):
-    logger.info("_handle_message: telegram_chat_id={} telegram_user_id={} text={} images={}", telegram_chat_id, telegram_user_id, text, len(images) if images else 0)
+async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images: Optional[List[str]] = None, files: Optional[List[str]] = None):
+    logger.info("_handle_message: telegram_chat_id={} telegram_user_id={} text={} images={} files={}", telegram_chat_id, telegram_user_id, text, len(images) if images else 0, len(files) if files else 0)
     user = get_user_by_telegram_id(telegram_user_id)
     if not user:
         logger.info("_handle_message: no user bound for telegram_user_id={}", telegram_user_id)
@@ -424,11 +549,16 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
         # catch-all as _handle_routed_message: an uncaught failure here would
         # escape the webhook handler and make Telegram retry the update,
         # appending a duplicate user message on top of the one already saved.
+        if files:
+            block = _files_node_block_message(user.id, chat.execution_target)
+            if block:
+                await _send_message(telegram_chat_id, block)
+                return {"ok": True}
         from storage.service import chat as chat_service
         try:
             await chat_service.deliver_user_message(
                 user.id, chat, text,
-                images=images, source="telegram", human_reply=True,
+                images=images, files=files, source="telegram", human_reply=True,
                 role=role, work_dir=chat.work_dir,
             )
         except chat_service.resume_gate.ChatReadOnly as exc:
@@ -452,6 +582,8 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
     }
     if images:
         msg_dict["images"] = images
+    if files:
+        msg_dict["files"] = files
     user_msg = Message.from_dict(msg_dict)
 
     def build(chat_id: str):

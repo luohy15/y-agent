@@ -1,6 +1,7 @@
 """Run a single chat through the agent loop, writing messages to DB."""
 
 import asyncio
+import mimetypes
 import os
 import re
 import threading
@@ -87,16 +88,36 @@ def select_run_inputs(messages, continuation_from_id=None, handled_input_ids=Non
             if m.role == "user" and m.id and m.id not in handled]
 
 
+def render_file_references(paths) -> str:
+    """One text line per stored file. Empty input is an empty string.
+
+    Files stay text. They are not image content blocks: a PDF or other
+    non-image would be mislabeled by the image path.
+    """
+    lines = []
+    for path in paths or []:
+        name = os.path.basename(path) or str(path)
+        mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
+        lines.append(f"[attached file] {name} ({mime}) at {path}")
+    return "\n".join(lines)
+
+
 def _prompt_from_inputs(selected) -> tuple[str, list]:
     """Concatenated text plus merged image paths for one launch prompt."""
     texts = []
     images = []
+    files = []
     for msg in selected:
         content = msg.content if isinstance(msg.content, str) else str(msg.content)
         if content:
             texts.append(content)
         images.extend(msg.images or [])
-    return "\n\n".join(texts), images
+        files.extend(getattr(msg, "files", None) or [])
+    text = "\n\n".join(texts)
+    refs = render_file_references(files)
+    if refs:
+        text = f"{text}\n\n{refs}" if text else refs
+    return text, images
 
 
 def message_callback(chat_id: str, message: Message, user_id: int = None):
@@ -147,6 +168,9 @@ def make_steer_checker(chat_id: str, initial_message_ids: set, previously_consum
                 if msg.role == "user" and msg.id not in initial_message_ids and msg.id not in consumed:
                     consumed.add(msg.id)
                     content = msg.content if isinstance(msg.content, str) else str(msg.content)
+                    refs = render_file_references(getattr(msg, "files", None) or [])
+                    if refs:
+                        content = f"{content}\n\n{refs}" if content else refs
                     steer_messages.append((content, msg.id, list(msg.images or [])))
         return steer_messages
 

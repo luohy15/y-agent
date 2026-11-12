@@ -263,6 +263,9 @@ entity + controller + service + CLI slices, and most have a web panel.
   to EC2. Workers SSH-fetch local EC2 paths before Telegram delivery. `Message.images`
   may contain EC2 asset paths or deliberate `http(s)://` pass-through URLs, never new
   `s3://` / CDN refs; legacy `s3://` entries from before 2026-05-17 are warning-skipped.
+  Telegram documents use the same local-then-SSH pattern under
+  `/Users/roy/luohy15/assets/attachments/` (`Y_AGENT_ATTACHMENTS_DIR`) and reach the
+  agent as `Message.files` text, not image blocks.
 - **Dev worktrees** — `dev_worktree` tracks active coding sessions. `y dev wt add/rm` +
   `y dev commit` are local-source Dev module commands, as is `y dev release`.
   Dev owns `/api/module/dev/worktree{,/list,/detail,/by-name,/update,/remove}`
