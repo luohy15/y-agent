@@ -352,12 +352,14 @@ mode (`-i`) serves a human at a terminal.
     agent backends mid-session. Agentic backends are `claude_code` and `codex`
     (todo 4304). This pins a chat to the runtime that owns its native session
     and keeps that session resumable, and it still pins a chat away from the
-    inline query backends. A codex chat stores the Codex thread id. A message
-    sent while that turn is running is not injected into the live process; it
-    is answered on the next turn of the same thread. The bot itself is not pinned: a chat runs on
-    its own bot until a later message names a different one, and that bot
-    change is honored (bot name and tier follow it) when the name resolves to
-    a runnable bot on the chat's backend. Anything else keeps the current bot;
+    inline query backends. A codex chat stores the Codex thread id.
+    `codex exec` has no live input channel: a message sent while that turn is
+    running ends the turn, and the same thread resumes with that message as
+    the next prompt (the chat-steer PRD owns the delivery mechanics). The bot
+    itself is not pinned: a chat runs on its own bot until a later message
+    names a different one, and that bot change is honored (bot name and tier
+    follow it) when the name resolves to a runnable bot on the chat's
+    backend. Anything else keeps the current bot;
     the routing rules live in the bot-routing PRD.
 44. As a user, I want follow-up turns to resume the backend's native session
     (via the stored external session id, only when the work dir still

@@ -249,9 +249,6 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
     def _msg_callback(msg):
         message_callback(chat_id, msg, user_id=user_id)
 
-    # Build steer checker. claude_code injects steer into the live stdin pipe.
-    # Codex does not: a mid-run message stays outstanding and closeout relaunches
-    # it as the next turn on the same thread.
     chat = await chat_service.get_chat(user_id, chat_id)
     initial_msg_count = proc.get("initial_msg_count", len(chat.messages) if chat else 0)
     initial_msg_ids = (set(_load_json_field(proc, "initial_message_ids"))
@@ -262,12 +259,11 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
     # already written stays claimed (never write an input twice); only the
     # ledger's own terminal states decide what still needs answering.
     ledger = _load_input_ledger(chat_id, proc)
-    # Codex does not consume a live steer. Building the checker would only poll
-    # the chat for messages this tail never writes.
-    steer_fn = None
-    if backend_type != "codex":
-        from worker.runner import make_steer_checker
-        steer_fn = make_steer_checker(chat_id, initial_msg_ids, previously_consumed=ledger.written_ids())
+    # Build the steer checker. claude_code forwards a steer into the live stdin
+    # pipe. Codex has no live input channel: its tail ends the running turn,
+    # and closeout relaunches the same thread with the message as the prompt.
+    from worker.runner import make_steer_checker
+    steer_fn = make_steer_checker(chat_id, initial_msg_ids, previously_consumed=ledger.written_ids())
 
     logger.info("tail_and_process start chat_id={} offset={} backend={}", chat_id, offset, backend_type)
 
@@ -288,6 +284,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             message_callback=_msg_callback,
             check_interrupted_fn=_check_interrupted,
             check_deadline_fn=_check_deadline,
+            check_steer_fn=steer_fn,
             ssh_client=client,
             input_ledger=ledger,
             launch_input_uuid=launch_input_uuid,

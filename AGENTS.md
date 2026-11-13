@@ -363,7 +363,8 @@ The repo no longer contains an in-process agent loop — the worker shells out.
   `codex` (`agent/src/agent/codex.py`, restored in todo 4304 on Codex CLI `exec --json`).
   A codex bot must set `base_url` and `api_key`; the key is `OPENAI_API_KEY`, not an argv
   flag. The thread id is `chat.external_id` and later turns resume it. A message sent
-  while `codex exec` is running waits for the next turn. `gemini_cli`, `grok_build`, and
+  while `codex exec` is running ends that turn, and the continuation resumes the thread
+  with it. `gemini_cli`, `grok_build`, and
   `pi_cli` stay removed (todo 2930). Anything else is rejected instead of falling through
   to `claude_code`. The non-agentic inline backends stay:
   `perplexity` (`agent/src/agent/perplexity.py`, the `px` web fact-check), `openai`
@@ -384,8 +385,9 @@ The repo no longer contains an in-process agent loop — the worker shells out.
   before the deadline and re-enqueues itself via SQS; the next invocation picks up the
   existing tail offset. `poll_loop.py` unifies the steer / interrupt polling cadence.
 - **Steer** — mid-conversation user messages are delivered to a running Claude Code
-  session through a `tail -f` stdin pipe. Codex does not take a live steer; the
-  message is answered on the next turn of the same thread. `y chat stop` is the
+  session through a `tail -f` stdin pipe. `codex exec` has no input channel, so a Codex
+  steer ends the running turn and the closeout continuation resumes the same thread with
+  the message as the next prompt. `y chat stop` is the
   explicit interrupt path; an interrupt watchdog thread also fires during LLM waits.
 - **Context monitor** — per-chat token usage is tracked; when a root-role session
   crosses 50% context or 50 turns, it auto-restarts in a fresh chat with a short

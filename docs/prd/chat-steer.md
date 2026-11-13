@@ -23,10 +23,12 @@ and trust that the running agent sees the message promptly and exactly once.
 Sending a message to a running chat requires no special UI or command: the
 message is appended to the chat like any other, but no new worker task is
 enqueued. The already-running worker polls the chat for new user messages every
-couple of seconds and delivers each one into the live agent session. The only
-agentic backend (Claude Code print mode) accepts mid-run input. An accepted
-message is either completed by that session or assigned to one serialized
-continuation. A successful stdin-file write is not evidence of consumption.
+couple of seconds and delivers each one into the live agent session. Claude
+Code print mode accepts mid-run input through its stdin pipe. `codex exec` has
+no input channel, so a Codex steer ends the running turn and the same thread
+resumes with the pending message as the next prompt. An accepted message is
+either completed by that session or assigned to one serialized continuation. A
+successful stdin-file write is not evidence of consumption.
 Native per-input lifecycle events, persisted delivery state, and a locked
 busy-to-idle transition protect closeout and ordinary Lambda handoffs. This
 is not a distributed exactly-once side-effect guarantee across arbitrary
@@ -77,6 +79,13 @@ worker/VM crashes.
   the message by polling the database. Only an idle chat gets a new worker
   task. All ingestion surfaces (web/API send, cross-skill notify, Telegram)
   share this append-or-steer rule.
+- **Codex steer ends the turn instead of writing stdin.** `codex exec` has no
+  mid-run input channel, so the Codex tail's poll loop stops the session when a
+  steer is accepted, retires the run's launch input, and reports a completed
+  turn. The locked closeout selects the message as pending input and the
+  continuation launches `codex exec resume <thread>` with it, preserving
+  context. A steer that arrives before `thread.started` stays unclaimed and is
+  answered by the ordinary turn-end continuation instead. Interrupt still wins.
 - **Discovery is not consumption.** The checker claims stable message IDs so
   one ordered writer submits each input once. A failed SSH append releases the
   claim. Teardown never drains or submits new work. Interrupt remains the first

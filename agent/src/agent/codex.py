@@ -11,14 +11,16 @@ Codex `codex exec --json` emits JSONL events:
   - error           : fatal top-level error
 
 `item.completed` of `type=error` (unknown model metadata) is ignored. It is
-not a failed turn. There is no live steer: a mid-run message stays unhandled
-so closeout relaunches it on the same thread.
+not a failed turn. `codex exec` has no live input channel: a mid-run message
+ends the current turn (the tmux session is killed) and the locked closeout
+relaunches the same thread with that message as the next prompt.
 """
 
 import asyncio
 import json
 import re
-from typing import TYPE_CHECKING, Callable, Dict, List, Optional
+import threading
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
 
 if TYPE_CHECKING:
     from agent.detach import DetachBackendSpec
@@ -365,6 +367,7 @@ async def tail_codex_output(
     message_callback: Optional[Callable[[Message], None]] = None,
     check_interrupted_fn: Optional[Callable[[], bool]] = None,
     check_deadline_fn: Optional[Callable[[], bool]] = None,
+    check_steer_fn: Optional[Callable[[], List[Tuple[str, str, list]]]] = None,
     ssh_client=None,
     input_ledger: Optional[InputLedger] = None,
     launch_input_uuid: Optional[str] = None,
@@ -372,12 +375,16 @@ async def tail_codex_output(
 ) -> dict:
     """Tail a detached codex process's stdout file via SSH.
 
-    Does not read mid-run user messages. `turn.completed` marks the launch
-    input group completed; anything that arrived during the run stays
-    outstanding for the closeout continuation.
+    `check_steer_fn` supplies messages accepted mid-run. `codex exec` has no
+    live input channel, so a steer ends the turn: the session is killed, the
+    launch input group is retired, and the message stays pending for the
+    closeout continuation, which resumes the same thread with it. Interrupt
+    keeps priority. `turn.completed` marks the launch input group completed;
+    otherwise anything that arrived during the run stays outstanding.
 
     Fatal only on a top-level `error` or `turn.failed`, or on a session that
-    exits without `turn.completed`.
+    exits without `turn.completed` (a self-kill for steer or interrupt is not
+    a death).
     """
     owns_client = ssh_client is None
     if owns_client:
@@ -398,6 +405,11 @@ async def tail_codex_output(
     current_offset = offset
     stream_error = None
     poll = None
+    # Guards the steer/interrupt teardown against the reader's own ledger
+    # update: both the poll thread and the reader may retire the launch group.
+    steer_lock = threading.RLock()
+    torn_down = False
+    steered = threading.Event()
 
     def _view(is_done: bool, status: str, data=None) -> dict:
         thread_id = converter.thread_id
@@ -421,21 +433,55 @@ async def tail_codex_output(
         stdin_ch, stdout_ch, stderr_ch = client.exec_command(tail_cmd)
 
         def _kill_detached():
+            nonlocal torn_down
             logger.info("interrupt watchdog (codex detached): killing tmux session cc-{}", chat_id)
-            _kill_session_marking_self_killed(client, chat_id, node=node)
-            try:
-                stdout_ch.channel.close()
-            except Exception:
-                pass
+            with steer_lock:
+                torn_down = True
+                _kill_session_marking_self_killed(client, chat_id, node=node)
+                try:
+                    stdout_ch.channel.close()
+                except Exception:
+                    pass
+
+        def _on_steer(text, msg_id, images=None) -> bool:
+            """End the turn so the closeout continuation answers this message.
+
+            A True return claims the message for this run. The message itself
+            stays in the chat, so closeout selects it as pending input and the
+            next turn resumes the same thread with it. A False return releases
+            the claim: no thread to resume yet, or the session could not be
+            confirmed dead.
+            """
+            nonlocal torn_down
+            with steer_lock:
+                if torn_down:
+                    return False
+                if not converter.thread_id:
+                    return False
+                if not _kill_session_marking_self_killed(client, chat_id, node=node):
+                    return False
+                torn_down = True
+                # The launch prompt was consumed by the turn being ended, so
+                # closeout must not treat it as an owed input.
+                _complete_launch_group(ledger, launch_input_uuid)
+                steered.set()
+                try:
+                    stdout_ch.channel.close()
+                except Exception:
+                    pass
+            logger.info("codex steer: ended turn chat_id={} for message={}", chat_id, msg_id)
+            return True
 
         poll = PollLoop(
             check_interrupted_fn=check_interrupted_fn,
             on_interrupt=_kill_detached,
+            check_steer_fn=check_steer_fn,
+            on_steer=_on_steer,
         )
         poll.start()
 
         def _read_lines():
-            nonlocal result_data, last_error_data, current_offset, stream_error
+            nonlocal result_data, last_error_data, current_offset, stream_error, torn_down
             try:
                 for raw_line in stdout_ch:
                     line = raw_line.strip() if isinstance(raw_line, str) else raw_line.decode("utf-8", errors="replace").strip()
@@ -445,8 +491,10 @@ async def tail_codex_output(
                     current_offset += 1
 
                     if check_interrupted_fn and check_interrupted_fn():
-                        _kill_session_marking_self_killed(client, chat_id, node=node)
-                        stdout_ch.channel.close()
+                        with steer_lock:
+                            torn_down = True
+                            _kill_session_marking_self_killed(client, chat_id, node=node)
+                            stdout_ch.channel.close()
                         return "interrupted"
 
                     if check_deadline_fn and check_deadline_fn():
@@ -467,7 +515,8 @@ async def tail_codex_output(
 
                     if evt == "turn.completed":
                         result_data = obj
-                        _complete_launch_group(ledger, launch_input_uuid)
+                        with steer_lock:
+                            _complete_launch_group(ledger, launch_input_uuid)
                         converter.process_line(line)
                         continue
 
@@ -519,6 +568,18 @@ async def tail_codex_output(
                 from agent.chat_target import close_owned_client
                 close_owned_client(client)
             return cancelled_result
+
+        if steered.is_set() and exit_reason != "interrupted" and result_data is None and last_error_data is None:
+            # Our own steer kill ended the turn before it completed. This is
+            # not a death: consume the sentinel so no later check misreads it,
+            # and report a completed turn so the closeout continuation
+            # relaunches the same thread with the pending message.
+            _consume_self_kill_sentinel(client, chat_id)
+            if owns_client:
+                from agent.chat_target import close_owned_client
+                close_owned_client(client)
+            logger.info("tail_codex_output: chat_id={} turn ended by steer at offset={}", chat_id, current_offset)
+            return _view(True, "completed", None)
 
         no_result_session_alive = False
         no_result_error = None
