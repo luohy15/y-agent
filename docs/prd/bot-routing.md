@@ -70,10 +70,10 @@ request usage can trigger the gate; launch averages remain display-only.
    bot, so that my explicit pick is used whenever it is runnable.
 3. As a user, I want a backend filter (for example perplexity) to narrow
    candidates to enabled configs with that effective backend, so that I can
-   choose the runtime family without knowing config names. Since todo 2930 the
-   only agentic backend is claude_code, so this filter is vestigial for agentic
-   bots and only meaningfully separates them from the inline query backends
-   (`perplexity`, `openai`, `xai_web`, `xai_x`).
+   choose the runtime family without knowing config names. Agentic backends are
+   `claude_code` and `codex` (todo 4304). `gemini_cli`, `grok_build`, and
+   `pi_cli` stay removed (todo 2930). The filter also separates those from the
+   inline query backends (`perplexity`, `openai`, `xai_web`, `xai_x`).
 4. As a user, I want a chat with no bot, backend, or tier specified to
    resolve as a tier2 request, so that unspecified dispatches land on a
    capable mid-range bot by default without any routing knowledge.
@@ -272,8 +272,9 @@ request usage can trigger the gate; launch averages remain display-only.
   chat's `backend` stays fixed, so a bot whose effective backend differs is
   refused with a log and the chat keeps its current bot. The refusal exists
   because the inline query backends (`perplexity`, `openai`, `xai_web`,
-  `xai_x`) have no session at all; among agentic bots it is trivially always
-  true, since claude_code is the only one left (todo 2930).
+  `xai_x`) have no session at all, and because `claude_code` and `codex`
+  (todo 4304) each resume a different native session. `gemini_cli`,
+  `grok_build`, and `pi_cli` stay removed (todo 2930).
 - **A bot change takes effect on the chat's next run.** Bot resolution
   happens when a message enqueues a worker task, so a message sent into a
   chat that is already running steers the turn in flight instead

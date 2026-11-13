@@ -3,10 +3,8 @@
 The launch skeleton (SSH connect/teardown, stale cleanup, tmux wrap, and an
 initial stdout sniff to extract a session id) lives here, parameterized by a
 small `DetachBackendSpec` for the three hooks that are backend-specific (setup,
-exec command assembly, initial id parsing). `start_detached_ssh` (claude_code)
-is its only caller since the other agentic CLI backends were removed (todo
-2930); the spec seam is kept because it is what keeps that launch path
-readable.
+exec command assembly, initial id parsing). `start_detached_ssh` (claude_code) and `start_detached_codex_ssh` (codex)
+are its callers. The spec seam is what keeps that launch path readable.
 
 `tail_ssh_output` intentionally keeps its inline SSH bookkeeping; this module is
 scoped to the start_* path.

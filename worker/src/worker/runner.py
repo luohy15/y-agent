@@ -34,6 +34,7 @@ ARTIFACT_PLACEHOLDERS = {
 
 
 REASONING_EFFORT_LEVELS = {"low", "medium", "high", "xhigh", "max"}
+CODEX_REASONING_EFFORT_LEVELS = {"low", "medium", "high", "xhigh"}
 SUPPORTED_REASONING_EFFORT_BACKENDS = agent_config.SUPPORTED_REASONING_EFFORT_BACKENDS
 
 
@@ -60,7 +61,11 @@ def resolve_reasoning_effort(messages, backend: str) -> str | None:
     if reasoning_effort is None:
         return None
     if backend not in SUPPORTED_REASONING_EFFORT_BACKENDS:
-        raise ValueError(f"reasoning_effort is only supported for claude_code, not {backend}")
+        raise ValueError(f"reasoning_effort is only supported for claude_code and codex, not {backend}")
+    if backend == "codex" and reasoning_effort not in CODEX_REASONING_EFFORT_LEVELS:
+        raise ValueError(
+            f"Codex does not support reasoning_effort '{reasoning_effort}'; expected low, medium, high, or xhigh"
+        )
     return reasoning_effort
 
 
@@ -570,10 +575,10 @@ def _abort_unlaunched(chat, chat_id: str, user_id: int, exc: Exception) -> None:
 
 
 async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, role: str = None, skill: str = None, backend: str = None, resume_5xx_retries: int = 0, run_seq: int = None, continuation_from_id: str = None, handled_input_ids=None) -> str:
-    """Execute a chat round. Inline backends run in-process; claude_code detaches to tmux.
+    """Execute a chat round. Inline backends run in-process; claude_code and codex detach to tmux.
 
     bot_name, user_id, vm_name, work_dir, and post_hooks are passed from the queue message.
-    backend overrides bot_config.backend for routing ('claude_code', or one of the
+    backend overrides bot_config.backend for routing ('claude_code', 'codex', or one of the
     inline backends: 'perplexity', 'openai', 'xai_web', 'xai_x').
 
     `run_seq` is the reservation this entry is claiming (see
@@ -724,7 +729,7 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
             )
         if explicit_effort and (bot_config.backend or bot_config.api_type) not in SUPPORTED_REASONING_EFFORT_BACKENDS:
             unsupported = bot_config.backend or bot_config.api_type
-            raise ValueError(f"reasoning_effort is only supported for claude_code, not {unsupported}")
+            raise ValueError(f"reasoning_effort is only supported for claude_code and codex, not {unsupported}")
     except Exception as e:
         if explicit_effort or isinstance(e, agent_config.BotAuthModeError):
             _abort_unlaunched(chat, chat_id, user_id, e)
@@ -952,6 +957,128 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
 
 
 
+class CodexProviderConfigError(ValueError):
+    """A codex bot has no relay base_url or api_key. There is no host-config fallback."""
+
+
+def build_codex_resume_cmd(thread_id: str, model: str = None) -> list:
+    """`codex exec resume` for a known thread. The thread id is argv[3]."""
+    cmd = [
+        "codex", "exec", "resume", thread_id, "--json",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "--ignore-user-config", "--skip-git-repo-check",
+    ]
+    if model:
+        cmd.extend(["-m", model])
+    return cmd
+
+
+def build_codex_provider_args(bot_config) -> list:
+    """Five `-c` pairs that point Codex at this bot's relay. The key stays off argv."""
+    base_url = (getattr(bot_config, "base_url", None) or "").strip()
+    api_key = (getattr(bot_config, "api_key", None) or "").strip()
+    missing = []
+    if not base_url:
+        missing.append("base_url")
+    if not api_key:
+        missing.append("api_key")
+    if missing:
+        name = getattr(bot_config, "name", None) or "?"
+        raise CodexProviderConfigError(
+            f"codex bot {name!r} requires {' and '.join(missing)} (no host config fallback)"
+        )
+    return [
+        "-c", 'model_provider="y-codex"',
+        "-c", 'model_providers.y-codex.name="y-codex"',
+        "-c", f'model_providers.y-codex.base_url="{base_url}"',
+        "-c", 'model_providers.y-codex.wire_api="responses"',
+        "-c", 'model_providers.y-codex.env_key="OPENAI_API_KEY"',
+    ]
+
+
+def build_codex_env(bot_config, chat_id: str = None, trace_id: str = None,
+                    role: str = None, last_message_id: str = None) -> dict:
+    """Codex subprocess env. OPENAI_API_KEY is the relay credential, never an argv flag."""
+    env = {
+        "OPENAI_API_KEY": bot_config.api_key,
+        "TZ": os.getenv("Y_AGENT_TIMEZONE") or "Asia/Shanghai",
+    }
+    if chat_id:
+        env["Y_CHAT_ID"] = chat_id
+    if trace_id:
+        env["Y_TRACE_ID"] = trace_id
+    if role:
+        env["Y_ROLE"] = role
+        env["Y_TOPIC"] = role
+    if last_message_id:
+        env["Y_MESSAGE_ID"] = last_message_id
+    return env
+
+
+def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None,
+                        work_dir: str = None, trace_id: str = None, role: str = None,
+                        continuation_from_id: str = None, handled_input_ids=None) -> dict:
+    """Extract prompt, build cmd/env/cwd for codex. Resume only when work_dir still matches."""
+    messages = list(chat.messages)
+    selected_inputs = select_run_inputs(messages, continuation_from_id, handled_input_ids)
+    user_prompt, user_images = _prompt_from_inputs(selected_inputs)
+    reasoning_effort = resolve_reasoning_effort(selected_inputs, "codex")
+
+    from agent.chat_target import layout
+    node = layout(user_id, getattr(chat, "execution_target", None))
+    last_message_id = messages[-1].id if messages else None
+    cwd = work_dir or node.work_dir or os.path.expanduser(os.environ.get("VM_WORK_DIR_CLI") or os.getcwd())
+    model = bot_config.model.strip('"').strip() if bot_config.model else None
+    model = model or None
+
+    thread_id = chat.external_id
+    resume = bool(thread_id) and chat.work_dir == cwd
+    provider_args = build_codex_provider_args(bot_config)
+
+    if resume and thread_id:
+        cmd = build_codex_resume_cmd(thread_id, model)
+        cmd.extend(provider_args)
+    else:
+        cmd = [
+            "codex", "exec", "--json",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--ignore-user-config", "--skip-git-repo-check",
+        ]
+        thread_id = None
+        cmd.extend(provider_args)
+        if cwd:
+            cmd.extend(["-C", cwd])
+        if model:
+            cmd.extend(["-m", model])
+
+    if reasoning_effort:
+        cmd.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
+
+    if chat.skill and not resume:
+        user_prompt = (
+            "IMPORTANT: Before doing anything else, read "
+            f"~/.agents/skills/{chat.skill}/SKILL.md and follow it.\n\n{user_prompt}"
+        )
+
+    env = build_codex_env(bot_config, chat_id, trace_id, role, last_message_id)
+    return {
+        "prompt": user_prompt,
+        "images": user_images,
+        "input_ids": [m.id for m in selected_inputs if m.id],
+        "cmd": cmd,
+        "env": env,
+        "unset_env": [],
+        "cwd": cwd,
+        "node": node,
+        "thread_id": thread_id,
+        "session_id": thread_id,
+        "resume": resume,
+        "last_message_id": last_message_id,
+        "model": model,
+        "messages": messages,
+    }
+
+
 def _persist_routing(chat_id, user_id, backend, bot_name, tier):
     """Write the accepted bot only after the last refusal check has passed."""
     from storage.repository import chat as chat_repo
@@ -971,7 +1098,7 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
                            handled_input_ids=None, measurement=None,
                            current_limit=None, pending_limit=None,
                            next_backend=None, next_bot=None, next_tier=None) -> None:
-    """Start claude-code as a detached tmux process on EC2.
+    """Start claude_code or codex as a detached tmux process on the chat node.
 
     Called from run_chat after chat loading, trace setup, and running flag are done.
     Starts tmux, registers in DynamoDB, returns immediately.
@@ -980,22 +1107,27 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
     from agent.ec2_wake import ensure_and_touch_vm
     from worker.process_manager import register_process
 
-    # claude_code is the only detached backend. An unset/empty backend defaults
-    # to it (the standard programmatic `claude -p` path); anything else is
-    # rejected outright rather than silently falling through to claude_code with
-    # an unresumable foreign session id.
-    effective_backend = bot_config.backend or bot_config.api_type
-    if effective_backend and effective_backend != "claude_code":
+    # An unset/empty backend defaults to claude_code. Anything other than
+    # claude_code or codex is rejected rather than launched as claude_code
+    # with an unresumable foreign session id.
+    effective_backend = bot_config.backend or bot_config.api_type or "claude_code"
+    if effective_backend == "codex":
+        params = _build_codex_params(chat, chat_id, user_id, bot_config,
+                                     vm_name=vm_name, work_dir=work_dir,
+                                     trace_id=trace_id, role=role,
+                                     continuation_from_id=continuation_from_id,
+                                     handled_input_ids=handled_input_ids)
+    elif effective_backend == "claude_code":
+        params = _build_claude_code_params(chat, chat_id, user_id, bot_config,
+                                            vm_name=vm_name, work_dir=work_dir,
+                                            trace_id=trace_id, role=role,
+                                            continuation_from_id=continuation_from_id,
+                                            handled_input_ids=handled_input_ids,
+                                            measurement=measurement,
+                                            current_limit=current_limit, pending_limit=pending_limit,
+                                            limits_from_launch=True)
+    else:
         raise ValueError(f"Unsupported detached backend: {effective_backend!r}")
-
-    params = _build_claude_code_params(chat, chat_id, user_id, bot_config,
-                                        vm_name=vm_name, work_dir=work_dir,
-                                        trace_id=trace_id, role=role,
-                                        continuation_from_id=continuation_from_id,
-                                        handled_input_ids=handled_input_ids,
-                                        measurement=measurement,
-                                        current_limit=current_limit, pending_limit=pending_limit,
-                                        limits_from_launch=True)
     chat, _ = _persist_routing(
         chat_id, user_id,
         next_backend or chat.backend,
@@ -1023,19 +1155,17 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
     from agent.chat_target import apply_launch
     params["cmd"], params["env"] = apply_launch(node, params["cmd"], params["env"])
 
-    # Start detached tmux session. The launch prompt is one stdin write, so all
-    # the message ids folded into it share its native uuid; the ledger the
-    # monitor rebuilds from this record maps the CLI's lifecycle events back
-    # onto them.
-    from agent.claude_code import start_detached_ssh
+    # The launch prompt is one input group. Claude completes it from
+    # command_lifecycle; Codex completes it from turn.completed. Either way the
+    # monitor rebuilds the ledger from this record.
     from agent.input_ledger import COMPLETED, SUBMITTED, native_input_uuid
 
     input_ids = params["input_ids"]
     launch_uuid = native_input_uuid(chat_id, f"launch:{chat.run_seq}:{input_ids[-1] if input_ids else 'none'}")
-    from agent.mcp import launch as mcp_launch
-    mcp_material = await asyncio.to_thread(mcp_launch.prepare, user_id, chat_id, chat.run_seq)
-    try:
-        session_id = await start_detached_ssh(
+    mcp_material = None
+    if effective_backend == "codex":
+        from agent.codex import start_detached_codex_ssh
+        session_id = await start_detached_codex_ssh(
             cmd=params["cmd"],
             prompt=params["prompt"],
             cwd=cwd,
@@ -1043,14 +1173,29 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
             node=node,
             env=params["env"],
             images=params.get("images"),
-            input_uuid=launch_uuid,
-            mcp_material=mcp_material,
             unset_env=params.get("unset_env"),
         )
-    except Exception:
-        mcp_launch.end(mcp_material)
-        raise
-    if mcp_material.warning:
+    else:
+        from agent.claude_code import start_detached_ssh
+        from agent.mcp import launch as mcp_launch
+        mcp_material = await asyncio.to_thread(mcp_launch.prepare, user_id, chat_id, chat.run_seq)
+        try:
+            session_id = await start_detached_ssh(
+                cmd=params["cmd"],
+                prompt=params["prompt"],
+                cwd=cwd,
+                chat_id=chat_id,
+                node=node,
+                env=params["env"],
+                images=params.get("images"),
+                input_uuid=launch_uuid,
+                mcp_material=mcp_material,
+                unset_env=params.get("unset_env"),
+            )
+        except Exception:
+            mcp_launch.end(mcp_material)
+            raise
+    if mcp_material is not None and mcp_material.warning:
         from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
         from storage.repository import chat as chat_repo
         def warn_mcp(current):
@@ -1078,11 +1223,13 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
             scope_first_id=input_ids[0] if input_ids else None,
             initial_message_ids=[m.id for m in chat.messages if m.id],
             run_seq=chat.run_seq,
-            mcp_launch_id=mcp_material.launch_id,
+            mcp_launch_id=mcp_material.launch_id if mcp_material is not None else None,
             target_id=node.name,
         )
     except Exception as e:
-        mcp_launch.end(mcp_material)
+        if mcp_material is not None:
+            from agent.mcp import launch as mcp_launch
+            mcp_launch.end(mcp_material)
         logger.exception("register_process failed for chat {} (session_id={}): {}", chat_id, session_id, e)
         from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
         from storage.repository import chat as chat_repo

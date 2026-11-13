@@ -249,9 +249,9 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
     def _msg_callback(msg):
         message_callback(chat_id, msg, user_id=user_id)
 
-    # Build steer checker. claude_code injects steer into the live stdin pipe,
-    # which is the only delivery path now that the kill-and-resume backends are
-    # gone.
+    # Build steer checker. claude_code injects steer into the live stdin pipe.
+    # Codex does not: a mid-run message stays outstanding and closeout relaunches
+    # it as the next turn on the same thread.
     chat = await chat_service.get_chat(user_id, chat_id)
     initial_msg_count = proc.get("initial_msg_count", len(chat.messages) if chat else 0)
     initial_msg_ids = (set(_load_json_field(proc, "initial_message_ids"))
@@ -262,16 +262,37 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
     # already written stays claimed (never write an input twice); only the
     # ledger's own terminal states decide what still needs answering.
     ledger = _load_input_ledger(chat_id, proc)
-    from worker.runner import make_steer_checker
-    steer_fn = make_steer_checker(chat_id, initial_msg_ids, previously_consumed=ledger.written_ids())
+    # Codex does not consume a live steer. Building the checker would only poll
+    # the chat for messages this tail never writes.
+    steer_fn = None
+    if backend_type != "codex":
+        from worker.runner import make_steer_checker
+        steer_fn = make_steer_checker(chat_id, initial_msg_ids, previously_consumed=ledger.written_ids())
 
     logger.info("tail_and_process start chat_id={} offset={} backend={}", chat_id, offset, backend_type)
 
     from agent.claude_code import tail_ssh_output
+    launch_input_uuid = next((native_uuid for native_uuid, ids in ledger.groups.items()
+                              if proc.get("scope_first_id") in ids), None)
     if proc.get("closeout_pending"):
         result = _load_json_field(proc, "closeout_pending")
     elif proc.get("resume_pending"):
         result = json.loads(proc["resume_pending"])
+    elif backend_type == "codex":
+        from agent.codex import tail_codex_output
+        result = await tail_codex_output(
+            chat_id=chat_id,
+            node=node,
+            offset=offset,
+            last_message_id=last_message_id,
+            message_callback=_msg_callback,
+            check_interrupted_fn=_check_interrupted,
+            check_deadline_fn=_check_deadline,
+            ssh_client=client,
+            input_ledger=ledger,
+            launch_input_uuid=launch_input_uuid,
+            pending_result=_load_json_field(proc, "pending_result") or None,
+        )
     else:
         result = await tail_ssh_output(
             chat_id=chat_id,
@@ -284,8 +305,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             ssh_client=client,
             check_steer_fn=steer_fn,
             input_ledger=ledger,
-            launch_input_uuid=next((native_uuid for native_uuid, ids in ledger.groups.items()
-                                    if proc.get("scope_first_id") in ids), None),
+            launch_input_uuid=launch_input_uuid,
             pending_result=_load_json_field(proc, "pending_result") or None,
             pending_context_usage=_load_json_field(proc, "pending_context_usage") or None,
         )
@@ -326,7 +346,8 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
         from worker.death_delivery import current_run, persist_terminal, deliver_death
         if not current_run(chat_id, proc):
             return
-        if _should_resume_5xx(result, proc) and updated_session_id and fresh and not fresh.interrupted:
+        if (backend_type == "claude_code" and _should_resume_5xx(result, proc)
+                and updated_session_id and fresh and not fresh.interrupted):
             from agent.claude_code import _is_rate_limit_error_text
             from worker.process_manager import set_resume_pending, claim_resume
             if not proc.get("resume_pending"):
@@ -540,6 +561,9 @@ def _apply_completion_metadata(fresh, result: dict, result_data: dict, proc: dic
     # back.
     run_work_dir = proc.get("work_dir")
     cwd_matches = bool(run_work_dir) and (run_work_dir == fresh.work_dir)
+    if proc.get("backend_type") == "codex":
+        _apply_codex_completion(fresh, result, result_data, proc, chat_id, cwd_matches)
+        return
 
     effective_session_id = result.get("session_id") or proc.get("session_id")
     resume_refused = bool(result.get("resume_refused"))
@@ -744,6 +768,36 @@ def _selected_usage_stamp(iterations, observed_usage):
     if _prompt_stamp_counters(last) != _prompt_stamp_counters(observed_usage):
         return None
     return _usage_stamp(observed_usage)
+
+
+def _apply_codex_completion(fresh, result: dict, result_data: dict, proc: dict, chat_id: str, cwd_matches: bool):
+    """Persist a Codex thread id and turn.completed usage. No Claude resume gate."""
+    from storage.entity.dto import Message
+    from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
+
+    effective_thread_id = result.get("thread_id") or result.get("session_id") or proc.get("session_id")
+    if effective_thread_id:
+        if cwd_matches:
+            fresh.external_id = effective_thread_id
+        else:
+            logger.warning(
+                "skip external_id update: chat_id={} run_work_dir={} chat_work_dir={} (codex thread_id={})",
+                chat_id, proc.get("work_dir"), fresh.work_dir, effective_thread_id,
+            )
+    if isinstance(result_data, dict) and not result_data.get("is_error"):
+        usage = result_data.get("usage") or {}
+        if usage:
+            fresh.input_tokens = _int_value(usage.get("input_tokens"))
+            fresh.output_tokens = _int_value(usage.get("output_tokens"))
+    if result.get("status") == "error":
+        error_text = (result_data.get("result") if isinstance(result_data, dict) else None) or "Codex exited with an error."
+        fresh.messages.append(Message(
+            id=generate_message_id(),
+            role="assistant",
+            content=error_text,
+            timestamp=get_utc_iso8601_timestamp(),
+            unix_timestamp=get_unix_timestamp(),
+        ))
 
 
 def _apply_claude_usage(fresh, result_data: dict, observed_usage: dict = None):

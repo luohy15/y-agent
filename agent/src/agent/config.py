@@ -43,8 +43,8 @@ class VmConfigError(ValueError):
     """
 
 
-# Claude Code is the only backend that accepts a launch effort flag.
-SUPPORTED_REASONING_EFFORT_BACKENDS = {"claude_code"}
+# Agentic backends that accept a launch effort flag. Codex has no `max`.
+SUPPORTED_REASONING_EFFORT_BACKENDS = {"claude_code", "codex"}
 
 
 def _effective_backend(bot_config: BotConfig) -> str:
@@ -399,7 +399,7 @@ def preflight_launch_effort(user_id: int, effort: str = None, *, chat=None, bot_
     def reject_unsupported(selected: BotConfig) -> None:
         unsupported = _effective_backend(selected)
         if unsupported not in SUPPORTED_REASONING_EFFORT_BACKENDS:
-            raise ValueError(f"reasoning_effort is only supported for claude_code, not {unsupported}")
+            raise ValueError(f"reasoning_effort is only supported for claude_code and codex, not {unsupported}")
 
     chat_bot = getattr(chat, "bot_name", None) if chat is not None else None
     chat_backend = getattr(chat, "backend", None) if chat is not None else None

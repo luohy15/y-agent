@@ -22,7 +22,7 @@ These are the layers of my deployment, not five services in a linear pipeline:
 | Gateway | Connect and forward model requests | A self-hosted relay: my fork of [claude-relay-service](https://github.com/luohy15/claude-relay-service) |
 | Models | Supply model capabilities | Claude / GPT / Grok |
 
-Files and database records are read and written as work needs them. They aren't a stop every model request passes through. The runtime and model source are separate choices: **Claude Code is the only agentic CLI backend in this repository.** Other model sources depend on the configured gateway, interface compatibility, and provider subscription terms; a subscription isn't a general-purpose API entitlement. The relay is a separate service, not bundled with y-agent. Model context still leaves the workspace for inference.
+Files and database records are read and written as work needs them. They aren't a stop every model request passes through. The runtime and model source are separate choices: **Claude Code and Codex are the agentic CLI backends in this repository.** Other model sources depend on the configured gateway, interface compatibility, and provider subscription terms; a subscription isn't a general-purpose API entitlement. The relay is a separate service, not bundled with y-agent. Model context still leaves the workspace for inference.
 
 Under the hood, a React web UI and Telegram feed a FastAPI API. The API queues work through SQS to a worker, which starts Claude Code over SSH in EC2 `tmux` sessions and streams results back into chat records. API, worker, and admin jobs deploy with AWS SAM/Lambda; PostgreSQL holds structured state. Local development uses Celery with a filesystem broker instead of SQS.
 

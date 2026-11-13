@@ -1,13 +1,13 @@
 # y-agent
 
 Personal AI agent platform: React web UI + FastAPI backend + async worker, deployed as
-AWS Lambda (SAM). Runs Claude Code on EC2 or registered SSH jump nodes, with
+AWS Lambda (SAM). Runs Claude Code or Codex on EC2 or registered SSH jump nodes, with
 a Telegram bot surface and cross-skill orchestration via trace context.
 
 ## Architecture
 
 ```
-Web (React)  ─┐                                ┌─→ Claude Code (EC2 or SSH jump node)
+Web (React)  ─┐                                ┌─→ Claude Code or Codex (EC2 or SSH jump node)
 Telegram Bot ─┼─→ API (FastAPI/Lambda) → SQS → Worker (Lambda) ─┤
 CLI (y)      ─┘                                                 └─→ Post-hooks (trace, telegram, todo)
 
@@ -359,10 +359,13 @@ entity + controller + service + CLI slices, and most have a web panel.
 
 The repo no longer contains an in-process agent loop — the worker shells out.
 
-- **Backends** — `claude_code` (`agent/src/agent/claude_code.py`) is the only agentic CLI
-  backend. The other agentic backends (`codex`, `gemini_cli`, `grok_build`, `pi_cli`) were
-  removed in todo 2930; `_start_detached` now rejects any backend other than `claude_code`
-  with a launch error instead of falling through. The non-agentic inline backends stay:
+- **Backends** — agentic CLIs are `claude_code` (`agent/src/agent/claude_code.py`) and
+  `codex` (`agent/src/agent/codex.py`, restored in todo 4304 on Codex CLI `exec --json`).
+  A codex bot must set `base_url` and `api_key`; the key is `OPENAI_API_KEY`, not an argv
+  flag. The thread id is `chat.external_id` and later turns resume it. A message sent
+  while `codex exec` is running waits for the next turn. `gemini_cli`, `grok_build`, and
+  `pi_cli` stay removed (todo 2930). Anything else is rejected instead of falling through
+  to `claude_code`. The non-agentic inline backends stay:
   `perplexity` (`agent/src/agent/perplexity.py`, the `px` web fact-check), `openai`
   (`agent/src/agent/openai_chat.py`, `POST /api/inline` and `POST /api/link/tldr`, both using the `inline` bot), and
   the xAI search pair `xai_web` / `xai_x` (`agent/src/agent/xai_search.py`, the
@@ -380,9 +383,10 @@ The repo no longer contains an in-process agent loop — the worker shells out.
 - **Lambda hand-off** — since Lambda caps at ~15 min, the worker releases its lease
   before the deadline and re-enqueues itself via SQS; the next invocation picks up the
   existing tail offset. `poll_loop.py` unifies the steer / interrupt polling cadence.
-- **Steer** — mid-conversation user messages are delivered to a running session. In
-  detach mode they go through a `tail -f` stdin pipe. `y chat stop` is the explicit
-  interrupt path; an interrupt watchdog thread also fires during LLM waits.
+- **Steer** — mid-conversation user messages are delivered to a running Claude Code
+  session through a `tail -f` stdin pipe. Codex does not take a live steer; the
+  message is answered on the next turn of the same thread. `y chat stop` is the
+  explicit interrupt path; an interrupt watchdog thread also fires during LLM waits.
 - **Context monitor** — per-chat token usage is tracked; when a root-role session
   crosses 50% context or 50 turns, it auto-restarts in a fresh chat with a short
   summary.

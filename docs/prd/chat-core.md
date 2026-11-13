@@ -349,9 +349,12 @@ mode (`-i`) serves a human at a terminal.
     creates duplicate runs.
 43. As a user, I want each chat's backend fixed at first run, so that
     changing my default bot never migrates an existing conversation between
-    agent backends mid-session. With claude_code the only agentic backend,
-    this now mainly pins a chat away from the inline query backends and keeps
-    its native session resumable. The bot itself is not pinned: a chat runs on
+    agent backends mid-session. Agentic backends are `claude_code` and `codex`
+    (todo 4304). This pins a chat to the runtime that owns its native session
+    and keeps that session resumable, and it still pins a chat away from the
+    inline query backends. A codex chat stores the Codex thread id. A message
+    sent while that turn is running is not injected into the live process; it
+    is answered on the next turn of the same thread. The bot itself is not pinned: a chat runs on
     its own bot until a later message names a different one, and that bot
     change is honored (bot name and tier follow it) when the name resolves to
     a runnable bot on the chat's backend. Anything else keeps the current bot;
@@ -631,26 +634,29 @@ mode (`-i`) serves a human at a terminal.
   row; the running worker's poll loop observes it and tears down. Any surface
   can set it.
 - **Backend dispatch in the worker**: Perplexity and OpenAI-style backends run
-  inline (message-list in, reply out, no VM). `claude_code` is the single
-  agentic CLI backend; it launches as a detached tmux subprocess on the user's
-  EC2 VM over SSH, is registered in a process table (DynamoDB) for monitoring,
-  and is tailed by a monitor loop that appends each streamed event as a chat
-  message. An unset backend defaults to claude_code; any other backend is
-  rejected with a clear launch error rather than falling through, so a chat
-  still carrying a removed backend's session id can never launch
-  `claude -p -r` against an unresumable handle.
+  inline (message-list in, reply out, no VM). Agentic CLI backends are
+  `claude_code` and `codex` (todo 4304). Both launch as a detached tmux
+  subprocess on the chat's node over SSH, are registered in a process table
+  (DynamoDB) for monitoring, and are tailed by a monitor loop that appends each
+  streamed event as a chat message. Each resumes its own native session.
+  An unset backend defaults to claude_code; any other backend is rejected with
+  a clear launch error rather than falling through, so a chat still carrying a
+  removed backend's session id can never launch `claude -p -r` against an
+  unresumable handle.
 - **Session continuity**: the backend's native session id lives in the chat's
   `external_id`; a follow-up resumes it only when the chat's stored work dir
   matches the resolved cwd, otherwise a fresh session starts. Work-dir
   conflicts on send are rejected, not silently rebased. Two further guarantees
-  (todo 2930):
+  (todo 2930). The column rule applies to both agentic backends. The refused-handle
+  rule is `claude_code` only; Codex does not clear a refused thread id.
   - **The `external_id` column is authoritative.** `chat` persists the field
     both in its `json_content` blob and as a promoted column; the column is
     what the runtime reads, and NULL there means "no resumable session" rather
     than "look in the blob". So clearing a session handle in SQL works, and no
     tool may re-derive the column from the blob's copy.
-  - **A refused handle is dropped, on the CLI's own evidence only.** When a
-    resumed turn is refused, the handle is cleared so the next turn starts fresh
+  - **A refused `claude_code` handle is dropped, on the CLI's own evidence only.**
+    Codex has no equivalent recovery. When a resumed Claude Code turn is refused,
+    the handle is cleared so the next turn starts fresh
     instead of retrying it forever, and the turn reports the refusal by name
     instead of a bare "exited with an error". The evidence is the CLI's own
     `No conversation found with session ID` message, read from the run's final
