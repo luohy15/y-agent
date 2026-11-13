@@ -324,6 +324,21 @@ mode (`-i`) serves a human at a terminal.
      role-inferred skill selection, project/plugin skills, or an
      unsynchronized remote installation.
 
+36c. A dispatcher may repeat `y chat --new -m ... --env KEY=VALUE` to set
+     per-chat launch environment variables, including `CODEX_HOME` and package
+     install/cache redirects. `launch_env` is persisted in the chat JSON, without
+     a schema migration, and reused for subsequent process launches on both
+     agentic backends. Absent values preserve existing behavior. Existing-chat
+     sends (explicit id, role lookup, or same-phase reuse) reject a supplied map
+     with HTTP 400 rather than changing or silently ignoring it. CLI `--env`
+     rejects `--chat-id`, `--at`, and `-i`; use `--new` to avoid implicit reuse.
+     Keys must be shell variable names and values strings without NUL. Reserved
+     prefixes `Y_`, `OPENAI_`, `ANTHROPIC_`, `CLAUDE_`, `_CLAUDE_` and exact
+     keys `PATH`, `HOME`, `TMPDIR` are rejected at admission and filtered again
+     at launch. Worker credentials, trace context and auth-mode rules apply
+     after the map. This is environment routing, not an OS sandbox or a place
+     to store secrets; inline backends have no subprocess environment.
+
 ### CLI: interactive and query
 
 37. As a terminal user, I want `y chat -i` to open a streaming REPL (new

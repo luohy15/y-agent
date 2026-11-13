@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from loguru import logger
 from pydantic import BaseModel, field_validator, model_validator
 from storage.role import legacy_topic_to_role, validate_role
+from storage.dto.chat import validate_launch_env
 from sse_starlette.sse import EventSourceResponse
 
 from storage.service import bot_config as bot_service
@@ -83,6 +84,13 @@ class SendMessageRequest(BaseModel):
     fresh: Optional[bool] = False
     resume_work: Optional[bool] = None
     execution_target: Optional[str] = None
+    launch_env: Optional[dict[str, str]] = None
+
+    @field_validator("launch_env")
+    @classmethod
+    def check_launch_env(cls, value):
+        validate_launch_env(value)
+        return value
 
 
     @field_validator("role", "from_role")
@@ -428,6 +436,9 @@ async def post_send_message(req: SendMessageRequest, request: Request):
             detail="resume_work is removed; use y todo status <id> active / POST /api/todo/status",
         )
 
+    if req.launch_env is not None and (req.chat_id or not dispatch_shaped):
+        raise HTTPException(status_code=400, detail="launch_env is only allowed for new chats; use --new")
+
     if not dispatch_shaped:
         if not req.chat_id:
             raise HTTPException(status_code=400, detail="chat_id is required")
@@ -520,6 +531,8 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     from storage.repository.chat import EffortOnRunningChat
 
     async def deliver_existing(target):
+        if req.launch_env is not None:
+            raise HTTPException(status_code=400, detail="launch_env is only allowed for new chats; use --new")
         admit_execution_target(user_id, req.execution_target, target.execution_target, has_images, existing=True)
         images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-upload", vm_config=vm_config)
         handoff_state, handoff_warning = chat_service.build_target_reuse_check(
@@ -595,6 +608,7 @@ async def post_send_message(req: SendMessageRequest, request: Request):
             skill=skill,
             work_dir=work_dir,
             execution_target=stored_execution_target(admitted),
+            launch_env=req.launch_env,
             running=True,
         )
         return chat

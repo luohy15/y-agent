@@ -12,6 +12,30 @@ _INVISIBLE_RE = re.compile(
 def _strip_invisible(s: str) -> str:
     return _INVISIBLE_RE.sub('', s)
 
+def validate_launch_env(values: Optional[Dict[str, str]], *, strict: bool = True) -> Dict[str, str]:
+    """Validate caller env at admission; filter persisted values again at launch."""
+    if values is None:
+        return {}
+    if not isinstance(values, dict):
+        raise ValueError("launch_env must be a string-to-string object")
+    result = {}
+    for key, value in values.items():
+        valid = (
+            isinstance(key, str)
+            and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key)
+            and not key.startswith(("Y_", "OPENAI_", "ANTHROPIC_", "CLAUDE_", "_CLAUDE_"))
+            and key not in {"PATH", "HOME", "TMPDIR"}
+            and isinstance(value, str)
+            and "\x00" not in value
+        )
+        if not valid:
+            if strict:
+                raise ValueError(f"Invalid or reserved launch_env key: {key!r}")
+            continue
+        result[key] = value
+    return result
+
+
 @dataclass
 class ContentPart:
     text: str
@@ -148,6 +172,7 @@ class Chat:
     routine_id: Optional[str] = None  # set when chat was fired by a routine
     work_dir: Optional[str] = None
     execution_target: Optional[str] = None  # sticky vm_config node name; None/ec2 = default
+    launch_env: Optional[Dict[str, str]] = None  # JSON-only, fixed at chat creation
     interrupted: bool = False
     running: bool = False
     # Run reservation identity. `run_seq` is bumped by whoever makes this chat
@@ -204,6 +229,7 @@ class Chat:
             routine_id=data.get('routine_id'),
             work_dir=data.get('work_dir'),
             execution_target=data.get('execution_target'),
+            launch_env=data.get('launch_env'),
             interrupted=data.get('interrupted', False),
             running=data.get('running', False),
             run_seq=data.get('run_seq', 0),
@@ -261,6 +287,8 @@ class Chat:
             result['work_dir'] = self.work_dir
         if self.execution_target is not None:
             result['execution_target'] = self.execution_target
+        if self.launch_env is not None:
+            result['launch_env'] = self.launch_env
         if self.interrupted:
             result['interrupted'] = self.interrupted
         if self.running:

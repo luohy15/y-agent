@@ -10,6 +10,7 @@ from loguru import logger
 
 from agent.telegram_delivery import send_telegram_photo_reference
 from storage.entity.dto import BotConfig, Message, trailing_user_messages
+from storage.dto.chat import validate_launch_env
 from storage.service import chat as chat_service
 
 import agent.config as agent_config
@@ -910,6 +911,7 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
     api_base_url = bot_config.base_url if bot_config.base_url else None
     api_key = bot_config.api_key if bot_config.api_key else None
     env = {
+        **validate_launch_env(getattr(chat, "launch_env", None), strict=False),
         "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
         # Agent shells report local time. Bare `date` is Hangzhou, not UTC.
         "TZ": os.getenv("Y_AGENT_TIMEZONE") or "Asia/Shanghai",
@@ -1060,7 +1062,8 @@ def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: s
             f"~/.agents/skills/{chat.skill}/SKILL.md and follow it.\n\n{user_prompt}"
         )
 
-    env = build_codex_env(bot_config, chat_id, trace_id, role, last_message_id)
+    env = validate_launch_env(getattr(chat, "launch_env", None), strict=False)
+    env.update(build_codex_env(bot_config, chat_id, trace_id, role, last_message_id))
     return {
         "prompt": user_prompt,
         "images": user_images,

@@ -8,6 +8,7 @@ from typing import Optional
 
 from yagent.api_client import api_request, _http_error_detail
 from storage.role import legacy_topic_to_role, validate_role
+from storage.dto.chat import validate_launch_env
 from yagent.chat.stream_client import stream_chat
 from yagent.display_manager import DisplayManager
 from yagent.input_manager import InputManager
@@ -248,6 +249,7 @@ def _fire_and_forget(
     wait: bool = False,
     wait_timeout: int = 300,
     execution_target: Optional[str] = None,
+    launch_env: Optional[dict[str, str]] = None,
 ):
     """POST a message to /api/chat/message and print the resulting chat_id.
 
@@ -273,6 +275,8 @@ def _fire_and_forget(
         "prompt": message,
         "force_new": force_new or fresh,
     }
+    if launch_env is not None:
+        payload["launch_env"] = launch_env
     if from_role:
         payload.update(from_role=from_role, from_topic=from_role)
     if images:
@@ -442,6 +446,7 @@ def _interactive(
 @click.option('--topic', default=None, hidden=True)
 @click.option('--skill', default=None, help='Skill to load on the target chat (defaults to role for non-manager roles)')
 @click.option('--work-dir', default=None, help='Working directory for the chat')
+@click.option('--env', 'env_values', multiple=True, metavar='KEY=VALUE', help='Launch environment for a new chat only. Repeat for multiple variables; reserved runtime/auth keys are rejected.')
 @click.option('--on', 'execution_target', default=None, help='Execution node that runs this chat (see `y node list`; default/ec2 mean the orchestrator). Sticky; omit to keep the chat on its current node.')
 @click.option('--trace-id', default=None, help='Todo ID for todo-backed work. Precedence: explicit flag > $Y_TRACE_ID env var > unset')
 @click.option('--new', 'force_new', is_flag=True, help='Force a new chat instead of resuming a role chat or reusing a same-phase worker')
@@ -471,6 +476,7 @@ def chat_group(
     skill: Optional[str],
     work_dir: Optional[str],
     execution_target: Optional[str],
+    env_values: tuple[str, ...],
     trace_id: Optional[str],
     force_new: bool,
     fresh: bool,
@@ -519,6 +525,21 @@ def chat_group(
     """
     if ctx.invoked_subcommand is not None:
         return
+
+    launch_env = None
+    if env_values:
+        if at is not None or interactive or chat_id:
+            raise click.UsageError("--env is only allowed for new chats, not with --at, -i or --chat-id")
+        launch_env = {}
+        for item in env_values:
+            key, separator, value = item.partition('=')
+            if not separator:
+                raise click.BadParameter("expected KEY=VALUE", param_hint="'--env'")
+            launch_env[key] = value
+        try:
+            validate_launch_env(launch_env)
+        except ValueError as exc:
+            raise click.BadParameter(str(exc), param_hint="'--env'") from exc
 
     if fresh:
         click.echo("warning: --fresh is deprecated; use --new", err=True)
@@ -578,6 +599,7 @@ def chat_group(
             reasoning_effort=reasoning_effort,
             wait=wait,
             wait_timeout=wait_timeout,
+            launch_env=launch_env,
         )
         return
 
