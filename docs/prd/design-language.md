@@ -207,30 +207,44 @@ with Model / % / Tokens / Cost always visible, Requests / Sessions / Turns /
 Avg / Input / Output revealed at 560px, and Cache (cr/rd) / Cache Hit at 700px
 (container widths); totals mirror the same reveals.
 
-### Table horizontal scroll (D16 / todo 4279)
+### Table horizontal scroll (D16 / todos 4279, 4296)
 
-A data table scrolls sideways inside one viewport. That viewport is `@y/design`
-`TableContainer` (`overflow-x-auto`, already vendored in the SDK). Do not add a
-second scroll component, and do not add a per-table `min-w-*` just to force the
-scroll. Wrap each data `<table>` once. An existing ad-hoc `overflow-x-auto`
-wrapper stays until that file is edited for another reason; convert it then.
+The rule is one scroll box, one axis: horizontal table viewports use
+`overflow-x-auto overflow-y-hidden`; vertically scrolling panes use
+`overflow-y-auto overflow-x-hidden`. Do not use `overflow-auto` to give a
+regular table viewport both axes. Do not add a per-table `min-w-*` just to
+force sideways scrolling; preserve existing table width and responsive-column
+contracts.
 
-A vertical sticky header must not sit inside a nested horizontal wrapper. The
-wrapper becomes the sticky scroll container, so the header stops sticking to
-the pane. Where the pane already scrolls (`dev/ui/worktrees.tsx`,
-`todo/ui/load.tsx`), that pane is `overflow-auto`, `overflow-x-hidden` is
-dropped, and there is no nested wrapper. Load keeps `min-w-[720px]` on the
-table; the pane is the viewport. This is also the correction for the v51 Load
-regression, where the nested wrapper broke the sticky header.
+For a height-constrained table with a vertical sticky header, use the shared
+`TableScrollPane` from `shared/ui/table-scroll.tsx`: a horizontal-only outer
+box around a vertical-only inner box. The header sticks to that inner
+scrollport, not to a content-height horizontal wrapper nested inside a vertical
+pane. The inner box uses `w-fit min-w-full` and the caller's height constraint
+(`h-full` or a measured max-height), so the outer box retains the table's
+horizontal range. Scroller refs, handlers and remaining props belong on the
+inner box. Todo table, Dev worktrees and bot Live models use this pattern;
+Todo keeps its 720px minimum width and pane-based responsive column hiding.
+
+For a content-height table with no vertical scroll range, use one `@y/design`
+`TableContainer` (already vendored in the SDK) inside the vertical-only pane.
+Load keeps its per-group wrappers and `min-w-[720px]` tables; CSV preview uses
+the same vertical-pane / horizontal-wrapper arrangement. Do not put another
+horizontal wrapper inside `TableScrollPane`. Existing content-height ad-hoc
+horizontal wrappers can convert to `TableContainer` when their file is edited.
+This rule does not require a change to `@y/design`.
 
 Host markdown tables are not data tables. `web/src/style.css` `.prose table`
 is `display: block; max-width: 100%; overflow-x: auto`. Chat, shared notes, and
 module prose inherit the host stylesheet, so they need no extra wrapper and no
 host code change.
 
-Named exceptions, which do not use `TableContainer`:
+Named exceptions:
 
-- `todo/ui/table.tsx` hides columns below 720px. That layout stays.
+- `bot/ui/usage/over-time.tsx` retains its two-axis `overflow-auto` matrix.
+  Its pinned Model / Range Σ columns and sticky header / Total row need the
+  same scrollport. Splitting the axes would require dropping column pinning or
+  header stickiness; neither behavior changes under this rule.
 - `link/ui/content-table.tsx` is a code viewer that wraps.
 - `bot/ui/usage/hourly-usage-grid.tsx` scales to fit.
 - `email/ui/detail.tsx` is a metadata popover, not a data table. Its width is a
