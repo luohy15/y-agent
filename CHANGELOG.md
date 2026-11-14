@@ -22,6 +22,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **File attachments (4283)**: a private Telegram document is stored and shown on the message as a file chip, the same way images are. Clicking the chip opens the host File tab instead of downloading the bytes. Oversize, executable, failed, and jump-node files are rejected with a Telegram reply.
 - **Chunked voice upload (4275)**: a voice take uploads as ordered PCM or WAV parts and finalizes into one WAV (host contract v35). Settings can pick a microphone for the voice composer; choosing Default clears the saved input, and the picker does not ask for microphone permission.
 - **Command palette modules (4285)**: Ctrl+P lists open tabs and modules that are not already open. Choosing a module opens it, typing filters both, and Enter on an empty list still searches files.
+- **Per-chat launch environment (4307)**: `y chat --new --env KEY=VALUE` sets environment variables for a new chat (repeat the flag for more than one). They are stored with the chat and reused on later Claude Code and Codex launches. Sending `--env` to an existing chat, or combining it with `--chat-id`, `-i` or `--at`, is rejected. Reserved runtime and credential keys (`PATH`, `HOME`, `TMPDIR`, and names starting with `Y_`, `OPENAI_`, `ANTHROPIC_`, `CLAUDE_` or `_CLAUDE_`) are refused. This routes the process environment; it is not a sandbox or a place for secrets. Inline backends are unchanged.
 
 ### Changed
 
