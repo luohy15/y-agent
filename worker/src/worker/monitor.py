@@ -420,6 +420,9 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                 logger.info("closeout skipped chat_id={}: chat is not this run's to close", chat_id)
                 return
 
+            if backend_type == "codex":
+                _record_codex_turn_usage(user_id, fresh, result, proc)
+
             # The SQL receipt keeps this reservation and input subset durable.
             # Queue delivery may be retried; run claiming admits one backend.
             if pending_ids:
@@ -504,6 +507,36 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             logger.info("tail_and_process error (retryable) chat_id={} offset={}", chat_id, result["offset"])
             raise TailRetryableError(f"tail error for {chat_id}, offset={result['offset']}")
         logger.info("tail_and_process paused chat_id={} offset={}", chat_id, result["offset"])
+
+
+def _record_codex_turn_usage(user_id: int, chat, result: dict, proc: dict):
+    """Best-effort, replay-safe write before continuation or process retirement."""
+    data = result.get("result_data")
+    if (result.get("status") != "completed" or not isinstance(data, dict)
+            or data.get("type") != "turn.completed" or data.get("is_error")):
+        return
+    try:
+        from datetime import datetime, timezone
+        from agent.codex import normalize_usage
+        from storage.service import bot_config, chat_request_usage
+
+        config = bot_config.get_config(user_id, proc.get("bot_name") or chat.bot_name)
+        session_id = result.get("thread_id") or result.get("session_id") or proc.get("session_id")
+        if not session_id or not config or not config.model:
+            logger.warning("codex usage missing identity: chat_id={}", chat.chat_id)
+            return
+        started_at = proc["started_at"]
+        outcome = chat_request_usage.record_backend_turn(
+            user_id=user_id, chat_id=chat.chat_id, session_id=session_id,
+            model=config.model,
+            requested_at=datetime.fromtimestamp(started_at, timezone.utc).isoformat(),
+            request_id=f"codex-{chat.chat_id}-{started_at}",
+            usage=normalize_usage(data.get("usage")),
+        )
+        if any(outcome["conflicts"].values()):
+            logger.warning("codex usage identity conflict: chat_id={}", chat.chat_id)
+    except Exception as exc:
+        logger.warning("codex usage write failed: chat_id={} error={}", chat.chat_id, type(exc).__name__)
 
 
 async def _trigger_context_ingest(node, backend_type: str, session_id):
@@ -781,11 +814,14 @@ def _apply_codex_completion(fresh, result: dict, result_data: dict, proc: dict, 
                 "skip external_id update: chat_id={} run_work_dir={} chat_work_dir={} (codex thread_id={})",
                 chat_id, proc.get("work_dir"), fresh.work_dir, effective_thread_id,
             )
-    if isinstance(result_data, dict) and not result_data.get("is_error"):
-        usage = result_data.get("usage") or {}
-        if usage:
-            fresh.input_tokens = _int_value(usage.get("input_tokens"))
-            fresh.output_tokens = _int_value(usage.get("output_tokens"))
+    if isinstance(result_data, dict) and result_data.get("type") == "turn.completed" and not result_data.get("is_error"):
+        from agent.codex import normalize_usage
+
+        usage = normalize_usage(result_data.get("usage"))
+        fresh.input_tokens = usage["input_tokens"]
+        fresh.output_tokens = usage["output_tokens"]
+        fresh.cache_read_input_tokens = usage["cache_read_tokens"]
+        fresh.cache_creation_input_tokens = usage["cache_creation_tokens"]
     if result.get("status") == "error":
         error_text = (result_data.get("result") if isinstance(result_data, dict) else None) or "Codex exited with an error."
         fresh.messages.append(Message(

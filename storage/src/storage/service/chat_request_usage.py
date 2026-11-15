@@ -349,6 +349,25 @@ def store_rows(user_id: int, rows: list[dict]) -> dict:
     }
 
 
+def record_backend_turn(user_id: int, chat_id: str, session_id: str, model: str,
+                        requested_at: str, request_id: str, usage: dict) -> dict:
+    """Persist trusted worker turn usage, not a transcript-upload attribution.
+
+    The worker supplies the owned chat and normalized counters. Uploads keep
+    their separate Claude-only attribution checks.
+    """
+    counters = {name: usage.get(name) for name in COUNTERS}
+    return repo.upsert_rows(user_id, [{
+        "chat_id": chat_id,
+        "session_id": session_id,
+        "model": model,
+        "requested_at": requested_at,
+        "request_id": request_id,
+        "usage_state": "observed" if any(value is not None for value in counters.values()) else "missing",
+        **counters,
+    }])
+
+
 def _nonneg_int(value, field: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ValueError(field)
@@ -475,8 +494,8 @@ def aggregate_for_trace(user_id: int, trace_id: str, now: datetime | None = None
 
     `sessions` counts chats associated with the trace. `transcripts` counts distinct session
     ids in the uploaded rows. `turns` comes from the derived activity table and
-    `inbound` from the chat body. A chat that is not claude_code reports
-    collected: false instead of a zero that would look like a scanned session.
+    `inbound` from the chat body. Non-Claude chats with worker usage rows are
+    collected at turn granularity; those without rows remain uncollected.
     """
     from storage.database.base import get_db
     from storage.entity.chat import ChatEntity
@@ -507,13 +526,15 @@ def aggregate_for_trace(user_id: int, trace_id: str, now: datetime | None = None
             "turns": turns.get(chat.chat_id, 0),
             "inbound": _inbound(chat.json_content),
         }
-        if (chat.backend or "") != "claude_code":
+        chat_rows = by_chat.get(chat.chat_id, [])
+        if (chat.backend or "") != "claude_code" and not chat_rows:
             entry["collected"] = False
             entry["reason"] = "backend_not_claude_code"
             entry["requests_observed"] = 0
         else:
             entry["collected"] = True
-            entry.update(_counter_block(by_chat.get(chat.chat_id, [])))
+            entry["usage_granularity"] = "request" if chat.backend == "claude_code" else "turn"
+            entry.update(_counter_block(chat_rows))
         per_chat.append(entry)
 
     by_model: dict[str, list] = {}

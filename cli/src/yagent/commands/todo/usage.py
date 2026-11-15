@@ -107,9 +107,10 @@ def render(envelope: dict) -> str:
                 f"requests not collected ({chat.get('reason', 'unknown')})"
             )
             continue
+        grain = "turn usage rows" if chat.get("usage_granularity") == "turn" else "requests"
         lines.append(
             f"  {chat['chat_id']}  {who}  turns={chat.get('turns', 0)} "
-            f"inbound={chat.get('inbound', 0)} requests={chat.get('requests_observed', 0)} "
+            f"inbound={chat.get('inbound', 0)} {grain}={chat.get('requests_observed', 0)} "
             f"{_tokens(chat)}"
         )
     return "\n".join(lines)

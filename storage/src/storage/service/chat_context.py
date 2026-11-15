@@ -531,6 +531,35 @@ def _owned_chat(user_id: int, chat_id: str):
         ).first()
 
 
+def _usage_only(body: dict, rows: list, offset: int, limit: int) -> dict:
+    rows = sorted(rows, key=lambda row: (row.requested_at, row.id))
+    summary = summarize(rows)
+    read = summary.pop("cumulative_cache_read_tokens")
+    summary["cache_reuse"] = _ratio(read, summary["cumulative_input_tokens"])
+    items = []
+    for index, row in enumerate(rows[offset:offset + limit], start=offset):
+        prompt = _prompt(row)
+        items.append({
+            "request_id": row.request_id, "session_id": row.session_id,
+            "sequence": index + 1, "epoch": 0, "model": row.model,
+            "requested_at": row.requested_at,
+            "usage": {name: getattr(row, name) for name in COUNTERS},
+            "prompt_tokens": prompt, "growth": None,
+            "cache_reuse": _ratio(row.cache_read_tokens, prompt),
+            "categories": {}, "unknown_tokens_estimate": None,
+            "estimate_exceeds_observed": False, "unknown_overhead": {},
+            "gaps": ["context_composition_not_analyzed"], "state": "partial",
+        })
+    return {
+        **body, "state": "usage_only", "reason": "usage_only_backend",
+        "token_method": "provider_turn_usage_v1", "summary": summary,
+        "requests": {
+            "items": items, "offset": offset, "limit": limit, "total": len(rows),
+            "next_offset": offset + limit if offset + limit < len(rows) else None,
+        },
+    }
+
+
 def read_chat(user_id: int, chat_id: str, offset: int = 0, limit: int = 50,
               now: datetime | None = None) -> dict | None:
     """The chat's stored context analysis, or None when the caller does not own it.
@@ -559,7 +588,11 @@ def read_chat(user_id: int, chat_id: str, offset: int = 0, limit: int = 50,
         "historical_completeness": "unknown",
     }
     if (chat.backend or "") != "claude_code":
-        return {**body, "state": "unsupported", "reason": "backend_not_claude_code"}
+        rows = usage_service.repo.rows_for_chats(user_id, [chat_id])
+        if rows:
+            return _usage_only(body, rows, offset, limit)
+        return {**body, "state": "pending" if body["chat_running"] else "unsupported",
+                "reason": "backend_not_claude_code"}
 
     units = repo.units_for_chat(user_id, chat_id)
     if not units:

@@ -671,6 +671,24 @@ later delivery.
 
 ## Implementation Decisions
 
+### Codex turn usage
+
+- The worker records successful `codex exec --json` `turn.completed.usage`
+  directly in `chat_request_usage`, once per launch. Replayed closeouts use the
+  same launch identity. Interrupted and failed turns without completion usage
+  are not collected; there is no rollout scan or historical backfill.
+- Shared input is provider `input_tokens` minus `cached_input_tokens`; cache read
+  is `cached_input_tokens`, cache creation is `cache_write_input_tokens`, and
+  output is `output_tokens`. Reasoning is already included in output. Missing
+  or malformed counters remain NULL, never fabricated zeros.
+- These are turn totals, not individual model requests. Trace responses label
+  their `usage_granularity` as `turn`. The Context API exposes `usage_only` with
+  `provider_turn_usage_v1`, provider counters, and no composition estimates or
+  contributors. P totals describe turn volume, not context occupancy. Cost and
+  historical completeness remain unavailable and unknown respectively.
+- The authenticated transcript-upload attribution and the Claude resume gate
+  remain Claude-only. No schema change or migration is required.
+
 ### Account balances
 
 - **Separate current account status.** The Bot module owns

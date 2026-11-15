@@ -144,15 +144,37 @@ def _complete_launch_group(ledger: InputLedger, launch_input_uuid: Optional[str]
     ledger.observe_lifecycle({"state": "completed", "command_uuid": launch_input_uuid})
 
 
+def normalize_usage(usage) -> dict:
+    """Turn counters in the shared, cache-exclusive input convention.
+
+    Missing or malformed counters stay unknown. Reasoning is already included
+    in output; adding it again would overcount.
+    """
+    usage = usage if isinstance(usage, dict) else {}
+
+    def counter(name):
+        value = usage.get(name)
+        return value if type(value) is int and 0 <= value <= 2_147_483_647 else None
+
+    raw_input = counter("input_tokens")
+    cached = counter("cached_input_tokens")
+    result = {
+        "input_tokens": raw_input - cached if raw_input is not None and cached is not None and cached <= raw_input else None,
+        "output_tokens": counter("output_tokens"),
+        "cache_creation_tokens": counter("cache_write_input_tokens"),
+        "cache_read_tokens": cached if raw_input is None or cached is None or cached <= raw_input else None,
+    }
+    result["usage_state"] = "observed" if any(value is not None for value in result.values()) else "missing"
+    return result
+
+
 class CodexStreamConverter:
     """Stateful JSONL event converter that maps Codex events to y-agent Messages."""
 
     def __init__(self, last_message_id: Optional[str] = None):
         self.last_message_id = last_message_id
         self.thread_id: Optional[str] = None
-        self.total_input_tokens: int = 0
-        self.total_output_tokens: int = 0
-        self.num_turns: int = 0
+        self.usage = normalize_usage(None)
         self.has_usable_output: bool = False
         self._pending_items: Dict[str, str] = {}
 
@@ -280,10 +302,7 @@ class CodexStreamConverter:
             # agent_message is the user-visible assistant text.
 
         elif event_type == "turn.completed":
-            usage = obj.get("usage", {})
-            self.total_input_tokens += usage.get("input_tokens", 0)
-            self.total_output_tokens += usage.get("output_tokens", 0)
-            self.num_turns += 1
+            self.usage = normalize_usage(obj.get("usage"))
 
         elif event_type == "turn.failed":
             error = obj.get("error", {})
@@ -401,6 +420,7 @@ async def tail_codex_output(
     result_data = pending_result if isinstance(pending_result, dict) else None
     if result_data and result_data.get("type") == "turn.completed" and not result_data.get("is_error"):
         _complete_launch_group(ledger, launch_input_uuid)
+        converter.usage = normalize_usage(result_data.get("usage"))
     last_error_data = None
     current_offset = offset
     stream_error = None
@@ -420,6 +440,7 @@ async def tail_codex_output(
             "session_id": thread_id,
             "is_done": is_done,
             "result_data": data,
+            "usage": converter.usage,
             "status": status,
             "delivery_states": ledger.states,
             "input_groups": ledger.groups,
