@@ -933,9 +933,15 @@ def _apply_codex_completion(fresh, result: dict, result_data: dict, proc: dict, 
         fresh.context_usage_source = "codex_turn"
         model = _resolved_codex_model(proc, fresh)
         if model is not None:
-            from agent.codex import context_window_for_model
+            try:
+                from storage.service import model_context
 
-            fresh.context_window = context_window_for_model(model)
+                fresh.context_window = model_context.get_context_window(model)
+            except Exception as exc:
+                logger.warning(
+                    "codex context window query failed: chat_id={} error={}",
+                    chat_id, type(exc).__name__,
+                )
     if result.get("status") == "error":
         error_text = (result_data.get("result") if isinstance(result_data, dict) else None) or "Codex exited with an error."
         fresh.messages.append(Message(

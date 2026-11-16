@@ -434,6 +434,10 @@ exceptions noted):
   `model_usage_limit_observation`. One attempt per refresh that actually ran,
   one observation per window (or a provider-level miss). The latest snapshot
   stays in `user_preference` and is not one of these tables.
+- **Model context window** (todo 4318): `model_context_window`. One global row
+  per exact API model id. Codex closeout reads it as the badge denominator.
+  `init_db` creates the table and does not seed it. The only seeded row is
+  `gpt-6.1-sol` = 1000000. No row leaves `chat.context_window` unset.
 - **Dev / trace**: `dev_worktree`, `dev_release`, `dev_release_waiter`, `trace_share`
 - **API telemetry**: `api_latency_event`, `api_latency_rollup`
 - **MCP connectors** (todo 3796): `mcp_connector`, `mcp_credential`,
