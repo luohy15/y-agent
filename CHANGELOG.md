@@ -23,12 +23,17 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Chunked voice upload (4275)**: a voice take uploads as ordered PCM or WAV parts and finalizes into one WAV (host contract v35). Settings can pick a microphone for the voice composer; choosing Default clears the saved input, and the picker does not ask for microphone permission.
 - **Command palette modules (4285)**: Ctrl+P lists open tabs and modules that are not already open. Choosing a module opens it, typing filters both, and Enter on an empty list still searches files.
 - **Per-chat launch environment (4307)**: `y chat --new --env KEY=VALUE` sets environment variables for a new chat (repeat the flag for more than one). They are stored with the chat and reused on later Claude Code and Codex launches. Sending `--env` to an existing chat, or combining it with `--chat-id`, `-i` or `--at`, is rejected. Reserved runtime and credential keys (`PATH`, `HOME`, `TMPDIR`, and names starting with `Y_`, `OPENAI_`, `ANTHROPIC_`, `CLAUDE_` or `_CLAUDE_`) are refused. This routes the process environment; it is not a sandbox or a place for secrets. Inline backends are unchanged.
+- **Codex turn usage (4318)**: a successful Codex turn records one usage row and shows it as turn-level trace usage. The chat context badge uses the `model_context_window` row for that exact model. A model with no row leaves the window unset, and a failed lookup keeps the stored window. Interrupted or failed turns without completion usage are not recorded.
 
 ### Changed
 
 - **Node namespace field**: the node field, API and CLI rename `data_scope` to `namespace`. `personal` and `work` are rejected instead of aliased, and an empty value or `default` means the personal tree.
 - **Publication commands (4248)**: release-grant messages print one human-readable line without waiter, event, claim or generation identifiers; the preflight and schema check accept a commit range and skip the endpoint proof for non-schema changes; `y module publish` defaults the slug from the current directory, the source SHA from HEAD and the description from the HEAD subject, keeping the live-tip and clean-input checks.
 - **Chat wording for traces (4287)**: user-facing trace labels, including the todo detail section, say Chat, and that section uses the chat module icon. Internal names, routes, and flags stay the same.
+- **Protocol base URL (4334)**: relay (`cr_` key), DeepSeek and OpenRouter ignore a stored path and use the mount for that provider and backend. An unknown host is left unchanged, and no bot row is rewritten.
+- **Same-backend continuations (4328)**: a later turn stays on the chat's stored backend. A bot on another backend, or a stored bot that now resolves to another backend, is rejected with 409 before the message is written. The error names the chat, both backends, and the two remedies: start a new chat, or pick a bot that stays on the stored backend. A running chat still accepts a steer. When the stored bot is gone and nobody named a replacement, a substitute is drawn only from that chat's own backend pool.
+- **Link content on S3 (4325)**: link bodies and summaries under `lifelog/link/` are read from S3, and only the API writes them. `y link fetch` uploads the object and no longer writes a local content file. A missing object comes back empty, an S3 failure returns 503 with no VM fallback, and other keys still read from the VM.
+- **Codex exam isolation (4317)**: a launch whose environment sets `CODEX_ISOLATION=exam` omits `--ignore-user-config` and `--dangerously-bypass-approvals-and-sandbox`, so the exam reads its per-run `CODEX_HOME`. Any other value keeps those flags.
 
 ### Fixed
 
@@ -37,6 +42,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Awaiting during a machine wait (4278)**: an active todo with a live machine wait still moves to awaiting when the only remaining work is an idle chat waiting on the user. The newest such chat is the pointer.
 - **Sign-in and empty shares (4286)**: Google Identity Services initializes once per page, and a trace with no share returns an empty 200 instead of a 404.
 - **Date filters without Fava (4288)**: shared relative date parsing no longer depends on Fava internals, so a Fava upgrade cannot break CLI startup or time filters. The previous range grammar is unchanged.
+- **Codex startup errors (4326)**: a Codex turn that ends with no result now includes the exit status and a short stderr excerpt, with credential-shaped text redacted. If resume is refused because that thread has no rollout, the same input runs once more as a fresh turn, and the transcript notes that native continuity was lost. A second refusal does not retry.
 
 ### Removed
 
