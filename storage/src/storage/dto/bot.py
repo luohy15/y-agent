@@ -2,6 +2,7 @@ import hashlib
 import math
 from dataclasses import dataclass, asdict
 from typing import Dict, List, Optional
+from urllib.parse import urlsplit, urlunsplit
 
 DEFAULT_OPENROUTER_CONFIG = {
     "provider": {
@@ -143,6 +144,41 @@ def effective_openrouter_config(bot_config) -> Optional[Dict]:
     if _is_openrouter_routed(bot_config):
         return DEFAULT_OPENROUTER_CONFIG
     return None
+
+
+# Known providers ignore the stored path. Relay is a cr_ key, not a host.
+# An empty mount means the bare origin.
+_PROVIDER_PATHS = {
+    "relay": {"claude_code": "/api", "codex": "/openai", "openai": "/api/v1"},
+    "api.deepseek.com": {"claude_code": "/anthropic", "codex": "", "openai": ""},
+    "openrouter.ai": {"claude_code": "/api", "codex": "/api/v1", "openai": "/api/v1"},
+}
+
+
+def _provider_paths(config, raw: str) -> Optional[Dict[str, str]]:
+    api_key = (getattr(config, "api_key", None) or "").strip()
+    if api_key.startswith("cr_"):
+        return _PROVIDER_PATHS["relay"]
+    host = (urlsplit(raw).hostname or "").lower()
+    return _PROVIDER_PATHS.get(host)
+
+
+def provider_base_url(config, backend: Optional[str]) -> str:
+    """Protocol base for (provider, backend). Unknown host or backend stays unchanged.
+
+    An empty stored URL stays empty. A known provider replaces any stored path
+    with the canonical mount, or the bare origin when that mount is empty.
+    """
+    raw = (getattr(config, "base_url", None) or "").strip()
+    if not raw:
+        return ""
+    paths = _provider_paths(config, raw)
+    if paths is None or backend not in paths:
+        return raw
+    parts = urlsplit(raw)
+    if not parts.scheme or not parts.hostname:
+        return raw
+    return urlunsplit((parts.scheme, parts.netloc, paths[backend], "", "")).rstrip("/")
 
 
 def _throughput_enabled(bot_config) -> bool:

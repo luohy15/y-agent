@@ -4,6 +4,7 @@ from typing import Callable, Iterable, Optional
 
 import httpx
 
+from storage.dto.bot import provider_base_url
 from storage.entity.dto import Message, effective_openrouter_config
 from storage.util import generate_message_id, get_unix_timestamp, get_utc_iso8601_timestamp
 
@@ -77,7 +78,7 @@ async def openai_chat_completion(
     if extra_payload:
         payload.update(extra_payload)
 
-    base_url = resolve_base_url(bot_config.base_url)
+    base_url = resolve_base_url(provider_base_url(bot_config, "openai"))
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     async with httpx.AsyncClient(timeout=timeout) as client:
         response = await client.post(f"{base_url}/{_api_path(bot_config)}", json=payload, headers=headers)

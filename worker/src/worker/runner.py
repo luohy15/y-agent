@@ -9,6 +9,7 @@ import threading
 from loguru import logger
 
 from agent.telegram_delivery import send_telegram_photo_reference
+from storage.dto.bot import provider_base_url
 from storage.entity.dto import BotConfig, Message, trailing_user_messages
 from storage.dto.chat import validate_launch_env
 from storage.service import chat as chat_service
@@ -936,7 +937,7 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
         cmd.extend(["--append-system-prompt", f"IMPORTANT: Before doing anything else, you MUST use the Skill tool to load the '{chat.skill}' skill."])
 
     # Build env
-    api_base_url = bot_config.base_url if bot_config.base_url else None
+    api_base_url = provider_base_url(bot_config, "claude_code") or None
     api_key = bot_config.api_key if bot_config.api_key else None
     env = {
         **validate_launch_env(getattr(chat, "launch_env", None), strict=False),
@@ -1004,7 +1005,7 @@ def build_codex_resume_cmd(thread_id: str, model: str = None, exam_isolation: bo
 
 def build_codex_provider_args(bot_config) -> list:
     """Five `-c` pairs that point Codex at this bot's relay. The key stays off argv."""
-    base_url = (getattr(bot_config, "base_url", None) or "").strip()
+    base_url = provider_base_url(bot_config, "codex")
     api_key = (getattr(bot_config, "api_key", None) or "").strip()
     missing = []
     if not base_url:
