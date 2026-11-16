@@ -7,7 +7,8 @@ Routes to per-source handlers based on URL host:
 - x.com / twitter.com → Jina AI reader
 - everything else → Oxylabs + generic HTML extractor
 
-Output is written to `$Y_AGENT_HOME/lifelog/link/<link_id>/content.md`.
+Content is uploaded through the API, which stores it at
+`s3://<bucket>/lifelog/link/<link_id>/content.md`. No local content file is written.
 """
 
 import asyncio
@@ -24,7 +25,6 @@ import click
 import httpx
 from dotenv import load_dotenv
 
-from storage.service import link as link_service
 from yagent.api_client import api_request
 
 from ._bilibili import bv2av
@@ -33,34 +33,35 @@ from ._resolve import normalize_url
 from ._youtube import extract_video_id
 
 
-OUTPUT_BASE = Path(os.environ.get("Y_AGENT_HOME") or "/Users/roy/luohy15").expanduser()
 CURRENT_LINK_ID: str | None = None
 CURRENT_ACTIVITY_ID: str | None = None
+LINK_CONTENT_MAX_BYTES = 5 * 1024 * 1024
 
 
-def _content_key() -> str:
-    if not CURRENT_LINK_ID:
-        raise RuntimeError("link_id is required before writing content")
-    return link_service.build_content_key(CURRENT_LINK_ID, CURRENT_ACTIVITY_ID)
-
-
-def _write_markdown(content: str) -> Path:
-    out_path = OUTPUT_BASE / _content_key()
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(content, encoding='utf-8')
-    return out_path
-
-
-def _save_content_meta(url: str, title: str | None) -> dict:
+def _upload_content(url: str, title: str | None, content: str) -> dict:
+    if len(content.encode("utf-8")) > LINK_CONTENT_MAX_BYTES:
+        raise click.ClickException("Link content exceeds the 5 MB limit")
     resp = api_request("POST", "/api/link/content-meta", json={
         "url": url,
         "link_id": CURRENT_LINK_ID,
         "activity_id": CURRENT_ACTIVITY_ID,
-        "content_key": _content_key(),
+        "content": content,
         "title": title,
         "download_status": "done",
     })
     return resp.json()
+
+
+def _done_payload(title: str | None, meta: dict) -> dict:
+    s3_uri = meta.get("s3_uri")
+    return {
+        "status": "done",
+        "title": title,
+        "content_key": meta.get("content_key"),
+        "s3_uri": s3_uri,
+        "path": s3_uri,
+        "error": None,
+    }
 
 
 def _detect_source(url: str) -> str:
@@ -102,7 +103,7 @@ def _extract_twitter_info(url: str) -> tuple[str, str]:
 
 # --- Twitter / X ---
 
-async def _fetch_twitter(client: httpx.AsyncClient, url: str) -> Path:
+async def _fetch_twitter(client: httpx.AsyncClient, url: str) -> str:
     username, status_id = _extract_twitter_info(url)
     normalized = f"https://x.com/{username}/status/{status_id}"
 
@@ -122,7 +123,7 @@ async def _fetch_twitter(client: httpx.AsyncClient, url: str) -> Path:
         content,
     ])
 
-    return _write_markdown(md)
+    return md
 
 
 # --- WeChat ---
@@ -154,7 +155,7 @@ def _parse_weixin(html: str, url: str) -> dict:
     return {'title': title, 'author': author, 'publish_time': publish_time, 'content': content, 'url': url}
 
 
-async def _fetch_weixin(client: httpx.AsyncClient, url: str) -> Path:
+async def _fetch_weixin(client: httpx.AsyncClient, url: str) -> str:
     html = await fetch_raw(client, url)
     data = _parse_weixin(html, url)
 
@@ -165,12 +166,12 @@ async def _fetch_weixin(client: httpx.AsyncClient, url: str) -> Path:
         lines.append(f"- **Time**: {data['publish_time']}")
     lines.extend([f"- **Link**: {data['url']}", "", "---", "", data['content']])
 
-    return _write_markdown('\n'.join(lines))
+    return '\n'.join(lines)
 
 
 # --- Bilibili ---
 
-async def _fetch_bilibili(client: httpx.AsyncClient, bvid: str, page: int = 1) -> Path:
+async def _fetch_bilibili(client: httpx.AsyncClient, bvid: str, page: int = 1) -> str:
     cookies = load_cookies_from_chrome('.bilibili.com')
     aid = bv2av(bvid)
 
@@ -217,7 +218,7 @@ async def _fetch_bilibili(client: httpx.AsyncClient, bvid: str, page: int = 1) -
         for item in sub_data.get('body') or []:
             lines.append(item['content'])
 
-    return _write_markdown('\n'.join(lines))
+    return '\n'.join(lines)
 
 
 # --- YouTube ---
@@ -283,7 +284,7 @@ def _load_cookies_file(domains: list[str], video_id: str) -> Path | None:
         raise
 
 
-def _fetch_youtube(url: str, lang: str = 'en') -> Path:
+def _fetch_youtube(url: str, lang: str = 'en') -> str:
     video_id = extract_video_id(url)
     video_url = f"https://www.youtube.com/watch?v={video_id}"
     cookies_path = _load_cookies_file(["youtube.com", "google.com"], video_id)
@@ -370,7 +371,7 @@ def _fetch_youtube(url: str, lang: str = 'en') -> Path:
         except OSError:
             pass
 
-    return _write_markdown('\n'.join(lines))
+    return '\n'.join(lines)
 
 
 # --- Generic page ---
@@ -470,18 +471,18 @@ def _url_to_path(url: str) -> tuple[str, str]:
     return f"https/{host}/{parts[0]}", parts[1]
 
 
-async def _fetch_page(client: httpx.AsyncClient, url: str) -> Path:
+async def _fetch_page(client: httpx.AsyncClient, url: str) -> str:
     html = await fetch_raw(client, url)
     data = _parse_page(html, url)
 
     md = '\n'.join([f"# {data['title']}", "", f"- **Link**: {data['url']}", "", "---", "", data['content']])
 
-    return _write_markdown(md)
+    return md
 
 
 # --- Dispatch ---
 
-async def _run(url: str, page: int, lang: str) -> Path:
+async def _run(url: str, page: int, lang: str) -> str:
     source = _detect_source(url)
 
     if source == 'youtube':
@@ -516,17 +517,16 @@ def _extract_title(md: str) -> str:
 @click.option('--lang', '-l', default='en',
               help='Preferred subtitle language for YouTube (default: en).')
 @click.option('--json', 'json_output', is_flag=True,
-              help='Emit one-line JSON {status,title,path,error} on stdout '
-                   'instead of the human "Saved: ..." line. File is still written; '
-                   'read it from `path` if you need the content.')
+              help='Emit one-line JSON {status,title,content_key,s3_uri,path,error} '
+                   'on stdout instead of the human "Saved: ..." line. path is the s3:// URI.')
 @click.option('--link-id', default=None, help='Existing link_id to write under.')
 @click.option('--activity-id', default=None, help='Existing activity_id for per-activity content.')
 @click.option('--markdown-stdin', is_flag=True,
               help='Write markdown from stdin verbatim (requires --link-id). Skips source fetch.')
 def link_fetch(url: str, page: int, lang: str, json_output: bool, link_id: str | None, activity_id: str | None, markdown_stdin: bool):
-    """Fetch URL content and save as markdown.
+    """Fetch URL content and save it as markdown in S3.
 
-    Output: $Y_AGENT_HOME/lifelog/link/<link_id>/content.md
+    The API stores `lifelog/link/<link_id>/content.md`. Nothing is written locally.
 
     Source dispatch:
 
@@ -561,9 +561,8 @@ def link_fetch(url: str, page: int, lang: str, json_output: bool, link_id: str |
             CURRENT_LINK_ID = link_id
             CURRENT_ACTIVITY_ID = activity_id
             content = click.get_text_stream('stdin').read()
-            out_path = _write_markdown(content)
             title = _extract_title(content) or None
-            _save_content_meta(url, title)
+            meta = _upload_content(url, title, content)
         except Exception as e:
             if json_output:
                 click.echo(json.dumps({
@@ -575,14 +574,9 @@ def link_fetch(url: str, page: int, lang: str, json_output: bool, link_id: str |
                 return
             raise click.ClickException(str(e)) from e
         if json_output:
-            click.echo(json.dumps({
-                "status": "done",
-                "title": title,
-                "path": str(out_path),
-                "error": None,
-            }))
+            click.echo(json.dumps(_done_payload(title, meta)))
             return
-        click.echo(f"Saved: {out_path}")
+        click.echo(f"Saved: {meta.get('s3_uri') or meta.get('content_key')}")
         return
 
     if _detect_source(url) not in ('youtube', 'twitter'):
@@ -606,13 +600,13 @@ def link_fetch(url: str, page: int, lang: str, json_output: bool, link_id: str |
         else:
             # Interactive fetch: record a 'fetch' visit (third visit channel) and
             # use the returned link_id. Per-activity content path only for query-param
-            # URLs (url != base_url), matching `_content_key` convention.
+            # URLs (url != base_url), so content is stored per activity.
             visit = api_request("POST", "/api/link/visit", json={"url": url}).json()
             CURRENT_LINK_ID = visit["link_id"]
             CURRENT_ACTIVITY_ID = visit["activity_id"] if url != visit.get("base_url") else None
-        out_path = asyncio.run(_run(url, page, lang))
-        title = _extract_title(out_path.read_text(encoding='utf-8')) or None
-        _save_content_meta(url, title)
+        content = asyncio.run(_run(url, page, lang))
+        title = _extract_title(content) or None
+        meta = _upload_content(url, title, content)
     except Exception as e:
         if json_output:
             click.echo(json.dumps({
@@ -625,12 +619,7 @@ def link_fetch(url: str, page: int, lang: str, json_output: bool, link_id: str |
         raise click.ClickException(str(e)) from e
 
     if json_output:
-        click.echo(json.dumps({
-            "status": "done",
-            "title": title,
-            "path": str(out_path),
-            "error": None,
-        }))
+        click.echo(json.dumps(_done_payload(title, meta)))
         return
 
-    click.echo(f"Saved: {out_path}")
+    click.echo(f"Saved: {meta.get('s3_uri') or meta.get('content_key')}")

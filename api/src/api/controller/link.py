@@ -1,8 +1,10 @@
-import base64
+import asyncio
 import os
 from pathlib import Path
 from typing import List, Optional
 
+import boto3
+from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
@@ -49,6 +51,7 @@ class LinkContentMetaRequest(BaseModel):
     link_id: Optional[str] = None
     activity_id: Optional[str] = None
     content_key: Optional[str] = None
+    content: Optional[str] = None
     summary_content_key: Optional[str] = None
     title: Optional[str] = None
     download_status: Optional[str] = None
@@ -66,6 +69,8 @@ class ActivityIdRequest(BaseModel):
 
 TLDR_MAX_TOKENS = 2000
 TLDR_TIMEOUT = 60.0
+S3_BUCKET = os.environ.get("Y_AGENT_S3_BUCKET", "")
+LINK_CONTENT_MAX_BYTES = 5 * 1024 * 1024
 TLDR_SYSTEM_PROMPT = (
     "You summarize saved web content for personal knowledge management. "
     "Return concise Markdown with the main points, key details, and any useful caveats. "
@@ -98,11 +103,89 @@ async def _read_vm_content(user_id: int, content_key: Optional[str]) -> Optional
         return None
 
 
-async def _write_vm_content(user_id: int, content_key: str, content: str) -> None:
-    path = _vm_content_path(content_key)
-    payload = base64.b64encode(content.encode("utf-8")).decode("ascii")
-    script = "path=\"$1\"; mkdir -p \"$(dirname \"$path\")\" && printf '%s' \"$2\" | base64 -d > \"$path\""
-    await _exec(user_id, ["bash", "-lc", script, "_", path, payload], timeout=60, work_dir=None)
+class _LinkObjectMissing(Exception):
+    pass
+
+
+class _LinkObjectUnavailable(Exception):
+    pass
+
+
+def _is_s3_link_key(content_key: Optional[str]) -> bool:
+    """Keys under lifelog/link/ are S3 objects. pages/ and other keys stay on the VM."""
+    if not content_key:
+        return False
+    prefix = link_service.LINK_STORAGE_PREFIX + "/"
+    if not content_key.startswith(prefix):
+        return False
+    if content_key.startswith(("/", "~")) or ".." in content_key.split("/"):
+        return False
+    return True
+
+
+def _encode_link_body(content: str) -> bytes:
+    body = content.encode("utf-8")
+    if len(body) > LINK_CONTENT_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Link content exceeds the 5 MB limit")
+    return body
+
+
+def _read_s3_text(key: str) -> str:
+    if not S3_BUCKET:
+        raise _LinkObjectUnavailable()
+    try:
+        obj = boto3.client("s3").get_object(Bucket=S3_BUCKET, Key=key)
+        return obj["Body"].read().decode("utf-8")
+    except ClientError as exc:
+        code = str(exc.response.get("Error", {}).get("Code", ""))
+        if code in {"NoSuchKey", "404", "NotFound"}:
+            raise _LinkObjectMissing() from exc
+        raise _LinkObjectUnavailable() from exc
+    except (BotoCoreError, UnicodeDecodeError) as exc:
+        raise _LinkObjectUnavailable() from exc
+
+
+def _put_s3_bytes(key: str, body: bytes) -> None:
+    if not S3_BUCKET:
+        raise _LinkObjectUnavailable()
+    try:
+        boto3.client("s3").put_object(
+            Bucket=S3_BUCKET,
+            Key=key,
+            Body=body,
+            ContentType="text/markdown; charset=utf-8",
+        )
+    except (ClientError, BotoCoreError) as exc:
+        raise _LinkObjectUnavailable() from exc
+
+
+async def _read_link_content(user_id: int, content_key: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    """Return (text, status). status is "missing" only for an absent S3 object."""
+    if not content_key:
+        return None, None
+    if not _is_s3_link_key(content_key):
+        return await _read_vm_content(user_id, content_key), None
+    try:
+        text = await asyncio.to_thread(_read_s3_text, content_key)
+    except _LinkObjectMissing:
+        return None, "missing"
+    except _LinkObjectUnavailable as exc:
+        raise HTTPException(status_code=503, detail="Link content is temporarily unavailable") from exc
+    return text, None
+
+
+async def _put_link_object(key: str, content: str) -> None:
+    if not _is_s3_link_key(key):
+        raise HTTPException(status_code=400, detail="Invalid content key")
+    body = _encode_link_body(content)
+    try:
+        await asyncio.to_thread(_put_s3_bytes, key, body)
+    except _LinkObjectUnavailable as exc:
+        raise HTTPException(status_code=503, detail="Link content storage is temporarily unavailable") from exc
+
+
+def _s3_uri(key: str) -> str:
+    return f"s3://{S3_BUCKET}/{key}"
 
 
 @router.get("/list")
@@ -197,7 +280,7 @@ async def create_page_link(req: CreatePageLinkRequest, request: Request):
     link = link_service.add_link(user_id, url, title=title, timestamp=timestamp)
     if req.content:
         content_key = link_service.build_content_key(link.link_id)
-        await _write_vm_content(user_id, content_key, req.content)
+        await _put_link_object(content_key, req.content)
         link_service.update_download_status(link.link_id, "done", content_key=content_key)
     else:
         link_service.update_download_status(link.link_id, "done", content_key=req.path)
@@ -210,6 +293,7 @@ async def save_link_content_meta(req: LinkContentMetaRequest, request: Request):
     user_id = _get_user_id(request)
     link_id = req.link_id
     activity_id = req.activity_id
+    requested_activity_id = req.activity_id
     if not link_id:
         if req.url:
             import time
@@ -218,7 +302,14 @@ async def save_link_content_meta(req: LinkContentMetaRequest, request: Request):
             activity_id = activity_id or link.activity_id
         else:
             raise HTTPException(status_code=400, detail="link_id or url required")
-    if req.content_key or req.download_status:
+    wrote_key = None
+    if req.content is not None:
+        wrote_key = link_service.build_content_key(link_id, requested_activity_id)
+        await _put_link_object(wrote_key, req.content)
+        link_service.update_download_status(
+            link_id, req.download_status or "done", content_key=wrote_key, url=req.url,
+        )
+    elif req.content_key or req.download_status:
         link_service.update_download_status(link_id, req.download_status or "done", content_key=req.content_key, url=req.url)
     if req.summary_content_key:
         target = activity_id if activity_id else link_id
@@ -227,16 +318,21 @@ async def save_link_content_meta(req: LinkContentMetaRequest, request: Request):
         link_service.update_link_title(link_id, req.title)
     if activity_id:
         updated = link_service.get_link(user_id, activity_id)
-        return updated.to_dict() if updated else {"link_id": link_id, "activity_id": activity_id}
-    entity = link_service.get_link_by_id(link_id)
-    return {
-        "link_id": entity.link_id if entity else link_id,
-        "base_url": entity.base_url if entity else None,
-        "title": entity.title if entity else req.title,
-        "download_status": entity.download_status if entity else req.download_status,
-        "content_key": entity.content_key if entity else req.content_key,
-        "summary_content_key": entity.summary_content_key if entity else req.summary_content_key,
-    }
+        payload = updated.to_dict() if updated else {"link_id": link_id, "activity_id": activity_id}
+    else:
+        entity = link_service.get_link_by_id(link_id)
+        payload = {
+            "link_id": entity.link_id if entity else link_id,
+            "base_url": entity.base_url if entity else None,
+            "title": entity.title if entity else req.title,
+            "download_status": entity.download_status if entity else req.download_status,
+            "content_key": entity.content_key if entity else req.content_key,
+            "summary_content_key": entity.summary_content_key if entity else req.summary_content_key,
+        }
+    if wrote_key:
+        payload["content_key"] = wrote_key
+        payload["s3_uri"] = _s3_uri(wrote_key)
+    return payload
 
 
 @router.post("/tldr")
@@ -263,23 +359,23 @@ async def generate_link_tldr(req: TldrRequest, request: Request):
             "link_id": result.get("link_id"),
             "activity_id": req.activity_id,
             "summary_content_key": existing_key,
-            "summary": await _read_vm_content(user_id, existing_key),
+            "summary": (await _read_link_content(user_id, existing_key))[0],
             "skipped": True,
         }
 
     content_key = result.get("content_key")
-    content = await _read_vm_content(user_id, content_key)
+    content, _content_status = await _read_link_content(user_id, content_key)
     if not content:
-        raise HTTPException(status_code=400, detail="Link content is not available on VM")
+        raise HTTPException(status_code=400, detail="Link content is not available")
 
     summary = await _call_tldr_bot(user_id, content, result.get("title"), result.get("url") or result.get("base_url"))
     if req.activity_id:
         summary_key = link_service.build_summary_key(result["link_id"], req.activity_id)
-        await _write_vm_content(user_id, summary_key, summary)
+        await _put_link_object(summary_key, summary)
         link_service.update_summary_content_key(req.activity_id, summary_key, is_activity=True)
     else:
         summary_key = link_service.build_summary_key(result["link_id"])
-        await _write_vm_content(user_id, summary_key, summary)
+        await _put_link_object(summary_key, summary)
         link_service.update_summary_content_key(result["link_id"], summary_key, is_activity=False)
     return {
         "link_id": result.get("link_id"),
@@ -315,8 +411,12 @@ async def get_link_content(
         "summary_content_key": link.summary_content_key,
     }
 
-    result["content"] = await _read_vm_content(user_id, result.get("content_key"))
-    result["summary"] = await _read_vm_content(user_id, result.get("summary_content_key"))
+    content, content_status = await _read_link_content(user_id, result.get("content_key"))
+    summary, _summary_status = await _read_link_content(user_id, result.get("summary_content_key"))
+    result["content"] = content
+    result["summary"] = summary
+    if content_status:
+        result["content_status"] = content_status
     return result
 
 

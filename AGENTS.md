@@ -179,7 +179,7 @@ entity + controller + service + CLI slices, and most have a web panel.
   for feeds + items. The feed panel and feed-filtered list are the UI-only `rss`
   module (todo 3708, `code/y-module/rss/README.md`); the host keeps the APIs,
   CLI, data, pipelines and the `rss.open` command.
-- **Link archive** — EC2 is the single source of truth: `~/luohy15/lifelog/link/<link_id>/{content,summary}.md` is canonical (legacy `links/` paths remain valid until data is moved), `content_key`/`summary_content_key` are paths relative to `~/luohy15/` on EC2, API reads via SSH-cat, and S3 is not used for links. The Links panel and link
+- **Link archive** — S3 is the authority for keys under `lifelog/link/`: `content_key`/`summary_content_key` are the object keys, the API reads them with boto3 (`GET /api/link/content`, `/api/link/tldr`) and is the only writer (`content-meta` computes the key then `put_object`; `from-page` puts; `y link fetch` uploads and writes no local content file). A missing object returns `content:null` with `content_status:"missing"`; an S3 failure returns 503, with no VM fallback. Keys outside that prefix (`pages/*.md`, one absolute key) still read from the VM. Payloads over 5 MB are rejected. Local files stay frozen as a rollback copy until the post-deploy deletion; the weekly home bisync must exclude these objects. The Links panel and link
   detail are the UI-only `link` module (todo 3708, `code/y-module/link/README.md`),
   opened through the host `link.open` command; the logged-out public trace keeps
   the host `PublicLinkList`.
