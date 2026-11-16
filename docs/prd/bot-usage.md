@@ -690,14 +690,26 @@ later delivery.
   remain Claude-only. No schema change or migration is required.
 - `turn.completed` has no context window. The chat badge denominator is the
   `model_context_window` row for the resolved model id (exact match after
-  quote and space stripping), not the official model maximum. The only seeded
-  row is `gpt-6.1-sol` = 1,000,000, the configured Codex default; its official
-  maximum is 1,050,000 and is not the denominator. A resolved model with no
-  row sets `chat.context_window` to NULL. An unresolvable bot config or a
-  failed table read leaves the stored window. A successful turn sets
-  `context_usage_source` to `codex_turn`, not `main_request` and not NULL.
-  NULL is the legacy fallback that would treat the counters as Claude context
-  and prepend the handoff reminder; `codex_turn` stays silent.
+  quote and space stripping). `init_db` creates the table and does not seed
+  it. The applied data is fifteen maintainer-written rows from OpenRouter
+  `context_length` on 2026-11-16, keyed by `bot_config.model`. `gpt-6.1-sol`
+  is 1,050,000 (`openai/gpt-6.1-sol`), replacing the earlier configured
+  1,000,000 default. Alias rows, whose lookup key is still `bot_config.model`,
+  are `opus[1m]` 1,000,000 (`anthropic/claude-opus-5.5`), `sonnet[1m]`
+  1,000,000 (`anthropic/claude-sonnet-5.5`), `fable` 1,000,000
+  (`anthropic/claude-fable-5.1`), and `deepseek-flash` 1,048,576
+  (`~deepseek/deepseek-flash-latest`). The other applied rows are
+  `deepseek/deepseek-v4.1-flash-1017` 1,048,576, `google/gemini-3.5-flash-lite`
+  1,048,576, `google/gemini-3.8-flash` 1,048,576, `gpt-5.6-terra` 1,050,000,
+  `gpt-6-astra` 1,050,000, `grok-4.7` 500,000, `moonshotai/kimi-k3.1-pro`
+  1,048,576, `qwen/qwen3.7-max` 1,000,000, `sonar` 127,072, and `z-ai/glm-5.3`
+  1,048,576. `grok-4-1-fast` has no row: it is the native xAI model on
+  grok-web / grok-x, not an OpenRouter id. A resolved model with no row sets
+  `chat.context_window` to NULL. An unresolvable bot config or a failed table
+  read leaves the stored window. A successful turn sets `context_usage_source`
+  to `codex_turn`, not `main_request` and not NULL. NULL is the legacy
+  fallback that would treat the counters as Claude context and prepend the
+  handoff reminder; `codex_turn` stays silent.
 
 ### Account balances
 

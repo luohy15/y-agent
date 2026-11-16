@@ -436,8 +436,11 @@ exceptions noted):
   stays in `user_preference` and is not one of these tables.
 - **Model context window** (todo 4318): `model_context_window`. One global row
   per exact API model id. Codex closeout reads it as the badge denominator.
-  `init_db` creates the table and does not seed it. The only seeded row is
-  `gpt-6.1-sol` = 1000000. No row leaves `chat.context_window` unset.
+  `init_db` creates the table and does not seed it. Fifteen applied rows are
+  OpenRouter `context_length` values for bot-list models, including
+  `gpt-6.1-sol` = 1050000, plus alias rows `opus[1m]`, `sonnet[1m]`, `fable`,
+  and `deepseek-flash`. `grok-4-1-fast` has no row. No row leaves
+  `chat.context_window` unset.
 - **Dev / trace**: `dev_worktree`, `dev_release`, `dev_release_waiter`, `trace_share`
 - **API telemetry**: `api_latency_event`, `api_latency_rollup`
 - **MCP connectors** (todo 3796): `mcp_connector`, `mcp_credential`,
