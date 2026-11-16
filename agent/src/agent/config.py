@@ -70,6 +70,36 @@ class BotAuthModeError(ValueError):
     """The node's auth mode cannot serve the requested bot or pool."""
 
 
+class BackendMismatchError(ValueError):
+    """A later turn would leave the chat's stored backend.
+
+    Callers must not launch another backend's session or draw the global
+    default. The two remedies are a new chat, or a bot that stays on the
+    stored backend.
+    """
+
+    def __init__(self, chat_id: str = None, chat_backend: str = None,
+                 other_backend: str = None, bot_name: str = None):
+        self.chat_id = chat_id
+        self.chat_backend = chat_backend
+        self.other_backend = other_backend
+        self.bot_name = bot_name
+        chat_label = chat_id or "this chat"
+        if other_backend:
+            who = f"bot {bot_name} " if bot_name else ""
+            message = (
+                f"chat {chat_label} is on backend {chat_backend} but {who}"
+                f"resolves to {other_backend}. Start a new chat to use {other_backend}, "
+                f"or continue with a bot that stays on {chat_backend}."
+            )
+        else:
+            message = (
+                f"chat {chat_label} is on backend {chat_backend} and no runnable bot "
+                f"remains on that backend. Start a new chat, or add a bot on {chat_backend}."
+            )
+        super().__init__(message)
+
+
 def bot_supports_auth_mode(config: BotConfig, auth_mode: str = "relay") -> bool:
     if auth_mode in (None, "", "relay"):
         return True
@@ -376,6 +406,81 @@ def resolve_bot_config(user_id: int, bot_name: str = None, backend: str = None, 
 
     logger.warning("Empty tier2 pool for user_id=%s; falling back to default bot", user_id)
     return _global_default(user_id)
+
+
+def select_continuation_bot(universe: List[BotConfig], user_id: int, chat_backend: str = None,
+                            bot_name: str = None, tier: str = None, effort: str = None,
+                            auth_mode: str = "relay", chat_id: str = None) -> BotConfig:
+    """Pick a bot for a later turn without leaving ``chat_backend``.
+
+    A null backend delegates to ``resolve_bot_config`` (today's new-chat
+    fallback, including the global default). Otherwise the chat's own bot is
+    used when it is still on that backend; a dispatch tier filter is ignored
+    because the chat's tier is already fixed. A stored name that resolves to
+    nothing (deleted or disabled, so it is absent from the universe) may draw
+    the same-backend pool (``tier`` or tier2). A name that resolves to another
+    backend raises ``BackendMismatchError`` and is never substituted. This
+    function does not read or write the database.
+    """
+    if not chat_backend:
+        return resolve_bot_config(
+            user_id, bot_name, tier=tier, effort=effort, auth_mode=auth_mode,
+        )
+
+    if bot_name:
+        named = [cfg for cfg in universe if cfg.name == bot_name]
+        if named:
+            chosen = named[0]
+            other = _effective_backend(chosen)
+            if other != chat_backend:
+                raise BackendMismatchError(
+                    chat_id=chat_id, chat_backend=chat_backend,
+                    other_backend=other, bot_name=chosen.name,
+                )
+            if not bot_supports_auth_mode(chosen, auth_mode):
+                raise BotAuthModeError(
+                    f"bot {chosen.name!r} is not eligible for {auth_mode!r} auth"
+                )
+            if effort and effort not in effective_effort_levels(chosen):
+                raise EffortCapabilityError(
+                    effort, chosen.name, declared=effective_effort_levels(chosen),
+                )
+            return chosen
+
+    pool_tier = tier or "tier2"
+    candidates = _candidates(
+        universe, backend=chat_backend, tier=pool_tier, effort=effort, auth_mode=auth_mode,
+    )
+    # No user_id: a continuation draw must stay DB-free. Round-robin state is a
+    # new-chat concern; a sole viable bot is the usual deleted-bot substitute.
+    selected = _select(candidates, tier=pool_tier, auth_mode=auth_mode)
+    if selected:
+        return selected
+    if effort:
+        raise EffortCapabilityError(effort, bot_name)
+    if auth_mode not in (None, "", "relay"):
+        raise BotAuthModeError(
+            f"no runnable bot in {auth_mode!r} {pool_tier} pool on backend {chat_backend}"
+        )
+    raise BackendMismatchError(chat_id=chat_id, chat_backend=chat_backend, bot_name=bot_name)
+
+
+def resolve_continuation_bot_config(user_id: int, chat_id: str, chat_backend: str = None,
+                                    bot_name: str = None, tier: str = None, effort: str = None,
+                                    auth_mode: str = "relay") -> BotConfig:
+    """Load the user's universe and continue on ``chat_backend``.
+
+    A null backend keeps ``resolve_bot_config``. Never infers a backend from a
+    session id, and never calls ``_global_default``.
+    """
+    if not chat_backend:
+        return resolve_bot_config(
+            user_id, bot_name, tier=tier, effort=effort, auth_mode=auth_mode,
+        )
+    return select_continuation_bot(
+        _universe(user_id), user_id, chat_backend, bot_name, tier, effort, auth_mode,
+        chat_id=chat_id,
+    )
 
 
 def preflight_launch_effort(user_id: int, effort: str = None, *, chat=None, bot_name: str = None, bot_tier: str = None, backend: str = None) -> None:

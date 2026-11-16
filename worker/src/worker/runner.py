@@ -654,8 +654,9 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
     # both by keeping the chat's own bot: a cross-backend change (the inline
     # backends have no session at all, so an agentic chat moved onto one would
     # strand its session), and a request that does not resolve
-    # (see _resolve_rebot_target). Refusing is always safe here, because it is
-    # exactly the pre-2930 behavior: the chat keeps its bot and runs on it.
+    # (see _resolve_rebot_target). Refusing keeps the chat's bot. The
+    # continuation resolver below still refuses to launch that bot when it is
+    # no longer on the stored backend.
     explicit_bot = bot_name
     try:
         launch_backend = chat.backend or backend
@@ -688,9 +689,9 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
 
     # Guard bot resolution: a bad bot field/column (e.g. a new column not yet
     # migrated) must not crash the core chat chain. On any failure, fall back to
-    # a hand-built default bot so the conversation keeps running. Explicit effort
-    # is the exception: it fails the launch instead of running on a bot that
-    # was not asked for.
+    # a hand-built default bot so the conversation keeps running. Explicit effort,
+    # an auth-mode miss, and a cross-backend continuation fail the launch instead
+    # of running on a bot that was not asked for.
     try:
         if rebot:
             requested = _resolve_rebot_target(
@@ -724,15 +725,22 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
                 if sticky is None or not agent_config.bot_supports_auth_mode(sticky, auth_mode):
                     bot_name = None
                     repooled = True
-            bot_config = agent_config.resolve_bot_config(
-                user_id, bot_name, backend=chat.backend or backend, tier=bot_tier,
-                effort=explicit_effort, auth_mode=auth_mode,
-            )
+            identity_backend = chat.backend or backend
+            if identity_backend:
+                bot_config = agent_config.resolve_continuation_bot_config(
+                    user_id, chat_id, chat_backend=identity_backend, bot_name=bot_name,
+                    tier=bot_tier, effort=explicit_effort, auth_mode=auth_mode,
+                )
+            else:
+                bot_config = agent_config.resolve_bot_config(
+                    user_id, bot_name, tier=bot_tier,
+                    effort=explicit_effort, auth_mode=auth_mode,
+                )
         if explicit_effort and (bot_config.backend or bot_config.api_type) not in SUPPORTED_REASONING_EFFORT_BACKENDS:
             unsupported = bot_config.backend or bot_config.api_type
             raise ValueError(f"reasoning_effort is only supported for claude_code and codex, not {unsupported}")
     except Exception as e:
-        if explicit_effort or isinstance(e, agent_config.BotAuthModeError):
+        if explicit_effort or isinstance(e, (agent_config.BotAuthModeError, agent_config.BackendMismatchError)):
             _abort_unlaunched(chat, chat_id, user_id, e)
             raise
         # The fallback config below is synthetic, so it must never be persisted

@@ -135,15 +135,26 @@ request usage can trigger the gate; launch averages remain display-only.
     the rest of the conversation continue on it, so that I can move a live
     session up to a stronger model (or down to a cheaper one) without
     starting over and losing its context.
-24. As a user, I want a bot change that would move a chat onto a different
-    backend refused with the chat left on its current bot, so that an
-    agentic conversation is never stranded on an inline query backend that
-    has no session to resume.
+24. As a user, I want a later turn of an existing chat to run only on that
+    chat's stored backend. A bot change onto a different backend, a stored
+    bot that now resolves to another backend, or a chat left with no runnable
+    bot on its backend fails with one error naming the chat, both backends,
+    and the two remedies (start a new chat, or use a bot that stays on the
+    stored backend). The API returns 409 before writing the message, except
+    while the chat is already running (that message steers the in-flight
+    turn) and except when the chat has no stored backend. A launch that still
+    reaches the worker aborts with that error instead of starting
+    `claude_code` or `codex` against the other's session. The chat row is not
+    rewritten, and a null backend is never inferred from `external_id`.
 25. As a user, I want a bot change naming something that does not resolve to
     a runnable bot (mistyped, disabled, or outside the tier I asked for) to
     leave the chat on its current bot rather than land it on whatever the
     fallback pool returns, so that a stale bot name can never silently and
-    permanently downgrade a live conversation.
+    permanently downgrade a live conversation. When nobody named a
+    replacement and the chat's own stored bot is gone (deleted or disabled),
+    a continuation may draw a substitute from that chat's own backend pool
+    only (the requested tier, otherwise tier2). It never draws the global
+    default, which may be another backend.
 
 ## Implementation Decisions
 
@@ -267,14 +278,26 @@ request usage can trigger the gate; launch averages remain display-only.
   whichever bot is the current global default.
 - **A chat keeps its bot by default, but can be re-botted within its
   backend.** With no bot named on a later message the chat's persisted bot
-  is reused. Naming a different bot switches the chat: the new bot's name
-  and tier are persisted and the rest of the conversation runs on it. The
-  chat's `backend` stays fixed, so a bot whose effective backend differs is
-  refused with a log and the chat keeps its current bot. The refusal exists
-  because the inline query backends (`perplexity`, `openai`, `xai_web`,
-  `xai_x`) have no session at all, and because `claude_code` and `codex`
-  (todo 4304) each resume a different native session. `gemini_cli`,
-  `grok_build`, and `pi_cli` stay removed (todo 2930).
+  is reused. Naming a different bot on the same backend switches the chat:
+  the new bot's name and tier are persisted and the rest of the conversation
+  runs on it. The chat's `backend` stays fixed. An affirmative pin whose
+  effective backend differs is refused: the API returns 409 before the
+  message is written; an internal sender that still reaches the worker is
+  refused with a log and the chat keeps its current bot, which is launched
+  only when that bot is still on the stored backend. A later turn whose
+  stored bot now resolves to another backend, or whose same-backend pool is
+  empty, fails with `BackendMismatchError` (the same 409 before write; a
+  worker abort with the error text). There is no synthetic fallback and no
+  chat-row rewrite. A stored bot that resolves to nothing (deleted or
+  disabled) is the one allowed substitution, and only from the same-backend
+  pool (the requested tier, otherwise tier2), never `_global_default`. A
+  chat with no stored backend keeps the unfiltered resolver and never infers
+  a backend from `external_id`. A message into a running chat skips the API
+  check and steers the in-flight turn. The refusal exists because the inline
+  query backends (`perplexity`, `openai`, `xai_web`, `xai_x`) have no
+  session at all, and because `claude_code` and `codex` (todo 4304) each
+  resume a different native session. `gemini_cli`, `grok_build`, and
+  `pi_cli` stay removed (todo 2930).
 - **A bot change takes effect on the chat's next run.** Bot resolution
   happens when a message enqueues a worker task, so a message sent into a
   chat that is already running steers the turn in flight instead
@@ -290,7 +313,11 @@ request usage can trigger the gate; launch averages remain display-only.
   A re-bot therefore resolves the name pin on its own, without the tier2
   fallback, and only a pin that resolves to a runnable config counts. Every
   other outcome (no such runnable bot, wrong backend, resolution raising on
-  a broken alias chain) keeps the chat on its current bot and logs. The
+  a broken alias chain) keeps the chat on its current bot and logs. The API
+  does not rely on that log: a cross-backend pin on a chat that is not
+  already running is rejected with 409 before the message is stored. A
+  stored bot whose own backend later changes is the continuation failure in
+  the decision above, not a silent keep. The
   asymmetry is deliberate: for a live conversation a silent permanent
   downgrade is worse than ignoring the request, which is exactly the
   pre-2930 behavior.

@@ -281,6 +281,45 @@ def _admit_bot_pin(user_id: int, bot_name: Optional[str], bot_tier: Optional[str
         )
 
 
+def _admit_chat_backend(user_id: int, chat, bot_name: Optional[str], bot_tier: Optional[str]) -> None:
+    """Reject a continuation that would leave the chat's stored backend.
+
+    Skipped while the chat is running (that message steers the in-flight turn)
+    and when the chat has no stored backend. An explicit pin on another
+    backend is a 409. An unpinned continuation whose stored bot now resolves
+    to another backend, or whose same-backend pool is empty, is the same 409.
+    A deleted stored bot that still has a same-backend substitute is allowed.
+    """
+    if chat is None or getattr(chat, "running", False) or not getattr(chat, "backend", None):
+        return
+    from agent.config import (
+        BackendMismatchError,
+        resolve_continuation_bot_config,
+        resolve_pinned_bot_config,
+    )
+    stored_bot = getattr(chat, "bot_name", None)
+    if bot_name and bot_name != stored_bot:
+        pinned = resolve_pinned_bot_config(user_id, bot_name, tier=bot_tier)
+        if pinned is None:
+            return
+        other = pinned.backend or pinned.api_type
+        if other != chat.backend:
+            raise HTTPException(
+                status_code=409,
+                detail=str(BackendMismatchError(
+                    chat_id=chat.id, chat_backend=chat.backend,
+                    other_backend=other, bot_name=pinned.name,
+                )),
+            )
+        return
+    try:
+        resolve_continuation_bot_config(
+            user_id, chat.id, chat_backend=chat.backend, bot_name=stored_bot, tier=bot_tier,
+        )
+    except BackendMismatchError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 def _admit_launch_effort(user_id: int, effort: Optional[str], *, chat=None, bot_name: Optional[str] = None, bot_tier: Optional[str] = None) -> None:
     """Reject an effort the launch bot cannot run before any chat write.
 
@@ -445,6 +484,7 @@ async def post_send_message(req: SendMessageRequest, request: Request):
         chat = await chat_service.get_chat(user_id, req.chat_id)
         if chat is None:
             raise HTTPException(status_code=404, detail="chat not found")
+        _admit_chat_backend(user_id, chat, req.bot_name, req.bot_tier)
 
         # Resolve work_dir: use existing chat.work_dir if not provided, validate if provided
         work_dir = req.work_dir
@@ -531,6 +571,7 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     from storage.repository.chat import EffortOnRunningChat
 
     async def deliver_existing(target):
+        _admit_chat_backend(user_id, target, req.bot_name, req.bot_tier)
         if req.launch_env is not None:
             raise HTTPException(status_code=400, detail="launch_env is only allowed for new chats; use --new")
         admit_execution_target(user_id, req.execution_target, target.execution_target, has_images, existing=True)
