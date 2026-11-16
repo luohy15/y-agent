@@ -509,6 +509,33 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
         logger.info("tail_and_process paused chat_id={} offset={}", chat_id, result["offset"])
 
 
+def _resolved_codex_model(proc: dict, chat):
+    """Configured bot model, or None when it cannot be resolved.
+
+    None means leave any stored window alone. A resolved name that has no
+    declared window is what clears one.
+    """
+    user_id = proc.get("user_id")
+    bot_name = proc.get("bot_name") or getattr(chat, "bot_name", None)
+    if not user_id or not isinstance(bot_name, str) or not bot_name:
+        return None
+    try:
+        from storage.service import bot_config
+
+        config = bot_config.get_config(user_id, bot_name)
+    except Exception as exc:
+        logger.warning(
+            "codex context window lookup failed: chat_id={} error={}",
+            getattr(chat, "id", None), type(exc).__name__,
+        )
+        return None
+    model = getattr(config, "model", None) if config else None
+    if not isinstance(model, str):
+        return None
+    name = model.strip().strip('"').strip()
+    return name or None
+
+
 def _record_codex_turn_usage(user_id: int, chat, result: dict, proc: dict):
     """Best-effort, replay-safe write before continuation or process retirement."""
     data = result.get("result_data")
@@ -822,6 +849,14 @@ def _apply_codex_completion(fresh, result: dict, result_data: dict, proc: dict, 
         fresh.output_tokens = usage["output_tokens"]
         fresh.cache_read_input_tokens = usage["cache_read_tokens"]
         fresh.cache_creation_input_tokens = usage["cache_creation_tokens"]
+        # NULL provenance is the legacy Claude fallback and would prepend the
+        # handoff reminder. This is not a main-request measurement.
+        fresh.context_usage_source = "codex_turn"
+        model = _resolved_codex_model(proc, fresh)
+        if model is not None:
+            from agent.codex import context_window_for_model
+
+            fresh.context_window = context_window_for_model(model)
     if result.get("status") == "error":
         error_text = (result_data.get("result") if isinstance(result_data, dict) else None) or "Codex exited with an error."
         fresh.messages.append(Message(

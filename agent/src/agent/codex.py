@@ -168,6 +168,22 @@ def normalize_usage(usage) -> dict:
     return result
 
 
+# turn.completed has no context window. The badge needs one, and only a model
+# listed here gets it. gpt-6.1-sol's official maximum is 1_050_000; 1_000_000 is
+# the configured Codex default, not that maximum.
+_CODEX_CONTEXT_WINDOWS = {
+    "gpt-6.1-sol": 1_000_000,
+}
+
+
+def context_window_for_model(model) -> Optional[int]:
+    """Badge denominator for a resolved Codex model, or None when undeclared."""
+    if not isinstance(model, str):
+        return None
+    name = model.strip().strip('"').strip()
+    return _CODEX_CONTEXT_WINDOWS.get(name)
+
+
 class CodexStreamConverter:
     """Stateful JSONL event converter that maps Codex events to y-agent Messages."""
 

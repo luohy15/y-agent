@@ -688,6 +688,14 @@ later delivery.
   historical completeness remain unavailable and unknown respectively.
 - The authenticated transcript-upload attribution and the Claude resume gate
   remain Claude-only. No schema change or migration is required.
+- `turn.completed` has no context window. The chat badge denominator is the
+  configured Codex default for that model, not the official model maximum.
+  `gpt-6.1-sol` uses 1,000,000; its official maximum is 1,050,000 and is not
+  the denominator. Any other model leaves `chat.context_window` unset. A
+  successful turn sets `context_usage_source` to `codex_turn`, not
+  `main_request` and not NULL. NULL is the legacy fallback that would treat
+  the counters as Claude context and prepend the handoff reminder;
+  `codex_turn` stays silent.
 
 ### Account balances
 
