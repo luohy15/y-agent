@@ -963,13 +963,12 @@ class CodexProviderConfigError(ValueError):
     """A codex bot has no relay base_url or api_key. There is no host-config fallback."""
 
 
-def build_codex_resume_cmd(thread_id: str, model: str = None) -> list:
+def build_codex_resume_cmd(thread_id: str, model: str = None, exam_isolation: bool = False) -> list:
     """`codex exec resume` for a known thread. The thread id is argv[3]."""
-    cmd = [
-        "codex", "exec", "resume", thread_id, "--json",
-        "--dangerously-bypass-approvals-and-sandbox",
-        "--ignore-user-config", "--skip-git-repo-check",
-    ]
+    cmd = ["codex", "exec", "resume", thread_id, "--json"]
+    if not exam_isolation:
+        cmd.extend(["--dangerously-bypass-approvals-and-sandbox", "--ignore-user-config"])
+    cmd.append("--skip-git-repo-check")
     if model:
         cmd.extend(["-m", model])
     return cmd
@@ -1036,16 +1035,18 @@ def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: s
     thread_id = chat.external_id
     resume = bool(thread_id) and chat.work_dir == cwd
     provider_args = build_codex_provider_args(bot_config)
+    env = validate_launch_env(getattr(chat, "launch_env", None), strict=False)
+    # Exam runs use the sandbox policy in their per-run CODEX_HOME config.
+    exam_isolation = env.get("CODEX_ISOLATION") == "exam"
 
     if resume and thread_id:
-        cmd = build_codex_resume_cmd(thread_id, model)
+        cmd = build_codex_resume_cmd(thread_id, model, exam_isolation=exam_isolation)
         cmd.extend(provider_args)
     else:
-        cmd = [
-            "codex", "exec", "--json",
-            "--dangerously-bypass-approvals-and-sandbox",
-            "--ignore-user-config", "--skip-git-repo-check",
-        ]
+        cmd = ["codex", "exec", "--json"]
+        if not exam_isolation:
+            cmd.extend(["--dangerously-bypass-approvals-and-sandbox", "--ignore-user-config"])
+        cmd.append("--skip-git-repo-check")
         thread_id = None
         cmd.extend(provider_args)
         if cwd:
@@ -1062,7 +1063,6 @@ def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: s
             f"~/.agents/skills/{chat.skill}/SKILL.md and follow it.\n\n{user_prompt}"
         )
 
-    env = validate_launch_env(getattr(chat, "launch_env", None), strict=False)
     env.update(build_codex_env(bot_config, chat_id, trace_id, role, last_message_id))
     return {
         "prompt": user_prompt,
