@@ -523,20 +523,20 @@ def _record_codex_turn_usage(user_id: int, chat, result: dict, proc: dict):
         config = bot_config.get_config(user_id, proc.get("bot_name") or chat.bot_name)
         session_id = result.get("thread_id") or result.get("session_id") or proc.get("session_id")
         if not session_id or not config or not config.model:
-            logger.warning("codex usage missing identity: chat_id={}", chat.chat_id)
+            logger.warning("codex usage missing identity: chat_id={}", chat.id)
             return
         started_at = proc["started_at"]
         outcome = chat_request_usage.record_backend_turn(
-            user_id=user_id, chat_id=chat.chat_id, session_id=session_id,
+            user_id=user_id, chat_id=chat.id, session_id=session_id,
             model=config.model,
             requested_at=datetime.fromtimestamp(started_at, timezone.utc).isoformat(),
-            request_id=f"codex-{chat.chat_id}-{started_at}",
+            request_id=f"codex-{chat.id}-{started_at}",
             usage=normalize_usage(data.get("usage")),
         )
         if any(outcome["conflicts"].values()):
-            logger.warning("codex usage identity conflict: chat_id={}", chat.chat_id)
+            logger.warning("codex usage identity conflict: chat_id={}", chat.id)
     except Exception as exc:
-        logger.warning("codex usage write failed: chat_id={} error={}", chat.chat_id, type(exc).__name__)
+        logger.warning("codex usage write failed: chat_id={} error={}", chat.id, type(exc).__name__)
 
 
 async def _trigger_context_ingest(node, backend_type: str, session_id):
