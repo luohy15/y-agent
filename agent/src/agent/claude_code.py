@@ -658,15 +658,10 @@ def _resume_refused(client, chat_id: str) -> bool:
     `_result_event_resume_refused` handles the shape today's CLI actually emits.
 
     That file holds only the current run's stderr, so a marker found here is
-    always this run's. `2>` truncating on open is half the reason; the other half
-    is that the redirect is reached even when the `cd` fails. Stale cleanup does
-    not delete `.stderr`, so that matters: `_start_detached_tmux` joins
-    `cd <cwd> &&` onto `build_exec`, and in the resume case `build_exec` starts
-    with the restore snippet's `_y_sid=...;` assignment, so the `&&` binds that
-    assignment alone and the `;`-separated pipeline (with its redirect) runs
-    regardless. The non-resume case does gate the whole pipeline behind `cd`, but
-    it passes no `-r`, so it can neither produce a marker nor let one act: the
-    worker's heal also requires a recorded handle and a matching work_dir.
+    always this run's. `_start_detached_tmux` deletes `.stderr` before preflight,
+    including when the work dir is missing, and the launch redirect creates it
+    again only if the CLI actually starts. A missing-cwd or wrapper failure
+    therefore has no stderr to probe and cannot inherit the previous run.
 
     Together with `_result_event_resume_refused` these are the ONLY affirmative
     signals that a resume handle is unusable. The worker clears

@@ -33,6 +33,21 @@ ORPHAN_WRAPPER_MIN_AGE_SECONDS = 120
 TMUX_SOCKET = "y-agent"
 
 
+# Cleared before preflight on every launch, including a missing work dir.
+# A previous run's stderr must not explain or classify this attempt.
+ATTEMPT_LOG_SUFFIXES = (".stdin", ".stdout", ".stderr", ".exit")
+
+
+def attempt_log_paths(chat_id: str) -> List[str]:
+    return [f"/tmp/cc-{chat_id}{suffix}" for suffix in ATTEMPT_LOG_SUFFIXES]
+
+
+def reset_attempt_logs_shell(chat_id: str) -> str:
+    """Remove this attempt's stdout, stderr, stdin and exit files."""
+    quoted = " ".join(_shell_quote(path) for path in attempt_log_paths(chat_id))
+    return f"rm -f {quoted} 2>/dev/null || true"
+
+
 def _tmux_command(args: str, legacy: bool = False, node=None) -> str:
     socket = "default" if legacy else TMUX_SOCKET
     binary = node.tmux_binary if node is not None else "tmux"
@@ -237,8 +252,8 @@ async def _start_detached_tmux(
     """Shared skeleton for starting a detached tmux session over SSH.
 
     Steps:
-      1. Kill any stale `cc-<chat_id>` tmux session and remove leftover
-         stdin/exit files, plus any leftover `.killed` self-kill sentinel
+      1. Kill any stale `cc-<chat_id>` tmux session and remove this attempt's
+         stdin/stdout/stderr/exit files, plus any leftover `.killed` sentinel
          from a prior turn's steer/interrupt teardown (see
          `_kill_session_marking_self_killed` in claude_code.py) so it can't
          mask a genuine death in this new turn.
@@ -256,12 +271,15 @@ async def _start_detached_tmux(
         stderr_file = f"/tmp/cc-{chat_id}.stderr"
         exit_file = f"/tmp/cc-{chat_id}.exit"
 
-        # 1. Stale cleanup
+        # 1. Stale session cleanup, then drop this attempt's log files before
+        # any preflight (including the missing-cwd path below) so a previous
+        # run's stderr cannot be read as this failure.
         from agent.mcp.staging import cleanup_command
         _ssh_exec(
             client,
             f"{_tmux_kill_cmd(chat_id, node=node)}; "
-            f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit /tmp/cc-{chat_id}.killed /tmp/cc-{chat_id}.claude-ec 2>/dev/null; "
+            f"{reset_attempt_logs_shell(chat_id)}; "
+            f"rm -f /tmp/cc-{chat_id}.killed /tmp/cc-{chat_id}.claude-ec 2>/dev/null; "
             f"rm -rf /tmp/cc-{chat_id}-images 2>/dev/null; "
             + cleanup_command(chat_id),
         )

@@ -663,16 +663,16 @@ mode (`-i`) serves a human at a terminal.
 - **Session continuity**: the backend's native session id lives in the chat's
   `external_id`; a follow-up resumes it only when the chat's stored work dir
   matches the resolved cwd, otherwise a fresh session starts. Work-dir
-  conflicts on send are rejected, not silently rebased. Two further guarantees
-  (todo 2930). The column rule applies to both agentic backends. The refused-handle
-  rule is `claude_code` only; Codex does not clear a refused thread id.
+  conflicts on send are rejected, not silently rebased. The column rule applies
+  to both agentic backends. A refused handle is cleared only on that backend's
+  own positive evidence (todo 2930 for Claude Code, todo 4326 for Codex).
   - **The `external_id` column is authoritative.** `chat` persists the field
     both in its `json_content` blob and as a promoted column; the column is
     what the runtime reads, and NULL there means "no resumable session" rather
     than "look in the blob". So clearing a session handle in SQL works, and no
     tool may re-derive the column from the blob's copy.
   - **A refused `claude_code` handle is dropped, on the CLI's own evidence only.**
-    Codex has no equivalent recovery. When a resumed Claude Code turn is refused,
+    When a resumed Claude Code turn is refused,
     the handle is cleared so the next turn starts fresh
     instead of retrying it forever, and the turn reports the refusal by name
     instead of a bare "exited with an error". The evidence is the CLI's own
@@ -689,6 +689,33 @@ mode (`-i`) serves a human at a terminal.
     handle, whatever the column currently holds: the refusal names the id it
     rejected, so persisting it would resurrect a dead handle into a column
     cleared out of band (by migration SQL) while the turn was in flight.
+  - **A Codex launch never resumes another backend's handle** (todo 4326).
+    Continuation routing is todo 4328: a stored bot that now resolves to
+    another backend fails the launch, and the stored `external_id` stays.
+    If a Codex command is still assembled for a chat whose stored backend is
+    not Codex, that launch raises the same mismatch and does not pass the id
+    to `codex exec resume`. A Codex thread resumes only when the work dir
+    still matches; otherwise the turn starts fresh.
+  - **A refused Codex thread is retried once, on the CLI's own evidence only**
+    (todo 4326). The only authorizing signal is the current attempt's stderr
+    line `Error: thread/resume: thread/resume failed: no rollout found for
+    thread id <attempted id> (code -32600)`, with exit code 1 and no usable
+    stdout. A generic exit 1, an auth failure, a bad model, a missing binary
+    or work dir, a timeout, SIGTERM/SIGKILL, or text the assistant wrote do
+    not qualify. The retry reuses the same pending input, skill preamble,
+    node, cwd, provider, model, effort and trace. The transcript is kept, and
+    one assistant note says native continuity was lost. Only that same refused
+    id is cleared, and only for the current run; a newer id is left alone. A
+    second refusal, a lost claim, an interrupt, or a stale run does not launch
+    another retry and does not repeat terminal hooks.
+  - **Codex startup failures name the cause** (todo 4326). When a turn ends
+    with no result event, the user-visible error includes the exit status
+    and a bounded 4 KB excerpt of that attempt's stderr. A `turn.failed`
+    event keeps its own message. Control sequences
+    are stripped and credential-shaped values are redacted. Missing or
+    unreadable stderr still reports the exit status. Each launch clears that
+    attempt's stdout, stderr and exit files before preflight, so a previous
+    run cannot supply the excerpt or the refusal signal.
 - **Identity immutability**: backend, skill, trace id, and routine id
   are write-once at the repository layer; later saves keep the existing value
   and log a warning on attempted mutation. Role is assigned only at insertion

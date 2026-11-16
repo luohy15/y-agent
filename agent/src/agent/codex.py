@@ -32,7 +32,8 @@ from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_uni
 from agent.claude_code import (
     parse_stream_line,
     _shell_quote,
-    _no_result_error_message,
+    _ssh_exec,
+    _stream_error_suffix,
     _tmux_session_alive,
     _kill_session_marking_self_killed,
     _consume_self_kill_sentinel,
@@ -60,6 +61,221 @@ def _strip_shell_wrapper(command: str) -> str:
             inner = inner[1:-1]
         return inner
     return command
+
+
+# Displayed startup diagnostics stay inside 4 KB. The reader may fetch a
+# little more so the formatter can keep the useful tail.
+DIAGNOSTIC_DISPLAY_BYTES = 4096
+CODEX_CONTINUITY_NOTE = (
+    "Codex refused the recorded thread (no rollout found for it). "
+    "The transcript is kept, but that native thread cannot continue. "
+    "This turn starts a fresh Codex session."
+)
+
+_ANSI_RE = re.compile(
+    r"\x1b\[[0-?]*[ -/]*[@-~]"
+    r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"
+    r"|\x1b[@-Z\\-_]"
+)
+_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+_SECRET_BEARER_RE = re.compile(r"(?i)(authorization\s*:\s*bearer\s+)\S+")
+_SECRET_ASSIGN_RE = re.compile(
+    r"(?i)(api[_-]?key|openai_api_key|access_token|auth_token|token|secret|password)"
+    r"(\s*['\"]?\s*[:=]\s*['\"]?)([^\s'\"&,}]+)"
+)
+_SECRET_QUERY_RE = re.compile(r"(?i)([?&](?:api[_-]?key|access_token|token|key|secret)=)[^&\s]+")
+_SECRET_USERINFO_RE = re.compile(r"://[^/\s:@]+:[^/\s@]+@")
+_SECRET_SK_RE = re.compile(r"\bsk-[A-Za-z0-9_\-]{8,}\b")
+_MISSING_ROLLOUT_LINE = re.compile(
+    r"^Error:\s+thread/resume:\s+thread/resume failed:\s+no rollout found for thread id\s+"
+    r"([0-9a-fA-F-]{36})\s+\(code\s+-32600\)\s*$"
+)
+
+
+def _strip_controls(text: str) -> str:
+    return _CONTROL_RE.sub("", _ANSI_RE.sub("", text))
+
+
+def _redact_secrets(text: str) -> str:
+    text = _SECRET_BEARER_RE.sub(r"\1[redacted]", text)
+    text = _SECRET_ASSIGN_RE.sub(r"\1\2[redacted]", text)
+    text = _SECRET_QUERY_RE.sub(r"\1[redacted]", text)
+    text = _SECRET_USERINFO_RE.sub("://[redacted]@", text)
+    return _SECRET_SK_RE.sub("sk-[redacted]", text)
+
+
+def _clip_bytes(text: str, limit: int) -> str:
+    raw = text.encode("utf-8")
+    if len(raw) <= limit:
+        return text
+    return raw[-limit:].decode("utf-8", errors="ignore")
+
+
+def interpret_exit_file(raw: Optional[str], *, unreadable: bool = False) -> tuple[Optional[int], str]:
+    """Return ``(code, state)`` where state is ok, missing, invalid, or unreadable."""
+    if unreadable:
+        return None, "unreadable"
+    if raw is None:
+        return None, "missing"
+    text = raw.strip()
+    if not text:
+        return None, "missing"
+    try:
+        return int(text), "ok"
+    except ValueError:
+        return None, "invalid"
+
+
+def _exit_phrase(exit_code: Optional[int], exit_state: str) -> str:
+    if exit_state in ("unreadable", "invalid"):
+        return "exit status unreadable"
+    if exit_state != "ok" or exit_code is None:
+        return "exit status missing"
+    if exit_code == 137:
+        return "terminated by SIGKILL (9)"
+    if exit_code == 143:
+        return "terminated by SIGTERM (15)"
+    return f"process exited with code {exit_code}"
+
+
+def format_codex_startup_diagnostic(
+    stderr: Optional[str],
+    exit_raw: Optional[str] = None,
+    *,
+    stderr_unreadable: bool = False,
+    exit_unreadable: bool = False,
+    stream_error: Optional[Exception] = None,
+    exit_code: Optional[int] = None,
+    exit_state: Optional[str] = None,
+) -> str:
+    """Bounded, redacted Codex startup error. Missing stderr still names the exit."""
+    if exit_code is None and exit_state is None:
+        exit_code, exit_state = interpret_exit_file(exit_raw, unreadable=exit_unreadable)
+    elif exit_state is None:
+        exit_state = "ok" if exit_code is not None else "missing"
+    header = f"Codex exited before producing output: {_exit_phrase(exit_code, exit_state)}."
+    if stderr_unreadable:
+        body = "stderr unreadable."
+    elif stderr is None or stderr == "":
+        body = "stderr missing."
+    else:
+        body = _redact_secrets(_strip_controls(stderr)).strip()
+        if not body:
+            body = "stderr missing."
+    suffix = _redact_secrets(_strip_controls(_stream_error_suffix(stream_error)))
+    marker = ""
+    prefix = f"{header} "
+    budget = DIAGNOSTIC_DISPLAY_BYTES - len((prefix + suffix).encode("utf-8"))
+    if budget < 0:
+        return _clip_bytes(header + suffix, DIAGNOSTIC_DISPLAY_BYTES)
+    raw_body = body.encode("utf-8")
+    if len(raw_body) > budget:
+        marker = "\n[truncated]"
+        budget -= len(marker.encode("utf-8"))
+        body = _clip_bytes(body, max(budget, 0))
+    return f"{prefix}{body}{marker}{suffix}"
+
+
+def codex_missing_rollout_id(stderr: Optional[str], attempted_id: Optional[str]) -> Optional[str]:
+    """Return ``attempted_id`` only when this attempt's stderr is the native refusal.
+
+    The match is one CLI error line, not assistant prose that quotes the phrase,
+    and the thread id in that line must be the id this attempt resumed.
+    """
+    if not isinstance(stderr, str) or not isinstance(attempted_id, str) or not attempted_id:
+        return None
+    for line in _strip_controls(stderr).splitlines():
+        match = _MISSING_ROLLOUT_LINE.match(line.strip())
+        if match and match.group(1) == attempted_id:
+            return attempted_id
+    return None
+
+
+def codex_refusal_authorizes_recovery(
+    *,
+    stderr: Optional[str],
+    attempted_id: Optional[str],
+    exit_code: Optional[int],
+    has_usable_output: bool = False,
+) -> bool:
+    """True only for the native missing-rollout signal of the attempted id.
+
+    Exit 1 is required and not sufficient. Usable stdout, any other exit
+    (including 137 and 143), and a line that names a different id are rejected.
+    """
+    if has_usable_output or exit_code != 1:
+        return False
+    return codex_missing_rollout_id(stderr, attempted_id) == attempted_id
+
+
+def codex_retry_decision(
+    *,
+    stderr: Optional[str],
+    attempted_id: Optional[str],
+    exit_code: Optional[int],
+    has_usable_output: bool = False,
+    retries: int = 0,
+    interrupted: bool = False,
+    stale_run: bool = False,
+) -> str:
+    """``retry``, ``ceiling``, ``blocked``, or ``no-retry``. Does not launch anything."""
+    if interrupted or stale_run:
+        return "blocked"
+    if not codex_refusal_authorizes_recovery(
+        stderr=stderr,
+        attempted_id=attempted_id,
+        exit_code=exit_code,
+        has_usable_output=has_usable_output,
+    ):
+        return "no-retry"
+    if int(retries or 0) >= 1:
+        return "ceiling"
+    return "retry"
+
+
+def clear_refused_thread_id(current_id, refused_id, attempted_id) -> tuple:
+    """Return ``(new_id, cleared)``. Only the exact current refused id is cleared."""
+    if current_id and refused_id and attempted_id and current_id == refused_id == attempted_id:
+        return None, True
+    return current_id, False
+
+
+def _read_attempt_file(client, path: str, *, tail: bool) -> tuple[Optional[str], bool]:
+    """Return ``(text, unreadable)``. ``text`` is None when the file is absent."""
+    try:
+        if tail:
+            quoted = _shell_quote(path)
+            command = f"if [ -f {quoted} ]; then tail -c 8192 {quoted}; else printf '%s' '__Y_MISSING__'; fi"
+        else:
+            quoted = _shell_quote(path)
+            command = f"if [ -f {quoted} ]; then cat {quoted}; else printf '%s' '__Y_MISSING__'; fi"
+        raw = _ssh_exec(client, command)
+    except Exception as exc:
+        logger.warning("codex attempt log unreadable path={} error={}", path, type(exc).__name__)
+        return None, True
+    if raw == "__Y_MISSING__":
+        return None, False
+    return raw, False
+
+
+def read_codex_attempt_diagnostic(client, chat_id: str, stream_error: Optional[Exception] = None) -> dict:
+    """Read this attempt's stderr and exit file and format a bounded diagnostic."""
+    stderr, stderr_unreadable = _read_attempt_file(client, f"/tmp/cc-{chat_id}.stderr", tail=True)
+    exit_raw, exit_unreadable = _read_attempt_file(client, f"/tmp/cc-{chat_id}.exit", tail=False)
+    exit_code, exit_state = interpret_exit_file(exit_raw, unreadable=exit_unreadable)
+    text = format_codex_startup_diagnostic(
+        stderr,
+        stderr_unreadable=stderr_unreadable,
+        exit_code=exit_code,
+        exit_state=exit_state,
+        stream_error=stream_error,
+    )
+    return {
+        "text": text,
+        "stderr": None if stderr_unreadable else stderr,
+        "exit_code": exit_code,
+        "exit_state": exit_state,
+    }
 
 
 def _json_string(value: JSONValue) -> str:
@@ -407,6 +623,7 @@ async def tail_codex_output(
     input_ledger: Optional[InputLedger] = None,
     launch_input_uuid: Optional[str] = None,
     pending_result: Optional[dict] = None,
+    resume_thread_id: Optional[str] = None,
 ) -> dict:
     """Tail a detached codex process's stdout file via SSH.
 
@@ -620,13 +837,16 @@ async def tail_codex_output(
 
         no_result_session_alive = False
         no_result_error = None
+        no_result_attempt = None
         self_killed = False
         if exit_reason is None and result_data is None and last_error_data is None:
             self_killed = _consume_self_kill_sentinel(client, chat_id)
             if not self_killed:
                 no_result_session_alive = _tmux_session_alive(client, chat_id, node=node)
                 if not no_result_session_alive:
-                    no_result_error = _no_result_error_message(client, chat_id, "Codex", stream_error, node=node)
+                    attempt = read_codex_attempt_diagnostic(client, chat_id, stream_error)
+                    no_result_error = attempt["text"]
+                    no_result_attempt = attempt
 
         if owns_client:
             from agent.chat_target import close_owned_client
@@ -657,7 +877,22 @@ async def tail_codex_output(
             status = "error"
             data = {"is_error": True, "result": no_result_error or "Codex exited before producing a turn."}
 
-        return _view(True, status, data)
+        view = _view(True, status, data)
+        if status == "error" and no_result_attempt is not None:
+            exit_code = no_result_attempt.get("exit_code")
+            stderr = no_result_attempt.get("stderr")
+            refused = codex_refusal_authorizes_recovery(
+                stderr=stderr,
+                attempted_id=resume_thread_id,
+                exit_code=exit_code,
+                has_usable_output=converter.has_usable_output,
+            )
+            view["exit_code"] = exit_code
+            view["attempt_stderr"] = stderr
+            view["startup_diagnostic"] = no_result_attempt.get("text")
+            view["resume_refused"] = refused
+            view["refused_thread_id"] = resume_thread_id if refused else None
+        return view
 
     except Exception as exc:
         logger.error("tail_codex_output error: {} {}", type(exc).__name__, exc)

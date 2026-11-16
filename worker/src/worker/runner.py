@@ -94,6 +94,25 @@ def select_run_inputs(messages, continuation_from_id=None, handled_input_ids=Non
             if m.role == "user" and m.id and m.id not in handled]
 
 
+def with_codex_skill_preamble(prompt: str, skill: str = None, resume: bool = False) -> str:
+    """Fresh Codex launches have no native skill flag. A resume keeps the thread's prompt."""
+    if skill and not resume:
+        return (
+            "IMPORTANT: Before doing anything else, read "
+            f"~/.agents/skills/{skill}/SKILL.md and follow it.\n\n{prompt}"
+        )
+    return prompt
+
+
+def codex_resume_thread(stored_backend, external_id, work_dir_matches: bool):
+    """Thread id to resume, or None. A foreign backend raises and does not clear the id."""
+    if stored_backend and stored_backend != "codex":
+        raise agent_config.BackendMismatchError(chat_backend=stored_backend, other_backend="codex")
+    if external_id and work_dir_matches:
+        return external_id
+    return None
+
+
 def render_file_references(paths) -> str:
     """One text line per stored file. Empty input is an empty string.
 
@@ -575,7 +594,7 @@ def _abort_unlaunched(chat, chat_id: str, user_id: int, exc: Exception) -> None:
     chat_repo.mutate_chat_locked(chat_id, fail_launch, user_id=user_id)
 
 
-async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, role: str = None, skill: str = None, backend: str = None, resume_5xx_retries: int = 0, run_seq: int = None, continuation_from_id: str = None, handled_input_ids=None) -> str:
+async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, role: str = None, skill: str = None, backend: str = None, resume_5xx_retries: int = 0, run_seq: int = None, continuation_from_id: str = None, handled_input_ids=None, codex_refusal_retries: int = 0) -> str:
     """Execute a chat round. Inline backends run in-process; claude_code and codex detach to tmux.
 
     bot_name, user_id, vm_name, work_dir, and post_hooks are passed from the queue message.
@@ -812,7 +831,8 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
                                handled_input_ids=handled_input_ids,
                                measurement=measurement,
                                current_limit=current_limit, pending_limit=pending_limit,
-                               next_backend=next_backend, next_bot=next_bot, next_tier=next_tier)
+                               next_backend=next_backend, next_bot=next_bot, next_tier=next_tier,
+                               codex_refusal_retries=codex_refusal_retries)
         return "detached"
     except Exception as e:
         logger.exception("Detached backend launch failed for chat {}: {}", chat_id, e)
@@ -1040,8 +1060,8 @@ def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: s
     model = bot_config.model.strip('"').strip() if bot_config.model else None
     model = model or None
 
-    thread_id = chat.external_id
-    resume = bool(thread_id) and chat.work_dir == cwd
+    thread_id = codex_resume_thread(getattr(chat, "backend", None), chat.external_id, chat.work_dir == cwd)
+    resume = bool(thread_id)
     provider_args = build_codex_provider_args(bot_config)
     env = validate_launch_env(getattr(chat, "launch_env", None), strict=False)
     # Exam runs use the sandbox policy in their per-run CODEX_HOME config.
@@ -1065,11 +1085,7 @@ def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: s
     if reasoning_effort:
         cmd.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
 
-    if chat.skill and not resume:
-        user_prompt = (
-            "IMPORTANT: Before doing anything else, read "
-            f"~/.agents/skills/{chat.skill}/SKILL.md and follow it.\n\n{user_prompt}"
-        )
+    user_prompt = with_codex_skill_preamble(user_prompt, chat.skill, resume)
 
     env.update(build_codex_env(bot_config, chat_id, trace_id, role, last_message_id))
     return {
@@ -1108,7 +1124,8 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
                            continuation_from_id: str = None,
                            handled_input_ids=None, measurement=None,
                            current_limit=None, pending_limit=None,
-                           next_backend=None, next_bot=None, next_tier=None) -> None:
+                           next_backend=None, next_bot=None, next_tier=None,
+                           codex_refusal_retries: int = 0) -> None:
     """Start claude_code or codex as a detached tmux process on the chat node.
 
     Called from run_chat after chat loading, trace setup, and running flag are done.
@@ -1236,6 +1253,8 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
             run_seq=chat.run_seq,
             mcp_launch_id=mcp_material.launch_id if mcp_material is not None else None,
             target_id=node.name,
+            codex_refusal_retries=codex_refusal_retries,
+            resume_thread_id=params.get("thread_id") if params.get("resume") else None,
         )
     except Exception as e:
         if mcp_material is not None:

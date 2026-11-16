@@ -55,7 +55,9 @@ def register_process(chat_id: str, user_id: int, vm_name: str,
                      initial_message_ids: list = None,
                      run_seq: int = None,
                      mcp_launch_id: str = None,
-                     target_id: str = None) -> None:
+                     target_id: str = None,
+                     codex_refusal_retries: int = 0,
+                     resume_thread_id: str = None) -> None:
     """Register a running tmux process in DynamoDB. status=running, offset=0."""
     now = int(time.time())
     item = {
@@ -108,6 +110,8 @@ def register_process(chat_id: str, user_id: int, vm_name: str,
         item["mcp_launch_id"] = {"S": mcp_launch_id}
     if target_id and target_id != "default":
         item["target_id"] = {"S": target_id}
+    for key, value in codex_retry_fields(codex_refusal_retries, resume_thread_id).items():
+        item[key] = {"N": str(value)} if key == "codex_refusal_retries" else {"S": value}
 
     _get_dynamodb().put_item(TableName=TABLE_NAME, Item=item)
 
@@ -164,6 +168,45 @@ def claim_resume(chat_id: str, proc: dict, owner_id: str) -> bool:
             ConditionExpression=("user_id = :uid AND started_at = :started AND monitor_owner = :owner "
                                  "AND #s = :running AND attribute_exists(resume_pending) "
                                  "AND (attribute_not_exists(resume_5xx_retries) OR resume_5xx_retries < :one)"),
+            ExpressionAttributeNames={"#s": "status"},
+            ExpressionAttributeValues={
+                ":uid": {"N": str(proc["user_id"])}, ":started": {"N": str(proc["started_at"])},
+                ":owner": {"S": owner_id}, ":running": {"S": "running"}, ":one": {"N": "1"},
+            },
+        )
+        return True
+    except Exception as e:
+        if "ConditionalCheckFailedException" in type(e).__name__:
+            return False
+        raise
+
+
+def codex_retry_fields(retries: int = 0, resume_thread_id: str = None) -> dict:
+    """Plain fields carried on the process record across a handoff read."""
+    fields = {}
+    if retries:
+        fields["codex_refusal_retries"] = int(retries)
+    if resume_thread_id:
+        fields["resume_thread_id"] = resume_thread_id
+    return fields
+
+
+def claim_allowed(retries: int, owner_matches: bool, running: bool) -> bool:
+    """The conditional claim: one winner, and only while the run is still live."""
+    return bool(running and owner_matches and int(retries or 0) < 1)
+
+
+def claim_codex_refusal_retry(chat_id: str, proc: dict, owner_id: str) -> bool:
+    """One winner may retry a refused Codex thread. A replayed claim loses."""
+    try:
+        _get_dynamodb().update_item(
+            TableName=TABLE_NAME, Key={"id": {"S": f"proc-{chat_id}"}},
+            UpdateExpression="SET codex_refusal_retries = :one",
+            ConditionExpression=(
+                "user_id = :uid AND started_at = :started AND monitor_owner = :owner "
+                "AND #s = :running AND (attribute_not_exists(codex_refusal_retries) "
+                "OR codex_refusal_retries < :one)"
+            ),
             ExpressionAttributeNames={"#s": "status"},
             ExpressionAttributeValues={
                 ":uid": {"N": str(proc["user_id"])}, ":started": {"N": str(proc["started_at"])},

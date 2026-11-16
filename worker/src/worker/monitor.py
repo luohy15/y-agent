@@ -289,6 +289,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             input_ledger=ledger,
             launch_input_uuid=launch_input_uuid,
             pending_result=_load_json_field(proc, "pending_result") or None,
+            resume_thread_id=proc.get("resume_thread_id"),
         )
     else:
         result = await tail_ssh_output(
@@ -376,6 +377,45 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                 handled_input_ids=settled.handled_ids(),
             )
             return
+
+        if backend_type == "codex" and result.get("status") == "error" and fresh:
+            from agent.codex import codex_retry_decision
+            from worker.death_delivery import current_run as _current_run
+            decision = codex_retry_decision(
+                stderr=result.get("attempt_stderr"),
+                attempted_id=proc.get("resume_thread_id"),
+                exit_code=result.get("exit_code"),
+                has_usable_output=bool(result.get("has_usable_output")),
+                retries=int(proc.get("codex_refusal_retries") or 0),
+                interrupted=bool(fresh.interrupted),
+                stale_run=not _current_run(chat_id, proc),
+            )
+            if decision == "retry" and fresh.external_id == proc.get("resume_thread_id"):
+                from worker.process_manager import claim_codex_refusal_retry
+                if not claim_codex_refusal_retry(chat_id, proc, lambda_req_id):
+                    return
+                logger.warning(
+                    "codex missing rollout: chat_id={} thread_id={} diagnostic={}",
+                    chat_id, proc.get("resume_thread_id"), result.get("startup_diagnostic"),
+                )
+                retry_result = {
+                    **result,
+                    "status": "completed",
+                    "clear_refused_thread": True,
+                    "refused_thread_id": proc.get("resume_thread_id"),
+                }
+                fresh = await persist_terminal(chat_id, proc, retry_result, outcome=None)
+                if not fresh or fresh.interrupted or not retry_result.get("refused_cleared"):
+                    return
+                await _relaunch_claude_code_turn(
+                    chat_id, user_id, proc, backend=backend_type,
+                    resume_5xx_retries=int(proc.get("resume_5xx_retries") or 0),
+                    run_seq=fresh.run_seq,
+                    continuation_from_id=proc.get("scope_first_id"),
+                    handled_input_ids=settled.handled_ids(),
+                    codex_refusal_retries=int(proc.get("codex_refusal_retries") or 0) + 1,
+                )
+                return
 
         if result["status"] == "error":
             fresh = await persist_terminal(chat_id, proc, result)
@@ -829,10 +869,49 @@ def _selected_usage_stamp(iterations, observed_usage):
 
 def _apply_codex_completion(fresh, result: dict, result_data: dict, proc: dict, chat_id: str, cwd_matches: bool):
     """Persist a Codex thread id and turn.completed usage. No Claude resume gate."""
+    from agent.codex import CODEX_CONTINUITY_NOTE, clear_refused_thread_id
     from storage.entity.dto import Message
     from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
 
-    effective_thread_id = result.get("thread_id") or result.get("session_id") or proc.get("session_id")
+    if result.get("clear_refused_thread"):
+        if fresh.interrupted:
+            result["refused_cleared"] = False
+            return
+        new_id, cleared = clear_refused_thread_id(
+            fresh.external_id, result.get("refused_thread_id"), proc.get("resume_thread_id"),
+        )
+        result["refused_cleared"] = cleared
+        if not cleared:
+            # The successor reservation was taken before this check. Put it
+            # back so a newer thread id is neither cleared nor relaunched.
+            fresh.running = False
+            if fresh.run_seq:
+                fresh.run_seq -= 1
+            logger.warning(
+                "skip codex thread clear: chat_id={} external_id={} refused={} attempted={}",
+                chat_id, fresh.external_id, result.get("refused_thread_id"), proc.get("resume_thread_id"),
+            )
+            return
+        logger.warning(
+            "clearing refused codex thread: chat_id={} thread_id={}",
+            chat_id, fresh.external_id,
+        )
+        fresh.external_id = new_id
+        fresh.messages.append(Message(
+            id=generate_message_id(),
+            role="assistant",
+            content=CODEX_CONTINUITY_NOTE,
+            timestamp=get_utc_iso8601_timestamp(),
+            unix_timestamp=get_unix_timestamp(),
+        ))
+        return
+
+    # A refusal echoes the dead id. Never write it back, even when this run
+    # does not clear the column (interrupt, ceiling, or a lost claim).
+    if result.get("resume_refused"):
+        effective_thread_id = None
+    else:
+        effective_thread_id = result.get("thread_id") or result.get("session_id") or proc.get("session_id")
     if effective_thread_id:
         if cwd_matches:
             fresh.external_id = effective_thread_id
@@ -922,7 +1001,8 @@ def _int_value(value):
 async def _relaunch_claude_code_turn(chat_id: str, user_id: int, proc: dict, backend: str = "claude_code",
                                      resume_5xx_retries: int = 0, run_seq: int = None,
                                      continuation_from_id: str = None,
-                                     handled_input_ids=None) -> None:
+                                     handled_input_ids=None,
+                                     codex_refusal_retries: int = 0) -> None:
     """Re-invoke the normal launch path for input the finished run still owes.
 
     Reuses `run_chat` so this goes through the same resume-detection,
@@ -955,6 +1035,7 @@ async def _relaunch_claude_code_turn(chat_id: str, user_id: int, proc: dict, bac
         run_seq=run_seq,
         continuation_from_id=continuation_from_id,
         handled_input_ids=handled_input_ids,
+        codex_refusal_retries=codex_refusal_retries,
     )
 
 
