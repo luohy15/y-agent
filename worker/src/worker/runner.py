@@ -1068,6 +1068,20 @@ def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: s
     # Exam runs use the sandbox policy in their per-run CODEX_HOME config.
     exam_isolation = env.get("CODEX_ISOLATION") == "exam"
 
+    # The catalog launch uses this window for both report and compaction. A
+    # missing row or a failed read leaves the launch on the bundled catalog.
+    context_window = None
+    if model and not exam_isolation:
+        try:
+            from storage.service import model_context
+
+            context_window = model_context.get_context_window(model)
+        except Exception as exc:
+            logger.warning(
+                "codex context window query failed: chat_id={} error={}",
+                chat_id, type(exc).__name__,
+            )
+
     if resume and thread_id:
         cmd = build_codex_resume_cmd(thread_id, model, exam_isolation=exam_isolation)
         cmd.extend(provider_args)
@@ -1103,6 +1117,7 @@ def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: s
         "resume": resume,
         "last_message_id": last_message_id,
         "model": model,
+        "context_window": context_window,
         "messages": messages,
     }
 
@@ -1203,6 +1218,8 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
             env=params["env"],
             images=params.get("images"),
             unset_env=params.get("unset_env"),
+            model=params.get("model"),
+            context_window=params.get("context_window"),
         )
     else:
         from agent.claude_code import start_detached_ssh

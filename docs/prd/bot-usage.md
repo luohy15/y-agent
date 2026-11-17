@@ -723,6 +723,22 @@ later delivery.
   to `codex_turn`, not `main_request` and not NULL. NULL is the legacy
   fallback that would treat the counters as Claude context and prepend the
   handoff reminder; `codex_turn` stays silent.
+- Codex launches with a resolved model window now feed the CLI a per-launch
+  model catalog, so the reported window and the auto-compaction threshold are
+  the table's value instead of the bundled 272,000 fallback (258,400 usable).
+  `codex debug models --bundled` is read over the launch's SSH client. The
+  model's bundled entry is cloned (exact slug, longest prefix, then one
+  namespaced suffix) and stamped with the `model_context_window` value as both
+  `context_window` and `max_context_window`, 100% effective, and no
+  `auto_compact_token_limit`. A CLI-unknown slug clones the bundled generic
+  `gpt-5.2` entry instead, neutralizes its first-line identity to the Codex
+  fallback prompt, and clears `comp_hash`. The catalog is staged at
+  `/tmp/cc-<chat_id>.model-catalog.json` after the attempt-log reset and passed
+  as `-c model_catalog_json`; the next launch's reset removes it rather than an
+  exit trap. The table remains the authority: a missing row, an exam run
+  (`CODEX_ISOLATION=exam`), or any dump, parse or staging failure skips the
+  flag and launches on the bundled catalog unchanged. The usable window is the
+  full row value, and Codex still starts auto-compaction at 90%.
 
 ### Account balances
 

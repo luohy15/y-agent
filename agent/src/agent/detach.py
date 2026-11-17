@@ -35,15 +35,21 @@ TMUX_SOCKET = "y-agent"
 
 # Cleared before preflight on every launch, including a missing work dir.
 # A previous run's stderr must not explain or classify this attempt.
-ATTEMPT_LOG_SUFFIXES = (".stdin", ".stdout", ".stderr", ".exit")
+# `model_catalog` is codex-only; the other backends simply never create it.
+MODEL_CATALOG_SUFFIX = ".model-catalog.json"
+ATTEMPT_LOG_SUFFIXES = (".stdin", ".stdout", ".stderr", ".exit", MODEL_CATALOG_SUFFIX)
 
 
 def attempt_log_paths(chat_id: str) -> List[str]:
     return [f"/tmp/cc-{chat_id}{suffix}" for suffix in ATTEMPT_LOG_SUFFIXES]
 
 
+def model_catalog_path(chat_id: str) -> str:
+    return f"/tmp/cc-{chat_id}{MODEL_CATALOG_SUFFIX}"
+
+
 def reset_attempt_logs_shell(chat_id: str) -> str:
-    """Remove this attempt's stdout, stderr, stdin and exit files."""
+    """Remove this attempt's stdout, stderr, stdin, exit and model-catalog files."""
     quoted = " ".join(_shell_quote(path) for path in attempt_log_paths(chat_id))
     return f"rm -f {quoted} 2>/dev/null || true"
 

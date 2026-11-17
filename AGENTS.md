@@ -440,7 +440,13 @@ exceptions noted):
   per exact API model id. Codex closeout prefers the window and final-request
   occupancy from that thread's rollout; this table is the badge-denominator
   fallback when the rollout read misses. The badge numerator is that
-  final-request occupancy, otherwise the turn delta.
+  final-request occupancy, otherwise the turn delta. A Codex launch also feeds
+  the CLI a per-launch `model_catalog_json` built from the node's bundled
+  catalog plus this row: the resolved bundled entry (or the generic `gpt-5.2`
+  template for a CLI-unknown slug, identity neutralized, `comp_hash` cleared)
+  reports `context_window` = `max_context_window` = the row at 100% effective,
+  so the reported window is the real one and auto-compaction starts at 90%. A
+  missing row, an exam run, or a dump/staging failure launches unchanged.
   `init_db` creates the table and does not seed it. Fifteen applied rows are
   OpenRouter `context_length` values for bot-list models, including
   `gpt-6.1-sol` = 1050000, plus alias rows `opus[1m]`, `sonnet[1m]`, `fable`,

@@ -17,6 +17,8 @@ relaunches the same thread with that message as the next prompt.
 """
 
 import asyncio
+import copy
+import io
 import json
 import re
 import threading
@@ -605,6 +607,166 @@ class CodexStreamConverter:
         return messages
 
 
+# Codex resolves model metadata from its bundled catalog and falls back to
+# 272,000 / 95% for slugs it does not know, so a 1M-context relay model would
+# report 258,400 usable tokens and compact early. A per-launch
+# `model_catalog_json` is the only lever that raises both the reported window
+# and the auto-compaction threshold.
+_CODEX_GENERIC_TEMPLATE_SLUG = "gpt-5.2"
+_CODEX_NEUTRAL_IDENTITY = "You are a coding agent running in the Codex CLI"
+_CODEX_IDENTITY_RE = re.compile(r"^You are [^\n]*? running in the Codex CLI")
+
+
+def _bundled_model_entries(bundled) -> List[Dict]:
+    models = bundled.get("models") if isinstance(bundled, dict) else None
+    if not isinstance(models, list):
+        return []
+    return [
+        entry for entry in models
+        if isinstance(entry, dict) and isinstance(entry.get("slug"), str) and entry["slug"]
+    ]
+
+
+def _longest_prefix_entry(model: str, entries: List[Dict]) -> Optional[Dict]:
+    """Codex's bundled lookup: the longest catalog slug that prefixes the model."""
+    best = None
+    for entry in entries:
+        if not model.startswith(entry["slug"]):
+            continue
+        if best is None or len(entry["slug"]) > len(best["slug"]):
+            best = entry
+    return best
+
+
+def _namespaced_suffix(model: str) -> Optional[str]:
+    """One leading provider segment, matching Codex's narrow namespaced retry."""
+    namespace, sep, suffix = model.partition("/")
+    if not sep or not namespace or not suffix or "/" in suffix:
+        return None
+    if not all(
+        ("a" <= char <= "z") or ("A" <= char <= "Z") or ("0" <= char <= "9") or char in "_-"
+        for char in namespace
+    ):
+        return None
+    return suffix
+
+
+def _resolve_bundled_entry(model: str, entries: List[Dict]) -> Optional[Dict]:
+    found = _longest_prefix_entry(model, entries)
+    if found is not None:
+        return found
+    suffix = _namespaced_suffix(model)
+    return _longest_prefix_entry(suffix, entries) if suffix else None
+
+
+def _neutralize_identity(text) -> str:
+    """Replace a bundled model's first-line identity with the CLI fallback one."""
+    if not isinstance(text, str):
+        return text
+    first, sep, rest = text.partition("\n")
+    first, count = _CODEX_IDENTITY_RE.subn(_CODEX_NEUTRAL_IDENTITY, first, count=1)
+    return first + sep + rest if count else text
+
+
+def build_codex_model_catalog(bundled, model, window):
+    """Build a full Codex catalog whose entry for ``model`` reports ``window``.
+
+    ``bundled`` is the parsed `codex debug models --bundled` payload. A bundled
+    entry for the model (exact, longest prefix, or one namespaced suffix) is
+    cloned, so its tools and prompt stay intact. A CLI-unknown slug clones the
+    generic gpt-5.2 template with its identity neutralized and `comp_hash`
+    cleared. `window` becomes both the report and the hard cap, with 100%
+    effective so the reported window is the real one; Codex still starts
+    auto-compaction at 90%. Returns ``None`` when there is nothing to build.
+    """
+    if not isinstance(model, str) or not model.strip():
+        return None
+    if isinstance(window, bool) or not isinstance(window, int) or not 0 < window <= 2_147_483_647:
+        return None
+    model = model.strip()
+    entries = _bundled_model_entries(bundled)
+    if not entries:
+        return None
+
+    source = _resolve_bundled_entry(model, entries)
+    template = source is None
+    if template:
+        source = next(
+            (entry for entry in entries if entry["slug"] == _CODEX_GENERIC_TEMPLATE_SLUG), None,
+        )
+    if source is None:
+        return None
+
+    entry = copy.deepcopy(source)
+    entry["slug"] = model
+    entry["display_name"] = model
+    entry["context_window"] = window
+    entry["max_context_window"] = window
+    entry["auto_compact_token_limit"] = None
+    entry["effective_context_window_percent"] = 100
+    if template:
+        entry["comp_hash"] = None
+        messages = entry.get("model_messages")
+        if isinstance(messages, dict) and isinstance(messages.get("instructions_template"), str):
+            messages["instructions_template"] = _neutralize_identity(
+                messages["instructions_template"]
+            )
+        if isinstance(entry.get("base_instructions"), str):
+            entry["base_instructions"] = _neutralize_identity(entry["base_instructions"])
+
+    models = [item for item in bundled["models"] if isinstance(item, dict) and item.get("slug") != model]
+    models.append(entry)
+    catalog = dict(bundled)
+    catalog["models"] = models
+    return catalog
+
+
+def _dump_bundled_catalog(client, cmd: List[str], node) -> Optional[Dict]:
+    """Read the node's bundled catalog with the same binary and PATH as the launch."""
+    binary = cmd[0] if cmd else "codex"
+    prefix = f"env PATH={_shell_quote(node.path)} " if getattr(node, "path", None) else ""
+    raw = _ssh_exec(client, f"{prefix}{_shell_quote(binary)} debug models --bundled")
+    payload = json.loads(raw)
+    return payload if isinstance(payload, dict) else None
+
+
+def _catalog_from_node(client, cmd, node, model, window) -> Optional[Dict]:
+    """Best-effort launch catalog. Any dump or parse failure keeps the launch as-is."""
+    try:
+        bundled = _dump_bundled_catalog(client, cmd, node)
+        if bundled is None:
+            logger.warning("codex bundled catalog dump returned no catalog model={}", model)
+            return None
+        catalog = build_codex_model_catalog(bundled, model, window)
+    except Exception as exc:
+        logger.warning(
+            "codex bundled catalog dump failed model={} error={}", model, type(exc).__name__,
+        )
+        return None
+    if catalog is None:
+        logger.warning("codex model catalog not built model={} window={}", model, window)
+    return catalog
+
+
+def _stage_model_catalog(client, cmd: List[str], chat_id: str, catalog_text: str) -> None:
+    """Write the catalog on the node and only then point Codex at it."""
+    from agent.detach import model_catalog_path
+
+    path = model_catalog_path(chat_id)
+    try:
+        sftp = client.open_sftp()
+        try:
+            sftp.putfo(io.BytesIO(catalog_text.encode("utf-8")), path)
+        finally:
+            sftp.close()
+    except Exception as exc:
+        logger.warning(
+            "codex model catalog staging failed chat_id={} error={}", chat_id, type(exc).__name__,
+        )
+        return
+    cmd.extend(["-c", f'model_catalog_json="{path}"'])
+
+
 def _codex_build_exec(cmd: List[str], chat_id: str, prompt: str, images: Optional[List[str]] = None) -> str:
     """Build `codex ... -- <prompt> < /dev/null`.
 
@@ -626,11 +788,23 @@ def _codex_parse_initial(obj: Dict) -> Optional[str]:
     return None
 
 
-def _codex_spec() -> "DetachBackendSpec":
+def _codex_spec(model_catalog: Optional[Tuple[List[str], str]] = None) -> "DetachBackendSpec":
+    """Codex launch hooks. ``model_catalog`` is ``(cmd, catalog_json_text)``.
+
+    The catalog is staged after the attempt-log reset, and the ``-c`` flag is
+    appended only once the file exists, so a staging failure launches unchanged.
+    """
     from agent.detach import DetachBackendSpec
+    setup = None
+    if model_catalog is not None:
+        catalog_cmd, catalog_text = model_catalog
+
+        def setup(client, chat_id, prompt, images):
+            _stage_model_catalog(client, catalog_cmd, chat_id, catalog_text)
     return DetachBackendSpec(
         build_exec=_codex_build_exec,
         parse_initial=_codex_parse_initial,
+        setup=setup,
     )
 
 
@@ -644,22 +818,46 @@ async def start_detached_codex_ssh(
     images: Optional[List[str]] = None,
     ssh_client=None,
     unset_env: Optional[List[str]] = None,
+    model: Optional[str] = None,
+    context_window: Optional[int] = None,
 ) -> Optional[str]:
     """Start `codex exec` in a detached tmux session on the chat's node.
 
     Codex takes the prompt as a positional argument and does not read
     stream-json stdin. stdout / stderr / exit files use `/tmp/cc-<chat_id>.*`.
+    When the model has a known context window, the node's bundled catalog is
+    cloned into a per-launch catalog so Codex reports and uses that window.
 
     Returns the thread_id from the initial `thread.started` event, else None.
     """
-    from agent.detach import _start_detached_tmux
+    from agent.detach import _start_detached_tmux, _with_ssh_client
+
+    spec = _codex_spec()
+    build_catalog = bool(model) and bool(context_window)
+    if build_catalog:
+        with _with_ssh_client(node, ssh_client) as client:
+            catalog = _catalog_from_node(client, cmd, node, model, context_window)
+            if catalog is not None:
+                spec = _codex_spec((cmd, json.dumps(catalog)))
+            return await _start_detached_tmux(
+                cmd=cmd,
+                prompt=prompt,
+                cwd=cwd,
+                chat_id=chat_id,
+                node=node,
+                spec=spec,
+                env=env,
+                images=images,
+                ssh_client=client,
+                unset_env=unset_env,
+            )
     return await _start_detached_tmux(
         cmd=cmd,
         prompt=prompt,
         cwd=cwd,
         chat_id=chat_id,
         node=node,
-        spec=_codex_spec(),
+        spec=spec,
         env=env,
         images=images,
         ssh_client=ssh_client,
