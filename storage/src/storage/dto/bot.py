@@ -101,7 +101,7 @@ def tiers_of(config) -> List[str]:
     return list(tier_weights_of(config))
 
 
-AGENTIC_BACKENDS = ("claude_code", "codex")
+AGENTIC_BACKENDS = ("claude_code", "codex", "pi")
 _ENTRY_KEYS = {"backend", "base_url", "model"}
 
 
@@ -119,8 +119,8 @@ def _row_entry(config) -> dict:
 
 def _parse_entries(value, *, strict: bool, row_model: str = "") -> Optional[List[dict]]:
     try:
-        if not isinstance(value, list) or not 1 <= len(value) <= 2:
-            raise ValueError("backends must be 1 or 2 connection entries")
+        if not isinstance(value, list) or not 1 <= len(value) <= len(AGENTIC_BACKENDS):
+            raise ValueError("backends must be 1 to 3 connection entries")
         cleaned = []
         seen = set()
         for index, item in enumerate(value):
@@ -133,7 +133,7 @@ def _parse_entries(value, *, strict: bool, row_model: str = "") -> Optional[List
             base_url = item.get("base_url")
             model = item.get("model")
             if not isinstance(backend, str) or backend not in AGENTIC_BACKENDS:
-                raise ValueError("backend must be claude_code or codex")
+                raise ValueError("backend must be claude_code, codex or pi")
             if backend in seen:
                 raise ValueError(f"duplicate backend {backend}")
             if not isinstance(base_url, str) or not base_url.strip():
@@ -196,8 +196,8 @@ def entry_names(config) -> List[str]:
     return [entry["backend"] for entry in backend_entries_of(config)]
 
 
-def has_codex_entry(config) -> bool:
-    return "codex" in entry_names(config)
+def has_relay_only_entry(config) -> bool:
+    return any(backend in ("codex", "pi") for backend in entry_names(config))
 
 
 def entry_for(config, backend: str) -> dict:
@@ -268,9 +268,9 @@ def effective_openrouter_config(bot_config) -> Optional[Dict]:
 # Known providers ignore the stored path. Relay is a cr_ key, not a host.
 # An empty mount means the bare origin.
 _PROVIDER_PATHS = {
-    "relay": {"claude_code": "/api", "codex": "/openai", "openai": "/api/v1"},
-    "api.deepseek.com": {"claude_code": "/anthropic", "codex": "", "openai": ""},
-    "openrouter.ai": {"claude_code": "/api", "codex": "/api/v1", "openai": "/api/v1"},
+    "relay": {"claude_code": "/api", "pi": "/api", "codex": "/openai", "openai": "/api/v1"},
+    "api.deepseek.com": {"claude_code": "/anthropic", "pi": "/anthropic", "codex": "", "openai": ""},
+    "openrouter.ai": {"claude_code": "/api", "pi": "/api", "codex": "/api/v1", "openai": "/api/v1"},
 }
 
 

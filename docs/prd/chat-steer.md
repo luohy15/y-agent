@@ -24,8 +24,8 @@ Sending a message to a running chat requires no special UI or command: the
 message is appended to the chat like any other, but no new worker task is
 enqueued. The already-running worker polls the chat for new user messages every
 couple of seconds and delivers each one into the live agent session. Claude
-Code print mode accepts mid-run input through its stdin pipe. `codex exec` has
-no input channel, so a Codex steer ends the running turn and the same thread
+Code print mode accepts mid-run input through its stdin pipe. `codex exec` and pi print mode have
+no input channel, so their steer ends the running turn and the same native session
 resumes with the pending message as the next prompt. An accepted message is
 either completed by that session or assigned to one serialized continuation. A
 successful stdin-file write is not evidence of consumption.
@@ -79,6 +79,12 @@ worker/VM crashes.
   the message by polling the database. Only an idle chat gets a new worker
   task. All ingestion surfaces (web/API send, cross-skill notify, Telegram)
   share this append-or-steer rule.
+- **Pi steer uses the same end-turn contract** (todo 4357). Kill the detached
+  process with the self-kill sentinel, complete the launch input group, and
+  leave the new message pending for the serialized continuation. Resume via
+  `pi --session <id>` in the same work dir. `agent_end` during retry is not a
+  terminal signal; only `agent_settled` or a clean non-retrying EOF settles
+  ordinary completion. Interrupt takes priority over steer.
 - **Codex steer ends the turn instead of writing stdin.** `codex exec` has no
   mid-run input channel, so the Codex tail's poll loop stops the session when a
   steer is accepted, retires the run's launch input, and reports a completed

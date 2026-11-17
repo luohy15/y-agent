@@ -213,6 +213,10 @@ is preferred and mirrored into the row columns. NULL derives one entry from
 those columns. Apply migration/4349_bot_backends.sql before deploying this
 host. The bot module requires v37 and is published after; do not edit bots
 through an older module in between.
+Todo 4357 bumps 37 to 38: pi is an agentic backend and BotConfig.backends
+accepts up to three unique connection entries. Deploy host v38 before publishing
+the Bot module that offers pi and declares min_backend_version 38. The chat
+backend rename is a separate data-only migration after deployed acceptance.
 """
 
 from __future__ import annotations
@@ -231,8 +235,8 @@ from storage.project_key import ProjectKeyError as ProjectKeyError, normalize_pr
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-# v37: bot connection entries in BotConfig.backends (todo 4349).
-BACKEND_CONTRACT_VERSION = 37
+# v38: pi agentic connection entries and detached runtime (todo 4357).
+BACKEND_CONTRACT_VERSION = 38
 
 # Wall-clock budget for the wake="nowait" readiness check (todo 3777).
 NOWAIT_BUDGET_SECONDS = 1.0

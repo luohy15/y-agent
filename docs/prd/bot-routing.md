@@ -71,7 +71,7 @@ request usage can trigger the gate; launch averages remain display-only.
 3. As a user, I want a backend filter (for example perplexity) to narrow
    candidates to enabled configs with that effective backend, so that I can
    choose the runtime family without knowing config names. Agentic backends are
-   `claude_code` and `codex` (todo 4304). `gemini_cli`, `grok_build`, and
+   `claude_code`, `codex`, and `pi` (todo 4357). `gemini_cli`, `grok_build`, and
    `pi_cli` stay removed (todo 2930). The filter also separates those from the
    inline query backends (`perplexity`, `openai`, `xai_web`, `xai_x`).
 4. As a user, I want a chat with no bot, backend, or tier specified to
@@ -297,19 +297,19 @@ request usage can trigger the gate; launch averages remain display-only.
   a backend from `external_id`. A message into a running chat skips the API
   check and steers the in-flight turn. The refusal exists because the inline
   query backends (`perplexity`, `openai`, `xai_web`, `xai_x`) have no
-  session at all, and because `claude_code` and `codex` (todo 4304) each
+  session at all, and because `claude_code`, `codex`, and `pi` (todo 4357) each
   resume a different native session. `gemini_cli`, `grok_build`, and
   `pi_cli` stay removed (todo 2930).
 - **Connection entries (todo 4349).** `bot_config.backends` is a nullable
-  ordered array of `{backend, base_url, model?}`. Only `claude_code` and
-  `codex` may appear, at most two, and `backend` values are unique. Entry 0
+  ordered array of `{backend, base_url, model?}`. Only `claude_code`,
+  `codex`, and `pi` may appear, at most three, and `backend` values are unique. Entry 0
   is preferred and is mirrored into row `backend`, `base_url`, and `model`
   for legacy readers and effort binding. NULL derives one entry from those
   columns, so existing rows need no backfill. A malformed array falls back
   to that single derived entry and never broadens support. Inline bots stay
   on the row columns and cannot set the array. `api_key` stays row-level.
   Launch reads the entry for `chat.backend` and uses that entry's base URL
-  and model. Subscription auth is `claude_code` only, so a codex entry and
+  and model. Subscription auth is `claude_code` only, so codex/pi entries and
   subscription tiers cannot be set together. A new chat may pass `backend`
   (`y chat --new --backend`); a later send that includes it is a 400.
 - **A bot change takes effect on the chat's next run.** Bot resolution

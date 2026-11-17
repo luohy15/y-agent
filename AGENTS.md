@@ -223,13 +223,13 @@ entity + controller + service + CLI slices, and most have a web panel.
   conventional `common` (vendored at publish). Rollback/activate change code only;
   delete removes deployed metadata/bytes, not source/tables. No worker half:
   deterministic work is `routine` `vm_command`; judgment stays chat dispatch.
-  Backend host contract (`agent.module_host`) is **v37** (todo 3627's v18 adds
+  Backend host contract (`agent.module_host`) is **v38** (todo 3627's v18 adds
   owner-bound no-wake VM execution; v19 / v20 are todos 3777 / 3781; v21 adds the
   maintainer-bound `mcp_*` connector capabilities of todo 3796; v22 is its round 2
   loopback OAuth start/complete; v23 adds the private photo object primitives,
   `published_module_json`, and module tag-carrier helpers of todo 3838; v24 adds
   Pillow / pillow-heif to the API runtime for the Photo module, todo 3879; v25 adds
-  optional `filenames` to `photo_authorize_get_batch` for attachment downloads, todo 3879; v26 adds owner-bound `dev_worktree_*` and pure `normalize_project_key` / `ProjectKeyError` exports, todo 3941; v27 adds request-owner-bound `bot_config_set_effort_capability`, todo 4067; v29 adds pure `bot_tier_pools(configs)` and nonempty bot tier sets with independent per-tier weights, todo 4103; v33 adds owner-bound `bot_config_set_sub_ref`, todo 4224; v34 adds `execution_target` to `chat_list` rows, todo 4246; v35 adds chunked voice upload, todo 4275; v36 adds explicit unusual-tag acknowledgement and atomic existing-vocabulary-only membership writes, todo 4277; v37 adds `BotConfig.backends`, an ordered list of per-backend connection entries whose first entry is preferred, todo 4349). The tag module owns
+  optional `filenames` to `photo_authorize_get_batch` for attachment downloads, todo 3879; v26 adds owner-bound `dev_worktree_*` and pure `normalize_project_key` / `ProjectKeyError` exports, todo 3941; v27 adds request-owner-bound `bot_config_set_effort_capability`, todo 4067; v29 adds pure `bot_tier_pools(configs)` and nonempty bot tier sets with independent per-tier weights, todo 4103; v33 adds owner-bound `bot_config_set_sub_ref`, todo 4224; v34 adds `execution_target` to `chat_list` rows, todo 4246; v35 adds chunked voice upload, todo 4275; v36 adds explicit unusual-tag acknowledgement and atomic existing-vocabulary-only membership writes, todo 4277; v37 adds `BotConfig.backends`, an ordered list of per-backend connection entries whose first entry is preferred, todo 4349; v38 adds the `pi` backend and up to three connection entries, todo 4357). The tag module owns
   `/api/module/tag/*`, the lazy `y tag` CLI, and the `artifact:tag` panel; the
   host retains the `entity_tag` projection, normalization, carrier sync and
   cleanup, resolver hydration (todo rows carry `updated_at_unix` for client
@@ -357,13 +357,20 @@ entity + controller + service + CLI slices, and most have a web panel.
 
 The repo no longer contains an in-process agent loop — the worker shells out.
 
-- **Backends** — agentic CLIs are `claude_code` (`agent/src/agent/claude_code.py`) and
-  `codex` (`agent/src/agent/codex.py`, restored in todo 4304 on Codex CLI `exec --json`).
+- **Backends** — agentic CLIs are `claude_code`, `codex`, and `pi`. Claude Code
+  lives in `agent/src/agent/claude_code.py`; Codex lives in `agent/src/agent/codex.py`
+  (restored in todo 4304 on Codex CLI `exec --json`).
   A codex bot must set `base_url` and `api_key`; the key is `OPENAI_API_KEY`, not an argv
   flag. The thread id is `chat.external_id` and later turns resume it. A message sent
   while `codex exec` is running ends that turn, and the continuation resumes the thread
-  with it. `gemini_cli`, `grok_build`, and
-  `pi_cli` stay removed (todo 2930). Anything else is rejected instead of falling through
+  with it. `pi` (`agent/src/agent/pi_cli.py`, pi.dev 1.5.2) uses
+  `anthropic-messages`, a per-launch merged `y-<bot>` models.json provider, and
+  `Y_PI_API_KEY` in the environment. Its session id is `chat.external_id`;
+  only matching work dirs resume. `agent_settled` completes the turn after
+  retries; `agent_end` is accepted only at clean exit without a retry. Pi steer
+  ends the turn and the continuation resumes its session. Pi usage and effort
+  mapping are not implemented. `gemini_cli`, `grok_build`, and the old `pi_cli`
+  backend name stay removed (todo 2930). Anything else is rejected instead of falling through
   to `claude_code`. The non-agentic inline backends stay:
   `perplexity` (`agent/src/agent/perplexity.py`, the `px` web fact-check), `openai`
   (`agent/src/agent/openai_chat.py`, `POST /api/inline` and `POST /api/link/tldr`, both using the `inline` bot), and

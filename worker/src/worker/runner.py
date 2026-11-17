@@ -596,7 +596,7 @@ def _abort_unlaunched(chat, chat_id: str, user_id: int, exc: Exception) -> None:
 
 
 async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, role: str = None, skill: str = None, resume_5xx_retries: int = 0, run_seq: int = None, continuation_from_id: str = None, handled_input_ids=None, codex_refusal_retries: int = 0) -> str:
-    """Execute a chat round. Inline backends run in-process; claude_code and codex detach to tmux.
+    """Execute a chat round. Inline backends run in-process; claude_code, codex and pi detach to tmux.
 
     bot_name, user_id, vm_name, work_dir, and post_hooks are passed from the queue message.
     The launch backend is chat.backend, or the resolved bot's preferred backend when
@@ -1148,6 +1148,64 @@ def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: s
     }
 
 
+def pi_resume_session(stored_backend, external_id, work_dir_matches):
+    """Never pass a foreign backend's handle to pi."""
+    if stored_backend and stored_backend != "pi":
+        raise agent_config.BackendMismatchError(chat_backend=stored_backend, other_backend="pi")
+    return external_id if external_id and work_dir_matches else None
+
+
+def build_pi_cmd(provider, session_id=None):
+    name, definition = provider
+    cmd = ["pi", "-p", "--mode", "json", "--approve",
+           "--model", f"{name}/{definition['models'][0]['id']}"]
+    if session_id:
+        cmd.extend(["--session", session_id])
+    return cmd
+
+
+def build_pi_env(bot_config, chat_id=None, trace_id=None, role=None, last_message_id=None):
+    env = build_codex_env(bot_config, chat_id, trace_id, role, last_message_id)
+    env["Y_PI_API_KEY"] = env.pop("OPENAI_API_KEY")
+    return env
+
+
+def _build_pi_params(chat, chat_id, user_id, bot_config, vm_name=None,
+                     work_dir=None, trace_id=None, role=None,
+                     continuation_from_id=None, handled_input_ids=None, entry=None):
+    from agent.chat_target import layout
+    from agent.pi_models import build_pi_provider
+
+    messages = list(chat.messages)
+    selected = select_run_inputs(messages, continuation_from_id, handled_input_ids)
+    prompt, images = _prompt_from_inputs(selected)
+    resolve_reasoning_effort(selected, "pi")
+    node = layout(user_id, getattr(chat, "execution_target", None))
+    cwd = work_dir or node.work_dir or os.path.expanduser(os.environ.get("VM_WORK_DIR_CLI") or os.getcwd())
+    session_id = pi_resume_session(chat.backend, chat.external_id, chat.work_dir == cwd)
+    model = _entry_model(entry, bot_config)
+    context_window = None
+    if model:
+        try:
+            from storage.service import model_context
+            context_window = model_context.get_context_window(model)
+        except Exception as exc:
+            logger.warning("pi context window query failed: chat_id={} error={}", chat_id, type(exc).__name__)
+    provider = build_pi_provider(bot_config, entry, model, context_window)
+    cmd = build_pi_cmd(provider, session_id)
+    last_message_id = messages[-1].id if messages else None
+    env = validate_launch_env(getattr(chat, "launch_env", None), strict=False)
+    env.update(build_pi_env(bot_config, chat_id, trace_id, role, last_message_id))
+    return {
+        "prompt": with_codex_skill_preamble(prompt, chat.skill, bool(session_id)),
+        "images": images, "input_ids": [m.id for m in selected if m.id],
+        "cmd": cmd, "env": env, "unset_env": [], "cwd": cwd, "node": node,
+        "session_id": session_id, "resume": bool(session_id),
+        "last_message_id": last_message_id, "model": model,
+        "provider": provider, "messages": messages,
+    }
+
+
 def _persist_routing(chat_id, user_id, backend, bot_name, tier):
     """Write the accepted bot only after the last refusal check has passed."""
     from storage.repository import chat as chat_repo
@@ -1169,7 +1227,7 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
                            next_backend=None, next_bot=None, next_tier=None,
                            entry: dict = None,
                            codex_refusal_retries: int = 0) -> None:
-    """Start claude_code or codex as a detached tmux process on the chat node.
+    """Start claude_code, codex or pi as a detached tmux process on the chat node.
 
     Called from run_chat after chat loading, trace setup, and running flag are done.
     Starts tmux, registers in DynamoDB, returns immediately.
@@ -1188,6 +1246,11 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
                                      continuation_from_id=continuation_from_id,
                                      handled_input_ids=handled_input_ids,
                                      entry=entry)
+    elif effective_backend == "pi":
+        params = _build_pi_params(chat, chat_id, user_id, bot_config,
+                                  vm_name=vm_name, work_dir=work_dir, trace_id=trace_id, role=role,
+                                  continuation_from_id=continuation_from_id,
+                                  handled_input_ids=handled_input_ids, entry=entry)
     elif effective_backend == "claude_code":
         params = _build_claude_code_params(chat, chat_id, user_id, bot_config,
                                             vm_name=vm_name, work_dir=work_dir,
@@ -1248,6 +1311,13 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
             unset_env=params.get("unset_env"),
             model=params.get("model"),
             context_window=params.get("context_window"),
+        )
+    elif effective_backend == "pi":
+        from agent.pi_cli import start_detached_pi_ssh
+        session_id = await start_detached_pi_ssh(
+            cmd=params["cmd"], prompt=params["prompt"], cwd=cwd, chat_id=chat_id,
+            node=node, env=params["env"], images=params.get("images"),
+            unset_env=params.get("unset_env"), provider=params["provider"],
         )
     else:
         from agent.claude_code import start_detached_ssh

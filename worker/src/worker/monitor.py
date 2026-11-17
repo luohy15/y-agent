@@ -291,6 +291,23 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             pending_result=_load_json_field(proc, "pending_result") or None,
             resume_thread_id=proc.get("resume_thread_id"),
         )
+    elif backend_type == "pi":
+        from agent.pi_cli import tail_pi_output
+        result = await tail_pi_output(
+            chat_id=chat_id,
+            node=node,
+            offset=offset,
+            last_message_id=last_message_id,
+            message_callback=_msg_callback,
+            check_interrupted_fn=_check_interrupted,
+            check_deadline_fn=_check_deadline,
+            check_steer_fn=steer_fn,
+            ssh_client=client,
+            input_ledger=ledger,
+            launch_input_uuid=launch_input_uuid,
+            pending_result=_load_json_field(proc, "pending_result") or None,
+            session_id=proc.get("session_id"),
+        )
     else:
         result = await tail_ssh_output(
             chat_id=chat_id,
@@ -722,6 +739,12 @@ def _apply_completion_metadata(fresh, result: dict, result_data: dict, proc: dic
         _apply_codex_completion(
             fresh, result, result_data, proc, chat_id, cwd_matches, codex_turn=codex_turn,
         )
+        return
+
+    if proc.get("backend_type") == "pi":
+        session_id = result.get("session_id") or proc.get("session_id")
+        if session_id and cwd_matches:
+            fresh.external_id = session_id
         return
 
     effective_session_id = result.get("session_id") or proc.get("session_id")

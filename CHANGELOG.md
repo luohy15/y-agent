@@ -14,6 +14,8 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Added
 
+- **Pi backend (4357)**: `pi` runs pi.dev in detached sessions, resumes its own session, streams tool/text events, and ends the turn on steer. Completion waits for retries to settle. Host contract v38 accepts up to three bot connection entries; provider credentials stay off argv.
+
 - **Codex backend (4304)**: a bot with backend `codex` runs `codex exec` on the chat's node, streams Bash and file-change tool calls into the chat, and resumes its Codex thread on the next turn. A message sent mid-run ends that turn and is answered on the same thread, the same way a Claude Code steer adjusts course without waiting. The bot must set a relay `base_url` and `api_key`. Claude Code chats are unchanged.
 - **Namespaced agents publishing (4235, 4240, 4250)**: `y skills check|export|publish` builds an agents tree from `~/.agents` by composing the registered namespace chain. `work` reads namespace module rules and fails closed when the module is unavailable, and publish stays dry-run unless `--run` is passed. `private/` is the reserved overlay directory, and a stale `local/` reference fails closed.
 - **Chat list execution target (4246)**: chat list rows carry `execution_target` (backend contract v34), so the sidebar can badge the node without opening the chat. An empty value means the default node.

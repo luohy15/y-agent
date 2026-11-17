@@ -364,10 +364,12 @@ mode (`-i`) serves a human at a terminal.
     creates duplicate runs.
 43. As a user, I want each chat's backend fixed at first run, so that
     changing my default bot never migrates an existing conversation between
-    agent backends mid-session. Agentic backends are `claude_code` and `codex`
-    (todo 4304). This pins a chat to the runtime that owns its native session
+    agent backends mid-session. Agentic backends are `claude_code`, `codex`, and `pi`
+    (todo 4357). This pins a chat to the runtime that owns its native session
     and keeps that session resumable, and it still pins a chat away from the
-    inline query backends. A codex chat stores the Codex thread id.
+    inline query backends. A codex chat stores the Codex thread id; a pi chat
+    stores its pi session id. Pi also ends a running turn on steer and resumes
+    its native session with the pending message.
     `codex exec` has no live input channel: a message sent while that turn is
     running ends the turn, and the same thread resumes with that message as
     the next prompt (the chat-steer PRD owns the delivery mechanics). The bot
@@ -652,7 +654,7 @@ mode (`-i`) serves a human at a terminal.
   can set it.
 - **Backend dispatch in the worker**: Perplexity and OpenAI-style backends run
   inline (message-list in, reply out, no VM). Agentic CLI backends are
-  `claude_code` and `codex` (todo 4304). Both launch as a detached tmux
+  `claude_code`, `codex`, and `pi` (todo 4357). All launch as a detached tmux
   subprocess on the chat's node over SSH, are registered in a process table
   (DynamoDB) for monitoring, and are tailed by a monitor loop that appends each
   streamed event as a chat message. Each resumes its own native session.
@@ -664,7 +666,7 @@ mode (`-i`) serves a human at a terminal.
   `external_id`; a follow-up resumes it only when the chat's stored work dir
   matches the resolved cwd, otherwise a fresh session starts. Work-dir
   conflicts on send are rejected, not silently rebased. The column rule applies
-  to both agentic backends. A refused handle is cleared only on that backend's
+  to all three agentic backends. A refused handle is cleared only on that backend's
   own positive evidence (todo 2930 for Claude Code, todo 4326 for Codex).
   - **The `external_id` column is authoritative.** `chat` persists the field
     both in its `json_content` blob and as a promoted column; the column is
@@ -689,6 +691,20 @@ mode (`-i`) serves a human at a terminal.
     handle, whatever the column currently holds: the refusal names the id it
     rejected, so persisting it would resurrect a dead handle into a column
     cleared out of band (by migration SQL) while the turn was in flight.
+  - **Pi session and completion contract** (todo 4357). A pi launch never
+    resumes a foreign backend's handle; a work-dir mismatch starts fresh.
+    Missing/refused pi sessions fail without automatic fresh-session retry.
+    Pi 1.5.2 runs `-p --mode json --approve`, inheriting node settings/extensions.
+    A provider requires base URL, model, and key; the per-launch atomic
+    models.json merge changes only `y-<bot>`, uses `anthropic-messages` with
+    `authHeader: true`, and references `$Y_PI_API_KEY` (never a key on argv).
+    Known model context windows are included; otherwise pi's default applies.
+    `agent_end` may precede automatic retries/compaction and never completes a
+    live run. `agent_settled` is terminal; an `agent_end` with `willRetry: false`
+    is also accepted at clean EOF with exit 0 and a dead process. An assistant
+    error remains an error unless a later successful retry replaces it.
+    Startup failures use the shared bounded/redacted stderr diagnostic.
+    Pi usage accounting and reasoning-effort mapping remain out of scope.
   - **A Codex launch never resumes another backend's handle** (todo 4326).
     Continuation routing is todo 4328: a stored bot that now resolves to
     another backend fails the launch, and the stored `external_id` stays.
