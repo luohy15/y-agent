@@ -78,6 +78,7 @@ import {
   artifactLabel,
   artifactSlugFromPanel,
   artifactTabKey,
+  isDetailOnlyArtifact,
   isPersistableTab,
   modulesFromPayload,
   mountableUiArtifacts,
@@ -663,7 +664,8 @@ export default function App() {
   useEffect(() => {
     if (uiArtifactsLoading) return;
     const slug = artifactSlugFromPanel(sidebarPanel);
-    if (slug && !uiArtifactBySlug.has(slug)) setSidebarPanel("artifact:todo");
+    const artifact = slug ? uiArtifactBySlug.get(slug) : undefined;
+    if (slug && (!artifact || isDetailOnlyArtifact(artifact))) setSidebarPanel("artifact:todo");
   }, [sidebarPanel, uiArtifactBySlug, uiArtifactsLoading]);
 
   const handlePreviewFile = useCallback((
@@ -1614,6 +1616,7 @@ export default function App() {
           }}
           activePanel={sidebarPanel}
           onSelectPanel={setSidebarPanel}
+          onOpenDetail={(slug) => handleOpenFile(artifactTabKey(slug))}
           email={auth.email}
           gsiReady={auth.gsiReady}
           onLogout={handleLogout}
@@ -1644,6 +1647,7 @@ export default function App() {
             onToggleSidebar={() => applySurface({ type: "toggle", surface: "left" })}
             activePanel={sidebarPanel}
             onSelectPanel={(panel) => { setSidebarPanel(panel); applySurface({ type: "open", surface: "left" }); }}
+            onOpenDetail={(slug) => { handleOpenFile(artifactTabKey(slug)); applySurface({ type: "close", surface: "activity" }); }}
             email={auth.email}
             gsiReady={auth.gsiReady}
             onLogout={handleLogout}

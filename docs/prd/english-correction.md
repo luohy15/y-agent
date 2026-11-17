@@ -53,8 +53,7 @@ this delivery.
 6. As the user, I want to see a diff between my original text and the
    corrected version, computed from the stored original/corrected pair (not
    a separately stored diff) so I can quickly see what changed.
-7. As the user, I want a standalone panel (like the existing Notes/Entities/
-   Routine panels) listing my corrections, independent of the chat view, so
+7. As the user, I want an English detail tab with a Corrections list, independent of the chat view, so
    reviewing corrections never disrupts an ongoing conversation.
 8. As the user, I want to see my recurring error patterns (e.g. most frequent
    categories, counts over time) derived from the stored correction history,
@@ -71,7 +70,7 @@ this delivery.
     purge policy — same retention as the chat messages they're derived from.
 13. As the user, I want a CLI to write and inspect corrections
     (`y english ...`), mirroring the pattern of every other y-agent entity
-    (note/entity/finance/routine), so the skill and the web panel share one
+    (note/entity/finance/routine), so the skill and the web detail share one
     data path.
 14. As the user, I want personalized review exercises to be explicitly out of
     scope for this delivery, with the schema (error categories, occurrence
@@ -142,7 +141,7 @@ this delivery.
   `id` (PK), `user_id` (FK), `correction_id` (public string ID), `chat_id`
   (public chat id), `message_id` (the source message's own `id` field),
   `message_at` / `message_at_unix` (the source message's own timestamp, ISO
-  8601 and unix ms — the watermark math and every time shown in the panel
+  8601 and unix ms — the watermark math and every time shown in the detail
   refer to when the message was written, not when the hourly run stored it),
   `original_text` (the authored remainder after UI wrapper removal),
   `corrected_text`, `error_categories` (JSON string array, free-form categories
@@ -157,7 +156,7 @@ this delivery.
   - `y english add ...` — write path, called by the skill once per corrected
     message.
   - `y english list` / `y english get <correction_id>` — read path, shared by
-    manual inspection and the API controller backing the web panel.
+    manual inspection and the API controller backing the web detail.
   - `y english dismiss <correction_id>` — marks `dismissed=true`.
   - `y english pending [--limit N] [--since <unix|iso>]` — the skill's read
     path: emits the eligible unscanned messages as JSON (machine interface),
@@ -167,9 +166,10 @@ this delivery.
   - `list` supports the standard time-filter flag set (`--on` /
     `--from`/`--to` / `--created-on` etc.), canonical field `created_at`.
 - **API**: new controller under `api/src/api/controller/` following the
-  existing REST conventions (list/get/dismiss), consumed by the web panel.
-- **Web**: a new standalone panel (parallel to `NoteList` / `EntityList` /
-  `RoutineList`) listing corrections with diff + explanation + categories,
+  existing REST conventions (list/get/dismiss), consumed by the web detail.
+- **Web**: a detail-only English module with first-level Vocabulary, Corrections,
+  and Patterns tabs. Corrections owns its list and in-place record with a back link,
+  diff + explanation + categories,
   plus an aggregate recurring-patterns view (category counts over time,
   excluding dismissed rows) computed from the same list data — no separate
   rollup table in v1.
@@ -201,7 +201,7 @@ this delivery.
   quiz, etc.) is a separate future feature.
 - **Inline chat-bubble annotations** — corrections are not surfaced inside the
   live conversation view or its message bubbles (the `chat` module's `shell`
-  surface since todo 3042); the standalone panel is the only surface. Live,
+  surface since todo 3042); the standalone detail is the only surface. Live,
   in-conversation nudging is explicitly not this feature's job.
 - **Real-time/synchronous correction** — no per-message latency added to the
   live chat pipeline; hourly batch only.
@@ -216,8 +216,19 @@ this delivery.
 - **Vocabulary tracking** — word-level known/unknown state, seeded frequency
   word lists, and the scan-and-mark flow are owned by
   [english-vocabulary](english-vocabulary.md); this feature stays at the
-  message/grammar level. They share the English panel and `y english` CLI
+  message/grammar level. They share the English detail and `y english` CLI
   namespace but no tables.
 - **Replacing the `refine` skill** — `refine` remains the on-demand, explicit
   single-sentence helper in chat (and still logs `lifelog/english/YYYY-MM-DD.md`);
   this feature is the passive, automatic, historical counterpart.
+
+## Detail navigation
+
+The English module has no sidebar panel. Opening it from Modules or a pinned
+rail icon opens `ui:english`, landing on Vocabulary when no correction is selected.
+Corrections contains the existing search, status and category filters, rows and
+routine footer; selecting a row opens its record in place. Switching back to
+Corrections resets to the list. Patterns retains its existing aggregates.
+An `english.open` intent opens Corrections with the requested record; the stored
+`selectedCorrectionId` contract still restores its record. Local row clicks do
+not emit host commands. APIs, CLI, tables and stored data remain unchanged.

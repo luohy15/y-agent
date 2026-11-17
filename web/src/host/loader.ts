@@ -19,13 +19,14 @@ export interface ArtifactVersionRef {
 }
 
 // One artifact is one pluggable UI module defining up to three surfaces:
-//   export const panel   -> required, the ~280px left sidebar surface
+//   export const panel   -> optional, the ~280px left sidebar surface
 //   export const detail  -> optional, the center / full-width surface
 //   export const shell   -> optional, the persistent center-column surface
 //                            claimed via module_version.ui_surfaces (V1)
+// At least one of panel or detail is required.
 // `export default <Component>` is the shorthand for a panel-only artifact.
 export interface LoadedArtifact {
-  Panel: ComponentType<Record<string, never>>;
+  Panel: ComponentType<Record<string, never>> | null;
   Detail: ComponentType<Record<string, never>> | null;
   Shell: ComponentType<Record<string, never>> | null;
   css: string;
@@ -147,10 +148,10 @@ async function fetchAndVerify(url: string, expectedSha256: string): Promise<Load
   // `panel` is the canonical name; a bare default export is the panel-only
   // shorthand the starter template documents.
   const panel = typeof mod.panel === "function" ? mod.panel : mod.default;
-  if (typeof panel !== "function") {
+  if (typeof panel !== "function" && typeof mod.detail !== "function") {
     throw new ArtifactLoadError(
       "bundle",
-      "Bundle did not export a panel component (expected `export const panel` or a default export).",
+      "Bundle did not export a panel or detail component (expected `export const panel`, `export const detail`, or a default export).",
     );
   }
   // N1 (review round 2): `null` is accepted alongside `undefined` — an author
@@ -165,7 +166,7 @@ async function fetchAndVerify(url: string, expectedSha256: string): Promise<Load
     throw new ArtifactLoadError("bundle", "Bundle exported a `shell` that is not a component.");
   }
   return {
-    Panel: panel as LoadedArtifact["Panel"],
+    Panel: (typeof panel === "function" ? panel : null) as LoadedArtifact["Panel"],
     Detail: (typeof mod.detail === "function" ? mod.detail : null) as LoadedArtifact["Detail"],
     Shell: (typeof mod.shell === "function" ? mod.shell : null) as LoadedArtifact["Shell"],
     css: typeof mod.css === "string" ? mod.css : "",

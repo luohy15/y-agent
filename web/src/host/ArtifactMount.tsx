@@ -339,22 +339,21 @@ export default function ArtifactMount({
     );
   }
 
-  // A panel-only module still renders on the detail/shell surface: the route
-  // exists for every artifact (PRD story 15), it just shows the one surface
-  // the module defines.
+  // Use the available surface when a module defines only panel or detail.
+  // The loader guarantees at least one of these components exists.
   const Artifact =
     surface === "detail"
       ? (state.artifact.Detail ?? state.artifact.Panel)
       : surface === "shell"
-        ? (state.artifact.Shell ?? state.artifact.Panel)
-        : state.artifact.Panel;
+        ? (state.artifact.Shell ?? state.artifact.Panel ?? state.artifact.Detail)
+        : (state.artifact.Panel ?? state.artifact.Detail);
   const body = (
     <div data-y-artifact={slug} data-y-artifact-surface={surface} className="h-full">
       {/* The nonce keys the boundary, never the mount: the verified bundle is
           not re-fetched or re-hashed and the injected <style> does not churn,
           while the module subtree (and the boundary's own error state) resets. */}
       <RenderBoundary key={refreshNonce} onError={handleRenderError}>
-        <Artifact />
+        {Artifact && <Artifact />}
       </RenderBoundary>
     </div>
   );

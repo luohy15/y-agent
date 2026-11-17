@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
 import DOMPurify from "dompurify";
-import { artifactLabel, artifactPanelKey, mountableUiArtifacts, type Module } from "../host/artifacts";
+import { artifactLabel, artifactPanelKey, isDetailOnlyArtifact, mountableUiArtifacts, type Module } from "../host/artifacts";
 
 export interface PanelItem<Key extends string = string> {
   key: Key;
   label: string;
   icon: ReactNode;
+  opensDetail?: boolean;
 }
 
 export const DEFAULT_MODULE_ICON = (
@@ -85,6 +86,7 @@ export function buildModulePanelItems(artifacts: Module[]): PanelItem<`artifact:
     key: artifactPanelKey(artifact.slug),
     label: artifactLabel(artifact),
     icon: artifactIcon(artifact.active_version.icon),
+    opensDetail: isDetailOnlyArtifact(artifact),
   }));
 }
 

@@ -28,7 +28,7 @@ ones he does not know. Everything he scans past without marking is recorded
 as known. The output is a durable per-word known/unknown map over the core
 vocabulary: progress percentages per tier, and a concrete list of unknown
 words that becomes the study queue for later features. It lives inside the
-existing English panel and `y english` CLI namespace — one English-learning
+existing English detail and `y english` CLI namespace — one English-learning
 product, not a second silo and not a markdown tracker.
 
 ## User Stories
@@ -60,12 +60,12 @@ product, not a second silo and not a markdown tracker.
    is a usable study queue rather than a buried flag.
 10. As the user, I want to flip an unknown word to known later (after I've
     learned it), so the map stays current as I improve.
-11. As the user, I want all of this inside the existing English panel as a
+11. As the user, I want all of this inside the existing English detail as a
     sibling to the corrections view, so English learning stays one product
     with one home.
 12. As the user, I want CLI parity under the `y english` namespace (seed,
     list, mark, stats), so scripts and agent sessions share the same data
-    path as the panel, mirroring every other y-agent entity.
+    path as the detail, mirroring every other y-agent entity.
 13. As the user, I want the word state stored in the database (not a
     markdown page), so per-word state survives, is queryable, and can back
     the deferred proficiency/exercise/SRS features without a redesign.
@@ -79,7 +79,7 @@ product, not a second silo and not a markdown tracker.
   2026-08-30 (resolving the open scope question in todo 2903). Per-word state
   across 10k rows is data that wants a real store; the feature joins the
   existing English product (host-owned entity → repository → service →
-  controller → CLI → English panel slices, same stack as
+  controller → CLI → English detail slices, same stack as
   `english_correction`), not a new module and not a pages/ tracker.
 - **One ranked source, tiers derived**: seed from a single open-licensed,
   frequency-ranked English word list (recommendation: derive from the
@@ -113,8 +113,8 @@ product, not a second silo and not a markdown tracker.
   a bulk mark (the API accepts a list of word ids → status; the CLI accepts
   multiple words).
 - **API**: vocabulary routes join the existing host english controller
-  surface (list / bulk-mark / stats), consumed by the panel.
-- **Web**: a `vocabulary` sub-tab in the existing English panel beside
+  surface (list / bulk-mark / stats), consumed by the detail.
+- **Web**: a first-level `Vocabulary` tab in the existing English detail beside
   `corrections` / `patterns`, with two views: the scan view (a batch of
   words from the resume point in rank order, tap-to-toggle unknown, one
   confirm action that marks the rest known and advances) and the unknown-
@@ -132,7 +132,7 @@ product, not a second silo and not a markdown tracker.
   internals.
 - No LLM involvement in v1, so no non-deterministic paths to exclude.
 - Panel: component-level coverage for scan toggle + batch confirm consistent
-  with existing English panel coverage; no new test pattern.
+  with existing English detail coverage; no new test pattern.
 
 ## Out of Scope
 
@@ -155,4 +155,4 @@ Deferred by Roy's 2026-08-30 v1 narrowing (the full-system interview in chat
 - **Grammar-correction history** — message-level corrections, categories,
   and dismissals are owned by [english-correction](english-correction.md);
   this feature owns word-level vocabulary state. The two share the English
-  panel and `y english` namespace but no tables.
+  detail and `y english` namespace but no tables.

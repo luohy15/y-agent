@@ -9,7 +9,7 @@
 import { artifactPanelKey, artifactTabKey } from "../host/artifacts";
 
 /** Enabled UI whose detail needs a record picked from that module's sidebar. */
-export const MODULE_OPEN_VIEW_SELECTION_SLUGS = ["email", "entity", "english", "link", "mcp", "rss"] as const;
+export const MODULE_OPEN_VIEW_SELECTION_SLUGS = ["email", "entity", "link", "mcp", "rss"] as const;
 
 /** Enabled UI with no detail export. Files is separate: it has a per-file detail and must never open `ui:file`. */
 export const MODULE_OPEN_VIEW_PANEL_SLUGS = ["note", "reminder", "routine"] as const;

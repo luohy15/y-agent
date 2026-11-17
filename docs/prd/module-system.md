@@ -465,10 +465,11 @@ warns, and a rollback restores the scope the older version was published with.
 enforced from the column: the host picks the shell claimant from module metadata
 *before* fetching any bundle, because the slot has to be decided while the
 conversation is mounting. `panel` and `detail` are still introspected from the
-loaded bundle's exports, and the loader still requires a `panel`, so a version
-declaring `shell` alone still gets a sidebar entry. The column's name promises
-more than it delivers; treat it as a claim on host slots, not as a manifest of
-the bundle.
+loaded bundle's exports. Browser contract v33 requires at least one of `panel`
+or `detail`; a shell-only bundle is rejected. A version claiming `detail`
+without `panel` opens its centre tab from a pinned rail icon, and a saved sidebar
+selection for it falls back to Todo. Missing claims retain the legacy panel
+behavior. Treat the column as claims on host slots, not as a manifest of exports.
 
 ### Per-user activity-bar pins
 
@@ -531,7 +532,7 @@ or publishes a module.
 | Catalog row | Result |
 |---|---|
 | Enabled, with a UI bundle, aggregate detail (includes Chat's read-only browser, and the Modules module itself) | Open `ui:<slug>` in the existing workspace tab. A second activation reuses that tab. |
-| Enabled selection-only UI (`email`, `entity`, `english`, `link`, `mcp`, `rss`) | Open `ui:<slug>` and that module's sidebar, so a record can be picked. No record is invented. |
+| Enabled selection-only UI (`email`, `entity`, `link`, `mcp`, `rss`) | Open `ui:<slug>` and that module's sidebar, so a record can be picked. No record is invented. |
 | Enabled panel-only UI (`note`, `reminder`, `routine`) | Open that module's sidebar. No centre tab. |
 | Enabled Files | Open the Files sidebar. Never `ui:file`. |
 | Disabled, unpublished, or no UI bundle | Open `ui:module` (version history) and latch `openView` on the `module` intent: `{ moduleId, slug, reason, explanation, nonce }`. `reason` is `disabled`, `unpublished`, or `api-only`. Other intent fields, including `activityBarVisibility`, stay. |
@@ -1959,3 +1960,14 @@ hook, both of which cost more than the single-user failure mode justifies.
   the host render leaves as `@y/host` v5. The loader, hash verification, and error
   boundaries are still untouched, and ownership still sits with that PRD.)
 - **A compatibility shim for `/api/finance/*` or `y ui`.** Hard cut.
+
+
+### Detail-only UI modules (browser contract v33)
+
+Contract **v32 → v33** allows a bundle exporting `detail` without `panel`.
+`LoadedArtifact.Panel` is nullable; mounts fall back to the available panel or
+detail component. No new `@y/host` export is added. Detail-only rail entries open
+`ui:<slug>` without selecting a sidebar. English opens its first-level Vocabulary,
+Corrections, and Patterns tabs this way, including from the Modules list.
+Deploy host v33 before publishing the detail-only English module; SDK builds
+stamp the minimum host version from `contract.json`.

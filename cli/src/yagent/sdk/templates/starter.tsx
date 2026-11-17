@@ -7,7 +7,8 @@ import { API, HOST_CONTRACT_VERSION, ListLoading } from "@y/host";
  * The host supplies react / @y/host / swr / recharts via the runtime registry.
  *
  * One artifact is one module with up to three production surfaces:
- *   `panel`  (required) renders in the ~280px left sidebar
+ *   `panel`  (optional when detail is exported) renders in the ~280px left sidebar
+ *   At least one of panel or detail is required (host v33).
  *   `detail` (optional) renders full-width in the center surface, opened from
  *            the panel header (no dedicated URL; it restores as a persisted
  *            tab like any other file tab)
@@ -15,7 +16,8 @@ import { API, HOST_CONTRACT_VERSION, ListLoading } from "@y/host";
  *            area). Unlike the other two it must be claimed in module.json
  *            (`"surfaces": ["panel", "shell"]`), only one module may hold it,
  *            and the host renders its own fallback when nobody does.
- * Delete the `detail` export for a sidebar-only artifact.
+ * Delete the `detail` export for a sidebar-only artifact. For detail-only UI,
+ * delete `panel` and declare `"surfaces": ["detail"]` in module.json.
  *
  * Outgrowing one file? Keep `ui/index.tsx` as the thin entry and put sibling
  * modules under `ui/` (e.g. `ui/panel.tsx`, `ui/format.ts`), imported here with

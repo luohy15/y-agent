@@ -16,6 +16,7 @@ interface ActivityBarProps {
   onToggleSidebar: () => void;
   activePanel: SidebarPanel;
   onSelectPanel: (panel: SidebarPanel) => void;
+  onOpenDetail: (slug: string) => void;
   mobile?: boolean;
   email?: string | null;
   gsiReady?: boolean;
@@ -225,7 +226,7 @@ function saveOrder(order: SidebarPanel[]) {
 interface DragState { key: SidebarPanel }
 interface DropTargetState { key: SidebarPanel; pos: "before" | "after" }
 
-export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, activePanel, onSelectPanel, mobile, email, gsiReady, onLogout, artifacts = [], artifactsLoaded = true, pinnedSlugs = [], onOpenModules, modulesAvailable = false }: ActivityBarProps) {
+export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, activePanel, onSelectPanel, onOpenDetail, mobile, email, gsiReady, onLogout, artifacts = [], artifactsLoaded = true, pinnedSlugs = [], onOpenModules, modulesAvailable = false }: ActivityBarProps) {
   const signinRef: RefCallback<HTMLDivElement> = useCallback((node) => {
     if (!node || isLoggedIn || !gsiReady) return;
     if (!isPreview && (window as any).google?.accounts?.id) {
@@ -435,6 +436,10 @@ export default function ActivityBar({ isLoggedIn, sidebarOpen, onToggleSidebar, 
   }
 
   const handlePanelClick = (panel: SidebarPanel) => {
+    if (panelItems.find((item) => item.key === panel)?.opensDetail) {
+      onOpenDetail(panel.slice("artifact:".length));
+      return;
+    }
     if (mobile) {
       onSelectPanel(panel);
       return;

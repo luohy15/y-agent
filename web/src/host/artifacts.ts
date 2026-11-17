@@ -27,6 +27,12 @@ export function mountableUiArtifacts(artifacts: unknown): MountableModule[] {
   );
 }
 
+/** Missing metadata retains the legacy panel behavior. */
+export function isDetailOnlyArtifact(artifact: MountableModule): boolean {
+  const surfaces = (artifact.active_version.ui_surfaces ?? "panel").split(",").map((surface) => surface.trim());
+  return surfaces.includes("detail") && !surfaces.includes("panel");
+}
+
 export function artifactPanelKey(slug: string): `artifact:${string}` {
   return `artifact:${slug}`;
 }
