@@ -70,6 +70,7 @@ def _strip_shell_wrapper(command: str) -> str:
     return command
 
 
+CODEX_ARCHIVE_ROOT = "/Users/roy/luohy15/lifelog/sessions/codex/sessions"
 CODEX_CONTINUITY_NOTE = (
     "Codex refused the recorded thread (no rollout found for it). "
     "The transcript is kept, but that native thread cannot continue. "
@@ -653,7 +654,25 @@ def _codex_build_exec(cmd: List[str], chat_id: str, prompt: str, images: Optiona
     full_cmd.append("--")
     full_cmd.append(prompt)
     quoted = " ".join(_shell_quote(part) for part in full_cmd)
-    return f"{quoted} < /dev/null"
+    exec_cmd = f"{quoted} < /dev/null"
+    if len(cmd) < 4 or cmd[1:3] != ["exec", "resume"] or not _THREAD_ID_RE.fullmatch(cmd[3]):
+        return exec_cmd
+
+    # The default node's backup preserves the rollout's YYYY/MM/DD path.
+    # Nodes without that archive no-op; isolated launches retain their CODEX_HOME.
+    restore_snippet = (
+        f"_y_archive={_shell_quote(CODEX_ARCHIVE_ROOT)}; "
+        f"_y_src=$(find \"$_y_archive\" -type f -name {_shell_quote('*-' + cmd[3] + '.jsonl')} "
+        "-print -quit 2>/dev/null); "
+        "if [ -s \"$_y_src\" ]; then "
+        "_y_rel=${_y_src#\"$_y_archive\"/}; "
+        "_y_dst=\"${CODEX_HOME:-$HOME/.codex}/sessions/$_y_rel\"; "
+        "if [ ! -f \"$_y_dst\" ]; then "
+        "mkdir -p \"$(dirname \"$_y_dst\")\" && cp -p \"$_y_src\" \"$_y_dst\"; "
+        "fi; fi; "
+    )
+    # Keep restore and launch together behind the outer `cd <cwd> &&` guard.
+    return "( " + restore_snippet + exec_cmd + " )"
 
 
 def _codex_parse_initial(obj: Dict) -> Optional[str]:
