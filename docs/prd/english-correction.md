@@ -26,13 +26,9 @@ qualifying message produces a minimal grammar correction, an explanation, and
 an error classification. Results accumulate into a personal error history
 that surfaces recurring patterns over time. The user can inspect corrections
 and dismiss ones that are false positives (informal style, deliberate
-phrasing) so they stop polluting the history. The same English panel also
-hosts an on-demand Refine sub-tab (`POST /api/english/refine`) that ports
-the desktop grammar-refine behavior: type or paste a sentence, get a
-minimally edited version plus a short explanation, and persist the row into
-`english_correction` only when the model actually changed the text
-(`chat_id="refine"`). Personalized review exercises generated from that
-history are a documented future extension, not part of this delivery.
+phrasing) so they stop polluting the history. Personalized review exercises
+generated from that history are a documented future extension, not part of
+this delivery.
 
 ## User Stories
 
@@ -224,7 +220,4 @@ history are a documented future extension, not part of this delivery.
   namespace but no tables.
 - **Replacing the `refine` skill** — `refine` remains the on-demand, explicit
   single-sentence helper in chat (and still logs `lifelog/english/YYYY-MM-DD.md`);
-  this feature is the passive, automatic, historical counterpart. The English
-  panel Refine tab is a third, web-only entry point that writes the same
-  `english_correction` table via `/api/english/refine` and does not replace
-  the chat skill.
+  this feature is the passive, automatic, historical counterpart.

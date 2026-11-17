@@ -163,10 +163,8 @@ entity + controller + service + CLI slices, and most have a web panel.
   `english_correction_scan`) with `y english mark-scanned`. Eligibility is
   deterministic Python in `storage/service/english_correction.py` (user role, has an
   `id`, not a `[trace:...]` / `[routine:...]` / bootstrap message, prose, majority
-  English); the live chat pipeline is untouched. The web English panel also has an
-  on-demand Refine sub-tab (`POST /api/english/refine`) that uses the `inline` bot
-  and persists changed text into the same `english_correction` table. The diff is
-  computed at read time in the English module, never stored. The panel and
+  English); the live chat pipeline is untouched. The diff is computed at read
+  time in the English module, never stored. The panel and
   correction detail are the UI-only `english` module (todo 3708); this host
   keeps the APIs, CLI, data, and offline workflow.
 - **English vocabulary** — host-owned `english_word` inventory of a frequency-ranked
@@ -570,8 +568,8 @@ Grouped by feature area:
   unauthenticated shares
 - `PublicLinkList.tsx` (public trace only), `DiffViewer.tsx`,
   `GitPanel.tsx`, `CommandPalette.tsx`,
-  `api.ts`, `hooks/useAuth.ts`. English corrections, patterns, vocabulary and
-  refine are the UI-only `english` module (`code/y-module/english/README.md`);
+  `api.ts`, `hooks/useAuth.ts`. English corrections, patterns, and vocabulary
+  are the UI-only `english` module (`code/y-module/english/README.md`);
   Links and RSS are the UI-only `link` / `rss` modules.
 
 ### CLI (`cli/src/yagent/`)
