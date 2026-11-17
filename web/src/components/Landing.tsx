@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTheme } from "../hooks/useTheme";
 import { prefersDark, resolveTheme } from "../utils/theme";
+import YovyMark from "./YovyMark";
 
 const GITHUB_URL = "https://github.com/luohy15/y-agent";
 const CHANGELOG_URL = "https://github.com/luohy15/y-agent/blob/main/CHANGELOG.md";
@@ -33,16 +34,6 @@ const LEGEND = [
   { cls: "bg-sol-green", label: "voice" },
 ];
 
-function Mark({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 20 20" aria-hidden="true">
-      <rect className="fill-sol-base00" x="2" y="13" width="6" height="5" rx="1" />
-      <rect className="fill-sol-blue" x="2" y="8" width="11" height="5" rx="1" />
-      <rect className="fill-sol-base2" x="2" y="3" width="16" height="5" rx="1" />
-    </svg>
-  );
-}
-
 function useOsPrefersDark(): boolean {
   const [osDark, setOsDark] = useState(prefersDark);
   useEffect(() => {
@@ -63,7 +54,7 @@ export default function Landing() {
     <div className="fixed inset-0 overflow-y-auto bg-sol-base03 text-sol-base0 font-mono scroll-smooth motion-reduce:scroll-auto">
       <div className="max-w-[1120px] mx-auto px-6">
         <header className="flex flex-wrap items-center gap-2.5 pt-7 pb-2">
-          <Mark className="w-5 h-5 shrink-0" />
+          <YovyMark className="w-5 h-5 shrink-0" />
           <span className="text-[17px] font-semibold tracking-tight text-sol-base2">Yovy</span>
           <nav className="ml-auto flex flex-wrap items-center gap-3 min-[640px]:gap-[18px] text-xs text-sol-base1">
             <a href="#accumulates" className="hover:text-sol-blue">What accumulates</a>

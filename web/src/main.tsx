@@ -8,7 +8,6 @@ import ShareView from "./components/ShareView";
 import PublicTraceApp from "./components/PublicTraceApp";
 import ShareNoteView from "./components/ShareNoteView";
 import { useAuth } from "./hooks/useAuth";
-import { updateFavicon } from "./utils/favicon";
 import { abortMiddleware } from "./utils/swrAbort";
 import { localStorageProvider } from "./utils/swrPersistedCache";
 import { applyPrefs, loadPrefs } from "./utils/theme";
@@ -41,7 +40,6 @@ const rootEl = document.getElementById("root")!;
 // the UI. No auth, ignore the result; swallow errors so it never logs.
 fetch(`${API}/api/health`).catch(() => {});
 installHostRegistry();
-updateFavicon();
 createRoot(rootEl).render(
   <SWRConfig value={{ use: [abortMiddleware], provider: localStorageProvider }}>
     <BrowserRouter>

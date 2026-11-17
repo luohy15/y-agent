@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import YovyMark from "../YovyMark";
 
 export interface DesktopHeaderBarProps {
   /** Centred meta slot (trace id, VM, bot, work dir, etc.). */
@@ -34,10 +35,13 @@ export default function DesktopHeaderBar({
 }: DesktopHeaderBarProps) {
   return (
     <div className={`hidden md:flex items-center px-2 py-1 bg-sol-base03 border-b border-sol-base02 shrink-0 ${className}`.trim()}>
-      <div className="flex-1 flex justify-center items-center gap-2 text-sol-base01 font-mono text-xs">
+      <div className="flex-1 flex items-center">
+        <YovyMark className="w-4 h-4 shrink-0" />
+      </div>
+      <div className="flex justify-center items-center gap-2 text-sol-base01 font-mono text-xs">
         {meta}
       </div>
-      <div className="flex items-center gap-1 shrink-0">
+      <div className="flex-1 flex items-center justify-end gap-1">
         {onOpenFileSearch && (
           <button
             onClick={onOpenFileSearch}
