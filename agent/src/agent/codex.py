@@ -384,6 +384,79 @@ def normalize_usage(usage) -> dict:
     return result
 
 
+_THREAD_ID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+_ROLLOUT_TAIL_BYTES = 262144
+
+
+def _collect_rollout_fields(obj, found: dict) -> None:
+    """Last complete `model_context_window` and `last_token_usage` win."""
+    if isinstance(obj, dict):
+        window = obj.get("model_context_window")
+        if type(window) is int and 0 < window <= 2_147_483_647:
+            found["context_window"] = window
+        usage = obj.get("last_token_usage")
+        if isinstance(usage, dict):
+            normalized = normalize_usage(usage)
+            if normalized.get("usage_state") == "observed":
+                found["request_usage"] = normalized
+        for value in obj.values():
+            _collect_rollout_fields(value, found)
+    elif isinstance(obj, list):
+        for item in obj:
+            _collect_rollout_fields(item, found)
+
+
+def parse_codex_rollout_tail(text) -> dict:
+    """Window and final-request usage from a bounded Codex rollout tail.
+
+    A line that is not complete JSON is ignored, so a `tail -c` cut at the
+    start does not invent a window. Missing keys stay None.
+    """
+    found = {"context_window": None, "request_usage": None}
+    if not isinstance(text, str) or not text:
+        return found
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        _collect_rollout_fields(obj, found)
+    return found
+
+
+def read_codex_rollout(client, thread_id: str):
+    """Read the node's rollout tail for this thread, or None on any failure.
+
+    The thread id must be a hyphenated UUID. Anything else returns None without
+    a remote call. The remote read is `tail -c` of one session file.
+    """
+    if client is None or not isinstance(thread_id, str) or _THREAD_ID_RE.fullmatch(thread_id) is None:
+        return None
+    pattern = _shell_quote(f"*-{thread_id}.jsonl")
+    cmd = (
+        "f=$(find \"${CODEX_HOME:-$HOME/.codex}/sessions\" -name "
+        f"{pattern} -print -quit); "
+        f'[ -n "$f" ] && tail -c {_ROLLOUT_TAIL_BYTES} "$f"'
+    )
+    try:
+        _stdin, stdout, stderr = client.exec_command(cmd, timeout=20)
+        raw = stdout.read()
+        stderr.read()
+        stdout.channel.recv_exit_status()
+    except Exception:
+        return None
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", errors="replace")
+    if not isinstance(raw, str) or not raw:
+        return None
+    return parse_codex_rollout_tail(raw)
+
+
 class CodexStreamConverter:
     """Stateful JSONL event converter that maps Codex events to y-agent Messages."""
 

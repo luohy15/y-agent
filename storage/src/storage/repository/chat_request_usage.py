@@ -25,6 +25,7 @@ COUNTERS = (
     "cache_creation_tokens",
     "cache_read_tokens",
 )
+CUMULATIVE = tuple(f"cumulative_{name}" for name in COUNTERS)
 
 
 def _present(column, incoming):
@@ -69,7 +70,7 @@ def _values(user_id: int, row: dict) -> dict:
         "model": row["model"],
         "requested_at": row["requested_at"],
         "usage_state": row["usage_state"],
-        **{name: row.get(name) for name in COUNTERS},
+        **{name: row.get(name) for name in COUNTERS + CUMULATIVE},
         "applied_effort": row.get("applied_effort"),
     }
 
@@ -96,7 +97,7 @@ def _larger(left, right):
 
 
 def _merge_pending(pending: dict, row: dict) -> None:
-    for name in COUNTERS:
+    for name in COUNTERS + CUMULATIVE:
         pending[name] = _larger(pending.get(name), row.get(name))
     if row["usage_state"] == "observed":
         pending["usage_state"] = "observed"
@@ -189,11 +190,15 @@ _PG_UPSERT = text(
     INSERT INTO chat_request_usage (
         user_id, request_id, session_id, chat_id, model, requested_at,
         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
+        cumulative_input_tokens, cumulative_output_tokens,
+        cumulative_cache_creation_tokens, cumulative_cache_read_tokens,
         usage_state, applied_effort, created_at, updated_at, created_at_unix, updated_at_unix
     )
     SELECT
         :user_id, request_id, session_id, chat_id, model, requested_at,
         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
+        cumulative_input_tokens, cumulative_output_tokens,
+        cumulative_cache_creation_tokens, cumulative_cache_read_tokens,
         usage_state, applied_effort, :stamp, :stamp, :stamp_unix, :stamp_unix
     FROM unnest(
         CAST(:request_id AS text[]),
@@ -205,11 +210,17 @@ _PG_UPSERT = text(
         CAST(:output_tokens AS int[]),
         CAST(:cache_creation_tokens AS int[]),
         CAST(:cache_read_tokens AS int[]),
+        CAST(:cumulative_input_tokens AS int[]),
+        CAST(:cumulative_output_tokens AS int[]),
+        CAST(:cumulative_cache_creation_tokens AS int[]),
+        CAST(:cumulative_cache_read_tokens AS int[]),
         CAST(:usage_state AS text[]),
         CAST(:applied_effort AS text[])
     ) AS incoming(
         request_id, session_id, chat_id, model, requested_at,
         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
+        cumulative_input_tokens, cumulative_output_tokens,
+        cumulative_cache_creation_tokens, cumulative_cache_read_tokens,
         usage_state, applied_effort
     )
     ON CONFLICT (user_id, request_id) DO UPDATE SET
@@ -225,6 +236,18 @@ _PG_UPSERT = text(
         cache_read_tokens = GREATEST(
             COALESCE(chat_request_usage.cache_read_tokens, EXCLUDED.cache_read_tokens),
             COALESCE(EXCLUDED.cache_read_tokens, chat_request_usage.cache_read_tokens)),
+        cumulative_input_tokens = GREATEST(
+            COALESCE(chat_request_usage.cumulative_input_tokens, EXCLUDED.cumulative_input_tokens),
+            COALESCE(EXCLUDED.cumulative_input_tokens, chat_request_usage.cumulative_input_tokens)),
+        cumulative_output_tokens = GREATEST(
+            COALESCE(chat_request_usage.cumulative_output_tokens, EXCLUDED.cumulative_output_tokens),
+            COALESCE(EXCLUDED.cumulative_output_tokens, chat_request_usage.cumulative_output_tokens)),
+        cumulative_cache_creation_tokens = GREATEST(
+            COALESCE(chat_request_usage.cumulative_cache_creation_tokens, EXCLUDED.cumulative_cache_creation_tokens),
+            COALESCE(EXCLUDED.cumulative_cache_creation_tokens, chat_request_usage.cumulative_cache_creation_tokens)),
+        cumulative_cache_read_tokens = GREATEST(
+            COALESCE(chat_request_usage.cumulative_cache_read_tokens, EXCLUDED.cumulative_cache_read_tokens),
+            COALESCE(EXCLUDED.cumulative_cache_read_tokens, chat_request_usage.cumulative_cache_read_tokens)),
         usage_state = CASE
             WHEN chat_request_usage.usage_state = 'observed'
               OR EXCLUDED.usage_state = 'observed'
@@ -250,6 +273,10 @@ _PG_UPSERT = text(
     bindparam("output_tokens", type_=ARRAY(Integer())),
     bindparam("cache_creation_tokens", type_=ARRAY(Integer())),
     bindparam("cache_read_tokens", type_=ARRAY(Integer())),
+    bindparam("cumulative_input_tokens", type_=ARRAY(Integer())),
+    bindparam("cumulative_output_tokens", type_=ARRAY(Integer())),
+    bindparam("cumulative_cache_creation_tokens", type_=ARRAY(Integer())),
+    bindparam("cumulative_cache_read_tokens", type_=ARRAY(Integer())),
 )
 
 
@@ -268,7 +295,7 @@ def _write_rows_pg(session, user_id: int, rows: list[dict]) -> set:
             "requested_at": [row["requested_at"] for row in rows],
             "usage_state": [row["usage_state"] for row in rows],
             "applied_effort": [row.get("applied_effort") for row in rows],
-            **{name: [row.get(name) for row in rows] for name in COUNTERS},
+            **{name: [row.get(name) for row in rows] for name in COUNTERS + CUMULATIVE},
         },
     ).all()
     return {row[0] for row in written}
@@ -291,7 +318,7 @@ def _write_rows(session, dialect: str, user_id: int, rows: list[dict]) -> set:
     )
     merge = {
         name: _greatest(dialect, getattr(stored, name), getattr(excluded, name))
-        for name in COUNTERS
+        for name in COUNTERS + CUMULATIVE
     }
     written = session.execute(
         insert.on_conflict_do_update(
@@ -344,7 +371,10 @@ def _apply(session, user_id: int, row: dict) -> dict:
         & (stored.chat_id == excluded.chat_id)
         & (stored.model == excluded.model)
     )
-    merge = {name: _greatest(dialect, getattr(stored, name), getattr(excluded, name)) for name in COUNTERS}
+    merge = {
+        name: _greatest(dialect, getattr(stored, name), getattr(excluded, name))
+        for name in COUNTERS + CUMULATIVE
+    }
     written = session.execute(
         stmt.on_conflict_do_update(
             index_elements=["user_id", "request_id"],
@@ -529,3 +559,33 @@ def latest_session_rows(user_id: int, chat_id: str, session_id: str, session=Non
         return read_latest_session_rows(session, user_id, chat_id, session_id)
     with get_db() as owned:
         return read_latest_session_rows(owned, user_id, chat_id, session_id)
+
+
+def latest_usage_row(user_id: int, chat_id: str, session_id: str, exclude_request_id: str):
+    """Newest usage row for this owner, chat and session, excluding one request.
+
+    Order is requested_at descending, then id descending. The timestamp cast
+    keeps chronological order when fractional precision differs. Returns the
+    counter and cumulative columns, or None.
+    """
+    if not user_id or not chat_id or not session_id or not exclude_request_id:
+        return None
+    requested_at = cast(ChatRequestUsageEntity.requested_at, DateTime(timezone=True))
+    with get_db() as session:
+        row = session.scalars(
+            select(ChatRequestUsageEntity)
+            .where(
+                ChatRequestUsageEntity.user_id == user_id,
+                ChatRequestUsageEntity.chat_id == chat_id,
+                ChatRequestUsageEntity.session_id == session_id,
+                ChatRequestUsageEntity.request_id != exclude_request_id,
+            )
+            .order_by(desc(requested_at), desc(ChatRequestUsageEntity.id))
+            .limit(1)
+        ).first()
+        if row is None:
+            return None
+        return {
+            "request_id": row.request_id,
+            **{name: getattr(row, name) for name in COUNTERS + CUMULATIVE},
+        }

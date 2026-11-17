@@ -11,6 +11,11 @@ class ChatRequestUsageEntity(Base, BaseEntity):
     external_id join. A counter is NULL when the transcript omitted its key and
     0 when the key was present as 0. usage_state is `missing` when the record
     had no usable usage dict and `observed` otherwise.
+
+    Codex rows store the turn delta in the four counters. The nullable
+    cumulative_* columns are that turn's thread total, the anchor for the next
+    delta. A NULL cumulative column is a legacy snapshot: the counters themselves
+    are the anchor.
     """
 
     __tablename__ = "chat_request_usage"
@@ -26,6 +31,10 @@ class ChatRequestUsageEntity(Base, BaseEntity):
     output_tokens = Column(Integer, nullable=True)
     cache_creation_tokens = Column(Integer, nullable=True)
     cache_read_tokens = Column(Integer, nullable=True)
+    cumulative_input_tokens = Column(Integer, nullable=True)
+    cumulative_output_tokens = Column(Integer, nullable=True)
+    cumulative_cache_creation_tokens = Column(Integer, nullable=True)
+    cumulative_cache_read_tokens = Column(Integer, nullable=True)
     usage_state = Column(String, nullable=False)
     applied_effort = Column(String, nullable=True)
 

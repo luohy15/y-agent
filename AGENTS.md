@@ -424,7 +424,9 @@ exceptions noted):
   by `(user_id, request_id)`. Read per trace; the latest scan record stays in
   `user_preference` and is not one of these tables. `applied_effort` is filled
   from the transcript's top-level `assistant.effort` when the column is still
-  null, and is never overwritten.
+  null, and is never overwritten. A Codex row stores the turn delta in the
+  counters and the thread total in nullable `cumulative_*` columns, which the
+  next turn uses as its delta anchor.
 - **Session context analysis** (todo 3844): `chat_context_session`,
   `chat_context_request`, `chat_context_contributor` (one entity file
   `chat_context.py`). One unit per (chat, transcript session), replaced as a
@@ -435,7 +437,10 @@ exceptions noted):
   one observation per window (or a provider-level miss). The latest snapshot
   stays in `user_preference` and is not one of these tables.
 - **Model context window** (todo 4318): `model_context_window`. One global row
-  per exact API model id. Codex closeout reads it as the badge denominator.
+  per exact API model id. Codex closeout prefers the window and final-request
+  occupancy from that thread's rollout; this table is the badge-denominator
+  fallback when the rollout read misses. The badge numerator is that
+  final-request occupancy, otherwise the turn delta.
   `init_db` creates the table and does not seed it. Fifteen applied rows are
   OpenRouter `context_length` values for bot-list models, including
   `gpt-6.1-sol` = 1050000, plus alias rows `opus[1m]`, `sonnet[1m]`, `fable`,

@@ -428,6 +428,10 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
         if fresh:
             # closeout_pending already fences native tailing and remains
             # discoverable until arbitration and queue delivery succeed.
+            codex_turn = None
+            if backend_type == "codex":
+                codex_turn = _prepare_codex_turn_usage(user_id, chat_id, result, proc, client)
+
             def _apply_metadata(chat):
                 try:
                     _apply_completion_metadata(
@@ -436,6 +440,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                         result_data=result.get("result_data"),
                         proc=proc,
                         chat_id=chat_id,
+                        codex_turn=codex_turn,
                     )
                 except Exception as e:
                     logger.exception("completion metadata failed: chat_id={} error={}", chat_id, e)
@@ -461,7 +466,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                 return
 
             if backend_type == "codex":
-                _record_codex_turn_usage(user_id, fresh, result, proc)
+                _record_codex_turn_usage(user_id, fresh, codex_turn)
 
             # The SQL receipt keeps this reservation and input subset durable.
             # Queue delivery may be retried; run claiming admits one backend.
@@ -576,29 +581,83 @@ def _resolved_codex_model(proc: dict, chat):
     return name or None
 
 
-def _record_codex_turn_usage(user_id: int, chat, result: dict, proc: dict):
-    """Best-effort, replay-safe write before continuation or process retirement."""
+def _codex_usage_state(counters: dict) -> str:
+    present = any(counters.get(name) is not None for name in (
+        "input_tokens", "output_tokens", "cache_creation_tokens", "cache_read_tokens",
+    ))
+    return "observed" if present else "missing"
+
+
+def _prepare_codex_turn_usage(user_id: int, chat_id: str, result: dict, proc: dict, client):
+    """Turn delta, thread total and rollout window for one successful Codex turn.
+
+    A failure returns None and leaves the stored badge alone. A missing rollout
+    is not a failure: the table remains the window fallback.
+    """
     data = result.get("result_data")
     if (result.get("status") != "completed" or not isinstance(data, dict)
             or data.get("type") != "turn.completed" or data.get("is_error")):
-        return
+        return None
     try:
         from datetime import datetime, timezone
-        from agent.codex import normalize_usage
-        from storage.service import bot_config, chat_request_usage
+        from agent.codex import normalize_usage, read_codex_rollout
+        from storage.service import chat_request_usage
 
-        config = bot_config.get_config(user_id, proc.get("bot_name") or chat.bot_name)
         session_id = result.get("thread_id") or result.get("session_id") or proc.get("session_id")
-        if not session_id or not config or not config.model:
-            logger.warning("codex usage missing identity: chat_id={}", chat.id)
-            return
-        started_at = proc["started_at"]
+        started_at = proc.get("started_at")
+        if not isinstance(session_id, str) or not session_id or not isinstance(started_at, (int, float)):
+            logger.warning("codex usage missing identity: chat_id={}", chat_id)
+            return None
+        current = normalize_usage(data.get("usage"))
+        counters = {name: current.get(name) for name in chat_request_usage.COUNTERS}
+        request_id = f"codex-{chat_id}-{started_at}"
+        anchor = chat_request_usage.previous_anchor(user_id, chat_id, session_id, request_id)
+        delta, reason = chat_request_usage.turn_delta(counters, anchor)
+        if reason == "regression":
+            logger.warning("codex usage regression: chat_id={}", chat_id)
+        rollout = read_codex_rollout(client, session_id) or {}
+        request_usage = rollout.get("request_usage")
+        if not isinstance(request_usage, dict) or request_usage.get("usage_state") != "observed":
+            request_usage = None
+        window = rollout.get("context_window")
+        if type(window) is not int or window <= 0:
+            window = None
+        model = _resolved_codex_model(proc, type("_Chat", (), {"id": chat_id, "bot_name": None})())
+        return {
+            "delta": delta,
+            "cumulative": counters,
+            "request_usage": request_usage,
+            "context_window": window,
+            "usage_state": _codex_usage_state(delta),
+            "session_id": session_id,
+            "model": model,
+            "requested_at": datetime.fromtimestamp(started_at, timezone.utc).isoformat(),
+            "request_id": request_id,
+        }
+    except Exception as exc:
+        logger.warning("codex usage prepare failed: chat_id={} error={}", chat_id, type(exc).__name__)
+        return None
+
+
+def _record_codex_turn_usage(user_id: int, chat, codex_turn):
+    """Write the prepared delta. Does not recompute usage from the turn event."""
+    if not codex_turn:
+        return
+    if not codex_turn.get("session_id") or not codex_turn.get("model"):
+        logger.warning("codex usage missing identity: chat_id={}", chat.id)
+        return
+    try:
+        from storage.service import chat_request_usage
+
         outcome = chat_request_usage.record_backend_turn(
-            user_id=user_id, chat_id=chat.id, session_id=session_id,
-            model=config.model,
-            requested_at=datetime.fromtimestamp(started_at, timezone.utc).isoformat(),
-            request_id=f"codex-{chat.id}-{started_at}",
-            usage=normalize_usage(data.get("usage")),
+            user_id=user_id,
+            chat_id=chat.id,
+            session_id=codex_turn["session_id"],
+            model=codex_turn["model"],
+            requested_at=codex_turn["requested_at"],
+            request_id=codex_turn["request_id"],
+            usage={**codex_turn["delta"], "usage_state": codex_turn["usage_state"]},
+            cumulative=codex_turn["cumulative"],
         )
         if any(outcome["conflicts"].values()):
             logger.warning("codex usage identity conflict: chat_id={}", chat.id)
@@ -646,7 +705,8 @@ def _should_resume_5xx(result: dict, proc: dict) -> bool:
     return _is_retryable_api_error_text(result_data.get("result"))
 
 
-def _apply_completion_metadata(fresh, result: dict, result_data: dict, proc: dict, chat_id: str):
+def _apply_completion_metadata(fresh, result: dict, result_data: dict, proc: dict, chat_id: str,
+                              codex_turn=None):
     """Persist backend completion metadata after running=False is durable."""
     from storage.entity.dto import Message
     from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
@@ -659,7 +719,9 @@ def _apply_completion_metadata(fresh, result: dict, result_data: dict, proc: dic
     run_work_dir = proc.get("work_dir")
     cwd_matches = bool(run_work_dir) and (run_work_dir == fresh.work_dir)
     if proc.get("backend_type") == "codex":
-        _apply_codex_completion(fresh, result, result_data, proc, chat_id, cwd_matches)
+        _apply_codex_completion(
+            fresh, result, result_data, proc, chat_id, cwd_matches, codex_turn=codex_turn,
+        )
         return
 
     effective_session_id = result.get("session_id") or proc.get("session_id")
@@ -867,7 +929,8 @@ def _selected_usage_stamp(iterations, observed_usage):
     return _usage_stamp(observed_usage)
 
 
-def _apply_codex_completion(fresh, result: dict, result_data: dict, proc: dict, chat_id: str, cwd_matches: bool):
+def _apply_codex_completion(fresh, result: dict, result_data: dict, proc: dict, chat_id: str,
+                            cwd_matches: bool, codex_turn=None):
     """Persist a Codex thread id and turn.completed usage. No Claude resume gate."""
     from agent.codex import CODEX_CONTINUITY_NOTE, clear_refused_thread_id
     from storage.entity.dto import Message
@@ -920,28 +983,41 @@ def _apply_codex_completion(fresh, result: dict, result_data: dict, proc: dict, 
                 "skip external_id update: chat_id={} run_work_dir={} chat_work_dir={} (codex thread_id={})",
                 chat_id, proc.get("work_dir"), fresh.work_dir, effective_thread_id,
             )
-    if isinstance(result_data, dict) and result_data.get("type") == "turn.completed" and not result_data.get("is_error"):
-        from agent.codex import normalize_usage
-
-        usage = normalize_usage(result_data.get("usage"))
-        fresh.input_tokens = usage["input_tokens"]
-        fresh.output_tokens = usage["output_tokens"]
-        fresh.cache_read_input_tokens = usage["cache_read_tokens"]
-        fresh.cache_creation_input_tokens = usage["cache_creation_tokens"]
+    if (codex_turn and isinstance(result_data, dict) and result_data.get("type") == "turn.completed"
+            and not result_data.get("is_error")):
+        # A missing prepare must not store the thread total as current context.
+        request_usage = codex_turn.get("request_usage")
+        if isinstance(request_usage, dict) and request_usage.get("usage_state") == "observed":
+            badge = request_usage
+        else:
+            badge = codex_turn.get("delta") or {}
+        fresh.input_tokens = badge.get("input_tokens")
+        fresh.output_tokens = badge.get("output_tokens")
+        fresh.cache_read_input_tokens = badge.get("cache_read_tokens")
+        fresh.cache_creation_input_tokens = badge.get("cache_creation_tokens")
+        cumulative = codex_turn.get("cumulative") or {}
+        fresh.cumulative_input_tokens = cumulative.get("input_tokens")
+        fresh.cumulative_output_tokens = cumulative.get("output_tokens")
+        fresh.cumulative_cache_read_input_tokens = cumulative.get("cache_read_tokens")
+        fresh.cumulative_cache_creation_input_tokens = cumulative.get("cache_creation_tokens")
         # NULL provenance is the legacy Claude fallback and would prepend the
         # handoff reminder. This is not a main-request measurement.
         fresh.context_usage_source = "codex_turn"
-        model = _resolved_codex_model(proc, fresh)
-        if model is not None:
-            try:
-                from storage.service import model_context
+        window = codex_turn.get("context_window")
+        if type(window) is int and window > 0:
+            fresh.context_window = window
+        else:
+            model = codex_turn.get("model")
+            if isinstance(model, str) and model:
+                try:
+                    from storage.service import model_context
 
-                fresh.context_window = model_context.get_context_window(model)
-            except Exception as exc:
-                logger.warning(
-                    "codex context window query failed: chat_id={} error={}",
-                    chat_id, type(exc).__name__,
-                )
+                    fresh.context_window = model_context.get_context_window(model)
+                except Exception as exc:
+                    logger.warning(
+                        "codex context window query failed: chat_id={} error={}",
+                        chat_id, type(exc).__name__,
+                    )
     if result.get("status") == "error":
         error_text = (result_data.get("result") if isinstance(result_data, dict) else None) or "Codex exited with an error."
         fresh.messages.append(Message(

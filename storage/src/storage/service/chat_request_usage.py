@@ -349,23 +349,69 @@ def store_rows(user_id: int, rows: list[dict]) -> dict:
     }
 
 
+def turn_delta(current: dict, previous: dict | None) -> tuple[dict, str]:
+    """Per-turn counters from two thread totals.
+
+    No previous row passes the current counters through (`first`). A NULL on
+    either side of one counter stays NULL. If any present counter moves
+    backwards, the whole turn resets to the current counters (`regression`).
+    """
+    counters = {name: current.get(name) for name in COUNTERS}
+    if previous is None:
+        return counters, "first"
+    deltas = {}
+    for name in COUNTERS:
+        cur = current.get(name)
+        prev = previous.get(name)
+        if cur is None or prev is None:
+            deltas[name] = None
+            continue
+        if prev > cur:
+            return counters, "regression"
+        deltas[name] = cur - prev
+    return deltas, "delta"
+
+
+def previous_anchor(user_id: int, chat_id: str, session_id: str, exclude_request_id: str):
+    """Anchor counters for the latest other row of this thread.
+
+    A cumulative column wins when it is present. A legacy row (cumulative NULL)
+    anchors with the stored counter. No row means this is the first turn.
+    """
+    row = repo.latest_usage_row(user_id, chat_id, session_id, exclude_request_id)
+    if row is None:
+        return None
+    return {
+        name: row.get(name) if row.get(f"cumulative_{name}") is None else row[f"cumulative_{name}"]
+        for name in COUNTERS
+    }
+
+
 def record_backend_turn(user_id: int, chat_id: str, session_id: str, model: str,
-                        requested_at: str, request_id: str, usage: dict) -> dict:
+                        requested_at: str, request_id: str, usage: dict,
+                        cumulative=None) -> dict:
     """Persist trusted worker turn usage, not a transcript-upload attribution.
 
     The worker supplies the owned chat and normalized counters. Uploads keep
-    their separate Claude-only attribution checks.
+    their separate Claude-only attribution checks. `cumulative`, when given, is
+    this turn's thread total and is stored beside the delta counters.
     """
     counters = {name: usage.get(name) for name in COUNTERS}
-    return repo.upsert_rows(user_id, [{
+    state = usage.get("usage_state")
+    if state not in ("observed", "missing"):
+        state = "observed" if any(value is not None for value in counters.values()) else "missing"
+    row = {
         "chat_id": chat_id,
         "session_id": session_id,
         "model": model,
         "requested_at": requested_at,
         "request_id": request_id,
-        "usage_state": "observed" if any(value is not None for value in counters.values()) else "missing",
+        "usage_state": state,
         **counters,
-    }])
+    }
+    if cumulative is not None:
+        row.update({f"cumulative_{name}": cumulative.get(name) for name in COUNTERS})
+    return repo.upsert_rows(user_id, [row])
 
 
 def _nonneg_int(value, field: str) -> int:

@@ -6,8 +6,9 @@ from .base import Base, BaseEntity
 class ModelContextWindowEntity(Base, BaseEntity):
     """Global badge denominator for one API model id.
 
-    One row serves every bot. `init_db` creates the table and does not seed it;
-    the only seed is the maintainer SQL for `gpt-6.1-sol`.
+    One row serves every bot. `init_db` creates the table and does not seed it.
+    Applied rows are maintainer SQL, not a single seeded model. Codex closeout
+    uses a row only when the rollout did not report its own window.
     """
 
     __tablename__ = "model_context_window"

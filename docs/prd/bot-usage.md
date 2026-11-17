@@ -673,24 +673,37 @@ later delivery.
 
 ### Codex turn usage
 
-- The worker records successful `codex exec --json` `turn.completed.usage`
-  directly in `chat_request_usage`, once per launch. Replayed closeouts use the
-  same launch identity. Interrupted and failed turns without completion usage
-  are not collected; there is no rollout scan or historical backfill.
+- The worker records one `chat_request_usage` row per successful `codex exec
+  --json` launch. `turn.completed.usage` is the thread total, not the turn.
+  Stored counters are the delta from the previous row of the same
+  `(user_id, chat_id, session_id)`: that row's `cumulative_*` when present,
+  otherwise its counters (a legacy snapshot). The first turn stores the total
+  as-is. A regression (the anchor is greater than the new total) stores the new
+  total as-is and logs. Nullable
+  `cumulative_{input,output,cache_creation,cache_read}_tokens` keep this turn's
+  thread total so the next delta has an exact anchor. Replayed closeouts use
+  the same launch identity and exclude that row from the anchor. Interrupted
+  and failed turns are not collected. A separate maintainer SQL converts
+  existing all-legacy Codex sessions the same way and is safe to run twice.
 - Shared input is provider `input_tokens` minus `cached_input_tokens`; cache read
   is `cached_input_tokens`, cache creation is `cache_write_input_tokens`, and
   output is `output_tokens`. Reasoning is already included in output. Missing
   or malformed counters remain NULL, never fabricated zeros.
-- These are turn totals, not individual model requests. Trace responses label
+- These are turn deltas, not individual model requests. Trace responses label
   their `usage_granularity` as `turn`. The Context API exposes `usage_only` with
   `provider_turn_usage_v1`, provider counters, and no composition estimates or
   contributors. P totals describe turn volume, not context occupancy. Cost and
   historical completeness remain unavailable and unknown respectively.
 - The authenticated transcript-upload attribution and the Claude resume gate
-  remain Claude-only. No schema change or migration is required.
-- `turn.completed` has no context window. The chat badge denominator is the
-  `model_context_window` row for the resolved model id (exact match after
-  quote and space stripping). `init_db` creates the table and does not seed
+  remain Claude-only.
+- `codex exec --json` has no context window. Closeout reads the node rollout
+  for that thread (`model_context_window` and final-request `last_token_usage`).
+  The chat badge numerator is that final-request occupancy when the rollout
+  read succeeds, otherwise the turn delta. `chat.cumulative_*` is the thread
+  total, not the badge. The badge denominator is the rollout window. A miss or
+  SSH error falls back to the `model_context_window` row for the resolved model
+  id (exact match after quote and space stripping). An unresolved model keeps
+  the stored window. `init_db` creates the table and does not seed
   it. The applied data is fifteen maintainer-written rows from OpenRouter
   `context_length` on 2026-11-16, keyed by `bot_config.model`. `gpt-6.1-sol`
   is 1,050,000 (`openai/gpt-6.1-sol`), replacing the earlier configured
