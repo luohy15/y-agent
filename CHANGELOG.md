@@ -14,6 +14,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Added
 
+- **Detail-only modules (4360)**: browser contract v33 accepts a module with a detail view and no sidebar panel. Its activity-bar entry opens a tab, and saved sidebar selections fall back when the panel is unavailable.
 - **Pi backend (4357)**: `pi` runs pi.dev in detached sessions, resumes its own session, streams tool/text events, and ends the turn on steer. Completion waits for retries to settle. Host contract v38 accepts up to three bot connection entries; provider credentials stay off argv.
 
 - **Codex backend (4304)**: a bot with backend `codex` runs `codex exec` on the chat's node, streams Bash and file-change tool calls into the chat, and resumes its Codex thread on the next turn. A message sent mid-run ends that turn and is answered on the same thread, the same way a Claude Code steer adjusts course without waiting. The bot must set a relay `base_url` and `api_key`. Claude Code chats are unchanged.
@@ -39,12 +40,13 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Fixed
 
+- **Public todo chat frame (4363)**: public todo shares use the same collapsible Chat section as internal detail, with the waterfall inside it; participant rows and Context actions remain private.
 - **Explicit bot pin admission (4252)**: an explicitly named bot that is unknown, disabled or outside the requested tier is rejected with a 400 before any image upload, chat write or enqueue, instead of failing later in the worker.
 - **Canonical tags (4277)**: adding tags checks the whole batch against the existing vocabulary before any write. New tag names are flat lowercase words with hyphens, at most 40 characters, and a new name of 20 or more characters with no hyphen needs an explicit acknowledgement.
 - **Awaiting during a machine wait (4278)**: an active todo with a live machine wait still moves to awaiting when the only remaining work is an idle chat waiting on the user. The newest such chat is the pointer.
 - **Sign-in and empty shares (4286)**: Google Identity Services initializes once per page, and a trace with no share returns an empty 200 instead of a 404.
 - **Date filters without Fava (4288)**: shared relative date parsing no longer depends on Fava internals, so a Fava upgrade cannot break CLI startup or time filters. The previous range grammar is unchanged.
-- **Codex startup errors (4326)**: a Codex turn that ends with no result now includes the exit status and a short stderr excerpt, with credential-shaped text redacted. If resume is refused because that thread has no rollout, the same input runs once more as a fresh turn, and the transcript notes that native continuity was lost. A second refusal does not retry.
+- **Codex startup errors (4326)**: a Codex turn that ends with no result now includes the exit status and a short stderr excerpt, with credential-shaped text redacted. Before resuming, an archived rollout is restored into the launch's `CODEX_HOME` when available, without overwriting an existing rollout. If resume is refused because that thread has no rollout, the same input runs once more as a fresh turn, and the transcript notes that native continuity was lost. A second refusal does not retry.
 
 ### Removed
 
