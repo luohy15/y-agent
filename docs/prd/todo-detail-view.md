@@ -156,9 +156,9 @@ its entry points are migrated intentionally rather than left as dead paths.
 29. As a user with a previously persisted `trace.md` workspace tab, I want it to
     disappear or resolve into the new viewer after the cut rather than restore as
     a broken tab, so that saved workspace state stays coherent.
-30. As a visitor to a public trace share, I want that page to keep working
-    exactly as before, so that shared links are unaffected by an internal
-    navigation change.
+30. As a visitor to a public trace share, I want its URLs, access rules and
+    read-only behavior preserved as its presentation evolves, so that shared
+    links are unaffected by an internal navigation change.
 31. As the maintainer, I want no orphaned host commands, URL handlers, or tab
     classifications left behind after the cut, so that the retirement is a
     migration rather than an accumulation.
@@ -279,7 +279,9 @@ rows inside one framed, collapsible `Chat (N)` section between Todo Detail and
 Related Links. The border, header and spacing follow the neighboring sections.
 It starts expanded and does not persist collapse state. An empty chat list still
 shows `Chat (0)` and the existing empty message; loading, errors and unavailable
-states remain outside the frame. Public trace shares keep their bare waterfall.
+states remain outside the frame. Public trace shares use the same frame, header,
+collapse behavior and empty state around their waterfall, without participant
+rows or Context actions. Waterfall clicks still open the shared chat snapshot.
 
 Chat rows follow the sidebar's two-line hierarchy: copyable chat ID, role and
 non-duplicate skill badges, and a visible Context action above the title and

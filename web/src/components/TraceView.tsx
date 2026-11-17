@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import useSWR from "swr";
 import { API, authFetch, clearToken, jsonFetcher as fetcher } from "../api";
 import { runHostCommand } from "../host/commands";
-import WaterfallChart, { type TraceChat } from "./WaterfallChart";
+import { type TraceChat } from "./WaterfallChart";
 import { statusBadgeClass } from "./badges";
 import TraceSection from "./TraceSection";
 import SharePopover, { type ExistingShare } from "./SharePopover";
@@ -495,13 +495,12 @@ export default function TraceView({
               />
             )}
 
-            {!publicMode ? (
-              <TraceSection chats={traceChats} onSelectChat={onSelectChat} onOpenContext={openParticipantContext} />
-            ) : traceChats.length > 0 ? (
-              <WaterfallChart chats={traceChats} onClickChat={onSelectChat} />
-            ) : (
-              <p className="text-sol-base01 italic text-xs mt-2">No chats found for this todo</p>
-            )}
+            <TraceSection
+              chats={traceChats}
+              onSelectChat={onSelectChat}
+              onOpenContext={publicMode ? undefined : openParticipantContext}
+              showChatRows={!publicMode}
+            />
 
             {/* Related Links */}
             {traceLinks && traceLinks.length > 0 && (
