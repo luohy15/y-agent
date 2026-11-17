@@ -78,7 +78,9 @@ async def openai_chat_completion(
     if extra_payload:
         payload.update(extra_payload)
 
-    base_url = resolve_base_url(provider_base_url(bot_config, "openai"))
+    base_url = resolve_base_url(provider_base_url(
+        getattr(bot_config, "base_url", None), "openai", getattr(bot_config, "api_key", None),
+    ))
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     async with httpx.AsyncClient(timeout=timeout) as client:
         response = await client.post(f"{base_url}/{_api_path(bot_config)}", json=payload, headers=headers)

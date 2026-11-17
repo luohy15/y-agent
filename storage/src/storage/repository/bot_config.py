@@ -3,7 +3,13 @@
 from typing import List, Optional
 from storage.entity.bot_config import BotConfigEntity
 from storage.entity.dto import BotConfig
-from storage.dto.bot import normalize_tier_weights, subscription_tiers_of, tier_weights_of
+from storage.dto.bot import (
+    normalize_backends,
+    normalize_tier_weights,
+    stored_backends_of,
+    subscription_tiers_of,
+    tier_weights_of,
+)
 from storage.database.base import get_db
 
 
@@ -14,6 +20,7 @@ def _entity_to_dto(entity: BotConfigEntity) -> BotConfig:
         api_key=entity.api_key,
         api_type=entity.api_type,
         backend=entity.backend,
+        backends=stored_backends_of(entity),
         model=entity.model,
         description=entity.description,
         openrouter_config=entity.openrouter_config,
@@ -38,12 +45,17 @@ def _entity_to_dto(entity: BotConfigEntity) -> BotConfig:
 def _dto_to_entity_fields(config: BotConfig) -> dict:
     tiers = normalize_tier_weights(config.tiers, config.tier, config.route_weight)
     strongest = next(iter(tiers))
+    stored, preferred, base_url, model = normalize_backends(
+        config.backends, backend=config.backend, api_type=config.api_type,
+        base_url=config.base_url, model=config.model,
+    )
     fields = dict(
-        base_url=config.base_url,
+        base_url=base_url,
         api_key=config.api_key,
         api_type=None,
-        backend=config.backend,
-        model=config.model,
+        backend=preferred,
+        backends=stored,
+        model=model,
         description=config.description,
         openrouter_config=config.openrouter_config,
         prompts=config.prompts,

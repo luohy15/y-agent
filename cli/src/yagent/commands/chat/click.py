@@ -245,6 +245,7 @@ def _fire_and_forget(
     from_chat_id: Optional[str],
     bot: Optional[str],
     bot_tier: Optional[str],
+    backend: Optional[str],
     reasoning_effort: Optional[str],
     wait: bool = False,
     wait_timeout: int = 300,
@@ -300,6 +301,8 @@ def _fire_and_forget(
         payload["bot_name"] = bot
     if bot_tier:
         payload["bot_tier"] = bot_tier
+    if backend:
+        payload["backend"] = backend
     if reasoning_effort:
         payload["reasoning_effort"] = reasoning_effort
     try:
@@ -460,7 +463,8 @@ def _interactive(
 # Interactive REPL (-i mode)
 @click.option('--interactive', '-i', is_flag=True, help='Open the interactive REPL')
 @click.option('--latest', '-l', is_flag=True, help='[interactive] Continue from the latest chat via the active chat module list route. This can fail when the module is unavailable; use -c for an explicit chat or -m for dispatch.')
-@click.option('--bot', '-b', default=None, help="Bot name to use (e.g. sonnet, opus, px). On an existing chat it switches that chat to the new bot, which must run on the same backend; the switch applies on the chat's next run (a message sent into a running chat steers it and keeps the current bot).")
+@click.option('--bot', '-b', default=None, help="Bot name to use (e.g. sonnet, opus, px). On an existing chat it switches that chat to the new bot, which must still have a connection for the chat's recorded backend; the switch applies on the chat's next run (a message sent into a running chat steers it and keeps the current bot).")
+@click.option('--backend', type=click.Choice(['claude_code', 'codex']), default=None, help='Backend to pin on a new chat. Requires --new. Later turns keep the recorded backend and reject this flag.')
 @click.option('--tier', type=click.Choice(['tier0', 'tier1', 'tier2', 'tier3']), default=None, help='Bot tier for tier-based selection (no filter or empty match defaults to tier2)')
 @click.option('--reasoning-effort', '--effort', type=click.Choice(['low', 'medium', 'high', 'xhigh', 'max'], case_sensitive=False), default=None, help='Per-dispatch reasoning effort override')
 @click.option('--prompt', '-p', default=None, help='[interactive] Run a one-off query and exit')
@@ -489,6 +493,7 @@ def chat_group(
     latest: bool,
     bot: Optional[str],
     tier: Optional[str],
+    backend: Optional[str],
     reasoning_effort: Optional[str],
     prompt: Optional[str],
 ):
@@ -561,7 +566,7 @@ def chat_group(
         incompatible = {
             '--new': force_new, '--role': role, '--skill': skill, '--wait': wait,
             '--image': images, '-i': interactive, '--work-dir': work_dir, '--on': execution_target,
-            '--bot': bot, '--tier': tier, '--effort': reasoning_effort,
+            '--bot': bot, '--tier': tier, '--effort': reasoning_effort, '--backend': backend,
         }
         conflicts = [flag for flag, value in incompatible.items() if value]
         if conflicts:
@@ -580,6 +585,9 @@ def chat_group(
         click.echo("Error: -m and -i are mutually exclusive.", err=True)
         raise SystemExit(2)
 
+    if backend and (not (force_new or fresh) or chat_id or interactive or at):
+        raise click.UsageError("--backend is only allowed with --new, and not with --chat-id, --at, or -i")
+
     if message is not None:
         _fire_and_forget(
             message=message,
@@ -596,6 +604,7 @@ def chat_group(
             from_chat_id=from_chat_id,
             bot=bot,
             bot_tier=tier,
+            backend=backend,
             reasoning_effort=reasoning_effort,
             wait=wait,
             wait_timeout=wait_timeout,

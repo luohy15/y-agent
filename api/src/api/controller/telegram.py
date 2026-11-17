@@ -515,7 +515,7 @@ async def _handle_routed_message(telegram_chat_id, telegram_user_id, target_chat
             user.id, target_chat, text,
             images=images, files=files, source="telegram", human_reply=True,
             trace_id=target_chat.trace_id, role=target_chat.role,
-            skill=target_chat.skill, backend=target_chat.backend,
+            skill=target_chat.skill,
             work_dir=target_chat.work_dir,
         )
     except chat_service.resume_gate.ChatReadOnly as exc:

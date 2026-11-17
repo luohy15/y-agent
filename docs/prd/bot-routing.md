@@ -136,16 +136,18 @@ request usage can trigger the gate; launch averages remain display-only.
     session up to a stronger model (or down to a cheaper one) without
     starting over and losing its context.
 24. As a user, I want a later turn of an existing chat to run only on that
-    chat's stored backend. A bot change onto a different backend, a stored
-    bot that now resolves to another backend, or a chat left with no runnable
-    bot on its backend fails with one error naming the chat, both backends,
-    and the two remedies (start a new chat, or use a bot that stays on the
-    stored backend). The API returns 409 before writing the message, except
-    while the chat is already running (that message steers the in-flight
-    turn) and except when the chat has no stored backend. A launch that still
-    reaches the worker aborts with that error instead of starting
-    `claude_code` or `codex` against the other's session. The chat row is not
-    rewritten, and a null backend is never inferred from `external_id`.
+    chat's stored backend, using the bot's connection entry for it. A bot
+    may list ordered entries (`backend`, `base_url`, optional `model`); the
+    first is preferred. A new chat may name one entry, otherwise the first
+    run uses the preferred, and either way `chat.backend` is the permanent
+    pin. A later turn that names a backend is rejected. A bot change is
+    allowed while the new bot still has an entry for the pin, even when it
+    prefers another. Removing that entry fails the next turn with one error
+    naming the chat, the bot, the pinned backend, and the current entries.
+    The API returns 409 before writing the message, except while the chat is
+    already running (that message steers the in-flight turn) and except when
+    the chat has no stored backend. The chat row is not rewritten, and a
+    null backend is never inferred from `external_id`.
 25. As a user, I want a bot change naming something that does not resolve to
     a runnable bot (mistyped, disabled, or outside the tier I asked for) to
     leave the chat on its current bot rather than land it on whatever the
@@ -281,13 +283,13 @@ request usage can trigger the gate; launch averages remain display-only.
   is reused. Naming a different bot on the same backend switches the chat:
   the new bot's name and tier are persisted and the rest of the conversation
   runs on it. The chat's `backend` stays fixed. An affirmative pin whose
-  effective backend differs is refused: the API returns 409 before the
-  message is written; an internal sender that still reaches the worker is
-  refused with a log and the chat keeps its current bot, which is launched
-  only when that bot is still on the stored backend. A later turn whose
-  stored bot now resolves to another backend, or whose same-backend pool is
-  empty, fails with `BackendMismatchError` (the same 409 before write; a
-  worker abort with the error text). There is no synthetic fallback and no
+  entries do not include the stored backend is refused: the API returns 409
+  before the message is written; an internal sender that still reaches the
+  worker is refused with a log and the chat keeps its current bot, which is
+  launched only when that bot still has an entry for the stored backend. A
+  later turn whose stored bot no longer has that entry, or whose same-backend
+  pool is empty, fails with `BackendMismatchError` (the same 409 before
+  write; a worker abort with the error text). There is no synthetic fallback and no
   chat-row rewrite. A stored bot that resolves to nothing (deleted or
   disabled) is the one allowed substitution, and only from the same-backend
   pool (the requested tier, otherwise tier2), never `_global_default`. A
@@ -298,6 +300,18 @@ request usage can trigger the gate; launch averages remain display-only.
   session at all, and because `claude_code` and `codex` (todo 4304) each
   resume a different native session. `gemini_cli`, `grok_build`, and
   `pi_cli` stay removed (todo 2930).
+- **Connection entries (todo 4349).** `bot_config.backends` is a nullable
+  ordered array of `{backend, base_url, model?}`. Only `claude_code` and
+  `codex` may appear, at most two, and `backend` values are unique. Entry 0
+  is preferred and is mirrored into row `backend`, `base_url`, and `model`
+  for legacy readers and effort binding. NULL derives one entry from those
+  columns, so existing rows need no backfill. A malformed array falls back
+  to that single derived entry and never broadens support. Inline bots stay
+  on the row columns and cannot set the array. `api_key` stays row-level.
+  Launch reads the entry for `chat.backend` and uses that entry's base URL
+  and model. Subscription auth is `claude_code` only, so a codex entry and
+  subscription tiers cannot be set together. A new chat may pass `backend`
+  (`y chat --new --backend`); a later send that includes it is a 400.
 - **A bot change takes effect on the chat's next run.** Bot resolution
   happens when a message enqueues a worker task, so a message sent into a
   chat that is already running steers the turn in flight instead
@@ -497,6 +511,9 @@ escalate effort. `max` and `low` are used only when the user asks.
 - Cross-backend chat continuity: moving a chat between backends (transcript
   handoff or session translation) stays out. A bot change is honored only
   within the chat's own backend.
+- A web backend picker, and per-entry API keys. Chat creation accepts a
+  backend, and the web sends nothing. Distinct credentials per harness are
+  a separate bot; the row key is shared.
 - xAI web/X request construction, response parsing, citations, retries, and
   inline worker lifecycle. Those belong to [xAI Inline Search Backends](xai-inline-search.md);
   this feature owns only whether those model-type bots can be selected.

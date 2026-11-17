@@ -207,6 +207,12 @@ Todo 4277 bumps 35 to 36: tag_create_vocabulary accepts allow_unusual=False,
 requiring explicit acknowledgement for unusual new spellings. Membership writes
 require existing vocabulary and tag_add batches are atomic. Deploy host v36
 before publishing the Tag module that forwards the acknowledgement keyword.
+Todo 4349 bumps 36 to 37: BotConfig.backends is an ordered array of
+per-backend connection entries (backend, base_url, optional model). Entry 0
+is preferred and mirrored into the row columns. NULL derives one entry from
+those columns. Apply migration/4349_bot_backends.sql before deploying this
+host. The bot module requires v37 and is published after; do not edit bots
+through an older module in between.
 """
 
 from __future__ import annotations
@@ -225,8 +231,8 @@ from storage.project_key import ProjectKeyError as ProjectKeyError, normalize_pr
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-# v36: explicit unusual-tag acknowledgement and existing-vocabulary writes (todo 4277).
-BACKEND_CONTRACT_VERSION = 36
+# v37: bot connection entries in BotConfig.backends (todo 4349).
+BACKEND_CONTRACT_VERSION = 37
 
 # Wall-clock budget for the wake="nowait" readiness check (todo 3777).
 NOWAIT_BUDGET_SECONDS = 1.0

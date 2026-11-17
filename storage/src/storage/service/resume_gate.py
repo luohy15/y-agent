@@ -118,6 +118,7 @@ def pick_limit(current_limit, pending_limit, measured):
 def limit_bounds(user_id: int, chat: Chat, bot_name=None, bot_tier=None):
     """Current and pending limits. No usage read, so admission can do this before the lock."""
     from agent.config import _resolve_named, resolve_pinned_bot_config
+    from storage.dto.bot import entry_names
 
     if chat.backend != "claude_code" or not chat.external_id:
         return None, None
@@ -126,7 +127,7 @@ def limit_bounds(user_id: int, chat: Chat, bot_name=None, bot_tier=None):
     pending_limit = None
     if bot_name and bot_name != chat.bot_name:
         config = resolve_pinned_bot_config(user_id, bot_name, bot_tier)
-        if config and (config.backend or config.api_type) != chat.backend:
+        if config and chat.backend not in entry_names(config):
             config = None
         if config is None:
             config = current

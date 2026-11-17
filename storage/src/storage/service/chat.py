@@ -562,14 +562,17 @@ def enqueue_chat_run(
     trace_id: Optional[str] = None,
     role: Optional[str] = None,
     skill: Optional[str] = None,
-    backend: Optional[str] = None,
     **_ignored,
 ) -> None:
     """Hand the accepted chat to the worker (SQS in prod, Celery locally).
 
     The chat's reserved `run_seq` rides along so the worker entry can refuse a
-    duplicate delivery of this same reservation.
+    duplicate delivery of this same reservation. Unknown keyword arguments are
+    a stale caller contract and are ignored with a log (the launch backend is
+    `chat.backend` now, never a queue field).
     """
+    if _ignored:
+        logger.info("Ignoring stale enqueue_chat_run kwargs {} for chat {}", sorted(_ignored), chat.id)
     send_chat_message(
         chat.id,
         run_seq=chat.run_seq,
@@ -582,7 +585,6 @@ def enqueue_chat_run(
         trace_id=trace_id,
         role=role,
         skill=skill,
-        backend=backend,
     )
 
 
@@ -604,7 +606,6 @@ async def deliver_user_message(
     trace_id: Optional[str] = None,
     role: Optional[str] = None,
     skill: Optional[str] = None,
-    backend: Optional[str] = None,
     event_id: Optional[str] = None,
 ) -> Chat:
     """Append `content` as a user message into `chat` and ensure it gets run.
@@ -626,7 +627,7 @@ async def deliver_user_message(
         enqueue_chat_run(
             acceptance.chat, user_id=user_id, bot_name=bot_name, bot_tier=bot_tier,
             vm_name=vm_name, work_dir=work_dir, post_hooks=post_hooks,
-            trace_id=trace_id, role=role, skill=skill, backend=backend,
+            trace_id=trace_id, role=role, skill=skill,
         )
     return acceptance.chat
 
@@ -702,7 +703,7 @@ def _get_celery_app():
     return app
 
 
-def send_chat_message(chat_id: str, bot_name: str = None, bot_tier: str = None, user_id: int = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, role: str = None, skill: str = None, backend: str = None, run_seq: int = None):
+def send_chat_message(chat_id: str, bot_name: str = None, bot_tier: str = None, user_id: int = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, role: str = None, skill: str = None, run_seq: int = None):
     """Send a message to trigger the worker for a chat.
 
     Uses SQS when SQS_QUEUE_URL is set (production/Lambda).
@@ -728,8 +729,6 @@ def send_chat_message(chat_id: str, bot_name: str = None, bot_tier: str = None, 
         payload["topic"] = role
     if skill:
         payload["skill"] = skill
-    if backend:
-        payload["backend"] = backend
     if run_seq:
         payload["run_seq"] = run_seq
 
@@ -743,7 +742,7 @@ def send_chat_message(chat_id: str, bot_name: str = None, bot_tier: str = None, 
         return
 
     app = _get_celery_app()
-    app.send_task("worker.tasks.process_chat", args=[chat_id], kwargs={"bot_name": bot_name, "bot_tier": bot_tier, "user_id": user_id, "vm_name": vm_name, "work_dir": work_dir, "post_hooks": post_hooks, "trace_id": trace_id, "role": role, "topic": role, "skill": skill, "backend": backend, "run_seq": run_seq})
+    app.send_task("worker.tasks.process_chat", args=[chat_id], kwargs={"bot_name": bot_name, "bot_tier": bot_tier, "user_id": user_id, "vm_name": vm_name, "work_dir": work_dir, "post_hooks": post_hooks, "trace_id": trace_id, "role": role, "topic": role, "skill": skill, "run_seq": run_seq})
 
 
 async def delete_chat(user_id: int, chat_id: str) -> bool:

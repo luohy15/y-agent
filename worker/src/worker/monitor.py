@@ -370,7 +370,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             if not fresh or fresh.interrupted:
                 return
             await _relaunch_claude_code_turn(
-                chat_id, user_id, proc, backend=backend_type,
+                chat_id, user_id, proc,
                 resume_5xx_retries=int(proc.get("resume_5xx_retries", 0)) + 1,
                 run_seq=fresh.run_seq,
                 continuation_from_id=proc.get("scope_first_id"),
@@ -408,7 +408,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                 if not fresh or fresh.interrupted or not retry_result.get("refused_cleared"):
                     return
                 await _relaunch_claude_code_turn(
-                    chat_id, user_id, proc, backend=backend_type,
+                    chat_id, user_id, proc,
                     resume_5xx_retries=int(proc.get("resume_5xx_retries") or 0),
                     run_seq=fresh.run_seq,
                     continuation_from_id=proc.get("scope_first_id"),
@@ -479,7 +479,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                     chat_id, user_id=user_id, bot_name=proc.get("bot_name"),
                     vm_name=proc.get("vm_name"), work_dir=proc.get("work_dir"),
                     trace_id=proc.get("trace_id"), role=validate_role(proc.get("role") or legacy_topic_to_role(proc.get("topic"))),
-                    backend=backend_type, run_seq=run_seq,
+                    run_seq=run_seq,
                 )
                 complete_current_process(chat_id, proc, result["status"])
                 return
@@ -1080,22 +1080,16 @@ def _int_value(value):
         return 0
 
 
-async def _relaunch_claude_code_turn(chat_id: str, user_id: int, proc: dict, backend: str = "claude_code",
+async def _relaunch_claude_code_turn(chat_id: str, user_id: int, proc: dict,
                                      resume_5xx_retries: int = 0, run_seq: int = None,
                                      continuation_from_id: str = None,
                                      handled_input_ids=None,
                                      codex_refusal_retries: int = 0) -> None:
     """Re-invoke the normal launch path for input the finished run still owes.
 
-    Reuses `run_chat` so this goes through the same resume-detection,
-    tmux launch, and DynamoDB registration as any other turn — `resume` is
-    computed from `chat.external_id` (already persisted by
-    `_apply_completion_metadata` above) and `chat.work_dir`. `backend`
-    defaults to `claude_code` but callers pass the actual backend_type so
-    the relaunch stays on the same backend.
-
-    `run_seq` is the reservation the closeout took, so this launch and a
-    duplicate queue delivery cannot both become the successor.
+    Reuses `run_chat`. The relaunch reads `chat.backend`; it does not take a
+    backend override. `run_seq` is the reservation the closeout took, so this
+    launch and a duplicate queue delivery cannot both become the successor.
     """
     from worker.runner import run_chat
 
@@ -1112,7 +1106,6 @@ async def _relaunch_claude_code_turn(chat_id: str, user_id: int, proc: dict, bac
         post_hooks=post_hooks,
         trace_id=proc.get("trace_id"),
         role=validate_role(proc.get("role") or legacy_topic_to_role(proc.get("topic"))),
-        backend=backend,
         resume_5xx_retries=resume_5xx_retries,
         run_seq=run_seq,
         continuation_from_id=continuation_from_id,

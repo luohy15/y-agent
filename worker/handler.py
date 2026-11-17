@@ -90,6 +90,9 @@ async def _process_record(body: dict) -> str:
 
     # All chat tasks go through run_chat (detached vs inline decided internally)
     chat_id = body["chat_id"]
+    stale_backend = body.get("backend")
+    if stale_backend:
+        logger.info("[worker] ignoring stale queued backend={} chat={}", stale_backend, chat_id)
     logger.info("[worker] SQS trigger for chat {}", chat_id)
     result = await run_chat(
         user_id=body.get("user_id"),
@@ -102,7 +105,6 @@ async def _process_record(body: dict) -> str:
         trace_id=body.get("trace_id"),
         role=validate_role(body.get("role") or legacy_topic_to_role(body.get("topic"))),
         skill=body.get("skill"),
-        backend=body.get("backend"),
         run_seq=body.get("run_seq"),
     )
     return result

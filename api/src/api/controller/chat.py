@@ -44,6 +44,7 @@ class CreateChatRequest(BaseModel):
     image_uploads: Optional[List[ImageUpload]] = None
     bot_name: Optional[str] = None
     bot_tier: Optional[str] = None
+    backend: Optional[str] = None
     chat_id: Optional[str] = None
     vm_name: Optional[str] = None
     work_dir: Optional[str] = None
@@ -63,6 +64,7 @@ class SendMessageRequest(BaseModel):
     image_uploads: Optional[List[ImageUpload]] = None
     bot_name: Optional[str] = None
     bot_tier: Optional[str] = None
+    backend: Optional[str] = None
     # vm_name / post_hooks are honored on the non-dispatch arm only (matching
     # the pre-unification /message route); the dispatch arm silently ignores
     # them, matching the pre-unification /notify route (which never accepted
@@ -281,6 +283,33 @@ def _admit_bot_pin(user_id: int, bot_name: Optional[str], bot_tier: Optional[str
         )
 
 
+def _reject_backend_on_existing(backend: Optional[str]) -> None:
+    """A send that names a backend is creating a pin, never changing one."""
+    if backend is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="backend is only allowed when creating a chat; this chat keeps its recorded backend",
+        )
+
+
+def _creation_auth_mode(user_id: int, execution_target: Optional[str]) -> str:
+    from agent.chat_target import layout
+    return layout(user_id, execution_target).auth_mode or "relay"
+
+
+def _new_chat_backend(user_id: int, *, bot_name: Optional[str], bot_tier: Optional[str],
+                      requested: Optional[str], execution_target: Optional[str]) -> Optional[str]:
+    """Backend to store on a new row, or None when the first run pins the preferred."""
+    from agent.config import BackendRequestError, resolve_creation_backend
+    try:
+        return resolve_creation_backend(
+            user_id, bot_name=bot_name, tier=bot_tier, requested=requested,
+            auth_mode=_creation_auth_mode(user_id, execution_target),
+        )
+    except (BackendRequestError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 def _admit_chat_backend(user_id: int, chat, bot_name: Optional[str], bot_tier: Optional[str]) -> None:
     """Reject a continuation that would leave the chat's stored backend.
 
@@ -297,18 +326,18 @@ def _admit_chat_backend(user_id: int, chat, bot_name: Optional[str], bot_tier: O
         resolve_continuation_bot_config,
         resolve_pinned_bot_config,
     )
+    from storage.dto.bot import backend_entries_of, entry_names
     stored_bot = getattr(chat, "bot_name", None)
     if bot_name and bot_name != stored_bot:
         pinned = resolve_pinned_bot_config(user_id, bot_name, tier=bot_tier)
         if pinned is None:
             return
-        other = pinned.backend or pinned.api_type
-        if other != chat.backend:
+        if chat.backend not in entry_names(pinned):
             raise HTTPException(
                 status_code=409,
                 detail=str(BackendMismatchError(
                     chat_id=chat.id, chat_backend=chat.backend,
-                    other_backend=other, bot_name=pinned.name,
+                    bot_name=pinned.name, entries=backend_entries_of(pinned),
                 )),
             )
         return
@@ -320,7 +349,7 @@ def _admit_chat_backend(user_id: int, chat, bot_name: Optional[str], bot_tier: O
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
-def _admit_launch_effort(user_id: int, effort: Optional[str], *, chat=None, bot_name: Optional[str] = None, bot_tier: Optional[str] = None) -> None:
+def _admit_launch_effort(user_id: int, effort: Optional[str], *, chat=None, bot_name: Optional[str] = None, bot_tier: Optional[str] = None, backend: Optional[str] = None) -> None:
     """Reject an effort the launch bot cannot run before any chat write.
 
     A running chat never reaches this check: effort on a live run is already
@@ -330,7 +359,7 @@ def _admit_launch_effort(user_id: int, effort: Optional[str], *, chat=None, bot_
         return
     from agent.config import EffortCapabilityError, preflight_launch_effort
     try:
-        preflight_launch_effort(user_id, effort, chat=chat, bot_name=bot_name, bot_tier=bot_tier)
+        preflight_launch_effort(user_id, effort, chat=chat, bot_name=bot_name, bot_tier=bot_tier, backend=backend)
     except (EffortCapabilityError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -381,12 +410,16 @@ async def post_create_chat(req: CreateChatRequest, request: Request):
     # Reject an unsupported effort before image upload or any chat write.
     _admit_launch_effort(
         user_id, _normalize_reasoning_effort(req.reasoning_effort),
-        bot_name=req.bot_name, bot_tier=req.bot_tier,
+        bot_name=req.bot_name, bot_tier=req.bot_tier, backend=req.backend,
     )
     # Caller-supplied ids: single attempt, ChatIdCollision → 409.
     # Generated ids: create_chat retries allocate+insert on race (no pre-mint).
     admitted = admit_execution_target(
         user_id, req.execution_target, None, _has_image_request(req.images, req.image_uploads),
+    )
+    pinned_backend = _new_chat_backend(
+        user_id, bot_name=req.bot_name, bot_tier=req.bot_tier, requested=req.backend,
+        execution_target=req.execution_target,
     )
     from agent.config import resolve_vm_config
     vm_config = resolve_vm_config(user_id, req.vm_name, work_dir=req.work_dir)
@@ -407,6 +440,8 @@ async def post_create_chat(req: CreateChatRequest, request: Request):
     # Set running immediately so frontend shows running state without waiting for worker.
     # A real node name is written before enqueue; NULL stays the orchestrator default.
     chat.running = True
+    if pinned_backend:
+        chat.backend = pinned_backend
     stored_target = stored_execution_target(admitted)
     if stored_target:
         chat.execution_target = stored_target
@@ -484,6 +519,7 @@ async def post_send_message(req: SendMessageRequest, request: Request):
         chat = await chat_service.get_chat(user_id, req.chat_id)
         if chat is None:
             raise HTTPException(status_code=404, detail="chat not found")
+        _reject_backend_on_existing(req.backend)
         _admit_chat_backend(user_id, chat, req.bot_name, req.bot_tier)
 
         # Resolve work_dir: use existing chat.work_dir if not provided, validate if provided
@@ -550,8 +586,11 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    if existing_chat is not None:
+        _reject_backend_on_existing(req.backend)
     _admit_launch_effort(
         user_id, reasoning_effort, chat=existing_chat, bot_name=req.bot_name, bot_tier=req.bot_tier,
+        backend=None if existing_chat else req.backend,
     )
 
     def _dispatch_content(to_chat_id: str) -> str:
@@ -571,6 +610,7 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     from storage.repository.chat import EffortOnRunningChat
 
     async def deliver_existing(target):
+        _reject_backend_on_existing(req.backend)
         _admit_chat_backend(user_id, target, req.bot_name, req.bot_tier)
         if req.launch_env is not None:
             raise HTTPException(status_code=400, detail="launch_env is only allowed for new chats; use --new")
@@ -633,6 +673,10 @@ async def post_send_message(req: SendMessageRequest, request: Request):
     # create_chat mints + inserts with race retry; rebuild the message so
     # to_chat: matches the final id.
     admitted = admit_execution_target(user_id, req.execution_target, None, has_images)
+    pinned_backend = _new_chat_backend(
+        user_id, bot_name=req.bot_name, bot_tier=req.bot_tier, requested=req.backend,
+        execution_target=req.execution_target,
+    )
     images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-upload", vm_config=vm_config)
 
     def build(new_id: str):
@@ -650,6 +694,7 @@ async def post_send_message(req: SendMessageRequest, request: Request):
             work_dir=work_dir,
             execution_target=stored_execution_target(admitted),
             launch_env=req.launch_env,
+            backend=pinned_backend,
             running=True,
         )
         return chat

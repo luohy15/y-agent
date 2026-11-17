@@ -12,6 +12,7 @@ class BotConfigEntity(Base, BaseEntity):
     api_key = Column(String, nullable=False, default="")
     api_type = Column(String, nullable=True)
     backend = Column(String, nullable=True)
+    backends = Column(JSON, nullable=True)
     model = Column(String, nullable=False, default="")
     description = Column(Text, nullable=True)
     openrouter_config = Column(JSON, nullable=True)

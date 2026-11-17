@@ -595,12 +595,12 @@ def _abort_unlaunched(chat, chat_id: str, user_id: int, exc: Exception) -> None:
     chat_repo.mutate_chat_locked(chat_id, fail_launch, user_id=user_id)
 
 
-async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, role: str = None, skill: str = None, backend: str = None, resume_5xx_retries: int = 0, run_seq: int = None, continuation_from_id: str = None, handled_input_ids=None, codex_refusal_retries: int = 0) -> str:
+async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, role: str = None, skill: str = None, resume_5xx_retries: int = 0, run_seq: int = None, continuation_from_id: str = None, handled_input_ids=None, codex_refusal_retries: int = 0) -> str:
     """Execute a chat round. Inline backends run in-process; claude_code and codex detach to tmux.
 
     bot_name, user_id, vm_name, work_dir, and post_hooks are passed from the queue message.
-    backend overrides bot_config.backend for routing ('claude_code', 'codex', or one of the
-    inline backends: 'perplexity', 'openai', 'xai_web', 'xai_x').
+    The launch backend is chat.backend, or the resolved bot's preferred backend when
+    the chat has none yet. A queued backend override is not accepted.
 
     `run_seq` is the reservation this entry is claiming (see
     `chat_repo.claim_chat_run`): a second delivery of the same reservation is
@@ -679,14 +679,14 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
     # no longer on the stored backend.
     explicit_bot = bot_name
     try:
-        launch_backend = chat.backend or backend
-        if not launch_backend and (bot_name or chat.bot_name):
+        prospective = chat.backend
+        if not prospective and (bot_name or chat.bot_name):
             try:
                 pinned = agent_config.resolve_pinned_bot_config(user_id, bot_name or chat.bot_name)
-                launch_backend = (pinned.backend or pinned.api_type) if pinned else None
+                prospective = agent_config.preferred_backend(pinned) if pinned else None
             except Exception as exc:
                 logger.warning("Cannot inspect pinned backend for chat {}: {}", chat_id, exc)
-        auth_mode = _launch_auth_mode(user_id, chat, launch_backend)
+        auth_mode = _launch_auth_mode(user_id, chat, prospective)
     except Exception as exc:
         _abort_unlaunched(chat, chat_id, user_id, exc)
         raise
@@ -720,22 +720,22 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
             )
             if requested and explicit_effort and explicit_effort not in _declared_efforts(requested):
                 raise agent_config.EffortCapabilityError(explicit_effort, requested.name)
-            requested_backend = (requested.backend or requested.api_type) if requested else None
+            requested_names = agent_config.entry_names(requested) if requested else []
             if not requested:
                 if explicit_effort:
                     raise agent_config.EffortCapabilityError(explicit_effort, bot_name)
                 rebot = False
-            elif chat.backend and requested_backend != chat.backend:
+            elif chat.backend and chat.backend not in requested_names:
                 logger.warning(
-                    "Refusing cross-backend bot change for chat {}: existing={} backend={} requested={} backend={}",
-                    chat_id, chat.bot_name, chat.backend, bot_name, requested_backend,
+                    "Refusing cross-backend bot change for chat {}: existing={} backend={} requested={} backends={}",
+                    chat_id, chat.bot_name, chat.backend, bot_name, requested_names,
                 )
                 rebot = False
             else:
                 bot_config = requested
                 logger.info(
-                    "Re-botting chat {}: {} -> {} (backend {})",
-                    chat_id, chat.bot_name, requested.name, requested_backend,
+                    "Re-botting chat {}: {} -> {} (backends {})",
+                    chat_id, chat.bot_name, requested.name, requested_names,
                 )
             if not rebot:
                 bot_name = chat.bot_name
@@ -745,10 +745,17 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
                 if sticky is None or not agent_config.bot_supports_auth_mode(sticky, auth_mode):
                     bot_name = None
                     repooled = True
-            identity_backend = chat.backend or backend
-            if identity_backend:
+            if chat.backend and bot_name and not chat.bot_name:
+                # A creation-time -b alias is not in the universe; resolve it to
+                # its target so the pinned backend runs the bot the caller named.
+                pinned_target = agent_config.resolve_pinned_bot_config(
+                    user_id, bot_name, auth_mode=auth_mode,
+                )
+                if pinned_target is not None:
+                    bot_name = pinned_target.name
+            if chat.backend:
                 bot_config = agent_config.resolve_continuation_bot_config(
-                    user_id, chat_id, chat_backend=identity_backend, bot_name=bot_name,
+                    user_id, chat_id, chat_backend=chat.backend, bot_name=bot_name,
                     tier=bot_tier, effort=explicit_effort, auth_mode=auth_mode,
                 )
             else:
@@ -756,9 +763,17 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
                     user_id, bot_name, tier=bot_tier,
                     effort=explicit_effort, auth_mode=auth_mode,
                 )
-        if explicit_effort and (bot_config.backend or bot_config.api_type) not in SUPPORTED_REASONING_EFFORT_BACKENDS:
-            unsupported = bot_config.backend or bot_config.api_type
-            raise ValueError(f"reasoning_effort is only supported for claude_code and codex, not {unsupported}")
+        entry = agent_config.launch_entry(chat.backend, bot_config)
+        launch = entry["backend"]
+        if auth_mode == "subscription":
+            if chat.backend and chat.backend != "claude_code":
+                raise agent_config.BotAuthModeError(
+                    f"subscription auth runs claude_code only, not {launch}"
+                )
+            entry = agent_config.launch_entry("claude_code", bot_config)
+            launch = entry["backend"]
+        if explicit_effort:
+            resolve_reasoning_effort(selected_inputs, launch)
     except Exception as e:
         if explicit_effort or isinstance(e, (agent_config.BotAuthModeError, agent_config.BackendMismatchError)):
             _abort_unlaunched(chat, chat_id, user_id, e)
@@ -767,17 +782,17 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
         # as an accepted re-bot, no matter what later edits raise inside the try.
         rebot = False
         repooled = False
-        fallback_backend = chat.backend or backend or "claude_code"
+        fallback_backend = chat.backend or "claude_code"
         logger.exception(
             "Bot resolve failed for chat {} (user_id={} bot_name={} backend={}); "
             "falling back to default bot backend={}: {}",
-            chat_id, user_id, bot_name, chat.backend or backend, fallback_backend, e,
+            chat_id, user_id, bot_name, chat.backend, fallback_backend, e,
         )
         bot_config = BotConfig(name=bot_name or fallback_backend, backend=fallback_backend)
+        entry = agent_config.launch_entry(chat.backend, bot_config)
+        launch = entry["backend"]
     if chat.backend:
         logger.info("Using backend from chat: {}", chat.backend)
-    elif backend:
-        logger.info("Using backend from queue: {}", backend)
     resolved_tier = agent_config.served_tier(bot_config, bot_tier, auth_mode=auth_mode)
     logger.info("Resolved bot config: name={} backend={} model={} tier={}", bot_config.name, bot_config.backend or bot_config.api_type, bot_config.model, resolved_tier)
 
@@ -813,15 +828,14 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
     # Routing is computed here but not written yet. The detached path has one
     # more age check after work-dir resolution, and a refusal there must leave
     # the original bot and tier in place. The handoff reads this chat object.
-    next_backend = chat.backend or (bot_config.backend or bot_config.api_type)
+    next_backend = launch
     next_bot = bot_config.name if (not chat.bot_name or rebot or repooled) else chat.bot_name
     next_tier = resolved_tier if (not chat.tier or rebot or repooled) else chat.tier
-    effective_backend = bot_config.backend or bot_config.api_type
     try:
-        resolve_reasoning_effort(selected_inputs, effective_backend)
-        if _inline_runner(effective_backend):
+        resolve_reasoning_effort(selected_inputs, next_backend)
+        if _inline_runner(next_backend):
             chat, _ = _persist_routing(chat_id, user_id, next_backend, next_bot, next_tier)
-            await _run_inline(chat, chat_id, user_id, bot_config, effective_backend,
+            await _run_inline(chat, chat_id, user_id, bot_config, next_backend,
                               post_hooks=post_hooks, trace_id=trace_id, role=role)
             return "done"
         await _start_detached(chat, chat_id, user_id, bot_config,
@@ -833,6 +847,7 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
                                measurement=measurement,
                                current_limit=current_limit, pending_limit=pending_limit,
                                next_backend=next_backend, next_bot=next_bot, next_tier=next_tier,
+                               entry=entry,
                                codex_refusal_retries=codex_refusal_retries)
         return "detached"
     except Exception as e:
@@ -875,12 +890,18 @@ def _apply_auth_mode(env: dict, auth_mode: str | None) -> tuple[dict, list]:
     return cleaned, list(_RELAY_AUTH_KEYS)
 
 
+def _entry_model(entry, bot_config) -> str | None:
+    raw = (entry or {}).get("model") or (getattr(bot_config, "model", None) or "")
+    model = raw.strip('"').strip() if raw else None
+    return model or None
+
+
 def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None,
                               work_dir: str = None, trace_id: str = None, role: str = None,
                               continuation_from_id: str = None,
                               handled_input_ids=None, measurement=None,
                               current_limit=None, pending_limit=None,
-                              limits_from_launch: bool = False) -> dict:
+                              limits_from_launch: bool = False, entry: dict = None) -> dict:
     """Extract prompt, build cmd/env/cwd for claude-code. Returns dict with all params needed to run."""
     messages = list(chat.messages)
 
@@ -892,8 +913,7 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
     node = layout(user_id, getattr(chat, "execution_target", None))
     last_message_id = messages[-1].id if messages else None
     cwd = work_dir or node.work_dir or os.path.expanduser(os.environ.get("VM_WORK_DIR_CLI") or os.getcwd())
-    model = bot_config.model.strip('"').strip() if bot_config.model else None
-    model = model or None
+    model = _entry_model(entry, bot_config)
 
     # Build session_id / resume
     session_id = chat.external_id
@@ -937,7 +957,9 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
         cmd.extend(["--append-system-prompt", f"IMPORTANT: Before doing anything else, you MUST use the Skill tool to load the '{chat.skill}' skill."])
 
     # Build env
-    api_base_url = provider_base_url(bot_config, "claude_code") or None
+    api_base_url = provider_base_url(
+        (entry or {}).get("base_url") or bot_config.base_url, "claude_code", bot_config.api_key,
+    ) or None
     api_key = bot_config.api_key if bot_config.api_key else None
     env = {
         **validate_launch_env(getattr(chat, "launch_env", None), strict=False),
@@ -1003,9 +1025,13 @@ def build_codex_resume_cmd(thread_id: str, model: str = None, exam_isolation: bo
     return cmd
 
 
-def build_codex_provider_args(bot_config) -> list:
-    """Five `-c` pairs that point Codex at this bot's relay. The key stays off argv."""
-    base_url = provider_base_url(bot_config, "codex")
+def build_codex_provider_args(bot_config, entry: dict = None) -> list:
+    """Five `-c` pairs that point Codex at this entry's relay. The key stays off argv."""
+    base_url = provider_base_url(
+        (entry or {}).get("base_url") or getattr(bot_config, "base_url", None),
+        "codex",
+        getattr(bot_config, "api_key", None),
+    )
     api_key = (getattr(bot_config, "api_key", None) or "").strip()
     missing = []
     if not base_url:
@@ -1047,7 +1073,8 @@ def build_codex_env(bot_config, chat_id: str = None, trace_id: str = None,
 
 def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None,
                         work_dir: str = None, trace_id: str = None, role: str = None,
-                        continuation_from_id: str = None, handled_input_ids=None) -> dict:
+                        continuation_from_id: str = None, handled_input_ids=None,
+                        entry: dict = None) -> dict:
     """Extract prompt, build cmd/env/cwd for codex. Resume only when work_dir still matches."""
     messages = list(chat.messages)
     selected_inputs = select_run_inputs(messages, continuation_from_id, handled_input_ids)
@@ -1058,12 +1085,11 @@ def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: s
     node = layout(user_id, getattr(chat, "execution_target", None))
     last_message_id = messages[-1].id if messages else None
     cwd = work_dir or node.work_dir or os.path.expanduser(os.environ.get("VM_WORK_DIR_CLI") or os.getcwd())
-    model = bot_config.model.strip('"').strip() if bot_config.model else None
-    model = model or None
+    model = _entry_model(entry, bot_config)
 
-    thread_id = codex_resume_thread(getattr(chat, "backend", None), chat.external_id, chat.work_dir == cwd)
+    thread_id = codex_resume_thread(getattr(chat, "backend", None) or "codex", chat.external_id, chat.work_dir == cwd)
     resume = bool(thread_id)
-    provider_args = build_codex_provider_args(bot_config)
+    provider_args = build_codex_provider_args(bot_config, entry)
     env = validate_launch_env(getattr(chat, "launch_env", None), strict=False)
     # Exam runs use the sandbox policy in their per-run CODEX_HOME config.
     exam_isolation = env.get("CODEX_ISOLATION") == "exam"
@@ -1141,6 +1167,7 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
                            handled_input_ids=None, measurement=None,
                            current_limit=None, pending_limit=None,
                            next_backend=None, next_bot=None, next_tier=None,
+                           entry: dict = None,
                            codex_refusal_retries: int = 0) -> None:
     """Start claude_code or codex as a detached tmux process on the chat node.
 
@@ -1151,16 +1178,16 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
     from agent.ec2_wake import ensure_and_touch_vm
     from worker.process_manager import register_process
 
-    # An unset/empty backend defaults to claude_code. Anything other than
-    # claude_code or codex is rejected rather than launched as claude_code
-    # with an unresumable foreign session id.
-    effective_backend = bot_config.backend or bot_config.api_type or "claude_code"
+    # The caller supplies the launch backend. Do not re-derive it from the bot,
+    # whose preferred backend may differ from the chat pin.
+    effective_backend = next_backend
     if effective_backend == "codex":
         params = _build_codex_params(chat, chat_id, user_id, bot_config,
                                      vm_name=vm_name, work_dir=work_dir,
                                      trace_id=trace_id, role=role,
                                      continuation_from_id=continuation_from_id,
-                                     handled_input_ids=handled_input_ids)
+                                     handled_input_ids=handled_input_ids,
+                                     entry=entry)
     elif effective_backend == "claude_code":
         params = _build_claude_code_params(chat, chat_id, user_id, bot_config,
                                             vm_name=vm_name, work_dir=work_dir,
@@ -1169,7 +1196,8 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
                                             handled_input_ids=handled_input_ids,
                                             measurement=measurement,
                                             current_limit=current_limit, pending_limit=pending_limit,
-                                            limits_from_launch=True)
+                                            limits_from_launch=True,
+                                            entry=entry)
     else:
         raise ValueError(f"Unsupported detached backend: {effective_backend!r}")
     chat, _ = _persist_routing(

@@ -5,7 +5,17 @@ import os
 import random
 from typing import List, Optional
 
-from storage.dto.bot import TIERS, effective_effort_levels, subscription_tiers_of, tier_weight, tiers_of
+from storage.dto.bot import (
+    TIERS,
+    backend_entries_of,
+    effective_effort_levels,
+    entry_for,
+    entry_names,
+    preferred_backend,
+    subscription_tiers_of,
+    tier_weight,
+    tiers_of,
+)
 from storage.entity.dto import BotConfig, VmConfig
 from storage.service import bot_config as bot_service
 from storage.service import vm_config as vm_service
@@ -48,7 +58,7 @@ SUPPORTED_REASONING_EFFORT_BACKENDS = {"claude_code", "codex"}
 
 
 def _effective_backend(bot_config: BotConfig) -> str:
-    return bot_config.backend or bot_config.api_type
+    return preferred_backend(bot_config)
 
 
 # --- Tier helpers ---
@@ -79,13 +89,21 @@ class BackendMismatchError(ValueError):
     """
 
     def __init__(self, chat_id: str = None, chat_backend: str = None,
-                 other_backend: str = None, bot_name: str = None):
+                 other_backend: str = None, bot_name: str = None,
+                 entries: Optional[list] = None):
         self.chat_id = chat_id
         self.chat_backend = chat_backend
         self.other_backend = other_backend
         self.bot_name = bot_name
+        self.entries = entries
         chat_label = chat_id or "this chat"
-        if other_backend:
+        if entries is not None:
+            shown = ", ".join(
+                entry["backend"] if isinstance(entry, dict) else str(entry) for entry in entries
+            ) or "none"
+            who = f"bot {bot_name} " if bot_name else ""
+            message = f"{who}has no {chat_backend} connection (backends: {shown})"
+        elif other_backend:
             who = f"bot {bot_name} " if bot_name else ""
             message = (
                 f"chat {chat_label} is on backend {chat_backend} but {who}"
@@ -98,6 +116,20 @@ class BackendMismatchError(ValueError):
                 f"remains on that backend. Start a new chat, or add a bot on {chat_backend}."
             )
         super().__init__(message)
+
+
+class BackendRequestError(ValueError):
+    """A new chat asked for a backend the resolved bot cannot run."""
+
+    def __init__(self, requested: str, entries: Optional[list] = None, bot_name: str = None):
+        self.requested = requested
+        self.entries = entries
+        self.bot_name = bot_name
+        shown = ", ".join(
+            entry["backend"] if isinstance(entry, dict) else str(entry) for entry in (entries or [])
+        ) or "none"
+        who = f"bot {bot_name} " if bot_name else ""
+        super().__init__(f"{who}has no {requested} connection (backends: {shown})")
 
 
 def bot_supports_auth_mode(config: BotConfig, auth_mode: str = "relay") -> bool:
@@ -210,8 +242,12 @@ def _candidates(universe: List[BotConfig], bot_name: str = None, backend: str = 
     result = [cfg for cfg in universe if bot_supports_auth_mode(cfg, auth_mode)]
     if bot_name:
         result = [cfg for cfg in result if cfg.name == bot_name]
-    if backend:
-        result = [cfg for cfg in result if _effective_backend(cfg) == backend]
+    if auth_mode == "subscription":
+        if backend and backend != "claude_code":
+            return []
+        result = [cfg for cfg in result if "claude_code" in entry_names(cfg)]
+    elif backend:
+        result = [cfg for cfg in result if backend in entry_names(cfg)]
     if tier:
         result = [
             cfg for cfg in result
@@ -333,6 +369,86 @@ def _resolve_named(user_id: int, bot_name: str, backend: str = None, tier: str =
     return None
 
 
+def launch_entry(chat_backend: str = None, bot_config: BotConfig = None) -> dict:
+    """Connection entry a turn launches. No pin selects entry 0, which is persisted."""
+    if not chat_backend:
+        return backend_entries_of(bot_config)[0]
+    return entry_for(bot_config, chat_backend)
+
+
+def launch_backend(chat_backend: str = None, bot_config: BotConfig = None) -> str:
+    """Backend name of ``launch_entry``. This is the value routing persists."""
+    return launch_entry(chat_backend, bot_config)["backend"]
+
+
+def resolve_requested_backend(bot_config: BotConfig, requested: str, auth_mode: str = "relay") -> str:
+    """Pin one explicitly named backend on an already resolved bot. No pool fallback."""
+    entries = backend_entries_of(bot_config)
+    names = [entry["backend"] for entry in entries]
+    name = getattr(bot_config, "name", None)
+    if auth_mode == "subscription":
+        if requested != "claude_code":
+            raise BackendRequestError(requested, [{"backend": "claude_code"}], name)
+        if "claude_code" not in names:
+            raise BackendRequestError("claude_code", entries, name)
+        return "claude_code"
+    if requested not in names:
+        raise BackendRequestError(requested, entries, name)
+    return requested
+
+
+def select_creation_backend(universe: List[BotConfig], *, bot_name: str = None, tier: str = None,
+                            requested: str = None, auth_mode: str = "relay",
+                            pinned: BotConfig = None) -> Optional[str]:
+    """Backend to store on a new chat, or None when the first run pins the preferred.
+
+    Only an explicitly requested backend is pre-pinned; without one the first
+    run resolves the bot (pointer deref included) and pins its preferred entry.
+    A named bot is strict: no tier2 substitute. An explicit request must be a
+    member of that bot's list, or of a viable tier pool when no bot is named.
+    Subscription auth never selects codex.
+    """
+    if bot_name:
+        if pinned is None:
+            raise ValueError(f"bot '{bot_name}' is unknown, disabled, or outside the requested tier")
+        if requested is None:
+            # Still refuse a subscription pin the bot cannot serve.
+            if auth_mode == "subscription":
+                resolve_requested_backend(pinned, "claude_code", auth_mode)
+            return None
+        return resolve_requested_backend(pinned, requested, auth_mode)
+
+    pool_tier = tier or "tier2"
+    if auth_mode == "subscription":
+        if requested not in (None, "claude_code"):
+            raise BackendRequestError(requested, [{"backend": "claude_code"}])
+        candidates = _candidates(universe, backend="claude_code", tier=pool_tier, auth_mode=auth_mode)
+        viable = [cfg for cfg in candidates if _pool_candidate_viable(cfg, len(candidates), pool_tier, auth_mode)]
+        if not viable:
+            raise BackendRequestError("claude_code", [{"backend": "claude_code"}])
+        return None if requested is None else "claude_code"
+
+    if requested is None:
+        return None
+    candidates = _candidates(universe, backend=requested, tier=pool_tier, auth_mode=auth_mode)
+    viable = [cfg for cfg in candidates if _pool_candidate_viable(cfg, len(candidates), pool_tier, auth_mode)]
+    if not viable:
+        raise BackendRequestError(requested, [requested])
+    return requested
+
+
+def resolve_creation_backend(user_id: int, *, bot_name: str = None, tier: str = None,
+                             requested: str = None, auth_mode: str = "relay") -> Optional[str]:
+    """Resolve the backend a new chat records. None leaves the pin to the first run."""
+    pinned = None
+    if bot_name:
+        pinned = resolve_pinned_bot_config(user_id, bot_name, tier=tier, auth_mode=auth_mode)
+    return select_creation_backend(
+        _universe(user_id), bot_name=bot_name, tier=tier, requested=requested,
+        auth_mode=auth_mode, pinned=pinned,
+    )
+
+
 def resolve_pinned_bot_config(user_id: int, bot_name: str, tier: str = None, auth_mode: str = "relay") -> Optional[BotConfig]:
     """Resolve an explicit bot-name pin, or None when the pin does not resolve.
 
@@ -426,16 +542,19 @@ def select_continuation_bot(universe: List[BotConfig], user_id: int, chat_backen
         return resolve_bot_config(
             user_id, bot_name, tier=tier, effort=effort, auth_mode=auth_mode,
         )
+    if auth_mode == "subscription" and chat_backend != "claude_code":
+        raise BotAuthModeError(f"subscription auth runs claude_code only, not {chat_backend}")
 
     if bot_name:
         named = [cfg for cfg in universe if cfg.name == bot_name]
         if named:
             chosen = named[0]
-            other = _effective_backend(chosen)
-            if other != chat_backend:
+            entries = backend_entries_of(chosen)
+            if chat_backend not in [entry["backend"] for entry in entries]:
                 raise BackendMismatchError(
                     chat_id=chat_id, chat_backend=chat_backend,
-                    other_backend=other, bot_name=chosen.name,
+                    other_backend=_effective_backend(chosen), bot_name=chosen.name,
+                    entries=entries,
                 )
             if not bot_supports_auth_mode(chosen, auth_mode):
                 raise BotAuthModeError(
@@ -502,17 +621,20 @@ def preflight_launch_effort(user_id: int, effort: str = None, *, chat=None, bot_
         raise EffortCapabilityError(effort, selected.name, declared=effective_effort_levels(selected))
 
     def reject_unsupported(selected: BotConfig) -> None:
-        unsupported = _effective_backend(selected)
-        if unsupported not in SUPPORTED_REASONING_EFFORT_BACKENDS:
-            raise ValueError(f"reasoning_effort is only supported for claude_code and codex, not {unsupported}")
+        launch = launch_backend(chat_backend or backend, selected)
+        if launch not in SUPPORTED_REASONING_EFFORT_BACKENDS:
+            raise ValueError(f"reasoning_effort is only supported for claude_code and codex, not {launch}")
+        if launch == "codex" and effort == "max":
+            raise ValueError(
+                "Codex does not support reasoning_effort 'max'; expected low, medium, high, or xhigh"
+            )
 
     chat_bot = getattr(chat, "bot_name", None) if chat is not None else None
     chat_backend = getattr(chat, "backend", None) if chat is not None else None
     if chat_bot and bot_name and bot_name != chat_bot:
         target = resolve_pinned_bot_config(user_id, bot_name, tier=bot_tier)
         reject_undeclared(target, bot_name)
-        target_backend = _effective_backend(target)
-        if chat_backend and target_backend != chat_backend:
+        if chat_backend and chat_backend not in entry_names(target):
             own = _resolve_named(user_id, chat_bot, backend=chat_backend or backend, tier=bot_tier)
             reject_undeclared(own, chat_bot)
             reject_unsupported(own)

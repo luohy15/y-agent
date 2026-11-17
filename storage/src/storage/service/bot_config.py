@@ -16,6 +16,26 @@ def get_config(user_id: int, name: str = "default") -> Optional[BotConfig]:
 
 
 def add_config(user_id: int, config: BotConfig) -> BotConfig:
+    from storage.dto.bot import has_codex_entry, normalize_backends, subscription_tiers_of
+
+    stored, preferred, base_url, model = normalize_backends(
+        config.backends, backend=config.backend, api_type=config.api_type,
+        base_url=config.base_url, model=config.model,
+    )
+    config.backends = stored
+    config.backend = preferred
+    config.base_url = base_url
+    config.model = model
+    config.api_type = None
+    # add_config never writes subscription_tiers, so an omitted value keeps the
+    # stored row's. Read that row before allowing a codex entry.
+    codex = has_codex_entry(config)
+    tiers = subscription_tiers_of(config)
+    if codex and not tiers:
+        existing = bot_repo.get_config(user_id, config.name)
+        tiers = subscription_tiers_of(existing) if existing is not None else None
+    if codex and tiers:
+        raise ValueError("a subscription bot cannot include a codex backend")
     return bot_repo.add_config(user_id, config)
 
 
@@ -76,10 +96,15 @@ def set_sub_ref(user_id: int, name: str, target: Optional[str]) -> bool:
 
 
 def set_subscription_tiers(user_id: int, name: str, tiers: Optional[dict[str, Optional[float]]]) -> bool:
-    from storage.dto.bot import normalize_tier_weights
+    from storage.dto.bot import has_codex_entry, normalize_tier_weights
 
     if tiers is not None:
         tiers = normalize_tier_weights(tiers)
+        existing = bot_repo.get_config(user_id, name)
+        if existing is None:
+            return False
+        if has_codex_entry(existing):
+            raise ValueError("subscription tiers cannot be set while the bot has a codex backend")
     return bot_repo.set_subscription_tiers(user_id, name, tiers)
 
 

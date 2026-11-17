@@ -355,7 +355,6 @@ def fire_routine(user_id: int, routine_id: str) -> str:
             work_dir=routine.work_dir,
             role=routine.target_role,
             skill=routine.target_skill or ("leader" if routine.target_role == "leader" else None),
-            backend=routine.backend,
         )
     except Exception:
         routine.last_run_at = get_utc_iso8601_timestamp()
