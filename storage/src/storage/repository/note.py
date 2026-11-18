@@ -9,6 +9,7 @@ from storage.dto.note import Note
 from storage.database.base import get_db
 from storage.repository import entity_tag as tag_repo
 from storage.util import apply_time_filter
+from storage.crypto.query import match_bidx
 
 
 def _entity_to_dto(entity: NoteEntity) -> Note:
@@ -45,8 +46,11 @@ def list_notes(
         if not include_deleted:
             query = query.filter(NoteEntity.deleted_at.is_(None))
         if tag:
-            tagged_ids = session.query(EntityTagEntity.entity_id).filter_by(
-                user_id=user_id, entity_type="note", tag=tag
+            tagged_ids = session.query(EntityTagEntity.entity_id).filter(
+                EntityTagEntity.user_id == user_id,
+                EntityTagEntity.entity_type == "note",
+                match_bidx(
+                    session, user_id, EntityTagEntity.tag, EntityTagEntity.tag_bidx, "tag", tag),
             )
             query = query.filter(NoteEntity.note_id.in_(tagged_ids))
         query = apply_time_filter(query, NoteEntity.updated_at, on=on, from_=from_, to=to)

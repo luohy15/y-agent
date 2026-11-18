@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, BigInteger, String, Boolean, ForeignKey, Index, UniqueConstraint
+from sqlalchemy import Column, Integer, BigInteger, String, Boolean, ForeignKey, Index, UniqueConstraint, SmallInteger
 from storage.entity.base import Base, BaseEntity
 
 
@@ -32,3 +32,4 @@ class UploadJobEntity(Base, BaseEntity):
     error = Column(String, nullable=True)
     staged_at = Column(String, nullable=True)
     saved_at = Column(String, nullable=True)
+    enc_version = Column(SmallInteger, nullable=False, server_default="0", default=0)

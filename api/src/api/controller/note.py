@@ -36,8 +36,11 @@ def _validate_content_key(content_key: str) -> None:
         raise HTTPException(status_code=400, detail="Invalid content key")
 
 
-def _snapshot_s3_key(note_id: str) -> str:
-    return f"notes/{note_id}/content.md"
+def _snapshot_s3_key(user_id: int, note_id: str) -> str:
+    from storage.crypto.blob import note_object_key
+    from storage.database.base import get_db
+    with get_db() as session:
+        return note_object_key(user_id, note_id, session)
 
 
 async def _snapshot_note_content(user_id: int, note_id: str, content_key: str) -> str:
@@ -48,31 +51,34 @@ async def _snapshot_note_content(user_id: int, note_id: str, content_key: str) -
         content = await _exec(user_id, ["cat", content_key], timeout=30)
     except Exception as exc:
         raise HTTPException(status_code=404, detail="Note content not found") from exc
-    s3_key = _snapshot_s3_key(note_id)
+    from storage.crypto.blob import seal_body
+    s3_key = _snapshot_s3_key(user_id, note_id)
     boto3.client("s3").put_object(
         Bucket=S3_BUCKET,
         Key=s3_key,
-        Body=content.encode("utf-8"),
+        Body=seal_body(s3_key, content.encode("utf-8")),
         ContentType="text/markdown",
     )
     return s3_key
 
 
-def _delete_note_snapshot(note_id: str) -> None:
+def _delete_note_snapshot(user_id: int, note_id: str) -> None:
     if not S3_BUCKET:
         return
     try:
-        boto3.client("s3").delete_object(Bucket=S3_BUCKET, Key=_snapshot_s3_key(note_id))
+        boto3.client("s3").delete_object(Bucket=S3_BUCKET, Key=_snapshot_s3_key(user_id, note_id))
     except ClientError:
         pass
 
 
-def _read_note_snapshot(note_id: str) -> str:
+def _read_note_snapshot(user_id: int, note_id: str) -> str:
     if not S3_BUCKET:
         raise HTTPException(status_code=500, detail="Y_AGENT_S3_BUCKET is not configured")
+    from storage.crypto.blob import open_body
     try:
-        obj = boto3.client("s3").get_object(Bucket=S3_BUCKET, Key=_snapshot_s3_key(note_id))
-        return obj["Body"].read().decode("utf-8")
+        key = _snapshot_s3_key(user_id, note_id)
+        obj = boto3.client("s3").get_object(Bucket=S3_BUCKET, Key=key)
+        return open_body(key, obj["Body"].read()).decode("utf-8")
     except ClientError as exc:
         raise HTTPException(status_code=404, detail="Note content not found") from exc
 
@@ -131,7 +137,7 @@ def revoke_note_share(share) -> None:
     from storage.repository.note_share import set_revoked
     from storage.util import get_utc_iso8601_timestamp
 
-    _delete_note_snapshot(share.note_id)
+    _delete_note_snapshot(share.user_id, share.note_id)
     set_revoked(share.share_id, get_utc_iso8601_timestamp())
 
 
@@ -202,5 +208,5 @@ async def get_share(share_id: str = Query(...), password: Optional[str] = Query(
         raise HTTPException(status_code=404, detail="Note not found")
 
     data = note.to_dict()
-    data["content"] = _read_note_snapshot(note.note_id)
+    data["content"] = _read_note_snapshot(share.user_id, note.note_id)
     return data

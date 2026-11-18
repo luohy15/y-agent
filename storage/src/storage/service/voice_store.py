@@ -189,6 +189,40 @@ def put_part(
             "sha256": digest.hexdigest(), "duplicate": existing is not None}
 
 
+def _seal_voice(user_id: int, take_id: str, data: bytes) -> tuple[bytes, dict]:
+    from storage.crypto.tenant import encryption_active, key_state, seal
+    from storage.database.base import get_db
+    with get_db() as session:
+        if not encryption_active(session, user_id):
+            return data, {}
+        state = key_state(session, user_id)
+        if state.active is None:
+            raise VoiceStoreError("Voice encryption is unavailable.", "unavailable")
+        token = seal(
+            state.active.dek, user_id=user_id, table="voice", column="original",
+            public_id=take_id, value=base64.b64encode(data).decode("ascii"), key_id=state.active.key_id,
+        )
+    stored = token.encode("ascii")
+    return stored, {"yenc": "1", "stored_byte_count": str(len(stored))}
+
+
+def _open_voice(user_id: int, take_id: str, data: bytes) -> bytes:
+    from storage.crypto.tenant import encryption_active, open_stored
+    from storage.database.base import get_db
+    with get_db() as session:
+        if not encryption_active(session, user_id):
+            return data
+        if not data.startswith(b"yenc:v1:"):
+            raise VoiceStoreError("Stored voice metadata is invalid.", "unavailable")
+        opened = open_stored(
+            session, user_id=user_id, table="voice", column="original", public_id=take_id,
+            value=data.decode("ascii"),
+        )
+    if not isinstance(opened, str):
+        raise VoiceStoreError("Stored voice metadata is invalid.", "unavailable")
+    return base64.b64decode(opened)
+
+
 def _final_result(take_id: str, head) -> dict[str, Any]:
     meta = head.get("Metadata", {})
     try:
@@ -198,7 +232,8 @@ def _final_result(take_id: str, head) -> dict[str, Any]:
         size = int(meta["byte_count"])
         count = int(meta["part_count"])
         digest = meta["sha256"]
-        if not 1 <= size <= VOICE_MAX_BYTES or size != head["ContentLength"] or not 1 <= count <= VOICE_MAX_PARTS:
+        stored_size = int(meta["stored_byte_count"]) if meta.get("yenc") == "1" else size
+        if not 1 <= size <= VOICE_MAX_BYTES or stored_size != head["ContentLength"] or not 1 <= count <= VOICE_MAX_PARTS:
             raise ValueError()
         if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
             raise ValueError()
@@ -277,12 +312,15 @@ def finalize_parts(
     metadata = {"sha256": digest.hexdigest(), "byte_count": str(len(data)),
                 "audio_format": "wav", "part_count": str(part_count)}
     try:
+        stored, extra = _seal_voice(user_id, take_id, data)
+        metadata = {**metadata, **extra}
+        stored_digest = hashlib.sha256(stored)
         written = s3.put_object(
-            Bucket=bucket, Key=prefix + "original", Body=data, IfNoneMatch="*",
+            Bucket=bucket, Key=prefix + "original", Body=stored, IfNoneMatch="*",
             ContentType="audio/wav", CacheControl="no-store",
-            ChecksumSHA256=base64.b64encode(digest.digest()).decode("ascii"), Metadata=metadata,
+            ChecksumSHA256=base64.b64encode(stored_digest.digest()).decode("ascii"), Metadata=metadata,
         )
-        result = _final_result(take_id, {**written, "Metadata": metadata, "ContentLength": len(data)})
+        result = _final_result(take_id, {**written, "Metadata": metadata, "ContentLength": len(stored)})
     except Exception as exc:
         if _error_code(exc) not in {"PreconditionFailed", "412", "ConditionalRequestConflict", "409"}:
             raise
@@ -306,13 +344,22 @@ def get_object(user_id: int, take_id: str, *, version_id: str, client=None) -> b
             raise VoiceStoreError("The voice object was not found.", "not_found") from exc
         raise
     body = result["Body"]
+    meta = result.get("Metadata") or {}
+    sealed = meta.get("yenc") == "1"
     try:
-        data = body.read(VOICE_MAX_BYTES + 1)
+        stored_limit = int(meta["stored_byte_count"]) if sealed else VOICE_MAX_BYTES
+    except (KeyError, TypeError, ValueError):
+        stored_limit = VOICE_MAX_BYTES + (VOICE_MAX_BYTES // 3) + 1024
+    try:
+        data = body.read(stored_limit + 1)
     finally:
         body.close()
-    if len(data) > VOICE_MAX_BYTES:
+    if len(data) > stored_limit:
         raise VoiceStoreError("The stored voice object exceeds the byte limit.", "unavailable")
-    return data
+    opened = _open_voice(user_id, take_id, data)
+    if len(opened) > VOICE_MAX_BYTES:
+        raise VoiceStoreError("The stored voice object exceeds the byte limit.", "unavailable")
+    return opened
 
 
 def delete_parts(user_id: int, take_id: str, *, client=None) -> dict[str, Any]:

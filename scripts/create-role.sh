@@ -71,3 +71,18 @@ echo "- AmazonDynamoDBFullAccess"
 echo "- AWSLambda_FullAccess"
 echo "- AmazonEC2FullAccess"
 echo "- AmazonS3FullAccess"
+
+if [ -n "${Y_AGENT_TENANT_KMS_KEY_ARN:-}" ]; then
+    echo "Attaching scoped tenant KMS policy..."
+    aws iam put-role-policy $AWS_PROFILE_OPTION \
+        --role-name "$ROLE_NAME" \
+        --policy-name y-agent-tenant-kms \
+        --policy-document "{
+          \"Version\": \"2012-10-17\",
+          \"Statement\": [{
+            \"Effect\": \"Allow\",
+            \"Action\": [\"kms:Encrypt\", \"kms:Decrypt\", \"kms:ReEncrypt*\", \"kms:DescribeKey\"],
+            \"Resource\": \"${Y_AGENT_TENANT_KMS_KEY_ARN}\"
+          }]
+        }"
+fi

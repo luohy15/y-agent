@@ -433,14 +433,19 @@ def list_pending(
     seq = 0
     with get_db() as session:
         rows = (
-            session.query(ChatEntity.chat_id, ChatEntity.json_content)
+            session.query(ChatEntity.chat_id, ChatEntity.json_content, ChatEntity.enc_version)
             .filter(
                 ChatEntity.user_id == user_id,
                 ChatEntity.updated_at_unix >= since,
             )
             .yield_per(CHAT_STREAM_BATCH)
         )
-        for chat_id, json_content in rows:
+        from storage.crypto.orm import open_projected
+        for chat_id, json_content, enc_version in rows:
+            json_content = open_projected(
+                session, user_id=user_id, table="chat", column="json_content",
+                public_id=chat_id, enc_version=enc_version, value=json_content,
+            )
             for candidate in _iter_candidates(chat_id, json_content, since, already_corrected):
                 seq += 1
                 heapq.heappush(heap, (-candidate["message_at_unix"], seq, candidate))

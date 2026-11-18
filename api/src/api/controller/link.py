@@ -112,15 +112,9 @@ class _LinkObjectUnavailable(Exception):
 
 
 def _is_s3_link_key(content_key: Optional[str]) -> bool:
-    """Keys under lifelog/link/ are S3 objects. pages/ and other keys stay on the VM."""
-    if not content_key:
-        return False
-    prefix = link_service.LINK_STORAGE_PREFIX + "/"
-    if not content_key.startswith(prefix):
-        return False
-    if content_key.startswith(("/", "~")) or ".." in content_key.split("/"):
-        return False
-    return True
+    """Legacy lifelog/link/ keys and per-tenant lifelog/<user>/link/ keys are S3 objects."""
+    from storage.crypto.blob import is_link_object_key
+    return is_link_object_key(content_key)
 
 
 def _encode_link_body(content: str) -> bytes:
@@ -134,8 +128,9 @@ def _read_s3_text(key: str) -> str:
     if not S3_BUCKET:
         raise _LinkObjectUnavailable()
     try:
+        from storage.crypto.blob import open_body
         obj = boto3.client("s3").get_object(Bucket=S3_BUCKET, Key=key)
-        return obj["Body"].read().decode("utf-8")
+        return open_body(key, obj["Body"].read()).decode("utf-8")
     except ClientError as exc:
         code = str(exc.response.get("Error", {}).get("Code", ""))
         if code in {"NoSuchKey", "404", "NotFound"}:
@@ -149,10 +144,11 @@ def _put_s3_bytes(key: str, body: bytes) -> None:
     if not S3_BUCKET:
         raise _LinkObjectUnavailable()
     try:
+        from storage.crypto.blob import seal_body
         boto3.client("s3").put_object(
             Bucket=S3_BUCKET,
             Key=key,
-            Body=body,
+            Body=seal_body(key, body),
             ContentType="text/markdown; charset=utf-8",
         )
     except (ClientError, BotoCoreError) as exc:
@@ -263,8 +259,8 @@ async def batch_create_links(req: BatchCreateLinksRequest, request: Request):
 
 @router.post("/download")
 async def download_links(req: DownloadLinksRequest, request: Request):
-    _get_user_id(request)
-    results = link_service.request_downloads(req.urls)
+    user_id = _get_user_id(request)
+    results = link_service.request_downloads(req.urls, user_id)
     if any(item['download_status'] == 'pending' for item in results):
         link_service.trigger_batch_download()
     return results
@@ -279,7 +275,7 @@ async def create_page_link(req: CreatePageLinkRequest, request: Request):
     timestamp = int(time.time() * 1000)
     link = link_service.add_link(user_id, url, title=title, timestamp=timestamp)
     if req.content:
-        content_key = link_service.build_content_key(link.link_id)
+        content_key = link_service.build_content_key(link.link_id, user_id=user_id)
         await _put_link_object(content_key, req.content)
         link_service.update_download_status(link.link_id, "done", content_key=content_key)
     else:
@@ -304,7 +300,7 @@ async def save_link_content_meta(req: LinkContentMetaRequest, request: Request):
             raise HTTPException(status_code=400, detail="link_id or url required")
     wrote_key = None
     if req.content is not None:
-        wrote_key = link_service.build_content_key(link_id, requested_activity_id)
+        wrote_key = link_service.build_content_key(link_id, requested_activity_id, user_id=user_id)
         await _put_link_object(wrote_key, req.content)
         link_service.update_download_status(
             link_id, req.download_status or "done", content_key=wrote_key, url=req.url,
@@ -370,11 +366,11 @@ async def generate_link_tldr(req: TldrRequest, request: Request):
 
     summary = await _call_tldr_bot(user_id, content, result.get("title"), result.get("url") or result.get("base_url"))
     if req.activity_id:
-        summary_key = link_service.build_summary_key(result["link_id"], req.activity_id)
+        summary_key = link_service.build_summary_key(result["link_id"], req.activity_id, user_id=user_id)
         await _put_link_object(summary_key, summary)
         link_service.update_summary_content_key(req.activity_id, summary_key, is_activity=True)
     else:
-        summary_key = link_service.build_summary_key(result["link_id"])
+        summary_key = link_service.build_summary_key(result["link_id"], user_id=user_id)
         await _put_link_object(summary_key, summary)
         link_service.update_summary_content_key(result["link_id"], summary_key, is_activity=False)
     return {

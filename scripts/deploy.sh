@@ -69,6 +69,13 @@ add_param "OpenRouterApiKey" "OPENROUTER_API_KEY"
 add_param "OpenRouterInferenceApiKey" "OPENROUTER_INFERENCE_API_KEY"
 add_param "DeepSeekApiKey" "DEEPSEEK_API_KEY"
 add_param "McpGatewayUrl" "Y_AGENT_MCP_GATEWAY_URL"
+add_param "TenantKmsKeyArn" "Y_AGENT_TENANT_KMS_KEY_ARN"
+add_param "PhotoKmsKeyArn" "Y_AGENT_PHOTO_KMS_KEY_ARN"
+
+if ! uv run python scripts/tenant_encryption_guard.py; then
+    echo "tenant encryption guard refused this deploy"
+    exit 1
+fi
 
 # ============================================================================
 # SAM Deploy

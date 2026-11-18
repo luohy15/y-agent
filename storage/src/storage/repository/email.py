@@ -9,6 +9,7 @@ from storage.repository import tag_vocabulary as vocabulary_repo
 from storage.dto.email import Email
 from storage.database.base import get_db
 from storage.util import apply_time_filter, generate_id
+from storage.crypto.query import match_bidx
 
 
 def _row_to_dto(entity: EmailEntity) -> Email:
@@ -93,15 +94,26 @@ def list_emails(
         if account:
             q = q.filter(EmailEntity.account == account)
         if query:
-            pattern = f"%{query}%"
-            q = q.filter(
-                (EmailEntity.subject.like(pattern))
-                | (EmailEntity.from_addr.like(pattern))
-                | (EmailEntity.content.like(pattern))
-            )
+            from storage.crypto.query import active
+            if active(session, user_id):
+                q = q.filter(
+                    (EmailEntity.email_id == query)
+                    | (EmailEntity.account == query)
+                    | match_bidx(session, user_id, EmailEntity.from_addr, EmailEntity.from_addr_bidx, "from_addr", query)
+                )
+            else:
+                pattern = f"%{query}%"
+                q = q.filter(
+                    (EmailEntity.subject.like(pattern))
+                    | (EmailEntity.from_addr.like(pattern))
+                    | (EmailEntity.content.like(pattern))
+                )
         if tag is not None:
-            tagged_thread_ids = session.query(EntityTagEntity.entity_id).filter_by(
-                user_id=user_id, entity_type="email", tag=tag,
+            tagged_thread_ids = session.query(EntityTagEntity.entity_id).filter(
+                EntityTagEntity.user_id == user_id,
+                EntityTagEntity.entity_type == "email",
+                match_bidx(
+                    session, user_id, EntityTagEntity.tag, EntityTagEntity.tag_bidx, "tag", tag),
             )
             q = q.filter(func.coalesce(EmailEntity.thread_id, EmailEntity.email_id).in_(tagged_thread_ids))
         q = apply_time_filter(q, EmailEntity.date, on=on, from_=from_, to=to, field_type="unix_ms")
@@ -140,19 +152,30 @@ def list_threads(
         thread_key = func.coalesce(EmailEntity.thread_id, EmailEntity.email_id)
         base = session.query(EmailEntity).filter(EmailEntity.user_id == user_id)
         if tag is not None:
-            tagged_thread_ids = session.query(EntityTagEntity.entity_id).filter_by(
-                user_id=user_id, entity_type="email", tag=tag,
+            tagged_thread_ids = session.query(EntityTagEntity.entity_id).filter(
+                EntityTagEntity.user_id == user_id,
+                EntityTagEntity.entity_type == "email",
+                match_bidx(
+                    session, user_id, EntityTagEntity.tag, EntityTagEntity.tag_bidx, "tag", tag),
             )
             base = base.filter(thread_key.in_(tagged_thread_ids))
         if account:
             base = base.filter(EmailEntity.account == account)
         if query:
-            pattern = f"%{query}%"
-            base = base.filter(
-                (EmailEntity.subject.like(pattern))
-                | (EmailEntity.from_addr.like(pattern))
-                | (EmailEntity.content.like(pattern))
-            )
+            from storage.crypto.query import active
+            if active(session, user_id):
+                base = base.filter(
+                    (EmailEntity.email_id == query)
+                    | (EmailEntity.account == query)
+                    | match_bidx(session, user_id, EmailEntity.from_addr, EmailEntity.from_addr_bidx, "from_addr", query)
+                )
+            else:
+                pattern = f"%{query}%"
+                base = base.filter(
+                    (EmailEntity.subject.like(pattern))
+                    | (EmailEntity.from_addr.like(pattern))
+                    | (EmailEntity.content.like(pattern))
+                )
         base = apply_time_filter(base, EmailEntity.date, on=on, from_=from_, to=to, field_type="unix_ms")
         base = apply_time_filter(base, EmailEntity.created_at, on=created_on, from_=created_from, to=created_to)
         base = apply_time_filter(base, EmailEntity.updated_at, on=updated_on, from_=updated_from, to=updated_to)

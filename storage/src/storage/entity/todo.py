@@ -1,4 +1,5 @@
 from sqlalchemy import (
+    SmallInteger,
     Boolean, CheckConstraint, Column, Integer, String, Text, ForeignKey, UniqueConstraint, JSON,
 )
 from .base import Base, BaseEntity
@@ -28,6 +29,7 @@ class TodoEntity(Base, BaseEntity):
     leader_chat = Column(String, nullable=True)
     leader_claimed_at = Column(String, nullable=True)
     leader_state = Column(String, nullable=True)
+    enc_version = Column(SmallInteger, nullable=False, server_default="0", default=0)
 
     __table_args__ = (
         UniqueConstraint("user_id", "todo_id"),

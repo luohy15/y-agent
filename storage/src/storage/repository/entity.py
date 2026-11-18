@@ -7,6 +7,7 @@ from storage.dto.entity import Entity
 from storage.database.base import get_db
 from storage.repository import entity_tag as tag_repo
 from storage.util import apply_time_filter
+from storage.crypto.query import match_bidx
 
 
 def _entity_to_dto(row: EntityEntity) -> Entity:
@@ -43,8 +44,11 @@ def list_entities(
         if type:
             q = q.filter_by(type=type)
         if tag:
-            tagged_ids = session.query(EntityTagEntity.entity_id).filter_by(
-                user_id=user_id, entity_type="entity", tag=tag
+            tagged_ids = session.query(EntityTagEntity.entity_id).filter(
+                EntityTagEntity.user_id == user_id,
+                EntityTagEntity.entity_type == "entity",
+                match_bidx(
+                    session, user_id, EntityTagEntity.tag, EntityTagEntity.tag_bidx, "tag", tag),
             )
             q = q.filter(EntityEntity.entity_id.in_(tagged_ids))
         q = apply_time_filter(q, EntityEntity.updated_at, on=on, from_=from_, to=to)
@@ -92,14 +96,18 @@ def find_tag_rows_by_ids(user_id: int, entity_ids: List[str]) -> Dict[str, Dict]
     if not entity_ids:
         return {}
     with get_db() as session:
+        from storage.crypto.orm import open_projected
         rows = (
-            session.query(EntityEntity.entity_id, EntityEntity.name)
+            session.query(EntityEntity.entity_id, EntityEntity.name, EntityEntity.enc_version)
             .filter(EntityEntity.user_id == user_id, EntityEntity.entity_id.in_(entity_ids))
             .all()
         )
         return {
-            entity_id: {"id": entity_id, "title": name}
-            for entity_id, name in rows
+            entity_id: {"id": entity_id, "title": open_projected(
+                session, user_id=user_id, table="entity", column="name", public_id=entity_id,
+                enc_version=enc_version, value=name,
+            )}
+            for entity_id, name, enc_version in rows
         }
 
 

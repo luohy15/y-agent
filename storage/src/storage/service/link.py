@@ -11,18 +11,31 @@ from storage.service import tag as tag_service
 LINK_STORAGE_PREFIX = "lifelog/link"
 
 
-def build_content_key(link_id: str, activity_id: Optional[str] = None) -> str:
+def _link_prefix(user_id: Optional[int]) -> str:
+    if user_id is None:
+        return LINK_STORAGE_PREFIX
+    from storage.crypto.tenant import encryption_active
+    from storage.database.base import get_db
+    with get_db() as session:
+        if not encryption_active(session, user_id):
+            return LINK_STORAGE_PREFIX
+    return f"lifelog/{int(user_id)}/link"
+
+
+def build_content_key(link_id: str, activity_id: Optional[str] = None, user_id: Optional[int] = None) -> str:
     """Relative content_key for a link (and optional per-activity content)."""
+    prefix = _link_prefix(user_id)
     if activity_id:
-        return f"{LINK_STORAGE_PREFIX}/{link_id}/{activity_id}/content.md"
-    return f"{LINK_STORAGE_PREFIX}/{link_id}/content.md"
+        return f"{prefix}/{link_id}/{activity_id}/content.md"
+    return f"{prefix}/{link_id}/content.md"
 
 
-def build_summary_key(link_id: str, activity_id: Optional[str] = None) -> str:
+def build_summary_key(link_id: str, activity_id: Optional[str] = None, user_id: Optional[int] = None) -> str:
     """Relative summary_content_key for a link (and optional per-activity summary)."""
+    prefix = _link_prefix(user_id)
     if activity_id:
-        return f"{LINK_STORAGE_PREFIX}/{link_id}/{activity_id}/summary.md"
-    return f"{LINK_STORAGE_PREFIX}/{link_id}/summary.md"
+        return f"{prefix}/{link_id}/{activity_id}/summary.md"
+    return f"{prefix}/{link_id}/summary.md"
 
 
 def add_link(
@@ -64,8 +77,8 @@ def add_link_rss(
     )
 
 
-def find_rss_links_by_host_slug(base_url: str):
-    return link_repo.find_rss_links_by_host_slug(base_url)
+def find_rss_links_by_host_slug(base_url: str, user_id: Optional[int] = None):
+    return link_repo.find_rss_links_by_host_slug(base_url, user_id)
 
 
 def add_link_fetch(
@@ -166,12 +179,12 @@ def delete_link(user_id: int, activity_id: str) -> bool:
     return deleted
 
 
-def request_downloads(urls: List[str]) -> List[dict]:
+def request_downloads(urls: List[str], user_id: Optional[int] = None) -> List[dict]:
     """For each URL: upsert LinkEntity if needed, set download_status='pending'.
     Returns list of {link_id, base_url, url, download_status, is_activity_level}."""
     results = []
     for url in urls:
-        info = link_repo.upsert_link_for_download(url)
+        info = link_repo.upsert_link_for_download(url, user_id=user_id)
         info['url'] = url
         results.append(info)
     return results

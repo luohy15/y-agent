@@ -64,10 +64,20 @@ def require_known_tags(session, user_id: int, tags) -> List[str]:
     vocabulary_repo.lock_owner(session, user_id)
     normalized = normalize_tags(tags)
     if normalized:
-        known = {row[0] for row in session.query(TagVocabularyEntity.tag).filter(
-            TagVocabularyEntity.user_id == user_id,
-            TagVocabularyEntity.tag.in_(normalized),
-        ).all()}
+        from storage.crypto.query import active
+        from storage.crypto.tenant import blind_for_user
+        if active(session, user_id):
+            tokens = {tag: blind_for_user(session, user_id, "tag", tag) for tag in normalized}
+            rows = session.query(TagVocabularyEntity).filter(
+                TagVocabularyEntity.user_id == user_id,
+                TagVocabularyEntity.tag_bidx.in_(list(tokens.values())),
+            ).all()
+            known = {row.tag for row in rows}
+        else:
+            known = {row[0] for row in session.query(TagVocabularyEntity.tag).filter(
+                TagVocabularyEntity.user_id == user_id,
+                TagVocabularyEntity.tag.in_(normalized),
+            ).all()}
         unknown = [tag for tag in normalized if tag not in known]
         if unknown:
             raise UnknownTagError(f"unknown tag(s): {', '.join(unknown)}; see y tag list")
@@ -111,8 +121,12 @@ def add_tag_locked(
     if not tag:
         return False
     require_known_tags(session, user_id, [tag])
-    exists = session.query(EntityTagEntity).filter_by(
-        user_id=user_id, entity_type=entity_type, entity_id=entity_id, tag=tag
+    from storage.crypto.query import match_bidx
+    exists = session.query(EntityTagEntity).filter(
+        EntityTagEntity.user_id == user_id,
+        EntityTagEntity.entity_type == entity_type,
+        EntityTagEntity.entity_id == entity_id,
+        match_bidx(session, user_id, EntityTagEntity.tag, EntityTagEntity.tag_bidx, "tag", tag),
     ).first()
     if exists:
         return False
@@ -143,8 +157,12 @@ def remove_tag_locked(session, user_id: int, entity_type: str, entity_id: str, t
     tag = normalize_tag(tag)
     if not tag:
         return False
-    row = session.query(EntityTagEntity).filter_by(
-        user_id=user_id, entity_type=entity_type, entity_id=entity_id, tag=tag
+    from storage.crypto.query import match_bidx
+    row = session.query(EntityTagEntity).filter(
+        EntityTagEntity.user_id == user_id,
+        EntityTagEntity.entity_type == entity_type,
+        EntityTagEntity.entity_id == entity_id,
+        match_bidx(session, user_id, EntityTagEntity.tag, EntityTagEntity.tag_bidx, "tag", tag),
     ).first()
     if not row:
         return False
@@ -164,6 +182,12 @@ def remove_tag(user_id: int, entity_type: str, entity_id: str, tag: str) -> bool
 def list_tags(user_id: int, entity_type: str, entity_id: str) -> List[str]:
     """Return tags currently projected for one entity."""
     with get_db() as session:
+        from storage.crypto.query import active
+        if active(session, user_id):
+            rows = session.query(EntityTagEntity).filter_by(
+                user_id=user_id, entity_type=entity_type, entity_id=entity_id
+            ).all()
+            return [r.tag for r in rows]
         rows = session.query(EntityTagEntity.tag).filter_by(
             user_id=user_id, entity_type=entity_type, entity_id=entity_id
         ).all()
@@ -173,15 +197,18 @@ def list_tags(user_id: int, entity_type: str, entity_id: str) -> List[str]:
 def find_by_tag(user_id: int, tag: str, prefix: bool = False) -> List[Tuple[str, str]]:
     """Return (entity_type, entity_id) pairs matching `tag` (exact, or prefix e.g. 'work/')."""
     with get_db() as session:
+        from storage.crypto.query import prefix_or_exact
         query = session.query(EntityTagEntity.entity_type, EntityTagEntity.entity_id)
+        # Prefix matches de-dupe because one entity can carry more than one tag.
+        # Encrypted tenants have no server-side prefix index, so prefix is exact-only.
+        query = query.filter(
+            EntityTagEntity.user_id == user_id,
+            prefix_or_exact(
+                session, user_id, EntityTagEntity.tag, EntityTagEntity.tag_bidx, "tag", tag, prefix,
+            ),
+        )
         if prefix:
-            # An entity can match a prefix through more than one tag (e.g. both
-            # "work/y-agent" and "work/finance"), so de-dupe (entity_type, entity_id).
-            query = query.filter(EntityTagEntity.user_id == user_id, EntityTagEntity.tag.like(f"{tag}%")).distinct()
-        else:
-            # The (user_id, entity_type, entity_id, tag) unique constraint already
-            # guarantees at most one row per entity for an exact tag match.
-            query = query.filter_by(user_id=user_id, tag=tag)
+            query = query.distinct()
         return [(r.entity_type, r.entity_id) for r in query.all()]
 
 
@@ -195,13 +222,6 @@ def find_by_tag_with_carriers(
     no matter how many resolver-less types it returns.
     """
     kind = literal_column("'pair'", String).label("kind")
-    pairs = select(
-        kind, EntityTagEntity.entity_type.label("a"), EntityTagEntity.entity_id.label("b")
-    ).where(EntityTagEntity.user_id == user_id)
-    if prefix:
-        pairs = pairs.where(EntityTagEntity.tag.like(f"{tag}%")).distinct()
-    else:
-        pairs = pairs.where(EntityTagEntity.tag == tag)
     claims = select(
         literal_column("'claim'", String), ModuleEntity.slug, ModuleVersionEntity.tag_carriers
     ).join_from(
@@ -211,6 +231,17 @@ def find_by_tag_with_carriers(
         & (ModuleVersionEntity.version_id == ModuleEntity.active_version_id),
     ).where(ModuleEntity.user_id == user_id, ModuleEntity.enabled.is_(True))
     with get_db() as session:
+        from storage.crypto.query import prefix_or_exact
+        pairs = select(
+            kind, EntityTagEntity.entity_type.label("a"), EntityTagEntity.entity_id.label("b")
+        ).where(
+            EntityTagEntity.user_id == user_id,
+            prefix_or_exact(
+                session, user_id, EntityTagEntity.tag, EntityTagEntity.tag_bidx, "tag", tag, prefix,
+            ),
+        )
+        if prefix:
+            pairs = pairs.distinct()
         rows = session.execute(union_all(pairs, claims)).all()
     found: List[Tuple[str, str]] = []
     claimed: List[Tuple[str, str]] = []
@@ -222,6 +253,13 @@ def find_by_tag_with_carriers(
 def distinct_tags(user_id: int) -> List[Tuple[str, int]]:
     """Return (tag, count) pairs for every distinct tag the user has used, sorted by tag."""
     with get_db() as session:
+        from storage.crypto.query import active
+        if active(session, user_id):
+            rows = session.query(EntityTagEntity).filter_by(user_id=user_id).all()
+            counts: dict[str, int] = {}
+            for row in rows:
+                counts[row.tag] = counts.get(row.tag, 0) + 1
+            return sorted(counts.items())
         rows = session.query(EntityTagEntity.tag, func.count(EntityTagEntity.id)).filter_by(
             user_id=user_id
         ).group_by(EntityTagEntity.tag).order_by(EntityTagEntity.tag).all()
@@ -247,11 +285,20 @@ def memberships_for(user_id: int, entity_type: str, entity_ids: List[str]) -> di
     if not entity_ids:
         return {}
     with get_db() as session:
-        rows = session.query(EntityTagEntity.entity_id, EntityTagEntity.tag).filter(
-            EntityTagEntity.user_id == user_id,
-            EntityTagEntity.entity_type == entity_type,
-            EntityTagEntity.entity_id.in_(list(entity_ids)),
-        ).all()
+        from storage.crypto.query import active
+        if active(session, user_id):
+            loaded = session.query(EntityTagEntity).filter(
+                EntityTagEntity.user_id == user_id,
+                EntityTagEntity.entity_type == entity_type,
+                EntityTagEntity.entity_id.in_(list(entity_ids)),
+            ).all()
+            rows = [(row.entity_id, row.tag) for row in loaded]
+        else:
+            rows = session.query(EntityTagEntity.entity_id, EntityTagEntity.tag).filter(
+                EntityTagEntity.user_id == user_id,
+                EntityTagEntity.entity_type == entity_type,
+                EntityTagEntity.entity_id.in_(list(entity_ids)),
+            ).all()
     grouped = {entity_id: [] for entity_id in entity_ids}
     for entity_id, tag in rows:
         grouped.setdefault(entity_id, []).append(tag)

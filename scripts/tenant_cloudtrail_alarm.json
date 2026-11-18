@@ -1,0 +1,7 @@
+{
+  "comment": "Create only after the CMK exists. Alarm on non-Lambda kms:Decrypt of alias/y-agent-tenant-data.",
+  "filterPattern": "{ ($.eventName = Decrypt) && ($.userIdentity.sessionContext.sessionIssuer.userName != \"y-agent-lambda-role\") }",
+  "metricName": "TenantKmsHumanDecrypt",
+  "namespace": "YAgent/TenantEncryption",
+  "alarmName": "y-agent-tenant-kms-human-decrypt"
+}

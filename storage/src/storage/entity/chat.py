@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey, UniqueConstraint, CheckConstraint, Index, text
+from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey, UniqueConstraint, CheckConstraint, Index, text, SmallInteger
 from .base import Base, BaseEntity
 
 
@@ -30,6 +30,7 @@ class ChatEntity(Base, BaseEntity):
     # rather than inferred. Display-only marker; does not influence list order
     # (todo 3141). See chat-core PRD.
     needs_attention = Column(Boolean, nullable=False, server_default=text("false"))
+    enc_version = Column(SmallInteger, nullable=False, server_default="0", default=0)
     share_password_hash = Column(String, nullable=True)
 
     __table_args__ = (

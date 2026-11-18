@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, UniqueConstraint, text
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, UniqueConstraint, text, SmallInteger
 from .base import Base, BaseEntity
 
 
@@ -24,6 +24,7 @@ class VmConfigEntity(Base, BaseEntity):
     # NULL means relay: the worker injects the bot's relay env. `subscription`
     # strips that env so the node uses its own Claude login (todo 4224).
     auth_mode = Column(String, nullable=True)
+    enc_version = Column(SmallInteger, nullable=False, server_default="0", default=0)
     # NOTE: the live table still has a `finance_config` jsonb column (NOT NULL
     # DEFAULT '{}'). It is finance domain data that moved to the module-owned
     # `finance_config` table (todo 3020, D8); the expand/contract DROP is the

@@ -49,8 +49,11 @@ def _in_cooldown(feed) -> bool:
     return int(time.time() * 1000) < last_ms + FAIL_COOLDOWN * 1000
 
 
-def _xml_s3_key(rss_feed_id: str) -> str:
-    return f"rss/{rss_feed_id}.xml"
+def _xml_s3_key(feed) -> str:
+    from storage.crypto.blob import rss_object_key
+    from storage.database.base import get_db
+    with get_db() as session:
+        return rss_object_key(feed.user_id, feed.rss_feed_id, session)
 
 
 def _build_rss_xml(feed, items: list[dict]) -> bytes:
@@ -134,7 +137,7 @@ async def _process_feed(client: httpx.AsyncClient, user_id: int, feed) -> dict:
         return {"feed_id": feed.rss_feed_id, "error": "no xml"}
 
     try:
-        s3_put(_xml_s3_key(feed.rss_feed_id), xml, content_type="application/rss+xml")
+        s3_put(_xml_s3_key(feed), xml, content_type="application/rss+xml")
     except Exception as e:
         logger.exception("fetch_rss_xml feed={} s3 upload error", feed.rss_feed_id)
         rss_feed_service.record_fetch_failure(feed.rss_feed_id)

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, ForeignKey, UniqueConstraint, SmallInteger
 from .base import Base, BaseEntity
 
 
@@ -18,6 +18,8 @@ class TagVocabularyEntity(Base, BaseEntity):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey('user.id', ondelete='CASCADE'), nullable=False)
     tag = Column(String, nullable=False)
+    tag_bidx = Column(String, nullable=True)
+    enc_version = Column(SmallInteger, nullable=False, server_default="0", default=0)
 
     __table_args__ = (
         UniqueConstraint("user_id", "tag"),

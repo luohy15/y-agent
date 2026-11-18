@@ -109,6 +109,16 @@ Parameters:
     NoEcho: true
     Default: ""
 
+  TenantKmsKeyArn:
+    Type: String
+    Description: CMK for tenant DEK wrapping. Empty keeps encryption dormant.
+    Default: ""
+
+  PhotoKmsKeyArn:
+    Type: String
+    Description: Optional SSE-KMS key for the photo bucket. Empty keeps SSE-S3.
+    Default: ""
+
 Conditions:
   HasCustomDomain: !Not [!Equals [!Ref DomainName, ""]]
   HasVpc: !Not [!Equals [!Ref LambdaSecurityGroupId, ""]]
@@ -451,6 +461,8 @@ Resources:
           OPENROUTER_API_KEY: !Ref OpenRouterApiKey
           OPENROUTER_INFERENCE_API_KEY: !Ref OpenRouterInferenceApiKey
           DEEPSEEK_API_KEY: !Ref DeepSeekApiKey
+          Y_AGENT_TENANT_KMS_KEY_ARN: !Ref TenantKmsKeyArn
+          Y_AGENT_PHOTO_KMS_KEY_ARN: !Ref PhotoKmsKeyArn
           # Temporary /api/todo/list stage timing (todo 3788 R1); remove after B3.
           Y_AGENT_TODO_LIST_TIMING: "1"
           AWS_LAMBDA_EXEC_WRAPPER: /opt/bootstrap
@@ -502,6 +514,8 @@ Resources:
           CRAWLER_RATE_LIMIT: "10"
           Y_AGENT_MCP_GATEWAY_URL: !Ref McpGatewayUrl
           Y_AGENT_MODULE_MAINTAINER_USER_ID: !Ref ModuleMaintainerUserId
+          Y_AGENT_TENANT_KMS_KEY_ARN: !Ref TenantKmsKeyArn
+          Y_AGENT_PHOTO_KMS_KEY_ARN: !Ref PhotoKmsKeyArn
       Layers:
         - !Ref StorageLayer
         - !Ref AgentLayer
@@ -630,6 +644,8 @@ Resources:
           SQS_QUEUE_URL: !Ref JobQueue
           TELEGRAM_BOT_TOKEN: !Ref TelegramBotToken
           Y_AGENT_TIMEZONE: Asia/Shanghai
+          Y_AGENT_TENANT_KMS_KEY_ARN: !Ref TenantKmsKeyArn
+          Y_AGENT_PHOTO_KMS_KEY_ARN: !Ref PhotoKmsKeyArn
       Layers:
         - !Ref StorageLayer
         - !Ref AgentLayer

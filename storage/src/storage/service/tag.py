@@ -419,6 +419,13 @@ def list_vocabulary(user_id: int) -> List[Tuple[str, int]]:
     create_vocabulary() with no carrier yet still appears, with count 0.
     """
     with get_db() as session:
+        from storage.crypto.query import active
+        if active(session, user_id):
+            vocabulary = session.query(TagVocabularyEntity).filter_by(user_id=user_id).all()
+            usage: dict[str, int] = {}
+            for row in session.query(EntityTagEntity).filter_by(user_id=user_id).all():
+                usage[row.tag] = usage.get(row.tag, 0) + 1
+            return sorted((row.tag, usage.get(row.tag, 0)) for row in vocabulary)
         rows = (
             session.query(TagVocabularyEntity.tag, func.count(EntityTagEntity.id))
             .outerjoin(

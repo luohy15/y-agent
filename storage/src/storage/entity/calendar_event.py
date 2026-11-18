@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey, UniqueConstraint, text
+from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey, UniqueConstraint, text, SmallInteger
 from .base import Base, BaseEntity
 
 
@@ -19,6 +19,7 @@ class CalendarEventEntity(Base, BaseEntity):
     source = Column(String, nullable=True)
     todo_id = Column(String, nullable=True)
     deleted_at = Column(String, nullable=True)
+    enc_version = Column(SmallInteger, nullable=False, server_default="0", default=0)
 
     __table_args__ = (
         UniqueConstraint("user_id", "event_id"),

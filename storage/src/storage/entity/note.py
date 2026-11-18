@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, JSON, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, JSON, ForeignKey, UniqueConstraint, SmallInteger
 from .base import Base, BaseEntity
 
 
@@ -11,6 +11,7 @@ class NoteEntity(Base, BaseEntity):
     content_key = Column(String, nullable=False)
     front_matter = Column(JSON, nullable=True)
     deleted_at = Column(String, nullable=True)
+    enc_version = Column(SmallInteger, nullable=False, server_default="0", default=0)
 
     __table_args__ = (
         UniqueConstraint("user_id", "note_id"),

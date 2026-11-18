@@ -3,6 +3,7 @@
 from typing import List, Optional
 from storage.entity.email_account import EmailAccountEntity
 from storage.dto.email_account import EmailAccount
+from storage.crypto.query import match_bidx
 from storage.database.base import get_db
 
 
@@ -23,7 +24,10 @@ def list_accounts(user_id: int) -> List[EmailAccount]:
 
 def get_account(user_id: int, address: str) -> Optional[EmailAccount]:
     with get_db() as session:
-        row = session.query(EmailAccountEntity).filter_by(user_id=user_id, address=address).first()
+        row = session.query(EmailAccountEntity).filter(
+            EmailAccountEntity.user_id == user_id,
+            match_bidx(session, user_id, EmailAccountEntity.address, EmailAccountEntity.address_bidx, "address", address),
+        ).first()
         if not row:
             return None
         return _entity_to_dto(row)
@@ -32,7 +36,10 @@ def get_account(user_id: int, address: str) -> Optional[EmailAccount]:
 def add_account(user_id: int, address: str, app_password: str) -> EmailAccount:
     """Insert or update an account (upsert on address)."""
     with get_db() as session:
-        entity = session.query(EmailAccountEntity).filter_by(user_id=user_id, address=address).first()
+        entity = session.query(EmailAccountEntity).filter(
+            EmailAccountEntity.user_id == user_id,
+            match_bidx(session, user_id, EmailAccountEntity.address, EmailAccountEntity.address_bidx, "address", address),
+        ).first()
         if entity:
             entity.app_password = app_password
         else:
@@ -44,6 +51,9 @@ def add_account(user_id: int, address: str, app_password: str) -> EmailAccount:
 
 def delete_account(user_id: int, address: str) -> bool:
     with get_db() as session:
-        count = session.query(EmailAccountEntity).filter_by(user_id=user_id, address=address).delete()
+        count = session.query(EmailAccountEntity).filter(
+            EmailAccountEntity.user_id == user_id,
+            match_bidx(session, user_id, EmailAccountEntity.address, EmailAccountEntity.address_bidx, "address", address),
+        ).delete(synchronize_session=False)
         session.flush()
         return count > 0

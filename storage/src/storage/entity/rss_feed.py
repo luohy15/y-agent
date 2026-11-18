@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, BigInteger, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Text, BigInteger, ForeignKey, UniqueConstraint, SmallInteger
 from .base import Base, BaseEntity
 
 
@@ -16,6 +16,8 @@ class RssFeedEntity(Base, BaseEntity):
     scrape_config = Column(Text, nullable=True)
     fetch_failure_count = Column(Integer, nullable=False, default=0, server_default="0")
     deleted_at = Column(String, nullable=True)
+    url_bidx = Column(String, nullable=True)
+    enc_version = Column(SmallInteger, nullable=False, server_default="0", default=0)
 
     __table_args__ = (
         UniqueConstraint("user_id", "url"),

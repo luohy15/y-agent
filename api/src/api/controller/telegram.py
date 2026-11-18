@@ -173,7 +173,7 @@ async def telegram_webhook(request: Request):
         return {"ok": False}
 
     body = await request.json()
-    logger.info("telegram webhook body: {}", body)
+    logger.info("telegram webhook update_id={} keys={}", body.get("update_id"), sorted(body.keys()))
     message = body.get("message")
     if not message:
         logger.info("telegram webhook: no message in body")
@@ -526,14 +526,14 @@ async def _handle_routed_message(telegram_chat_id, telegram_user_id, target_chat
 
 
 async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images: Optional[List[str]] = None, files: Optional[List[str]] = None):
-    logger.info("_handle_message: telegram_chat_id={} telegram_user_id={} text={} images={} files={}", telegram_chat_id, telegram_user_id, text, len(images) if images else 0, len(files) if files else 0)
+    logger.info("_handle_message: telegram_chat_id={} telegram_user_id={} text_len={} images={} files={}", telegram_chat_id, telegram_user_id, len(text or ""), len(images) if images else 0, len(files) if files else 0)
     user = get_user_by_telegram_id(telegram_user_id)
     if not user:
         logger.info("_handle_message: no user bound for telegram_user_id={}", telegram_user_id)
         await _send_message(telegram_chat_id, "Please /bind your account first.")
         return {"ok": True}
 
-    logger.info("_handle_message: found user id={} email={}", user.id, user.email)
+    logger.info("_handle_message: found user id={}", user.id)
 
     # The Telegram group is retired: a DM always targets the manager role.
     role = 'manager'

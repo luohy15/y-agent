@@ -12,7 +12,9 @@ S3_BUCKET = os.environ.get("Y_AGENT_S3_BUCKET", "")
 
 def s3_put(content_key: str, content: Union[str, bytes], content_type: str = "text/markdown") -> None:
     """Upload content to s3://$Y_AGENT_S3_BUCKET/<content_key>."""
+    from storage.crypto.blob import seal_body
     body = content.encode("utf-8") if isinstance(content, str) else content
+    body = seal_body(content_key, body)
     s3 = boto3.client("s3")
     s3.put_object(
         Bucket=S3_BUCKET,
@@ -32,4 +34,5 @@ def s3_get(content_key: str) -> Optional[bytes]:
         if code in ("NoSuchKey", "404", "NotFound"):
             return None
         raise
-    return resp["Body"].read()
+    from storage.crypto.blob import open_body
+    return open_body(content_key, resp["Body"].read())

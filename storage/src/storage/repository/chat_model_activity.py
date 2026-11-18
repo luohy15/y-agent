@@ -76,6 +76,7 @@ def recompute_updated_chats(
             select(
                 ChatEntity.chat_id,
                 ChatEntity.json_content,
+                ChatEntity.enc_version,
                 ChatEntity.updated_at_unix,
             )
             .where(
@@ -87,11 +88,16 @@ def recompute_updated_chats(
         ).all()
         activity_rows = 0
         for row in rows:
+            from storage.crypto.orm import open_projected
+            body = open_projected(
+                session, user_id=user_id, table="chat", column="json_content",
+                public_id=row.chat_id, enc_version=row.enc_version, value=row.json_content,
+            )
             activity_rows += _replace_for_chat(
                 session,
                 user_id,
                 row.chat_id,
-                derive_rows(row.json_content),
+                derive_rows(body),
             )
 
         deleted = session.execute(
@@ -138,13 +144,19 @@ def list_chat_batch(
     """Return one keyset page of chat bodies for historical backfill."""
     with get_db() as session:
         rows = (
-            session.query(ChatEntity.id, ChatEntity.chat_id, ChatEntity.json_content)
+            session.query(ChatEntity.id, ChatEntity.chat_id, ChatEntity.json_content, ChatEntity.enc_version)
             .filter(ChatEntity.user_id == user_id, ChatEntity.id > after_id)
             .order_by(ChatEntity.id.asc())
             .limit(batch_size)
             .all()
         )
-        return [(row.id, row.chat_id, row.json_content) for row in rows]
+        from storage.crypto.orm import open_projected
+        return [(
+            row.id, row.chat_id, open_projected(
+                session, user_id=user_id, table="chat", column="json_content",
+                public_id=row.chat_id, enc_version=row.enc_version, value=row.json_content,
+            ),
+        ) for row in rows]
 
 
 def sweep_orphans(user_id: int) -> int:

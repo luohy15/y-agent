@@ -39,6 +39,7 @@ from api.controller.user_preference import router as user_preference_router
 from api.controller.cookies import router as cookies_router
 from api.controller.inline import router as inline_router
 from api.controller.health import router as health_router
+from api.controller.tenant_encryption import router as tenant_encryption_router
 from api.controller.mcp import router as mcp_router
 from api.controller.module import router as module_router
 from api.controller.upload import router as upload_router
@@ -114,6 +115,7 @@ api_router.include_router(user_preference_router)
 api_router.include_router(cookies_router)
 api_router.include_router(inline_router)
 api_router.include_router(health_router)
+api_router.include_router(tenant_encryption_router)
 api_router.include_router(mcp_router)
 api_router.include_router(module_router)
 api_router.include_router(upload_router)

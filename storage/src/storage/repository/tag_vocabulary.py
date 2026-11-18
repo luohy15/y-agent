@@ -40,10 +40,17 @@ def delete_empty(user_id: int, tag: str) -> None:
     """Delete only an existing, unused exact vocabulary spelling for this owner."""
     with get_db() as session:
         lock_owner(session, user_id)
-        row = session.query(TagVocabularyEntity).filter_by(user_id=user_id, tag=tag).first()
+        from storage.crypto.query import match_bidx
+        row = session.query(TagVocabularyEntity).filter(
+            TagVocabularyEntity.user_id == user_id,
+            match_bidx(session, user_id, TagVocabularyEntity.tag, TagVocabularyEntity.tag_bidx, "tag", tag),
+        ).first()
         if row is None:
             raise LookupError("Tag is not in the vocabulary")
-        if session.query(EntityTagEntity.id).filter_by(user_id=user_id, tag=tag).first():
+        if session.query(EntityTagEntity.id).filter(
+            EntityTagEntity.user_id == user_id,
+            match_bidx(session, user_id, EntityTagEntity.tag, EntityTagEntity.tag_bidx, "tag", tag),
+        ).first():
             raise TagVocabularyConflict("Tag still has associated carriers")
         session.delete(row)
 
@@ -58,6 +65,16 @@ def ensure(session, user_id: int, tag: str) -> bool:
     portable multi-column upsert through this SQLAlchemy version pin.
     """
     lock_owner(session, user_id)
+    from storage.crypto.query import active
+    if active(session, user_id):
+        from storage.crypto.tenant import blind_for_user
+        token = blind_for_user(session, user_id, "tag", tag)
+        existing = session.query(TagVocabularyEntity.id).filter_by(user_id=user_id, tag_bidx=token).first()
+        if existing:
+            return False
+        session.add(TagVocabularyEntity(user_id=user_id, tag=tag))
+        session.flush()
+        return True
     table = TagVocabularyEntity.__table__
     if session.bind.dialect.name == "postgresql":
         statement = pg_insert(table).values(user_id=user_id, tag=tag).on_conflict_do_nothing(

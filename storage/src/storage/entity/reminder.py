@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, UniqueConstraint, SmallInteger
 from .base import Base, BaseEntity
 
 
@@ -12,6 +12,7 @@ class ReminderEntity(Base, BaseEntity):
     # content
     title = Column(String, nullable=False)
     description = Column(Text, nullable=True)
+    enc_version = Column(SmallInteger, nullable=False, server_default="0", default=0)
 
     # optional associations
     todo_id = Column(String, nullable=True)

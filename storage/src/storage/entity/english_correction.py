@@ -1,4 +1,5 @@
 from sqlalchemy import (
+    SmallInteger,
     BigInteger,
     Boolean,
     Column,
@@ -31,6 +32,7 @@ class EnglishCorrectionEntity(Base, BaseEntity):
     error_categories = Column(JSON, nullable=False)
     explanation = Column(Text, nullable=False)
     dismissed = Column(Boolean, nullable=False, server_default=text("false"))
+    enc_version = Column(SmallInteger, nullable=False, server_default="0", default=0)
 
     __table_args__ = (
         UniqueConstraint("user_id", "correction_id"),

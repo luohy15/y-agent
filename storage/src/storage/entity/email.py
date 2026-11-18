@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, BigInteger, ForeignKey, UniqueConstraint, JSON
+from sqlalchemy import Column, Integer, String, Text, BigInteger, ForeignKey, UniqueConstraint, JSON, SmallInteger
 from .base import Base, BaseEntity
 
 
@@ -18,6 +18,9 @@ class EmailEntity(Base, BaseEntity):
     content = Column(Text, nullable=True)
     thread_id = Column(String, nullable=True, index=True)
     account = Column(String, nullable=True, index=True)
+    from_addr_bidx = Column(String, nullable=True)
+    account_bidx = Column(String, nullable=True)
+    enc_version = Column(SmallInteger, nullable=False, server_default="0", default=0)
 
     __table_args__ = (
         UniqueConstraint("user_id", "email_id"),

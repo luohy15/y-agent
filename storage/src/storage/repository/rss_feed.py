@@ -8,6 +8,7 @@ from storage.entity.entity_tag import EntityTagEntity
 from storage.dto.rss_feed import RssFeed
 from storage.database.base import get_db
 from storage.util import apply_time_filter, generate_id
+from storage.crypto.query import match_bidx
 
 
 def _parse_scrape_config(raw: Optional[str]) -> Optional[Dict[str, Any]]:
@@ -63,8 +64,11 @@ def list_feeds(
         if not include_deleted:
             query = query.filter(RssFeedEntity.deleted_at.is_(None))
         if tag is not None:
-            tagged_feed_ids = session.query(EntityTagEntity.entity_id).filter_by(
-                user_id=user_id, entity_type="rss_feed", tag=tag,
+            tagged_feed_ids = session.query(EntityTagEntity.entity_id).filter(
+                EntityTagEntity.user_id == user_id,
+                EntityTagEntity.entity_type == "rss_feed",
+                match_bidx(
+                    session, user_id, EntityTagEntity.tag, EntityTagEntity.tag_bidx, "tag", tag),
             )
             query = query.filter(RssFeedEntity.rss_feed_id.in_(tagged_feed_ids))
         query = apply_time_filter(query, RssFeedEntity.last_fetched_at, on=on, from_=from_, to=to)
@@ -117,7 +121,10 @@ def get_feeds_by_ids(
 
 def get_feed_by_url(user_id: int, url: str, include_deleted: bool = False) -> Optional[RssFeed]:
     with get_db() as session:
-        query = session.query(RssFeedEntity).filter_by(user_id=user_id, url=url)
+        query = session.query(RssFeedEntity).filter(
+            RssFeedEntity.user_id == user_id,
+            match_bidx(session, user_id, RssFeedEntity.url, RssFeedEntity.url_bidx, "url", url),
+        )
         if not include_deleted:
             query = query.filter(RssFeedEntity.deleted_at.is_(None))
         row = query.first()

@@ -78,8 +78,8 @@ def _resolve_redirect(client, url: str) -> Optional[str]:
         return None
 
 
-def _find_alias(url, title, published_at, client) -> Optional[str]:
-    candidates = link_service.find_rss_links_by_host_slug(url)
+def _find_alias(user_id, url, title, published_at, client) -> Optional[str]:
+    candidates = link_service.find_rss_links_by_host_slug(url, user_id)
     # An exact row wins over any historical alias. The ordinary upsert owns it.
     if any(c.base_url == url.split('#', 1)[0].split('?', 1)[0] for c in candidates):
         return None
@@ -128,7 +128,7 @@ def _ingest_entries(user_id: int, feed, parsed, client=None) -> tuple[int, int]:
         title = entry.get("title")
         reuse_link_id = None
         try:
-            reuse_link_id = _find_alias(url, title, published_at, client)
+            reuse_link_id = _find_alias(user_id, url, title, published_at, client)
         except Exception:
             logger.exception("fetch_rss_links alias lookup failed feed={} url={}", feed.rss_feed_id, url)
         try:
@@ -159,7 +159,10 @@ def _ingest_entries(user_id: int, feed, parsed, client=None) -> tuple[int, int]:
 
 
 def _process_feed(user_id: int, feed) -> dict:
-    xml = s3_get(f"rss/{feed.rss_feed_id}.xml")
+    from storage.crypto.blob import rss_object_key
+    from storage.database.base import get_db
+    with get_db() as session:
+        xml = s3_get(rss_object_key(user_id, feed.rss_feed_id, session))
     if xml is None:
         return {"feed_id": feed.rss_feed_id, "added": 0, "skipped": "no_xml"}
 

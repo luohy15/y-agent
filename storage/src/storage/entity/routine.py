@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey, UniqueConstraint, CheckConstraint, JSON, text
+from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey, UniqueConstraint, CheckConstraint, JSON, text, SmallInteger
 from sqlalchemy.dialects.postgresql import JSONB
 from .base import Base, BaseEntity
 
@@ -39,6 +39,7 @@ class RoutineEntity(Base, BaseEntity):
     last_run_at = Column(String, nullable=True)
     last_run_status = Column(String, nullable=True)
     last_chat_id = Column(String, nullable=True)
+    enc_version = Column(SmallInteger, nullable=False, server_default="0", default=0)
 
     __table_args__ = (
         UniqueConstraint("user_id", "routine_id"),

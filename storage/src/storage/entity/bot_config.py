@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Boolean, Float, Integer, String, Text, ForeignKey, UniqueConstraint, JSON
+from sqlalchemy import Column, Boolean, Float, Integer, String, Text, ForeignKey, UniqueConstraint, JSON, SmallInteger
 from .base import Base, BaseEntity
 
 
@@ -31,6 +31,7 @@ class BotConfigEntity(Base, BaseEntity):
     effort_levels = Column(JSON, nullable=True)
     effort_evidence = Column(Text, nullable=True)
     effort_binding = Column(Text, nullable=True)
+    enc_version = Column(SmallInteger, nullable=False, server_default="0", default=0)
 
     __table_args__ = (
         UniqueConstraint("user_id", "name"),

@@ -1,0 +1,29 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "LambdaRoleUse",
+      "Effect": "Allow",
+      "Principal": {"AWS": "arn:aws:iam::ACCOUNT:role/y-agent-lambda-role"},
+      "Action": [
+        "kms:Encrypt",
+        "kms:Decrypt",
+        "kms:ReEncrypt*",
+        "kms:DescribeKey"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyHumanUse",
+      "Effect": "Deny",
+      "Principal": {"AWS": "*"},
+      "Action": ["kms:Encrypt", "kms:Decrypt", "kms:ReEncrypt*", "kms:GenerateDataKey*"],
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "aws:PrincipalArn": "arn:aws:iam::ACCOUNT:role/y-agent-lambda-role"
+        }
+      }
+    }
+  ]
+}

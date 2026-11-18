@@ -183,10 +183,14 @@ def list_todos(
         if priority:
             q = q.filter(TodoEntity.priority == priority)
         if query:
-            pattern = f"%{query}%"
-            q = q.filter(
-                TodoEntity.name.ilike(pattern) | TodoEntity.todo_id.ilike(pattern) | TodoEntity.desc.ilike(pattern)
-            )
+            from storage.crypto.query import active
+            if active(session, user_id):
+                q = q.filter(TodoEntity.todo_id == query)
+            else:
+                pattern = f"%{query}%"
+                q = q.filter(
+                    TodoEntity.name.ilike(pattern) | TodoEntity.todo_id.ilike(pattern) | TodoEntity.desc.ilike(pattern)
+                )
         if unread:
             unread_exists = (
                 session.query(ChatEntity.trace_id)
@@ -197,8 +201,11 @@ def list_todos(
             )
             q = q.filter(unread_exists)
         if tag:
-            tagged_ids = session.query(EntityTagEntity.entity_id).filter_by(
-                user_id=user_id, entity_type="todo", tag=tag
+            from storage.crypto.query import match_bidx
+            tagged_ids = session.query(EntityTagEntity.entity_id).filter(
+                EntityTagEntity.user_id == user_id,
+                EntityTagEntity.entity_type == "todo",
+                match_bidx(session, user_id, EntityTagEntity.tag, EntityTagEntity.tag_bidx, "tag", tag),
             )
             q = q.filter(TodoEntity.todo_id.in_(tagged_ids))
         if on is not None or from_ is not None or to is not None:
@@ -260,10 +267,14 @@ def list_todo_ids(
         if status:
             q = q.filter(TodoEntity.status == status)
         if query:
-            pattern = f"%{query}%"
-            q = q.filter(
-                TodoEntity.name.ilike(pattern) | TodoEntity.todo_id.ilike(pattern) | TodoEntity.desc.ilike(pattern)
-            )
+            from storage.crypto.query import active
+            if active(session, user_id):
+                q = q.filter(TodoEntity.todo_id == query)
+            else:
+                pattern = f"%{query}%"
+                q = q.filter(
+                    TodoEntity.name.ilike(pattern) | TodoEntity.todo_id.ilike(pattern) | TodoEntity.desc.ilike(pattern)
+                )
         if unread:
             unread_exists = (
                 session.query(ChatEntity.trace_id)
@@ -341,10 +352,12 @@ def find_tag_rows_by_ids(user_id: int, todo_ids: List[str]) -> Dict[str, Dict]:
     if not todo_ids:
         return {}
     with get_db() as session:
+        from storage.crypto.orm import open_projected
         rows = (
             session.query(
                 TodoEntity.todo_id,
                 TodoEntity.name,
+                TodoEntity.enc_version,
                 TodoEntity.updated_at_unix,
                 TodoEntity.created_at,
             )
@@ -354,11 +367,14 @@ def find_tag_rows_by_ids(user_id: int, todo_ids: List[str]) -> Dict[str, Dict]:
         return {
             todo_id: {
                 "id": todo_id,
-                "title": name,
+                "title": open_projected(
+                    session, user_id=user_id, table="todo", column="name", public_id=todo_id,
+                    enc_version=enc_version, value=name,
+                ),
                 "updated_at_unix": updated_at_unix,
                 "created_at": created_at,
             }
-            for todo_id, name, updated_at_unix, created_at in rows
+            for todo_id, name, enc_version, updated_at_unix, created_at in rows
         }
 
 

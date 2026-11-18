@@ -11,6 +11,7 @@ from storage.entity.entity_tag import EntityTagEntity
 from storage.entity.dto import LinkActivity, LinkSummary
 from storage.database.base import get_db
 from storage.util import apply_time_filter, generate_id, generate_long_id
+from storage.crypto.query import match_bidx
 
 
 def _row_to_dto(activity: LinkActivityEntity, link: LinkEntity) -> LinkActivity:
@@ -78,8 +79,11 @@ def list_links(
         if activity_ids is not None:
             q = q.filter(LinkActivityEntity.activity_id.in_(activity_ids))
         if tag is not None:
-            tagged_activity_ids = session.query(EntityTagEntity.entity_id).filter_by(
-                user_id=user_id, entity_type="link", tag=tag,
+            tagged_activity_ids = session.query(EntityTagEntity.entity_id).filter(
+                EntityTagEntity.user_id == user_id,
+                EntityTagEntity.entity_type == "link",
+                match_bidx(
+                    session, user_id, EntityTagEntity.tag, EntityTagEntity.tag_bidx, "tag", tag),
             )
             q = q.filter(LinkActivityEntity.activity_id.in_(tagged_activity_ids))
         if source_feed_id is not None:
@@ -98,10 +102,7 @@ def list_links(
         q = apply_time_filter(q, LinkActivityEntity.created_at, on=created_on, from_=created_from, to=created_to, tz=tz)
         q = apply_time_filter(q, LinkActivityEntity.updated_at, on=updated_on, from_=updated_from, to=updated_to, tz=tz)
         if query:
-            pattern = f"%{query}%"
-            q = q.filter(
-                (LinkEntity.title.like(pattern)) | (LinkEntity.base_url.like(pattern))
-            )
+            q = _apply_link_text_query(session, q, user_id, query)
         if source_feed_id is not None or source is not None:
             q = q.order_by(
                 func.coalesce(LinkEntity.published_at, LinkActivityEntity.timestamp).desc()
@@ -142,10 +143,7 @@ def list_link_summaries(
         )
         q = apply_time_filter(q, LinkActivityEntity.timestamp, on=on, from_=from_, to=to, field_type="unix_ms")
         if query:
-            pattern = f"%{query}%"
-            q = q.filter(
-                (LinkEntity.title.like(pattern)) | (LinkEntity.base_url.like(pattern))
-            )
+            q = _apply_link_text_query(session, q, user_id, query)
         q = q.order_by(LinkActivityEntity.timestamp.desc())
         q = q.offset(offset).limit(limit)
 
@@ -213,16 +211,62 @@ def strip_query(url: str) -> str:
     return _strip_query(url)
 
 
+def _text_matches(value: Optional[str], needle: str) -> bool:
+    return needle in (value or "")
+
+
+def _apply_link_text_query(session, query, user_id: int, needle: str):
+    """Legacy rows keep SQL LIKE. Encrypted rows are matched after they are opened."""
+    from storage.crypto.query import active
+    pattern = f"%{needle}%"
+    legacy = and_(
+        LinkEntity.user_id.is_(None),
+        or_(LinkEntity.title.like(pattern), LinkEntity.base_url.like(pattern)),
+    )
+    if not active(session, user_id):
+        return query.filter(
+            or_(LinkEntity.user_id == user_id, LinkEntity.user_id.is_(None)),
+            or_(LinkEntity.title.like(pattern), LinkEntity.base_url.like(pattern)),
+        )
+    owned = session.query(LinkEntity).filter(LinkEntity.user_id == user_id).all()
+    matched = [row.id for row in owned if _text_matches(row.title, needle) or _text_matches(row.base_url, needle)]
+    return query.filter(or_(LinkEntity.id.in_(matched or [-1]), legacy))
+
+
+def may_reuse_link(owner_id: Optional[int], caller_id: int) -> bool:
+    """Legacy rows have no owner. A per-user row belongs only to that owner."""
+    return owner_id is None or owner_id == caller_id
+
+
+def sealed_link_visible(owner_id: Optional[int], caller_id: int) -> bool:
+    return owner_id == caller_id
+
+
+def _host_slug_matches(base_url: str, netloc: str, slug: str) -> bool:
+    parsed = urlsplit(base_url or "")
+    path = parsed.path.rstrip("/")
+    found = path.rsplit("/", 1)[-1] if path else ""
+    return parsed.netloc.lower() == netloc.lower() and found == slug
+
+
 def _upsert_link(
     session,
     url: str,
     title: Optional[str],
     published_at: Optional[int] = None,
+    user_id: Optional[int] = None,
 ) -> LinkEntity:
-    """Upsert a link by base_url (via url_hash). Updates url/title to latest.
-    `published_at` is only written on first sight — subsequent fetches do not overwrite."""
+    """Upsert a link by base_url. Encrypted tenants get their own row; legacy rows stay global."""
+    from storage.crypto.query import active, match_bidx
     base_url = _strip_query(url)
-    entity = session.query(LinkEntity).filter_by(base_url=base_url).first()
+    encrypted = user_id is not None and active(session, user_id)
+    if encrypted:
+        entity = session.query(LinkEntity).filter(
+            LinkEntity.user_id == user_id,
+            match_bidx(session, user_id, LinkEntity.base_url, LinkEntity.base_url_bidx, "base_url", base_url),
+        ).first()
+    else:
+        entity = session.query(LinkEntity).filter_by(base_url=base_url, user_id=None).first()
     if entity:
         if title is not None:
             entity.title = title
@@ -234,6 +278,7 @@ def _upsert_link(
             link_id = generate_id()
         entity = LinkEntity(
             link_id=link_id,
+            user_id=user_id if encrypted else None,
             base_url=base_url,
             title=title,
             published_at=published_at,
@@ -281,11 +326,14 @@ def save_link(
     published_at: Optional[int] = None,
 ) -> LinkActivity:
     with get_db() as session:
-        link = _upsert_link(session, url, title, published_at=published_at)
+        link = _upsert_link(session, url, title, published_at=published_at, user_id=user_id)
         # Dedup: same user, timestamp, link, and exact URL. A timestamp alone
         # must never return another URL's activity.
-        existing = session.query(LinkActivityEntity).filter_by(
-            user_id=user_id, timestamp=timestamp, link_id=link.id, url=url,
+        existing = session.query(LinkActivityEntity).filter(
+            LinkActivityEntity.user_id == user_id,
+            LinkActivityEntity.timestamp == timestamp,
+            LinkActivityEntity.link_id == link.id,
+            match_bidx(session, user_id, LinkActivityEntity.url, LinkActivityEntity.url_bidx, "url", url),
         ).first()
         if existing:
             return _row_to_dto(existing, link)
@@ -302,24 +350,47 @@ def save_link(
         return _row_to_dto(activity, link)
 
 
-def find_rss_links_by_host_slug(base_url: str) -> List[LinkEntity]:
-    """Find RSS alias candidates, including an exact URL already in the library."""
+def find_rss_links_by_host_slug(base_url: str, user_id: Optional[int] = None) -> List[LinkEntity]:
+    """Find RSS alias candidates for this owner, plus legacy shared rows."""
     parsed = urlsplit(base_url)
     path = parsed.path.rstrip('/')
     slug = path.rsplit('/', 1)[-1]
     if parsed.scheme not in ('http', 'https') or not parsed.netloc or not slug:
         return []
     with get_db() as session:
-        return session.query(LinkEntity).filter(
+        stripped = _strip_query(base_url)
+        legacy = session.query(LinkEntity).filter(
+            LinkEntity.user_id.is_(None),
             or_(
-                LinkEntity.base_url == _strip_query(base_url),
+                LinkEntity.base_url == stripped,
                 and_(
-                    LinkEntity.source == 'rss',
-                    func.lower(func.split_part(LinkEntity.base_url, '/', 3)) == parsed.netloc.lower(),
-                    func.regexp_replace(LinkEntity.base_url, r'^.*/([^/]+)/?$', r'\1') == slug,
+                    LinkEntity.source == "rss",
+                    func.lower(func.split_part(LinkEntity.base_url, "/", 3)) == parsed.netloc.lower(),
+                    func.regexp_replace(LinkEntity.base_url, r"^.*/([^/]+)/?$", r"\1") == slug,
                 ),
             ),
         ).order_by(LinkEntity.created_at, LinkEntity.id).all()
+        sealed = []
+        if user_id is not None:
+            sealed = session.query(LinkEntity).filter(
+                LinkEntity.user_id == user_id,
+            ).all()
+        extra = [
+            row for row in sealed
+            if sealed_link_visible(row.user_id, user_id) and (
+                row.base_url == stripped or (row.source == "rss" and _host_slug_matches(row.base_url, parsed.netloc, slug))
+            )
+        ]
+        seen = {row.id for row in legacy}
+        return legacy + [row for row in extra if row.id not in seen]
+
+
+def _rewrite_rss_activity_urls(session, link_id: int, user_id: int, url: str) -> None:
+    """Assign per owned row so the flush hook applies its key/version policy."""
+    for activity in session.query(LinkActivityEntity).filter_by(
+        link_id=link_id, source="rss", user_id=user_id,
+    ).all():
+        activity.url = url
 
 
 def save_link_rss(
@@ -337,7 +408,7 @@ def save_link_rss(
     activity only when it is already source='rss', regardless of source_feed_id.
     A blank-source visit is left unchanged and a new RSS activity is inserted
     beside it. Another feed's RSS row for the same link is reused and keeps its
-    source_feed_id. Alias URL rewrite updates every source='rss' activity on the
+    source_feed_id. Alias URL rewrite updates this owner's rss activities on the
     link. The bool indicates whether a new activity row was created.
     """
     with get_db() as session:
@@ -346,17 +417,17 @@ def save_link_rss(
             link = session.query(LinkEntity).filter_by(
                 link_id=reuse_link_id, source='rss',
             ).with_for_update().first()
+            if link is not None and not may_reuse_link(link.user_id, user_id):
+                link = None
         if link is not None:
             link.base_url = _strip_query(url)
             if title is not None:
                 link.title = title
             if published_at is not None and link.published_at is None:
                 link.published_at = published_at
-            session.query(LinkActivityEntity).filter_by(
-                link_id=link.id, source='rss',
-            ).update({'url': url}, synchronize_session=False)
+            _rewrite_rss_activity_urls(session, link.id, user_id, url)
         else:
-            link = _upsert_link(session, url, title, published_at=published_at)
+            link = _upsert_link(session, url, title, published_at=published_at, user_id=user_id)
         if link.source is None:
             link.source = "rss"
             link.source_feed_id = source_feed_id
@@ -395,7 +466,7 @@ def save_link_fetch(
     `(user_id, timestamp)` dedup: each interactive fetch is a genuine visit event.
     """
     with get_db() as session:
-        link = _upsert_link(session, url, title, published_at=None)
+        link = _upsert_link(session, url, title, published_at=None, user_id=user_id)
         activity = LinkActivityEntity(
             user_id=user_id,
             activity_id=generate_long_id(),
@@ -440,11 +511,20 @@ def save_links_batch(user_id: int, links: List[dict]) -> int:
 
         timestamps = [item['timestamp'] for item in links]
 
-        # 2. Batch load existing links by base_url
-        existing_links = session.query(LinkEntity).filter(
-            LinkEntity.base_url.in_(list(base_url_map.keys()))
-        ).all()
-        link_by_base_url: dict[str, LinkEntity] = {link.base_url: link for link in existing_links}
+        from storage.crypto.query import active
+        link_by_base_url: dict[str, LinkEntity] = {}
+        if active(session, user_id):
+            for base_url, item in base_url_map.items():
+                link_by_base_url[base_url] = _upsert_link(
+                    session, item["url"], item.get("title"),
+                    published_at=item.get("published_at"), user_id=user_id,
+                )
+        else:
+            existing_links = session.query(LinkEntity).filter(
+                LinkEntity.base_url.in_(list(base_url_map.keys())),
+                or_(LinkEntity.user_id == user_id, LinkEntity.user_id.is_(None)),
+            ).all()
+            link_by_base_url = {link.base_url: link for link in existing_links}
 
         # 3. Batch load existing activities by user+timestamp for dedup
         existing_activities = session.query(LinkActivityEntity.timestamp).filter(
@@ -467,6 +547,7 @@ def save_links_batch(user_id: int, links: List[dict]) -> int:
                 link_id = generate_id()
                 entity = LinkEntity(
                     link_id=link_id,
+                    user_id=user_id if active(session, user_id) else None,
                     base_url=base_url,
                     title=item.get('title'),
                     published_at=published_at,
@@ -559,13 +640,22 @@ def get_links_with_latest_activity(user_id: int, link_ids: List[str]) -> List[di
         return result
 
 
-def get_links_by_urls(urls: List[str]) -> List[LinkEntity]:
-    """Fetch LinkEntity rows by base_url (strips query params first)."""
+def get_links_by_urls(urls: List[str], user_id: int) -> List[LinkEntity]:
+    """Fetch this owner's links plus legacy shared rows for these base URLs."""
     if not urls:
         return []
-    base_urls = [_strip_query(u) for u in urls]
+    base_urls = {_strip_query(u) for u in urls}
     with get_db() as session:
-        return session.query(LinkEntity).filter(LinkEntity.base_url.in_(base_urls)).all()
+        legacy = session.query(LinkEntity).filter(
+            LinkEntity.user_id.is_(None), LinkEntity.base_url.in_(base_urls),
+        ).all()
+        sealed = session.query(LinkEntity).filter(
+            LinkEntity.user_id == user_id,
+        ).all()
+        return legacy + [
+            row for row in sealed
+            if sealed_link_visible(row.user_id, user_id) and row.base_url in base_urls
+        ]
 
 
 def resolve_url(user_id: int, url: str) -> dict:
@@ -582,7 +672,19 @@ def resolve_url(user_id: int, url: str) -> dict:
     fragless = url.split('#', 1)[0]
     base_url = _strip_query(url)
     with get_db() as session:
-        link = session.query(LinkEntity).filter_by(base_url=base_url).first()
+        from storage.crypto.query import active
+        if active(session, user_id):
+            link = session.query(LinkEntity).filter(
+                LinkEntity.user_id == user_id,
+                match_bidx(session, user_id, LinkEntity.base_url, LinkEntity.base_url_bidx, "base_url", base_url),
+            ).first()
+            if link is None:
+                link = session.query(LinkEntity).filter_by(base_url=base_url, user_id=None).first()
+        else:
+            link = session.query(LinkEntity).filter(
+                LinkEntity.base_url == base_url,
+                or_(LinkEntity.user_id == user_id, LinkEntity.user_id.is_(None)),
+            ).first()
         if not link:
             return {"base_url": base_url, "found": False}
 
@@ -591,7 +693,7 @@ def resolve_url(user_id: int, url: str) -> dict:
             .filter(
                 LinkActivityEntity.user_id == user_id,
                 LinkActivityEntity.link_id == link.id,
-                LinkActivityEntity.url == fragless,
+                match_bidx(session, user_id, LinkActivityEntity.url, LinkActivityEntity.url_bidx, "url", fragless),
             )
             .first()
         )
@@ -657,31 +759,27 @@ def update_link_activity_summary_content_key(activity_id: str, key: str):
             activity.summary_content_key = key
 
 
-def upsert_link_for_download(url: str) -> dict:
-    """Upsert a link by base_url. Set download_status to pending at link or activity level.
-    Returns dict with link_id, base_url, download_status, is_activity_level, activity_id."""
-    url = url.split('#')[0]  # strip fragment
+def upsert_link_for_download(url: str, user_id: Optional[int] = None) -> dict:
+    """Upsert a link by base_url. Enabled tenants get their own row, not a shared plaintext one."""
+    url = url.split("#")[0]
     base_url = _strip_query(url)
     is_activity_level = (url != base_url)
     with get_db() as session:
-        entity = session.query(LinkEntity).filter_by(base_url=base_url).first()
-        if not entity:
-            link_id = generate_id()
-            while session.query(LinkEntity).filter_by(link_id=link_id).first():
-                link_id = generate_id()
-            entity = LinkEntity(link_id=link_id, base_url=base_url)
-            session.add(entity)
-            session.flush()
+        entity = _upsert_link(session, url, None, user_id=user_id)
         activity_id = None
         if is_activity_level:
-            # Set pending on all activities matching this URL, pick first activity_id
-            activities = session.query(LinkActivityEntity).filter_by(url=url).all()
-            for act in activities:
-                act.download_status = 'pending'
+            activities = session.query(LinkActivityEntity).filter(
+                match_bidx(session, user_id, LinkActivityEntity.url, LinkActivityEntity.url_bidx, "url", url)
+                if user_id is not None else LinkActivityEntity.url == url,
+            )
+            if user_id is not None:
+                activities = activities.filter(LinkActivityEntity.user_id == user_id)
+            for act in activities.all():
+                act.download_status = "pending"
                 if activity_id is None:
                     activity_id = act.activity_id
         else:
-            entity.download_status = 'pending'
+            entity.download_status = "pending"
         return {
             'link_id': entity.link_id,
             'base_url': entity.base_url,

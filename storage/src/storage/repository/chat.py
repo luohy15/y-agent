@@ -204,21 +204,29 @@ async def list_chats(
                     ChatEntity.status,
                     ChatEntity.unread,
                     ChatEntity.needs_attention,
+                    ChatEntity.enc_version,
                 )
             )
         )
         query = query.strip() if query else ""
         if query:
-            q = q.filter(or_(
-                ChatEntity.title.ilike(f"%{query}%"),
-                ChatEntity.search_text.ilike(f"%{query}%"),
-                ChatEntity.chat_id == query,
-            ))
+            from storage.crypto.query import active
+            if active(session, user_id):
+                q = q.filter(ChatEntity.chat_id == query)
+            else:
+                q = q.filter(or_(
+                    ChatEntity.title.ilike(f"%{query}%"),
+                    ChatEntity.search_text.ilike(f"%{query}%"),
+                    ChatEntity.chat_id == query,
+                ))
         if tag:
+            from storage.crypto.query import match_bidx
             from storage.entity.entity_tag import EntityTagEntity
             q = q.filter(ChatEntity.chat_id.in_(
-                session.query(EntityTagEntity.entity_id).filter_by(
-                    user_id=user_id, entity_type="chat", tag=tag
+                session.query(EntityTagEntity.entity_id).filter(
+                    EntityTagEntity.user_id == user_id,
+                    EntityTagEntity.entity_type == "chat",
+                    match_bidx(session, user_id, EntityTagEntity.tag, EntityTagEntity.tag_bidx, "tag", tag),
                 )
             ))
         if trace_id:
@@ -239,10 +247,17 @@ async def list_chats(
         if routine_id:
             q = q.filter(ChatEntity.routine_id == routine_id)
         if routine_name:
-            named_ids = session.query(RoutineEntity.routine_id).filter(
-                RoutineEntity.user_id == user_id,
-                RoutineEntity.name == routine_name,
-            )
+            from storage.crypto.query import active
+            if active(session, user_id):
+                named_ids = [
+                    row.routine_id for row in session.query(RoutineEntity).filter_by(user_id=user_id).all()
+                    if row.name == routine_name
+                ]
+            else:
+                named_ids = session.query(RoutineEntity.routine_id).filter(
+                    RoutineEntity.user_id == user_id,
+                    RoutineEntity.name == routine_name,
+                )
             q = q.filter(ChatEntity.routine_id.in_(named_ids))
         if routine_only:
             q = q.filter(ChatEntity.routine_id.isnot(None), ChatEntity.routine_id != "")
@@ -281,10 +296,14 @@ async def list_chats(
         page_routine_ids = [row.routine_id for row in rows if row.routine_id]
         routine_name_by_id = {}
         if page_routine_ids:
+            from storage.crypto.orm import open_projected
             routine_name_by_id = {
-                r_id: r_name
-                for r_id, r_name in session.query(
-                    RoutineEntity.routine_id, RoutineEntity.name
+                r_id: open_projected(
+                    session, user_id=user_id, table="routine", column="name", public_id=r_id,
+                    enc_version=enc_version, value=r_name,
+                ) or ""
+                for r_id, r_name, enc_version in session.query(
+                    RoutineEntity.routine_id, RoutineEntity.name, RoutineEntity.enc_version
                 ).filter(
                     RoutineEntity.user_id == user_id,
                     RoutineEntity.routine_id.in_(page_routine_ids),
@@ -438,14 +457,21 @@ def get_chat_metas(user_id: int, chat_ids: List[str]) -> dict:
         return {}
     with get_db() as session:
         rows = (
-            session.query(ChatEntity.chat_id, ChatEntity.title)
+            session.query(ChatEntity.chat_id, ChatEntity.title, ChatEntity.enc_version)
             .filter(
                 ChatEntity.user_id == user_id,
                 ChatEntity.chat_id.in_(chat_ids),
             )
             .all()
         )
-        return {row.chat_id: (row.title or "") for row in rows}
+        from storage.crypto.orm import open_projected
+        return {
+            row.chat_id: (open_projected(
+                session, user_id=user_id, table="chat", column="title", public_id=row.chat_id,
+                enc_version=row.enc_version, value=row.title,
+            ) or "")
+            for row in rows
+        }
 
 
 def _extract_content_text(content) -> str:
@@ -1041,6 +1067,8 @@ def find_phase_worker_row(
     with get_db() as session:
         metadata_rows = (session.query(
                     ChatEntity.id,
+                    ChatEntity.chat_id,
+                    ChatEntity.enc_version,
                     ChatEntity.topic,
                     ChatEntity.role,
                     ChatEntity.status,
@@ -1073,7 +1101,11 @@ def find_phase_worker_row(
                     .first())
             if body is None:
                 return None
-            json_content = body.json_content
+            from storage.crypto.orm import open_projected
+            json_content = open_projected(
+                session, user_id=user_id, table="chat", column="json_content",
+                public_id=metadata.chat_id, enc_version=metadata.enc_version, value=body.json_content,
+            )
             actual_json_chars = len(json_content)
             if actual_json_chars > remaining_json_chars:
                 return None

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, UniqueConstraint, JSON
+from sqlalchemy import Column, Integer, String, ForeignKey, UniqueConstraint, JSON, SmallInteger
 from .base import Base, BaseEntity
 
 
@@ -9,6 +9,7 @@ class UserPreferenceEntity(Base, BaseEntity):
     user_id = Column(Integer, ForeignKey('user.id', ondelete='CASCADE'), nullable=False, index=True)
     key = Column(String(64), nullable=False)
     value = Column(JSON, nullable=True)
+    enc_version = Column(SmallInteger, nullable=False, server_default="0", default=0)
 
     __table_args__ = (
         UniqueConstraint("user_id", "key"),

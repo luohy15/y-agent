@@ -47,10 +47,14 @@ def _markdown_from_feed(item: dict, feed_indexes: dict | None) -> str | None:
     return feed_markdown(title, item["url"], html)
 
 
-async def _index_feed(feed_id: str) -> dict:
+async def _index_feed(feed_id: str, user_id: int) -> dict:
     """Index one staged feed. Missing or bad XML is an empty index (page fetch)."""
+    from storage.crypto.blob import rss_object_key
+    from storage.database.base import get_db
+    with get_db() as session:
+        key = rss_object_key(user_id, feed_id, session)
     try:
-        xml = await asyncio.to_thread(s3_get, f"rss/{feed_id}.xml")
+        xml = await asyncio.to_thread(s3_get, key)
     except Exception as e:
         logger.warning("batch_download_links feed xml read failed feed={}: {}", feed_id, e)
         return {}
@@ -65,6 +69,7 @@ async def _index_feed(feed_id: str) -> dict:
 
 async def _load_feed_indexes(pending: list[dict]) -> dict:
     feed_ids: list[str] = []
+    owners: dict[str, int] = {}
     seen: set[str] = set()
     for item in pending:
         if item.get("activity_id"):
@@ -73,9 +78,10 @@ async def _load_feed_indexes(pending: list[dict]) -> dict:
         if feed_id and feed_id not in seen:
             seen.add(feed_id)
             feed_ids.append(feed_id)
+            owners[feed_id] = item["user_id"]
     if not feed_ids:
         return {}
-    pairs = await asyncio.gather(*(_index_feed(feed_id) for feed_id in feed_ids))
+    pairs = await asyncio.gather(*(_index_feed(feed_id, owners[feed_id]) for feed_id in feed_ids))
     return dict(zip(feed_ids, pairs, strict=True))
 
 

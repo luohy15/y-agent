@@ -238,10 +238,12 @@ def _write_pin(client, bucket: str, key: str, version_id: str) -> str:
 
 
 def _presign_post(client, bucket: str, key: str, checksum: str, byte_count: int) -> dict:
+    from storage.crypto.blob import sse_kms_fields
     fields = {
         "x-amz-checksum-sha256": checksum,
         "x-amz-checksum-algorithm": "SHA256",
         "Cache-Control": "no-store",
+        **sse_kms_fields(),
     }
     return client.generate_presigned_post(
         Bucket=bucket,

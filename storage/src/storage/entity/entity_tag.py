@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Index, Integer, String, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Index, Integer, String, ForeignKey, UniqueConstraint, SmallInteger
 from .base import Base, BaseEntity
 
 
@@ -10,6 +10,8 @@ class EntityTagEntity(Base, BaseEntity):
     entity_type = Column(String, nullable=False)
     entity_id = Column(String, nullable=False)
     tag = Column(String, nullable=False)
+    tag_bidx = Column(String, nullable=True)
+    enc_version = Column(SmallInteger, nullable=False, server_default="0", default=0)
 
     __table_args__ = (
         UniqueConstraint("user_id", "entity_type", "entity_id", "tag"),

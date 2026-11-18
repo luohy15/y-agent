@@ -3,15 +3,15 @@
 Connector configuration, central credential custody, OAuth transactions and
 per-launch snapshots are runtime kernel tables: the worker and the API gateway
 read them, the `mcp` module manages them only through the host contract.
-Secret material is plaintext JSON (todo 3796 round 2: no encryption at rest)
-in the existing `ciphertext` column, mapped as `secret_json`; no normal
-projection reads it. The envelope-era `key_id` / `encrypted_data_key` /
-`nonce` columns are unused and written as '' so no schema change is needed.
+Secret material stays in the existing `ciphertext` column, mapped as
+`secret_json`. For an encryption-enabled tenant the value is a `yenc:v1`
+envelope (`enc_version=1`); legacy rows remain plaintext (`enc_version=0`).
+The older `key_id` / `encrypted_data_key` / `nonce` columns stay unused.
 """
 
 from sqlalchemy import (
-    BigInteger, Boolean, CheckConstraint, Column, ForeignKey, Index, Integer, String,
-    Text, UniqueConstraint, text
+    BigInteger, Boolean, CheckConstraint, Column, ForeignKey, Index, Integer, SmallInteger,
+    String, Text, UniqueConstraint, text
 )
 from .base import Base, BaseEntity
 
@@ -48,6 +48,7 @@ class McpConnectorEntity(Base, BaseEntity):
     last_test_status = Column(String, nullable=True)
     last_test_error_code = Column(String, nullable=True)
     deleted_at_unix = Column(BigInteger, nullable=True)
+    enc_version = Column(SmallInteger, nullable=False, server_default="0", default=0)
 
     __table_args__ = (
         CheckConstraint("auth_mode IN ('oauth', 'static', 'none')", name="ck_mcp_connector_auth_mode"),
@@ -85,6 +86,7 @@ class McpCredentialEntity(Base, BaseEntity):
     status = Column(String, nullable=False, default="usable")
     refresh_claim = Column(String, nullable=True)
     refresh_claim_deadline_unix = Column(BigInteger, nullable=True)
+    enc_version = Column(SmallInteger, nullable=False, server_default="0", default=0)
 
     __table_args__ = (
         UniqueConstraint("connector_pk", "kind", name="uq_mcp_credential_kind"),
@@ -121,6 +123,7 @@ class McpOAuthTransactionEntity(Base, BaseEntity):
     consumed_at_unix = Column(BigInteger, nullable=True)
     status = Column(String, nullable=False, default="pending")
     error_code = Column(String, nullable=True)
+    enc_version = Column(SmallInteger, nullable=False, server_default="0", default=0)
 
     __table_args__ = (
         CheckConstraint(

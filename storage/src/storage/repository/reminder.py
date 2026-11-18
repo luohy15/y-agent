@@ -5,6 +5,7 @@ from storage.entity.reminder import ReminderEntity
 from storage.dto.reminder import Reminder
 from storage.database.base import get_db
 from storage.util import apply_time_filter
+from storage.crypto.query import match_bidx
 
 
 def _entity_to_dto(entity: ReminderEntity) -> Reminder:
@@ -46,9 +47,12 @@ def list_reminders(
         if tag:
             from storage.entity.entity_tag import EntityTagEntity
             query = query.filter(ReminderEntity.reminder_id.in_(
-                session.query(EntityTagEntity.entity_id).filter_by(
-                    user_id=user_id, entity_type="reminder", tag=tag
-                )
+                session.query(EntityTagEntity.entity_id).filter(
+                EntityTagEntity.user_id == user_id,
+                EntityTagEntity.entity_type == "reminder",
+                match_bidx(
+                    session, user_id, EntityTagEntity.tag, EntityTagEntity.tag_bidx, "tag", tag),
+            )
             ))
         query = apply_time_filter(query, ReminderEntity.remind_at, on=on, from_=from_, to=to)
         query = apply_time_filter(query, ReminderEntity.created_at, on=created_on, from_=created_from, to=created_to)

@@ -60,12 +60,16 @@ def list_corrections(
             needle = f'"{category}"'
             q = q.filter(cast(EnglishCorrectionEntity.error_categories, String).like(f"%{needle}%"))
         if query:
-            like = f"%{query}%"
-            q = q.filter(
-                (EnglishCorrectionEntity.original_text.ilike(like))
-                | (EnglishCorrectionEntity.corrected_text.ilike(like))
-                | (EnglishCorrectionEntity.explanation.ilike(like))
-            )
+            from storage.crypto.query import active
+            if active(session, user_id):
+                q = q.filter(EnglishCorrectionEntity.correction_id == query)
+            else:
+                like = f"%{query}%"
+                q = q.filter(
+                    (EnglishCorrectionEntity.original_text.ilike(like))
+                    | (EnglishCorrectionEntity.corrected_text.ilike(like))
+                    | (EnglishCorrectionEntity.explanation.ilike(like))
+                )
         # Canonical time field for list: created_at
         q = apply_time_filter(q, EnglishCorrectionEntity.created_at, on=on, from_=from_, to=to)
         q = apply_time_filter(

@@ -6,6 +6,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    SmallInteger,
     String,
     UniqueConstraint,
 )
@@ -53,6 +54,7 @@ class ChatContextSessionEntity(Base, BaseEntity):
     started_at = Column(String, nullable=True)
     analyzed_at = Column(String, nullable=False)
     analyzed_at_unix = Column(BigInteger, nullable=False)
+    enc_version = Column(SmallInteger, nullable=False, server_default="0", default=0)
 
     __table_args__ = (
         UniqueConstraint("user_id", "chat_id", "session_id", name="uq_chat_context_session"),
@@ -91,6 +93,7 @@ class ChatContextRequestEntity(Base, BaseEntity):
     unknown_overhead = Column(_JSON, nullable=False)
     gaps = Column(_JSON, nullable=False)
     state = Column(String, nullable=False)
+    enc_version = Column(SmallInteger, nullable=False, server_default="0", default=0)
 
     __table_args__ = (
         UniqueConstraint("user_id", "request_id", name="uq_chat_context_request"),
@@ -119,6 +122,7 @@ class ChatContextContributorEntity(Base, BaseEntity):
     bytes = Column(Integer, nullable=False)
     introduced_request = Column(Integer, nullable=False)
     exposure_requests = Column(Integer, nullable=False)
+    enc_version = Column(SmallInteger, nullable=False, server_default="0", default=0)
 
     __table_args__ = (
         UniqueConstraint(

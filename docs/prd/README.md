@@ -6,6 +6,7 @@ near-duplicate.
 
 | PRD | Scope |
 |-----|-------|
+| [hosted-tenant-confidentiality](hosted-tenant-confidentiality.md) | L1 application-layer encryption for a future hosted tenant. Existing accounts, including the operator, stay plaintext with no backfill. Encryption stays dormant until todo 4371; deletion is crypto-shred. |
 | [multi-machine-execution](multi-machine-execution.md) | Owns the `vm_config` execution-node registry and `y chat --on <name>`: default EC2 orchestration and SSH jump anchor, non-default node transport/stop/monitor, strict fail-closed admission, and the retirement of bounded Mac browser jobs and their Machines panel while the physical tables remain. |
 | [api-latency-monitoring](api-latency-monitoring.md) | Owns privacy-safe server-boundary latency capture and bounded raw/hourly/daily evidence for y-agent API routes, plus the API Latency overview and route drill-down inside the extensible `monitor` module, and the bounded daily latency review routine that turns evidence-qualified slow routes into at most one optimization todo per day. |
 | [bot-config-detail-modal](bot-config-detail-modal.md) | Owns the Bot viewer Config-tab detail interaction: open a bot's editor in a modal with standard dismissal, and always seed/refresh editable fields from the authoritative per-bot config payload with cache invalidation on write. |

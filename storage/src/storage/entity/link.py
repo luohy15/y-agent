@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, BigInteger, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, BigInteger, ForeignKey, UniqueConstraint, SmallInteger
 from .base import Base, BaseEntity
 
 
@@ -7,7 +7,9 @@ class LinkEntity(Base, BaseEntity):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     link_id = Column(String, nullable=False, unique=True)
+    user_id = Column(Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=True, index=True)
     base_url = Column(String, nullable=False, unique=True)  # URL without query params
+    base_url_bidx = Column(String, nullable=True)
     title = Column(String, nullable=True)
     download_status = Column(String, nullable=True)  # pending/downloading/done/failed
     content_key = Column(String, nullable=True)       # S3 key for stored content
@@ -16,6 +18,7 @@ class LinkEntity(Base, BaseEntity):
     source_feed_id = Column(String, nullable=True)    # rss_feed.rss_feed_id (public string, no FK — preserved after feed delete)
     crawl_fail_count = Column(Integer, nullable=True, default=0)  # download failure counter for batch backoff
     published_at = Column(BigInteger, nullable=True)  # article's real publish time (ms), from RSS feed item
+    enc_version = Column(SmallInteger, nullable=False, server_default="0", default=0)
 
 
 class LinkActivityEntity(Base, BaseEntity):
@@ -26,6 +29,7 @@ class LinkActivityEntity(Base, BaseEntity):
     activity_id = Column(String, nullable=False)
     link_id = Column(Integer, ForeignKey('link.id', ondelete='CASCADE'), nullable=False, index=True)
     url = Column(String, nullable=False)        # full URL for this visit
+    url_bidx = Column(String, nullable=True)
     title = Column(String, nullable=True)
     timestamp = Column(BigInteger, nullable=False, index=True)  # unix ms from browser
     download_status = Column(String, nullable=True)  # per-activity download status (for url != base_url)
@@ -33,6 +37,7 @@ class LinkActivityEntity(Base, BaseEntity):
     summary_content_key = Column(String, nullable=True)  # per-activity TLDR S3 key
     source = Column(String, nullable=True)            # 'rss' | null (browser/manual)
     source_feed_id = Column(String, nullable=True)    # rss_feed.rss_feed_id when source='rss'
+    enc_version = Column(SmallInteger, nullable=False, server_default="0", default=0)
 
     __table_args__ = (
         UniqueConstraint("user_id", "activity_id"),

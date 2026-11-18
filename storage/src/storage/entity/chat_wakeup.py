@@ -1,4 +1,5 @@
 from sqlalchemy import (
+    SmallInteger,
     Boolean, BigInteger, CheckConstraint, Column, ForeignKey, Index, Integer, String,
     Text, UniqueConstraint, text
 )
@@ -30,6 +31,7 @@ class ChatWakeupEntity(Base, BaseEntity):
     enqueue_needed = Column(Boolean, nullable=True)
     delivery_attempts = Column(Integer, nullable=False, default=0)
     last_error = Column(String, nullable=True)
+    enc_version = Column(SmallInteger, nullable=False, server_default="0", default=0)
 
     __table_args__ = (
         UniqueConstraint("user_id", "wakeup_id", name="uq_chat_wakeup_id"),
