@@ -14,6 +14,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Added
 
+- **Dormant tenant encryption**: classified columns and blobs can be sealed with AES-256-GCM under a per-tenant data key wrapped by KMS, with an owner-scoped tenant key table, a write-time guard that rejects set-based updates to sealed columns, and `y tenant-encryption` for key status. It is inactive: existing accounts stay plaintext, and no tenant can be enabled until the owner-scoped read gate lands.
 - **Detail-only modules (4360)**: browser contract v33 accepts a module with a detail view and no sidebar panel. Its activity-bar entry opens a tab, and saved sidebar selections fall back when the panel is unavailable.
 - **Pi backend (4357)**: `pi` runs pi.dev in detached sessions, resumes its own session, streams tool/text events, and ends the turn on steer. Completion waits for retries to settle. Host contract v38 accepts up to three bot connection entries; provider credentials stay off argv.
 
@@ -40,6 +41,8 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Fixed
 
+- **Chat route ownership (4371)**: chat stop, messages, read and share routes check that the caller owns the chat, and bot and VM lookups no longer fall back to a default user. An unowned chat or unresolvable configuration fails with an explicit error instead of using another account's settings.
+- **Tab icon**: the browser tab icon follows the page theme from the first paint. The light and dark marks are separate static files because browsers ignore a color query inside an SVG favicon.
 - **Public todo chat frame (4363)**: public todo shares use the same collapsible Chat section as internal detail, with the waterfall inside it; participant rows and Context actions remain private.
 - **Explicit bot pin admission (4252)**: an explicitly named bot that is unknown, disabled or outside the requested tier is rejected with a 400 before any image upload, chat write or enqueue, instead of failing later in the worker.
 - **Canonical tags (4277)**: adding tags checks the whole batch against the existing vocabulary before any write. New tag names are flat lowercase words with hyphens, at most 40 characters, and a new name of 20 or more characters with no hyphen needs an explicit acknowledgement.
