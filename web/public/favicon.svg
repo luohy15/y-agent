@@ -1,15 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <style>
-    @media (prefers-color-scheme: dark) {
-      .tile { fill: #002b36; }
-      .base { fill: #657b83; }
-      .top { fill: #eee8d5; }
-    }
-  </style>
-  <rect class="tile" width="32" height="32" rx="6" fill="#fdf6e3"/>
+  <rect width="32" height="32" rx="6" fill="#fdf6e3"/>
   <g transform="translate(4 3.4) scale(1.2)">
-    <rect class="base" x="2" y="13" width="6" height="5" rx="1" fill="#839496"/>
+    <rect x="2" y="13" width="6" height="5" rx="1" fill="#839496"/>
     <rect x="2" y="8" width="11" height="5" rx="1" fill="#268bd2"/>
-    <rect class="top" x="2" y="3" width="16" height="5" rx="1" fill="#073642"/>
+    <rect x="2" y="3" width="16" height="5" rx="1" fill="#073642"/>
   </g>
 </svg>
