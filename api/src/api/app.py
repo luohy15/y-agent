@@ -9,6 +9,7 @@ from fastapi import APIRouter, FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
+from agent.config import VmConfigError
 from api.controller.auth import router as auth_router
 from api.controller.chat import router as chat_router
 from api.controller.todo import router as todo_router
@@ -68,6 +69,12 @@ app = FastAPI(
     default_response_class=UnicodeJSONResponse,
     lifespan=_lifespan,
 )
+
+
+@app.exception_handler(VmConfigError)
+async def vm_config_error_handler(request, exc: VmConfigError):
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
 
 app.add_middleware(
     CORSMiddleware,

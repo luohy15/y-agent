@@ -1242,7 +1242,7 @@ def get_trace_chat_status(user_id: int, trace_ids: list) -> dict:
         }
 
 
-def set_chat_unread(chat_id: str, unread: bool) -> None:
+def set_chat_unread(user_id: int, chat_id: str, unread: bool) -> None:
     """Set the unread column on a chat without touching updated_at.
 
     Uses raw SQL so SQLAlchemy's column-level onupdate=get_utc_iso8601_timestamp
@@ -1251,8 +1251,8 @@ def set_chat_unread(chat_id: str, unread: bool) -> None:
     """
     with get_db() as session:
         session.execute(
-            text("UPDATE chat SET unread = :unread WHERE chat_id = :chat_id AND unread IS DISTINCT FROM :unread"),
-            {"unread": unread, "chat_id": chat_id},
+            text("UPDATE chat SET unread = :unread WHERE user_id = :user_id AND chat_id = :chat_id AND unread IS DISTINCT FROM :unread"),
+            {"unread": unread, "user_id": user_id, "chat_id": chat_id},
         )
 
 

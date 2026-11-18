@@ -129,8 +129,8 @@ request usage can trigger the gate; launch averages remain display-only.
     unbounded depth, so that a misconfigured alias chain fails loudly instead
     of hanging resolution.
 22. As a secondary user without my own bot configs, I want resolution to
-    fall back to the system default user's configs, so that a fresh account
-    can chat before configuring anything.
+    fail with an explicit configuration error, so that my account never
+    inherits another user's bots or provider credentials.
 23. As a user, I want to name a different bot on an existing chat and have
     the rest of the conversation continue on it, so that I can move a live
     session up to a stronger model (or down to a cheaper one) without
@@ -206,9 +206,9 @@ request usage can trigger the gate; launch averages remain display-only.
   preference order (a config named after the backend, then `default`) and
   its synthetic backend-only last resort, all removed for the simplest
   possible logic. Resolution:
-  1. Candidate universe: the user's enabled bot configs (a user with no
-     configs of their own resolves against the system default user's),
-     excluding pointer (ref) configs.
+  1. Candidate universe: only the user's own enabled bot configs, excluding
+     pointer (ref) configs. A user with no configs has an empty universe;
+     pointer targets must also belong to that user.
   2. The given filters (bot name, backend, tier) intersect over the
      universe. Tier-filter candidacy additionally excludes model-type
      entries, and matches set membership, with legacy unset tier counting as tier3. Explicit name
@@ -226,9 +226,9 @@ request usage can trigger the gate; launch averages remain display-only.
      filter (the system default) through the same selection logic, with a
      logged warning when filters produced an empty set.
   6. An empty tier2 fallback pool falls back to the global default bot
-     (the user's default config, then the system default user's, then a
-     hard error if nothing exists). Routing never fails a chat over a mere
-     data gap.
+     (the user's own default config), then a hard error if none exists.
+     Neither default resolution nor pointer dereferencing may inherit
+     another user's configuration or credentials.
 - **Each tier membership has an independent weight.** A tier draw, viability
   check and effort preflight use only that tier's weights. Smooth weighted
   round-robin state is isolated by owner, tier and the hash of that tier's

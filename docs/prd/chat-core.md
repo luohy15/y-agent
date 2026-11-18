@@ -492,20 +492,19 @@ mode (`-i`) serves a human at a terminal.
   because the lookup itself is scoped to the authenticated owner). All
   attention/unread writes go through raw-SQL repository setters
   (`set_chat_attention`, `clear_attention_and_unread`,
-  `mark_completion_unread`) that never touch `updated_at`, so toggling either
+  `mark_completion_unread`, `set_chat_unread`) that never touch `updated_at`, so toggling either
   flag never bumps a chat to the top of the recency-ordered list on its own.
-  These three take `user_id` alongside `chat_id` and filter on both in the
+  All four take `user_id` alongside `chat_id` and filter on both in the
   SQL predicate, not `chat_id` alone: `(user_id, chat_id)` is the unique key
   on `chat` (see identity allocation below), so a public chat id is only
   unique per user and a `chat_id`-only predicate could mutate a different
   user's same-id row. Every caller threads its already-known owner through:
   the API endpoint and the four other inbound-reply write sites use the
   authenticated request's `user_id`, the three worker completion sites use
-  the `user_id` already carried on their process/proc record. This is a
-  correction from the review round that first caught the gap; the pre-existing
-  `set_chat_unread` (unread-only, not part of this delivery) still has the
-  narrower `chat_id`-only predicate and is a candidate for the same fix as a
-  separate follow-up. Three transition rules compose the lifecycle:
+  the `user_id` already carried on their process/proc record. Read/unread
+  setters also require the owner; snapshot, SSE, and explicit mark-read
+  requests pass the authenticated request's `user_id`.
+  Three transition rules compose the lifecycle:
   - **Completion preserves a stronger state**: successful completion marks
     `unread` only when `needs_attention` is false (`mark_completion_unread`),
     so a turn that called the attention command mid-run is not immediately
@@ -797,6 +796,9 @@ mode (`-i`) serves a human at a terminal.
 - **Web streaming**: detail view loads the snapshot, then opens SSE only when
   the chat is running; the SSE stream re-polls the chat row and emits new
   messages by index, ending with a done event from the completion predicate.
+  SSE checks ownership before opening the stream and on every refresh.
+  Stop and mark-read also require ownership; missing and foreign chat ids
+  return the same 404. Stop persists changes with the owner's id as well.
   On done the client re-fetches the snapshot as ground truth. Host
   fallback/share views omit `tool_content_limit` and keep the legacy full
   payload. The chat module may opt in at 8192 on both URLs and load full
@@ -830,6 +832,8 @@ mode (`-i`) serves a human at a terminal.
 - **Sharing** copies the chat (optionally truncated to a message path) under
   a public share id owned by the default user, deduplicated by origin chat and
   message; password protection stores only a hash and rate-limits attempts.
+  Public reads require a share copy with `origin_chat_id` set; an ordinary
+  default-user chat returns 404 even when its id is known.
 - **Post-turn hooks** (Telegram reply delivery, unread marking, plan-to-todo
   extraction, trace registration) run in the worker after completion, keyed
   off the same chat record.

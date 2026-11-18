@@ -758,14 +758,15 @@ async def post_attach_image(req: AttachImageRequest, request: Request):
 
 @router.post("/stop")
 async def post_stop_chat(req: StopChatRequest, request: Request):
-    chat = await chat_service.get_chat_by_id(req.chat_id)
+    user_id = _get_user_id(request)
+    chat = await chat_service.get_chat(user_id, req.chat_id)
     if chat is None:
         raise HTTPException(status_code=404, detail="chat not found")
 
     chat.interrupted = True
 
     from storage.repository import chat as chat_repo
-    await chat_repo.save_chat_by_id(chat)
+    await chat_repo.save_chat(user_id, chat)
     # Stop revokes MCP launch grants now, not when the monitor notices the
     # exit; a process that outlives the stop cannot reach connectors.
     try:
@@ -848,8 +849,12 @@ class MarkReadRequest(BaseModel):
 
 
 @router.post("/read")
-async def post_mark_read(req: MarkReadRequest):
-    chat_service.mark_chat_read(req.chat_id)
+async def post_mark_read(req: MarkReadRequest, request: Request):
+    user_id = _get_user_id(request)
+    chat = await chat_service.get_chat(user_id, req.chat_id)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="chat not found")
+    chat_service.mark_chat_read(user_id, req.chat_id)
     return {"ok": True}
 
 
@@ -906,7 +911,7 @@ async def get_share_chat(share_id: str = Query(...), password: Optional[str] = Q
 
     default_user_id = get_default_user_id()
     chat = await chat_service.get_chat(default_user_id, share_id)
-    if chat is None:
+    if chat is None or not chat.origin_chat_id:
         raise HTTPException(status_code=404, detail="shared chat not found")
 
     password_hash = chat_repo.get_share_password_hash(default_user_id, share_id)
@@ -995,7 +1000,7 @@ async def get_chat_messages_snapshot(
     limit = tool_content_limit
 
     # Auto mark as read when messages are fetched
-    chat_service.mark_chat_read(chat_id)
+    chat_service.mark_chat_read(user_id, chat_id)
 
     payload = [msg.to_dict() for msg in chat.messages]
     payload = apply_tool_content_limit(payload, limit)
@@ -1052,19 +1057,24 @@ async def get_chat_message_content(
 
 @router.get("/messages")
 async def get_chat_messages(
+    request: Request,
     chat_id: str = Query(...),
     last_index: int = Query(0, ge=0),
     tool_content_limit: Optional[int] = Query(None, ge=TOOL_CONTENT_LIMIT_MIN, le=TOOL_CONTENT_LIMIT_MAX),
 ):
+    user_id = _get_user_id(request)
+    chat = await chat_service.get_chat(user_id, chat_id)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="chat not found")
     limit = tool_content_limit
 
     async def event_stream():
         # Auto mark as read when messages are fetched
-        chat_service.mark_chat_read(chat_id)
+        chat_service.mark_chat_read(user_id, chat_id)
 
         idx = last_index
         while True:
-            chat = await chat_service.get_chat_by_id(chat_id)
+            chat = await chat_service.get_chat(user_id, chat_id)
             if chat is None:
                 yield {"event": "error", "data": json.dumps({"error": "chat not found"})}
                 return

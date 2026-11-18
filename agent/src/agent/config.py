@@ -1,7 +1,6 @@
 """Shared configuration helpers for CLI and worker."""
 
 import logging
-import os
 import random
 from typing import List, Optional
 
@@ -19,7 +18,6 @@ from storage.dto.bot import (
 from storage.entity.dto import BotConfig, VmConfig
 from storage.service import bot_config as bot_service
 from storage.service import vm_config as vm_service
-from storage.service.user import get_default_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +42,7 @@ class EffortCapabilityError(ValueError):
 
 
 class VmConfigError(ValueError):
-    """A generic VM command named a chat-only node.
+    """A generic VM command has no owned default node or names a chat-only node.
 
     Chat execution resolves nodes through `agent.chat_target`; generic file,
     git and terminal work stays on the default orchestrator. Failing closed is
@@ -189,10 +187,6 @@ def _deref_bot_config(user_id: int, bot_config: BotConfig, visited: Optional[set
 
     target = bot_service.get_config(user_id, ref_name)
     if not target:
-        default_user_id = get_default_user_id()
-        if default_user_id != user_id:
-            target = bot_service.get_config(default_user_id, ref_name)
-    if not target:
         if auth_mode == "subscription":
             raise BotAuthModeError(
                 f"pointer {bot_config.name!r} subscription ref {ref_name!r} is not a runnable subscription bot"
@@ -213,17 +207,12 @@ def _deref_bot_config(user_id: int, bot_config: BotConfig, visited: Optional[set
 def _universe(user_id: int) -> List[BotConfig]:
     """Return enabled, non-pointer configs eligible for explicit filters.
 
-    User's own configs, falling back to the system default user's configs
-    only when the user has none of their own. Disabled and pointer bots are
+    Only the user's own configs are eligible. Disabled and pointer bots are
     out (an explicit name pin to a disabled bot degrades to tier2, see
     resolve_bot_config). Model-type configs remain here so name and backend
     pins can reach them. Tier candidacy excludes them in _candidates.
     """
     configs = bot_service.list_configs(user_id)
-    if not configs:
-        default_user_id = get_default_user_id()
-        if default_user_id != user_id:
-            configs = bot_service.list_configs(default_user_id)
     return [
         cfg for cfg in configs
         if cfg.enabled
@@ -316,10 +305,6 @@ def _subscription_pointer(user_id: int, universe: List[BotConfig], pinned: BotCo
 
 def _global_default(user_id: int) -> BotConfig:
     bot_config = bot_service.get_config(user_id)
-    if not bot_config:
-        default_user_id = get_default_user_id()
-        if default_user_id != user_id:
-            bot_config = bot_service.get_config(default_user_id)
     if not bot_config:
         raise ValueError(f"No bot config found for user_id={user_id}")
     return _deref_bot_config(user_id, bot_config)
@@ -681,12 +666,7 @@ def resolve_vm_config(user_id: int, vm_name: str = None, work_dir: str = None) -
     if not vm_config:
         vm_config = vm_service.get_config(user_id, "default")
     if not vm_config:
-        default_user_id = get_default_user_id()
-        if default_user_id != user_id:
-            vm_config = vm_service.get_config(default_user_id, "default")
-    if not vm_config:
-        vm_config = VmConfig()
-        vm_config.work_dir = os.environ.get("VM_WORK_DIR_CLI", "")
+        raise VmConfigError(f"no execution node configured for user_id={user_id}")
     if work_dir:
         vm_config.work_dir = work_dir
     return vm_config

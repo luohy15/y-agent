@@ -1239,8 +1239,10 @@ later delivery.
   fix).** A subscription-limit read reports the provider logins of whatever
   machine it runs on, so it runs only on the user's *own* `default` VM config
   (`agent.usage_limits.resolve_usage_vm_config`), never on the global default
-  user's VM that `agent.config.resolve_vm_config` would otherwise inherit for
-  interactive dispatch; a user with no config of their own answers
+  user's VM. Generic VM resolution (`agent.config.resolve_vm_config`) also
+  requires an owned default row and raises `VmConfigError` when none exists;
+  it never inherits another user's VM or synthesizes local execution.
+  A subscription-limit read for a user with no config of their own answers
   `no_usage_vm` immediately instead of reading someone else's subscription
   status. The schedule's eligible set is exactly the owners of such a config
   (`list_refresh_user_ids`, one query). This replaced a serial walk over every

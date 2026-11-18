@@ -765,14 +765,14 @@ from storage.service.tag import register_resolver  # noqa: E402
 register_resolver("chat", _resolve_chats_for_tag)
 
 
-def mark_chat_read(chat_id: str) -> None:
+def mark_chat_read(user_id: int, chat_id: str) -> None:
     from storage.repository.chat import set_chat_unread
-    set_chat_unread(chat_id, False)
+    set_chat_unread(user_id, chat_id, False)
 
 
-def mark_chat_unread(chat_id: str) -> None:
+def mark_chat_unread(user_id: int, chat_id: str) -> None:
     from storage.repository.chat import set_chat_unread
-    set_chat_unread(chat_id, True)
+    set_chat_unread(user_id, chat_id, True)
 
 
 def mark_chat_needs_attention(user_id: int, chat_id: str) -> None:
