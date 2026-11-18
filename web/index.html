@@ -6,8 +6,7 @@
   <meta name="theme-color" content="#fdf6e3">
   <title>Yovy</title>
   <meta name="description" content="Your todos, notes, links, mail, calendar, accounts and voice stay in one linked record, and an agent works across all of it.">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg" media="(prefers-color-scheme: light)">
-  <link rel="icon" type="image/svg+xml" href="/favicon-dark.svg" media="(prefers-color-scheme: dark)">
+  <link id="app-favicon" rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="manifest" href="/manifest.json">
   <script>
     (function () {
@@ -57,6 +56,7 @@
       }
 
       document.documentElement.dataset.theme = theme;
+      document.getElementById('app-favicon').setAttribute('href', theme === 'solarized-dark' ? '/favicon-dark.svg' : '/favicon.svg');
       document.querySelector('meta[name="theme-color"]').setAttribute('content', themeColors[theme]);
     })();
   </script>

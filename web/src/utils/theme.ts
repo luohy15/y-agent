@@ -2,6 +2,9 @@ export type Theme = "solarized-light" | "solarized-dark";
 
 export function applyTheme(theme: Theme): void {
   document.documentElement.dataset.theme = theme;
+  document.getElementById("app-favicon")?.setAttribute(
+    "href", theme === "solarized-dark" ? "/favicon-dark.svg" : "/favicon.svg",
+  );
   const themeColor = getComputedStyle(document.documentElement)
     .getPropertyValue("--color-sol-base03")
     .trim();
