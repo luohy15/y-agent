@@ -257,7 +257,7 @@ export default function DiffViewer({ filePath, vmName, workDir }: DiffViewerProp
     setLoading(true);
     setError(null);
     setDiff(null);
-    authFetch(`${API}/api/git/diff?path=${encodeURIComponent(filePath)}${vmQuery}`)
+    authFetch(`${API}/api/git/diff?path=${encodeURIComponent(filePath)}${vmQuery}`, { cache: "no-store" })
       .then((res) => {
         if (!res.ok) throw new Error("Failed to fetch diff");
         return res.json();

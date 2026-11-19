@@ -186,15 +186,10 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
 
   const onRefreshClick = useCallback(() => {
     if (!activeFile || tabRefreshChrome.isRefreshing(activeFile)) return;
-    // Diff tabs keep the plain host spin (they have nothing cached to
-    // invalidate); module tabs get the generic two-stage refresh with no
-    // module cooperation.
-    if (hostRefreshable) {
-      tabRefreshChrome.trigger(activeFile, () => {});
-    } else {
-      tabRefreshChrome.triggerScoped(activeFile);
-    }
-  }, [activeFile, tabRefreshChrome, hostRefreshable]);
+    // Revalidate this tab's subscriptions and remount its content so plain
+    // effect fetches, including diff tabs, also read fresh data.
+    tabRefreshChrome.triggerScoped(activeFile);
+  }, [activeFile, tabRefreshChrome]);
 
   if (mode === "public") {
     return (
@@ -351,7 +346,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                   </div>
                 ) : null
               ) : fileDiff ? (
-                <DiffViewer filePath={fileName} vmName={vmName} workDir={workDir} />
+                <DiffViewer key={tabRefreshChrome.nonceFor(filePath)} filePath={fileName} vmName={vmName} workDir={workDir} />
               ) : fileUiArtifact ? (
                 <div className="h-full overflow-auto" data-ui-artifact-route={fileUiArtifact.slug}>
                   <ArtifactMount

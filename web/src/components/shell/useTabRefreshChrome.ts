@@ -78,13 +78,13 @@ export function useTabRefreshChrome(activeKeys: readonly string[]): TabRefreshCh
     (key: string, confirm?: (message: string) => boolean) => {
       trigger(key, () =>
         scopedTabRefresh(
-          registries.current.get(key),
+          registryFor(key),
           () => setNonces((prev) => ({ ...prev, [key]: (prev[key] ?? 0) + 1 })),
           confirm,
         ),
       );
     },
-    [trigger],
+    [trigger, registryFor],
   );
 
   const nonceFor = useCallback((key: string) => nonces[key] ?? 0, [nonces]);
