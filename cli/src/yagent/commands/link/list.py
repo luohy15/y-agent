@@ -1,5 +1,7 @@
-import click
+import json
 from datetime import datetime
+
+import click
 from yagent.api_client import api_request
 from yagent.time_filter import collect_time_params, time_filter_options
 from yagent.time_util import _get_configured_tz
@@ -14,9 +16,16 @@ from yagent.time_util import _get_configured_tz
 @click.option('--source', default=None, help='Filter by source channel: sync / rss / fetch')
 @click.option('--tag', default=None, help='Filter by tag')
 @click.option('--show-id', is_flag=True, default=False, help='Show activity_id in output')
+@click.option('--json', 'as_json', is_flag=True,
+              help='Print the raw /api/link/list payload as one JSON line')
 def link_list(query, on, from_, to, created_on, created_from, created_to,
-              updated_on, updated_from, updated_to, limit, todo, downloaded, source, tag, show_id):
-    """List browser history links. Canonical time field: visit timestamp."""
+              updated_on, updated_from, updated_to, limit, todo, downloaded, source, tag, show_id,
+              as_json):
+    """List browser history links. Canonical time field: visit timestamp.
+
+    Human lines are `[YYYY-MM-DD HH:MM] <title> <url>` in the configured local timezone.
+    `--json` prints the API array unchanged (`timestamp` is epoch milliseconds).
+    """
     params = {"limit": limit}
     if query is not None:
         params["query"] = query
@@ -36,13 +45,16 @@ def link_list(query, on, from_, to, created_on, created_from, created_to,
 
     resp = api_request("GET", "/api/link/list", params=params)
     links = resp.json()
+    if as_json:
+        click.echo(json.dumps(links))
+        return
     if not links:
         click.echo("No links found")
         return
 
     for link in links:
         local_tz = _get_configured_tz()
-        time = datetime.fromtimestamp(link["timestamp"] / 1000, tz=local_tz).strftime("%H:%M")
+        time = datetime.fromtimestamp(link["timestamp"] / 1000, tz=local_tz).strftime("%Y-%m-%d %H:%M")
         title = link.get("title") or "-"
         if show_id:
             click.echo(f"[{time}] ({link['activity_id']}) {title} {link['base_url']}")
