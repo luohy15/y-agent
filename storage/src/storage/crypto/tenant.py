@@ -55,11 +55,19 @@ class KeyState:
 
 _lock = threading.Lock()
 _dek_cache: dict[tuple, tuple[float, KeyMaterial]] = {}
+_MASTER_TTL_SECONDS = 300
+_master_entry: tuple | None = None
+
+
+def _now() -> float:
+    return time.monotonic()
 
 
 def clear_cache() -> None:
+    global _master_entry
     with _lock:
         _dek_cache.clear()
+        _master_entry = None
 
 
 def _b64e(raw: bytes) -> str:
@@ -147,31 +155,65 @@ def blind_index(key: bytes, purpose: str, value: str) -> str:
     return _b64e(digest)
 
 
+def _cache_master(stamp, current: str, keys: dict[str, bytes]) -> tuple[str, dict[str, bytes]]:
+    global _master_entry
+    copied = dict(keys)
+    with _lock:
+        _master_entry = (_now() + _MASTER_TTL_SECONDS, stamp, current, copied)
+    return current, dict(copied)
+
+
+def _cached_master(stamp):
+    with _lock:
+        entry = _master_entry
+        if entry is None or entry[1] != stamp or entry[0] <= _now():
+            return None
+        return entry[2], dict(entry[3])
+
+
 def master_keys() -> tuple[str, dict[str, bytes]]:
-    """Read current configuration; closed errors never contain key material."""
-    current = os.environ.get("Y_AGENT_TENANT_MASTER_KEY_ID", "").strip()
+    """Resolve env, then the private file, then SSM. Invalid sources do not fall through.
+
+    A successful file or SSM read is cached for 300 seconds. Absence and errors
+    are not cached. Closed errors never contain key material. No source returns
+    an empty map, which keeps encryption dormant.
+    """
+    from storage.crypto import custody
+
+    current = os.environ.get("Y_AGENT_TENANT_MASTER_KEY_ID", "")
     raw = os.environ.get("Y_AGENT_TENANT_MASTER_KEYS", "")
-    if not raw and not current:
-        return "", {}
+    if raw or current.strip():
+        # Present environment wins even when it is invalid. Do not read the file or SSM.
+        return custody.parse_env(current, raw)
     try:
-        values = json.loads(raw)
-        if not isinstance(values, dict) or not values or not current:
-            raise ValueError()
-        keys = {}
-        for key_id, value in values.items():
-            if not isinstance(key_id, str) or not key_id or len(key_id) > 128:
-                raise ValueError()
-            if not isinstance(value, str):
-                raise ValueError()
-            key = base64.b64decode(value + "=" * (-len(value) % 4), altchars=b"-_", validate=True)
-            if len(key) != 32:
-                raise ValueError()
-            keys[key_id] = key
-        if current not in keys:
-            raise ValueError()
-        return current, keys
-    except Exception:
+        path = custody.private_key_path()
+    except RuntimeError:
         raise TenantCryptoError("tenant_master_key_config_invalid") from None
+    if path.is_symlink() or path.exists():
+        try:
+            stamp = custody.file_stamp(path)
+        except OSError:
+            raise TenantCryptoError("tenant_master_key_config_invalid") from None
+        cached = _cached_master(stamp)
+        if cached is not None:
+            return cached
+        loaded = custody.load_private_file(path)
+        if loaded is None:
+            raise TenantCryptoError("tenant_master_key_config_invalid")
+        return _cache_master(stamp, *loaded)
+    # No parameter name is untargeted: do not read SSM. This avoids accidental
+    # use. It does not isolate other functions that share the role and set the name.
+    name = custody.parameter_name()
+    if name is None:
+        return "", {}
+    stamp = ("ssm", name)
+    cached = _cached_master(stamp)
+    if cached is not None:
+        return cached
+    loaded = custody.read_ssm(name=name)
+    if loaded is None:
+        return "", {}
+    return _cache_master(stamp, *loaded)
 
 
 def _master_key(master_key_id: str) -> bytes:

@@ -88,18 +88,11 @@ jobs:
 
       # Private RDS is unreachable here. The DB-reachable release host must
       # run scripts/tenant_encryption_guard.py before pushing this candidate.
+      # CI passes no tenant key material and does not set TenantMasterKeyParameter.
+      # Empty means SSM resolution stays dormant. This job creates no IAM grant.
       - name: Deploy to AWS
-        env:
-          Y_AGENT_TENANT_MASTER_KEYS: ${{ secrets.Y_AGENT_TENANT_MASTER_KEYS }}
-          Y_AGENT_TENANT_MASTER_KEY_ID: ${{ secrets.Y_AGENT_TENANT_MASTER_KEY_ID }}
         run: |
           set +x
-          # Mask individual values as SAM can reformat the JSON map.
-          if [ -n "$Y_AGENT_TENANT_MASTER_KEYS" ]; then
-            echo "$Y_AGENT_TENANT_MASTER_KEYS" | jq -r '.[]' | while IFS= read -r value; do
-              echo "::add-mask::$value"
-            done
-          fi
           PARAM_OVERRIDES=()
           [ -n "$DATABASE_URL" ] && PARAM_OVERRIDES+=("DatabaseUrl=$DATABASE_URL")
           [ -n "$JWT_SECRET_KEY" ] && PARAM_OVERRIDES+=("JwtSecretKey=$JWT_SECRET_KEY")

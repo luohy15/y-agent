@@ -42,13 +42,17 @@ def status(request: Request, user_id: int):
         if user is None:
             raise HTTPException(status_code=404, detail="tenant_user_missing")
         rows = session.query(TenantKeyEntity).filter_by(user_id=user_id).all()
+        from storage.crypto.tenant import master_keys
         active = next((row.key_id for row in rows if row.status == "active"), None)
+        current, configured = master_keys()
         return {
             "user_id": user_id,
             "legacy_account": is_legacy_account(user),
             "encryption_eligible": bool(user.encryption_eligible),
             "enable_blocked": True,
             "active_key_id": active,
+            "master_key_configured": bool(current and configured),
+            "master_key_id": current or None,
             "keys": [{"key_id": row.key_id, "status": row.status} for row in rows],
         }
 

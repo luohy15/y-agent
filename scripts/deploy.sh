@@ -68,10 +68,10 @@ add_param "OpenRouterInferenceApiKey" "OPENROUTER_INFERENCE_API_KEY"
 add_param "DeepSeekApiKey" "DEEPSEEK_API_KEY"
 add_param "McpGatewayUrl" "Y_AGENT_MCP_GATEWAY_URL"
 
-# Run only from a DB-reachable deploy host. The guard loads the same private
-# key configuration as the redacting SAM wrapper. CI runs the wrapper only;
-# its release host must run this guard before pushing the candidate.
-# Overrides come last so the helper can append tenant parameters.
+# Run only from a DB-reachable deploy host. With no parameter name set, the
+# guard does not read SSM, so this deploy stays available before the separate
+# grant and SSM copy. Do not pass TenantMasterKeyParameter for y-agent-test or
+# y-agent-test1. This script does not copy the key or change IAM.
 if [ ! -f "samconfig.toml" ]; then
     echo "Create non-secret samconfig.toml before deploying. Guided secret persistence is disabled."
     exit 1

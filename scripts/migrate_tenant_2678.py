@@ -4,7 +4,7 @@
 Requires an approved production run, applied DDL, quiesced writers, configured
 master keys, and an available pre-2678 RDS snapshot. No master-key generation here.
 
-Inventory fingerprints use the exact PostgreSQL expressions below. Separately,
+Chat and vm_config fingerprints use the stored-text expressions below. Preferences use per-key md5(value::jsonb::text), an exact key set, and a four-key aggregate that excludes the watermark. --preflight-only is read-only and does not require a master key. Missing database env refuses with database_unconfigured. The write path loads keys through master_keys(). Separately,
 read-back canonicalization is UTF-8 JSON of ordered rows containing id, public id
 and classified values (sort_keys=True, ensure_ascii=False, separators=(',', ':')).
 SHA-256 before/after must match. JSON lexical whitespace is not content; chat
@@ -19,10 +19,15 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "storage/src"))
+_root = Path(__file__).resolve().parents[1]
+_src = _root / "storage/src"
+if not _src.is_dir() and os.environ.get("Y_AGENT_REPO"):
+    _src = Path(os.environ["Y_AGENT_REPO"]) / "storage/src"
+sys.path.insert(0, str(_src))
 
 from sqlalchemy import text  # noqa: E402
 from storage.crypto.fields import SPECS  # noqa: E402
@@ -37,9 +42,22 @@ EMAIL = "roy.luo@alphavantage.co"
 COUNTS = {"chat": 46, "user_preference": 5, "vm_config": 1}
 FINGERPRINTS = {
     "chat": ("3fa16b95a899226e28c46f8e8694e7bd", "md5(string_agg(chat_id||':'||md5(coalesce(title,''))||':'||md5(coalesce(json_content,''))||':'||md5(coalesce(search_text,'')), '' order by id))"),
-    "user_preference": ("20365be9e6ad4f02b92ccb9246ab8f12", "md5(string_agg(key||':'||md5(value::text), '' order by key))"),
     "vm_config": ("67f2678cbedce673c324189256c71625", "md5(name||':'||md5(coalesce(api_token,''))||':'||md5(coalesce(vm_name,''))||':'||md5(coalesce(work_dir,'')))"),
 }
+# Volatile chat_model_activity_watermark is shape-checked and excluded from the
+# aggregate. The other four preference keys are pinned as md5(value::jsonb::text).
+PREFERENCE_KEYS = (
+    "activityBarOrder", "chat_model_activity_watermark", "fileWorkspace",
+    "themePrefs", "usage_limits_latest",
+)
+PREFERENCE_MD5 = {
+    "activityBarOrder": "ad3749a5f1a104340703c526378cb7af",
+    "fileWorkspace": "9e98060e8c381df06564c9e7e211c8c3",
+    "themePrefs": "8b7bf2c450c6ac6c6f921db7bb517302",
+    "usage_limits_latest": "383dc4e3e1cdfc8617ded55dfa2a6c0a",
+}
+PREFERENCE_AGGREGATE = "3f09225cf96d0011736612e79e08388d"
+WATERMARK_KEY = "chat_model_activity_watermark"
 MIGRATED = {spec.table: spec for spec in SPECS.values() if spec.table in COUNTS}
 
 
@@ -86,6 +104,44 @@ def content(session, *, encrypted: bool) -> dict:
     return result
 
 
+def database_configured() -> bool:
+    return bool(os.getenv("DATABASE_URL_DEV") or os.getenv("DATABASE_URL"))
+
+
+def preference_inventory(session) -> None:
+    rows = session.execute(text(
+        "SELECT key, md5(value::jsonb::text) AS digest FROM user_preference "
+        "WHERE user_id=:uid ORDER BY key"
+    ), {"uid": USER_ID}).mappings().all()
+    actual = [row["key"] for row in rows]
+    expected = list(PREFERENCE_KEYS)
+    if actual != expected:
+        missing = [key for key in expected if key not in actual]
+        extra = [key for key in actual if key not in expected]
+        require(False, f"fingerprint_mismatch:user_preference:{(missing or extra or ['keyset'])[0]}")
+    for row in rows:
+        if row["key"] == WATERMARK_KEY:
+            continue
+        require(row["digest"] == PREFERENCE_MD5[row["key"]], f"fingerprint_mismatch:user_preference:{row['key']}")
+    aggregate = scalar(
+        session,
+        "SELECT md5(string_agg(key||':'||md5(value::jsonb::text), '' ORDER BY key)) "
+        "FROM user_preference WHERE user_id=:uid AND key <> :watermark",
+        uid=USER_ID, watermark=WATERMARK_KEY,
+    )
+    require(aggregate == PREFERENCE_AGGREGATE, "fingerprint_mismatch:user_preference:canonical")
+    shape = scalar(
+        session,
+        "SELECT (SELECT count(*) FROM jsonb_object_keys(value::jsonb)) = 1 "
+        "AND (value::jsonb) ? 'updated_at_unix' "
+        "AND jsonb_typeof(value::jsonb -> 'updated_at_unix') = 'number' "
+        "AND (value::jsonb ->> 'updated_at_unix') ~ '^[0-9]+$' "
+        "FROM user_preference WHERE user_id=:uid AND key=:watermark",
+        uid=USER_ID, watermark=WATERMARK_KEY,
+    )
+    require(shape is True, f"fingerprint_mismatch:user_preference:{WATERMARK_KEY}")
+
+
 def inventory(session) -> dict:
     require(scalar(session, "SELECT current_database()") == "yovy", "database_mismatch")
     require(scalar(session, 'SELECT count(*) FROM "user"') == 124, "user_count_mismatch")
@@ -112,6 +168,7 @@ def inventory(session) -> dict:
             require(table.replace('_', '').isalnum(), "invalid_inventory_table")
             require(scalar(session, f'SELECT count(*) FROM "{table}" WHERE user_id=:uid', uid=USER_ID) == 0,
                     f"module_data_present:{table}")
+    preference_inventory(session)
     return others
 
 
@@ -132,6 +189,16 @@ def verify(session, expected: dict, others: dict) -> None:
                 f"plaintext_remaining:{table}")
     require(scalar(session, 'SELECT count(*) FROM chat WHERE user_id=:uid AND search_text IS NOT NULL', uid=USER_ID) == 0, "search_index_not_cleared")
     require(canonical(content(session, encrypted=True)) == canonical(expected), "readback_mismatch")
+
+
+def preflight() -> None:
+    require(database_configured(), "database_unconfigured")
+    with get_db() as session:
+        session.execute(text("SET TRANSACTION READ ONLY"))
+        session.execute(text("SET LOCAL statement_timeout = '60s'"))
+        inventory(session)
+        require(scalar(session, "SELECT txid_current_if_assigned() IS NULL") is True, "preflight_wrote")
+    print("preflight ok")
 
 
 def migrate(snapshot_id: str) -> None:
@@ -188,10 +255,18 @@ def migrate(snapshot_id: str) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--confirm-account", required=True, choices=[EMAIL])
-    parser.add_argument("--snapshot-id", required=True)
+    parser.add_argument("--snapshot-id")
+    parser.add_argument("--preflight-only", action="store_true")
     args = parser.parse_args()
+    if not args.preflight_only and not args.snapshot_id:
+        parser.error("--snapshot-id is required unless --preflight-only")
     try:
-        migrate(args.snapshot_id)
+        if not database_configured():
+            raise MigrationRefused("database_unconfigured")
+        if args.preflight_only:
+            preflight()
+        else:
+            migrate(args.snapshot_id)
     except MigrationRefused as exc:
         print(f"Migration refused: {exc}. If already committed, snapshot recovery is required.", file=sys.stderr)
         return 1

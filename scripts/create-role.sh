@@ -60,6 +60,7 @@ for POLICY_ARN in "${POLICIES[@]}"; do
         --policy-arn "$POLICY_ARN"
 done
 
+
 echo ""
 echo "Done! Role: $ROLE_NAME"
 echo ""

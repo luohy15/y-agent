@@ -50,20 +50,30 @@ part identities are authenticated independently before final assembly.
 ## Keys and envelope
 
 A self-managed 32-byte AES-256-GCM master key wraps a per-tenant 32-byte DEK
-and separate blind-index key. No KMS/CMK, KMS IAM policy or paid key service
-is required. `tenant_key` holds ciphertext plus tag in `wrapped_dek` and
+and separate blind-index key. No customer-managed KMS key or paid key service
+is created. `tenant_key` holds ciphertext plus tag in `wrapped_dek` and
 `bidx_wrapped`, 12-byte nonces in `wrap_nonce` and `bidx_nonce`, and
 `master_key_id`. The retained legacy `kms_key_arn` column stays empty.
 Wrap AAD: `y-agent/kek/v1:<internal user id>:<purpose>:<tenant key id>`;
 `purpose` distinguishes `dek` from `bidx`.
 
-API, worker and admin use `Y_AGENT_TENANT_MASTER_KEYS` (JSON map of id to
-base64url 32-byte key) and `Y_AGENT_TENANT_MASTER_KEY_ID` (current wrapping id).
-Missing/unknown keys, malformed configuration and failed authentication are
-closed errors. A missing key row never makes an encrypted value plaintext.
-Only unwrapped material is cached (bounded, ten minutes); every encrypted
+Runtime resolution order is environment, then the private file, then an
+explicitly targeted SSM parameter. `Y_AGENT_TENANT_MASTER_KEYS` and
+`Y_AGENT_TENANT_MASTER_KEY_ID` are an optional local override, not Lambda
+environment parameters. If either variable is present, an invalid value fails
+closed and does not fall through. The private file is next, with the same
+fail-closed rule. SSM is used only when `Y_AGENT_TENANT_MASTER_KEY_PARAMETER`
+names a parameter. Empty means untargeted and dormant: the process does not
+call SSM. The production name is `/y-agent/tenant/master-key`, a standard-tier
+SecureString whose JSON body is `{"current":"<id>","keys":{"<id>":"<base64url-32-bytes>"}}`.
+A missing targeted parameter leaves encryption dormant. A successful file or
+SSM read is cached
+in-process for 300 seconds; absence and errors are not cached. Missing/unknown
+keys, malformed configuration and failed authentication are closed errors.
+A missing key row never makes an encrypted value plaintext.
+Only unwrapped DEK material is cached (bounded, ten minutes); every encrypted
 read re-queries the key row, including its current wrapped bytes and status,
-before cache reuse. No positive or negative tenant-state cache exists.
+before DEK-cache reuse. No positive or negative tenant-state cache exists.
 A committed shred or rewrap reaches other processes on their next read under
 normal READ COMMITTED transactions; already-returned plaintext is not revoked.
 
@@ -90,28 +100,54 @@ shell history, logs, CI output or database rows. Key creation and custody
 placement require the named rollout authorization; the repository generates
 no master key. Losing every copy makes encrypted data unrecoverable.
 
-SAM `TenantMasterKeys` is NoEcho. `scripts/tenant_deploy.py` loads and validates
-private-file or environment configuration and redacts SAM output; it does not
-access the database. GitHub-hosted runners have no route to the private RDS,
-so CI runs only this wrapper, with protected environment secrets and masking
-of each key value. It never writes keys to artifacts or saved SAM configuration.
+No tenant key material or GitHub secret is passed to SAM or CI. The template
+parameter `TenantMasterKeyParameter` defaults empty, and CI does not override
+it, so a candidate deploy leaves every new runtime untargeted. Test and test1
+stacks are not given the production name. `scripts/tenant_deploy.py deploy`
+validates a present private file or environment override, redacts any loaded
+key material, and does not read or write SSM.
+
+`sync-ssm` writes only `/y-agent/tenant/master-key`, and only with
+`--confirm-ssm-copy --target production` from a stack other than
+`y-agent-test` or `y-agent-test1`. It refuses to drop an existing key id or
+replace the bytes of an existing id. It is not part of deploy.
+
+The shared-role grant has one owner, `scripts/tenant_master_key_grant.sh`.
+Deploy, `create-role.sh`, and CI do not apply it, and a stack rollback cannot
+remove it. The script refuses without `--confirm-role-grant`. It allows
+`ssm:GetParameter` on the production parameter and `kms:Decrypt` on the
+existing us-east-1 `alias/aws/ssm` key when `kms:ViaService` is SSM and the
+encryption context is that parameter. The role is used by all nine prod, test,
+and test1 functions. Targeting prevents accidental resolution; it does not
+isolate those functions after the grant exists. The AWS-managed key policy
+still grants `kms:Decrypt` broadly in the account. A customer-managed key is
+out of scope. CI's `GitHubDeployRole` cannot `iam:PutRolePolicy`; that
+permission stays absent so the deploy route does not depend on a new IAM grant.
 
 The fail-closed database gate runs on the DB-reachable deploy/release host:
-`uv run python scripts/tenant_encryption_guard.py`. It loads the same private
-key file (or supplied environment) before checking schema and all referenced
-master IDs. `scripts/deploy.sh` runs it before invoking the SAM wrapper and
-stops on failure. For a CI deployment, the publisher must run it on that host
-before pushing the candidate, using the same key map/current ID that CI will
-deploy, and record candidate-bound evidence. CI does not enforce this host-side
-prerequisite or prove key-map parity; both are publication gates. An unavailable
-database still fails the host gate closed. Runtime Lambda environments
-necessarily hold the key map and are within the trusted boundary.
+`uv run python scripts/tenant_encryption_guard.py`. It rejects invalid
+environment or file configuration before opening the database or falling
+through. While the parameter name is empty, the guard does not read SSM, so
+deploy stays available before the separate copy and grant. When the name is
+set, the private file and that parameter must match, and a present environment
+override must match them too. The guard then checks schema and referenced
+master IDs. `scripts/deploy.sh` runs it before the SAM wrapper and stops on
+failure. CI does not run the guard. An unavailable database, or an SSM read
+after targeting, still fails the host gate closed. Lambda does not receive
+the key map in its environment.
 
-To rotate, deploy the old and new IDs together with the new current ID,
-rewrap both DEK and blind-index keys, then verify all live `master_key_id`
-references before removing the old ID. Content envelopes do not change.
-Keep historical KEKs in protected recovery custody for backups that still
-reference them. Removing a referenced ID fails closed, including warm caches.
+The maintainer status payload reports `master_key_configured` and
+`master_key_id` only. It never returns key bytes. Invalid configuration is a
+closed error, not `master_key_configured: false`.
+
+To rotate, put the old and new IDs in the private file and the SSM
+parameter together, with the new current ID, rewrap both DEK and blind-index
+keys, then verify all live `master_key_id` references before removing the old
+ID. Content envelopes do not change. A warm process can keep a successful
+master-key read for up to 300 seconds, so rotation is not visible to that
+process until the cache expires or the process is replaced. Keep historical
+KEKs in protected recovery custody for backups that still reference them.
+Removing a referenced ID fails closed, including warm caches.
 A recovery drill restores the private file from the independent copy, checks
 its fingerprint and unwraps a row in a protected process without printing
 keys or plaintext. Restoring a database requires its matching historical KEKs.
@@ -131,16 +167,37 @@ keys or plaintext. Restoring a database requires its matching historical KEKs.
 - `scripts/migrate_tenant_2678.py` is an explicit, separately approved command,
   never a startup/deploy hook. It requires an available `pre-2678-*` snapshot,
   exact account confirmation, configured keys and quiesced production writers.
+  Missing `DATABASE_URL` and `DATABASE_URL_DEV` refuses with
+  `database_unconfigured` and does not connect. `--preflight-only` rechecks the
+  inventory in a read-only transaction, takes no migration locks, and does not
+  require a master key. The write path loads keys through `master_keys()`.
   One transaction takes `pg_advisory_xact_lock(2678, 59)` plus table locks,
   verifies inventory/fingerprints, inserts one active key, seals only the
   three named tables, sets user 59 eligible, checks zero remaining plaintext
-  and read-back equality, and commits. A fresh transaction verifies again.
-  Any inventory mismatch aborts; no automatic baseline refresh is allowed.
-- The script documents the exact inventory SQL and canonical JSON content
-  serialization. `chat.search_text` is deliberately cleared, so content
-  equality excludes it and separately requires null. Typed preference JSON
-  equality ignores lexical whitespace. Inventory fingerprints still match
-  the original PostgreSQL serialization before any write.
+  and read-back equality over all 52 rows, and commits. A fresh transaction
+  verifies again. Any inventory mismatch aborts; no automatic baseline refresh
+  is allowed.
+- Chat and VM fingerprints stay stored-text aggregates. The canonical fingerprint
+  for preferences pins `md5(value::jsonb::text)` for `activityBarOrder`, `fileWorkspace`,
+  `themePrefs` and `usage_limits_latest`, requires that exact key set plus
+  `chat_model_activity_watermark`, and aggregates only the four non-volatile
+  keys. The watermark is not part of the drift fingerprint; its value must be
+  a one-field object `{"updated_at_unix": <integer>}`. The script documents the
+  canonical JSON content serialization. `chat.search_text` is deliberately
+  cleared, so content equality excludes it and separately requires null.
+  Typed preference JSON equality ignores lexical whitespace.
+- Quiescence is an execution gate, not a deploy side effect. Before the
+  migration transaction, disable the 14 production `y-agent-*` EventBridge
+  rules, excluding `y-agent-test*` and `y-agent-test1*`, after recording each
+  rule's prior state. Restore those exact states afterward; do not force a
+  rule on just because the migration finished. Drain in-flight invocations.
+  Require no running chat or wakeup for user 59, no application session
+  writing the target tables, and an operator checkpoint that account 59 is
+  idle. `RefreshUsageLimits` does not own user 59's usage row. `SyncModelUsage`
+  is the scheduled writer of that account's target tables. The migration's
+  `SHARE ROW EXCLUSIVE` locks and 10-second `lock_timeout` remain the hard
+  guard. There is no positive tenant-state cache, so a delayed ORM write
+  re-reads key state and seals.
 - Before commit, failure rolls back the entire migration. After commit,
   recovery requires the approved snapshot restore; no inverse plaintext
   migration or rollback to a reader lacking version-1 support is permitted.
