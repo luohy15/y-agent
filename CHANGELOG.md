@@ -14,7 +14,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Added
 
-- **Dormant tenant encryption**: classified columns and blobs can be sealed with AES-256-GCM under a per-tenant data key wrapped by KMS, with an owner-scoped tenant key table, a write-time guard that rejects set-based updates to sealed columns, and `y tenant-encryption` for key status. It is inactive: existing accounts stay plaintext, and no tenant can be enabled until the owner-scoped read gate lands.
+- **Dormant tenant encryption**: classified columns and blobs can be sealed with AES-256-GCM under a per-tenant data key wrapped by a server-held 32-byte master key, so no customer-managed KMS key or paid key service is created. The master key resolves from the environment, then a private file outside the checkout, then an explicitly named SSM parameter (production `/y-agent/tenant/master-key`); a present but invalid source fails closed instead of fallthrough, and an untargeted process stays dormant rather than reading SSM. Key rows are re-read on every encrypted read, and voice parts are sealed too. `y tenant-encryption status` reports `master_key_configured` and the current `master_key_id` without key bytes. It is inactive: existing accounts stay plaintext, the API enable operation stays refused, and no tenant can be enabled until the owner-scoped read gate lands.
 - **Detail-only modules (4360)**: browser contract v33 accepts a module with a detail view and no sidebar panel. Its activity-bar entry opens a tab, and saved sidebar selections fall back when the panel is unavailable.
 - **Pi backend (4357)**: `pi` runs pi.dev in detached sessions, resumes its own session, streams tool/text events, and ends the turn on steer. Completion waits for retries to settle. Host contract v38 accepts up to three bot connection entries; provider credentials stay off argv.
 
@@ -28,6 +28,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Command palette modules (4285)**: Ctrl+P lists open tabs and modules that are not already open. Choosing a module opens it, typing filters both, and Enter on an empty list still searches files.
 - **Per-chat launch environment (4307)**: `y chat --new --env KEY=VALUE` sets environment variables for a new chat (repeat the flag for more than one). They are stored with the chat and reused on later Claude Code and Codex launches. Sending `--env` to an existing chat, or combining it with `--chat-id`, `-i` or `--at`, is rejected. Reserved runtime and credential keys (`PATH`, `HOME`, `TMPDIR`, and names starting with `Y_`, `OPENAI_`, `ANTHROPIC_`, `CLAUDE_` or `_CLAUDE_`) are refused. This routes the process environment; it is not a sandbox or a place for secrets. Inline backends are unchanged.
 - **Codex turn usage (4318)**: a successful Codex turn records one usage row and shows it as turn-level trace usage. The chat context badge uses the `model_context_window` row for that exact model. A model with no row leaves the window unset, and a failed lookup keeps the stored window. Interrupted or failed turns without completion usage are not recorded.
+- **Link list dates and JSON**: `y link list` prints `[YYYY-MM-DD HH:MM]` in the configured timezone instead of a bare time, so visits from different days are distinguishable. `--json` prints the raw `/api/link/list` payload as one JSON line (`timestamp` stays epoch milliseconds).
 
 ### Changed
 
@@ -50,6 +51,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Sign-in and empty shares (4286)**: Google Identity Services initializes once per page, and a trace with no share returns an empty 200 instead of a 404.
 - **Date filters without Fava (4288)**: shared relative date parsing no longer depends on Fava internals, so a Fava upgrade cannot break CLI startup or time filters. The previous range grammar is unchanged.
 - **Codex startup errors (4326)**: a Codex turn that ends with no result now includes the exit status and a short stderr excerpt, with credential-shaped text redacted. Before resuming, an archived rollout is restored into the launch's `CODEX_HOME` when available, without overwriting an existing rollout. If resume is refused because that thread has no rollout, the same input runs once more as a fresh turn, and the transcript notes that native continuity was lost. A second refusal does not retry.
+- **Diff tab refresh**: refreshing a diff tab now remounts its viewer and refetches `/api/git/diff` with HTTP caching disabled, instead of spinning with no request. A special tab with no refresh registry still gets its nonce bumped.
 
 ### Removed
 
