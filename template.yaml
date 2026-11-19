@@ -109,14 +109,15 @@ Parameters:
     NoEcho: true
     Default: ""
 
-  TenantKmsKeyArn:
+  TenantMasterKeys:
     Type: String
-    Description: CMK for tenant DEK wrapping. Empty keeps encryption dormant.
+    Description: JSON map of master key ids to base64url AES-256 keys.
+    NoEcho: true
     Default: ""
 
-  PhotoKmsKeyArn:
+  TenantMasterKeyId:
     Type: String
-    Description: Optional SSE-KMS key for the photo bucket. Empty keeps SSE-S3.
+    Description: Current tenant wrapping key id. Empty keeps encryption dormant.
     Default: ""
 
 Conditions:
@@ -461,8 +462,8 @@ Resources:
           OPENROUTER_API_KEY: !Ref OpenRouterApiKey
           OPENROUTER_INFERENCE_API_KEY: !Ref OpenRouterInferenceApiKey
           DEEPSEEK_API_KEY: !Ref DeepSeekApiKey
-          Y_AGENT_TENANT_KMS_KEY_ARN: !Ref TenantKmsKeyArn
-          Y_AGENT_PHOTO_KMS_KEY_ARN: !Ref PhotoKmsKeyArn
+          Y_AGENT_TENANT_MASTER_KEYS: !Ref TenantMasterKeys
+          Y_AGENT_TENANT_MASTER_KEY_ID: !Ref TenantMasterKeyId
           # Temporary /api/todo/list stage timing (todo 3788 R1); remove after B3.
           Y_AGENT_TODO_LIST_TIMING: "1"
           AWS_LAMBDA_EXEC_WRAPPER: /opt/bootstrap
@@ -514,8 +515,8 @@ Resources:
           CRAWLER_RATE_LIMIT: "10"
           Y_AGENT_MCP_GATEWAY_URL: !Ref McpGatewayUrl
           Y_AGENT_MODULE_MAINTAINER_USER_ID: !Ref ModuleMaintainerUserId
-          Y_AGENT_TENANT_KMS_KEY_ARN: !Ref TenantKmsKeyArn
-          Y_AGENT_PHOTO_KMS_KEY_ARN: !Ref PhotoKmsKeyArn
+          Y_AGENT_TENANT_MASTER_KEYS: !Ref TenantMasterKeys
+          Y_AGENT_TENANT_MASTER_KEY_ID: !Ref TenantMasterKeyId
       Layers:
         - !Ref StorageLayer
         - !Ref AgentLayer
@@ -644,8 +645,8 @@ Resources:
           SQS_QUEUE_URL: !Ref JobQueue
           TELEGRAM_BOT_TOKEN: !Ref TelegramBotToken
           Y_AGENT_TIMEZONE: Asia/Shanghai
-          Y_AGENT_TENANT_KMS_KEY_ARN: !Ref TenantKmsKeyArn
-          Y_AGENT_PHOTO_KMS_KEY_ARN: !Ref PhotoKmsKeyArn
+          Y_AGENT_TENANT_MASTER_KEYS: !Ref TenantMasterKeys
+          Y_AGENT_TENANT_MASTER_KEY_ID: !Ref TenantMasterKeyId
       Layers:
         - !Ref StorageLayer
         - !Ref AgentLayer

@@ -82,20 +82,3 @@ def open_body(key: str, body: bytes, *, session=None) -> bytes:
     if isinstance(opened, str):
         return opened.encode("utf-8")
     raise TenantCryptoError("tenant_crypto_malformed")
-
-
-def photo_kms_arn() -> str:
-    import os
-
-    return os.environ.get("Y_AGENT_PHOTO_KMS_KEY_ARN", "").strip()
-
-
-def sse_kms_fields() -> dict:
-    """Empty unless a photo/upload CMK is configured. Unset keeps SSE-S3."""
-    arn = photo_kms_arn()
-    if not arn:
-        return {}
-    return {
-        "x-amz-server-side-encryption": "aws:kms",
-        "x-amz-server-side-encryption-aws-kms-key-id": arn,
-    }

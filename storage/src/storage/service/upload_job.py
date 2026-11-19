@@ -101,8 +101,7 @@ def authorize(public_user_id, *, batch_id, filename, size_bytes, checksum_sha256
         raise UploadError("No upload VM is configured for your account.", 404)
     upload_id = str(uuid.uuid4())
     key = f"uploads/{public_user_id}/{upload_id}"
-    from storage.crypto.blob import sse_kms_fields
-    fields = {"x-amz-checksum-sha256": checksum_sha256_b64, "x-amz-checksum-algorithm": "SHA256", **sse_kms_fields()}
+    fields = {"x-amz-checksum-sha256": checksum_sha256_b64, "x-amz-checksum-algorithm": "SHA256"}
     try:
         post = s3_client().generate_presigned_post(
             Bucket=bucket(), Key=key, Fields=fields,

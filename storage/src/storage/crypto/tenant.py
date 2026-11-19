@@ -26,7 +26,6 @@ LEGACY_ACCOUNT_CODE = "encryption_legacy_account"
 _PREFIX = "yenc:v1:"
 _AAD = "y-agent/v1"
 _DEK_TTL_SECONDS = 600
-_NEGATIVE_TTL_SECONDS = 60
 _CACHE_MAX = 256
 
 
@@ -55,13 +54,11 @@ class KeyState:
 
 
 _lock = threading.Lock()
-_state_cache: dict[int, tuple[float, KeyState]] = {}
-_dek_cache: dict[tuple[int, str], tuple[float, KeyMaterial]] = {}
+_dek_cache: dict[tuple, tuple[float, KeyMaterial]] = {}
 
 
 def clear_cache() -> None:
     with _lock:
-        _state_cache.clear()
         _dek_cache.clear()
 
 
@@ -150,42 +147,67 @@ def blind_index(key: bytes, purpose: str, value: str) -> str:
     return _b64e(digest)
 
 
-def kms_arn() -> str:
-    return os.environ.get("Y_AGENT_TENANT_KMS_KEY_ARN", "").strip()
+def master_keys() -> tuple[str, dict[str, bytes]]:
+    """Read current configuration; closed errors never contain key material."""
+    current = os.environ.get("Y_AGENT_TENANT_MASTER_KEY_ID", "").strip()
+    raw = os.environ.get("Y_AGENT_TENANT_MASTER_KEYS", "")
+    if not raw and not current:
+        return "", {}
+    try:
+        values = json.loads(raw)
+        if not isinstance(values, dict) or not values or not current:
+            raise ValueError()
+        keys = {}
+        for key_id, value in values.items():
+            if not isinstance(key_id, str) or not key_id or len(key_id) > 128:
+                raise ValueError()
+            if not isinstance(value, str):
+                raise ValueError()
+            key = base64.b64decode(value + "=" * (-len(value) % 4), altchars=b"-_", validate=True)
+            if len(key) != 32:
+                raise ValueError()
+            keys[key_id] = key
+        if current not in keys:
+            raise ValueError()
+        return current, keys
+    except Exception:
+        raise TenantCryptoError("tenant_master_key_config_invalid") from None
 
 
-def _kms():
-    import boto3
-
-    return boto3.client("kms", region_name="us-east-1")
-
-
-def _context(user_id: int, purpose: str, key_id: str) -> dict:
-    return {"tenant": str(user_id), "purpose": purpose, "key_id": key_id}
-
-
-def wrap_key(user_id: int, purpose: str, key_id: str, plaintext: bytes) -> bytes:
-    arn = kms_arn()
-    if not arn:
-        raise TenantCryptoError("kms_unconfigured")
-    response = _kms().encrypt(KeyId=arn, Plaintext=plaintext, EncryptionContext=_context(user_id, purpose, key_id))
-    blob = response.get("CiphertextBlob")
-    if not isinstance(blob, (bytes, bytearray)) or not blob:
-        raise TenantCryptoError("kms_unconfigured")
-    return bytes(blob)
+def _master_key(master_key_id: str) -> bytes:
+    _, keys = master_keys()
+    if not keys:
+        raise TenantCryptoError("tenant_master_key_unconfigured")
+    if master_key_id not in keys:
+        raise TenantCryptoError("tenant_master_key_unknown")
+    return keys[master_key_id]
 
 
-def unwrap_key(user_id: int, purpose: str, key_id: str, wrapped: bytes) -> bytes:
-    arn = kms_arn()
-    if not arn:
-        raise TenantCryptoError("kms_unconfigured")
-    response = _kms().decrypt(
-        CiphertextBlob=wrapped, EncryptionContext=_context(user_id, purpose, key_id), KeyId=arn,
-    )
-    plain = response.get("Plaintext")
-    if not isinstance(plain, (bytes, bytearray)) or len(plain) != 32:
-        raise TenantCryptoError("tenant_key_missing")
-    return bytes(plain)
+def _wrap_aad(user_id: int, purpose: str, key_id: str) -> bytes:
+    return f"y-agent/kek/v1:{user_id}:{purpose}:{key_id}".encode("utf-8")
+
+
+def wrap_key(user_id: int, purpose: str, key_id: str, plaintext: bytes,
+             master_key_id: str) -> tuple[bytes, bytes]:
+    key = _master_key(master_key_id)
+    if len(plaintext) != 32:
+        raise TenantCryptoError("tenant_key_malformed")
+    nonce = os.urandom(12)
+    return AESGCM(key).encrypt(nonce, plaintext, _wrap_aad(user_id, purpose, key_id)), nonce
+
+
+def unwrap_key(user_id: int, purpose: str, key_id: str, wrapped: bytes,
+               nonce: bytes, master_key_id: str) -> bytes:
+    key = _master_key(master_key_id)
+    try:
+        if len(nonce) != 12 or len(wrapped) != 48:
+            raise ValueError()
+        plain = AESGCM(key).decrypt(nonce, wrapped, _wrap_aad(user_id, purpose, key_id))
+        if len(plain) != 32:
+            raise ValueError()
+        return plain
+    except Exception:
+        raise TenantCryptoError("tenant_key_malformed") from None
 
 
 def _cache_put(cache: dict, key, value, ttl: float) -> None:
@@ -214,49 +236,46 @@ def _cache_get(cache: dict, key):
 def _rows(session, user_id: int):
     from storage.entity.tenant_key import TenantKeyEntity
 
-    return session.query(TenantKeyEntity).filter_by(user_id=user_id).all()
+    return session.query(TenantKeyEntity).populate_existing().filter_by(user_id=user_id).all()
 
 
 def _material(row) -> KeyMaterial:
-    cached = _cache_get(_dek_cache, (row.user_id, row.key_id))
+    if row.status not in {"active", "retired", "disabled"}:
+        raise TenantCryptoError("tenant_key_malformed")
+    # A fresh row and currently configured KEK must agree before cache reuse.
+    master = _master_key(row.master_key_id)
+    cache_key = (row.user_id, row.key_id, row.status, row.master_key_id,
+                 hashlib.sha256(master).digest(), bytes(row.wrapped_dek), bytes(row.wrap_nonce),
+                 bytes(row.bidx_wrapped), bytes(row.bidx_nonce))
+    cached = _cache_get(_dek_cache, cache_key)
     if cached is not None:
         return cached
-    dek = unwrap_key(row.user_id, "dek", row.key_id, bytes(row.wrapped_dek))
-    bidx = unwrap_key(row.user_id, "bidx", row.key_id, bytes(row.bidx_wrapped))
+    dek = unwrap_key(row.user_id, "dek", row.key_id, bytes(row.wrapped_dek),
+                     bytes(row.wrap_nonce), row.master_key_id)
+    bidx = unwrap_key(row.user_id, "bidx", row.key_id, bytes(row.bidx_wrapped),
+                      bytes(row.bidx_nonce), row.master_key_id)
     material = KeyMaterial(key_id=row.key_id, dek=dek, bidx=bidx, status=row.status)
-    _cache_put(_dek_cache, (row.user_id, row.key_id), material, _DEK_TTL_SECONDS)
+    _cache_put(_dek_cache, cache_key, material, _DEK_TTL_SECONDS)
     return material
 
 
 def key_state(session, user_id: int) -> KeyState:
     if user_id is None:
         return KeyState("none")
-    cached = _cache_get(_state_cache, int(user_id))
-    if cached is not None:
-        return cached
     rows = _rows(session, int(user_id))
     active = next((row for row in rows if row.status == "active"), None)
     if active is not None:
-        state = KeyState("active", _material(active))
-        _cache_put(_state_cache, int(user_id), state, _DEK_TTL_SECONDS)
-        return state
+        return KeyState("active", _material(active))
     if any(row.status == "disabled" for row in rows):
-        state = KeyState("disabled")
-    elif rows:
-        state = KeyState("retired")
-    else:
-        state = KeyState("none")
-    _cache_put(_state_cache, int(user_id), state, _NEGATIVE_TTL_SECONDS)
-    return state
+        return KeyState("disabled")
+    return KeyState("retired" if rows else "none")
 
 
 def material_for_key(session, user_id: int, key_id: str) -> KeyMaterial:
-    cached = _cache_get(_dek_cache, (int(user_id), key_id))
-    if cached is not None:
-        return cached
     from storage.entity.tenant_key import TenantKeyEntity
 
-    row = session.query(TenantKeyEntity).filter_by(user_id=int(user_id), key_id=key_id).one_or_none()
+    row = (session.query(TenantKeyEntity).populate_existing()
+           .filter_by(user_id=int(user_id), key_id=key_id).one_or_none())
     if row is None:
         raise TenantCryptoError("tenant_key_missing")
     return _material(row)
@@ -308,15 +327,19 @@ def _insert_key(session, user_id: int, status: str) -> str:
     key_id = os.urandom(16).hex()
     dek = os.urandom(32)
     bidx = os.urandom(32)
+    master_id, _ = master_keys()
+    wrapped_dek, wrap_nonce = wrap_key(user_id, "dek", key_id, dek, master_id)
+    bidx_wrapped, bidx_nonce = wrap_key(user_id, "bidx", key_id, bidx, master_id)
     row = TenantKeyEntity(
         user_id=user_id,
         key_id=key_id,
         status=status,
-        wrapped_dek=wrap_key(user_id, "dek", key_id, dek),
-        wrap_nonce=b"",
-        bidx_wrapped=wrap_key(user_id, "bidx", key_id, bidx),
-        bidx_nonce=b"",
-        kms_key_arn=kms_arn(),
+        wrapped_dek=wrapped_dek,
+        wrap_nonce=wrap_nonce,
+        bidx_wrapped=bidx_wrapped,
+        bidx_nonce=bidx_nonce,
+        kms_key_arn="",
+        master_key_id=master_id,
         created_at=get_utc_iso8601_timestamp(),
     )
     session.add(row)
@@ -339,26 +362,25 @@ def rotate_dek(session, user_id: int) -> str:
 
 
 def rewrap_keys(session) -> int:
-    """Re-wrap DEKs with the current CMK. Data envelopes are not rewritten."""
+    """Rewrap both tenant keys with the current KEK; data envelopes stay intact."""
     from storage.entity.tenant_key import TenantKeyEntity
 
-    arn = kms_arn()
-    if not arn:
-        raise TenantCryptoError("kms_unconfigured")
-    rows = session.query(TenantKeyEntity).all()
-    client = _kms()
-    for row in rows:
-        for purpose, attr in (("dek", "wrapped_dek"), ("bidx", "bidx_wrapped")):
-            blob = bytes(getattr(row, attr))
-            response = client.re_encrypt(
-                CiphertextBlob=blob,
-                SourceEncryptionContext=_context(row.user_id, purpose, row.key_id),
-                DestinationKeyId=arn,
-                DestinationEncryptionContext=_context(row.user_id, purpose, row.key_id),
-            )
-            setattr(row, attr, response["CiphertextBlob"])
-        row.kms_key_arn = arn
-    clear_cache()
+    master_id, _ = master_keys()
+    _master_key(master_id)
+    rows = session.query(TenantKeyEntity).populate_existing().with_for_update().all()
+    try:
+        for row in rows:
+            for purpose, attr, nonce_attr in (("dek", "wrapped_dek", "wrap_nonce"),
+                                               ("bidx", "bidx_wrapped", "bidx_nonce")):
+                plain = unwrap_key(row.user_id, purpose, row.key_id, bytes(getattr(row, attr)),
+                                   bytes(getattr(row, nonce_attr)), row.master_key_id)
+                wrapped, nonce = wrap_key(row.user_id, purpose, row.key_id, plain, master_id)
+                setattr(row, attr, wrapped)
+                setattr(row, nonce_attr, nonce)
+            row.master_key_id = master_id
+            row.kms_key_arn = ""
+    finally:
+        clear_cache()
     return len(rows)
 
 

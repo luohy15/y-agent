@@ -1,10 +1,10 @@
-"""Count enc_version=1 rows. A missing column means the feature is not applied yet."""
+"""Fail-closed deploy guard for the configured keys and encrypted rows."""
 
 from __future__ import annotations
 
 from sqlalchemy import text
-from sqlalchemy.exc import ProgrammingError
 
+from storage.crypto.tenant import TenantCryptoError, master_keys
 from storage.database.base import get_db
 
 _TABLES = (
@@ -17,13 +17,29 @@ _TABLES = (
 )
 
 
+def validate_master_key_ids(referenced) -> None:
+    _, keys = master_keys()
+    if any(not key_id or key_id not in keys for key_id in referenced):
+        raise TenantCryptoError("tenant_master_key_unknown")
+
+
 def encrypted_row_count() -> int:
+    """Require the additive schema, available KEKs, and a key row for each owner."""
     total = 0
     with get_db() as session:
+        referenced = session.execute(text('SELECT DISTINCT master_key_id FROM tenant_key')).scalars().all()
+        validate_master_key_ids(referenced)
         for table in _TABLES:
-            try:
-                with session.begin_nested():
-                    total += session.execute(text(f'SELECT count(*) FROM "{table}" WHERE enc_version = 1')).scalar() or 0
-            except ProgrammingError:
-                continue
+            total += session.execute(text(f'SELECT count(*) FROM "{table}" WHERE enc_version = 1')).scalar() or 0
+            owner = 't.user_id'
+            source = f'"{table}" t'
+            if table == "mcp_credential":
+                source += ' LEFT JOIN mcp_connector c ON c.id = t.connector_pk'
+                owner = 'c.user_id'
+            missing = session.execute(text(
+                f'SELECT count(*) FROM {source} WHERE t.enc_version = 1 AND NOT EXISTS '
+                f'(SELECT 1 FROM tenant_key k WHERE k.user_id = {owner})'
+            )).scalar()
+            if missing:
+                raise TenantCryptoError("tenant_key_missing")
     return int(total)

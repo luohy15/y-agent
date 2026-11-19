@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set +x  # Key custody must never enter shell tracing.
+
 # Manual AWS SAM deployment script for y-agent (API + Worker + Admin)
 # Usage: ./scripts/deploy.sh
 
@@ -42,16 +44,12 @@ add_param() {
     local param_name="$1"
     local env_var="$2"
     if [ -n "${!env_var}" ]; then
-        if [ -n "$PARAM_OVERRIDES" ]; then
-            PARAM_OVERRIDES="$PARAM_OVERRIDES $param_name=${!env_var}"
-        else
-            PARAM_OVERRIDES="$param_name=${!env_var}"
-        fi
+        PARAM_OVERRIDES+=("$param_name=${!env_var}")
     fi
 }
 
 echo "Deploying SAM application..."
-PARAM_OVERRIDES=""
+PARAM_OVERRIDES=()
 
 add_param "DatabaseUrl" "DATABASE_URL"
 add_param "JwtSecretKey" "JWT_SECRET_KEY"
@@ -69,28 +67,18 @@ add_param "OpenRouterApiKey" "OPENROUTER_API_KEY"
 add_param "OpenRouterInferenceApiKey" "OPENROUTER_INFERENCE_API_KEY"
 add_param "DeepSeekApiKey" "DEEPSEEK_API_KEY"
 add_param "McpGatewayUrl" "Y_AGENT_MCP_GATEWAY_URL"
-add_param "TenantKmsKeyArn" "Y_AGENT_TENANT_KMS_KEY_ARN"
-add_param "PhotoKmsKeyArn" "Y_AGENT_PHOTO_KMS_KEY_ARN"
 
-if ! uv run python scripts/tenant_encryption_guard.py; then
-    echo "tenant encryption guard refused this deploy"
+# Run only from a DB-reachable deploy host. The guard loads the same private
+# key configuration as the redacting SAM wrapper. CI runs the wrapper only;
+# its release host must run this guard before pushing the candidate.
+# Overrides come last so the helper can append tenant parameters.
+if [ ! -f "samconfig.toml" ]; then
+    echo "Create non-secret samconfig.toml before deploying. Guided secret persistence is disabled."
     exit 1
 fi
-
-# ============================================================================
-# SAM Deploy
-# ============================================================================
-if [ -f "samconfig.toml" ]; then
-    echo "Using existing configuration..."
-    if [ -n "$PARAM_OVERRIDES" ]; then
-        sam deploy --profile $AWS_PROFILE --template-file ~/.cache/y-agent/.aws-sam/template.yaml --parameter-overrides $PARAM_OVERRIDES
-    else
-        sam deploy --profile $AWS_PROFILE --template-file ~/.cache/y-agent/.aws-sam/template.yaml
-    fi
-else
-    echo "Running guided deployment (first time)..."
-    sam deploy --guided --profile $AWS_PROFILE
-fi
+uv run python scripts/tenant_encryption_guard.py
+uv run python scripts/tenant_deploy.py deploy --profile "$AWS_PROFILE" \
+    --template-file ~/.cache/y-agent/.aws-sam/template.yaml --parameter-overrides "${PARAM_OVERRIDES[@]}"
 
 echo ""
 echo "Deployment complete!"

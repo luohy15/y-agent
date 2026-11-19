@@ -4,7 +4,7 @@ from .base import Base, BaseEntity
 
 
 class TenantKeyEntity(Base, BaseEntity):
-    """Per-tenant DEK wrapped by the environment CMK. Absent rows stay plaintext."""
+    """Per-tenant DEK wrapped by the server-held master key. Absent rows stay plaintext."""
 
     __tablename__ = "tenant_key"
 
@@ -16,6 +16,7 @@ class TenantKeyEntity(Base, BaseEntity):
     wrap_nonce = Column(LargeBinary, nullable=False)
     bidx_wrapped = Column(LargeBinary, nullable=False)
     bidx_nonce = Column(LargeBinary, nullable=False)
+    master_key_id = Column(String, nullable=False, default="")
     kms_key_arn = Column(String, nullable=False)
 
     __table_args__ = (

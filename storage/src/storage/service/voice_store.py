@@ -128,7 +128,10 @@ def _part_metadata(head, audio_format: str) -> dict[str, Any]:
     try:
         offset, size = int(meta["offset"]), int(meta["byte_count"])
         digest = meta["sha256"]
-        if offset < 0 or not 1 <= size <= VOICE_MAX_PART_BYTES or size != head["ContentLength"]:
+        stored_size = int(meta["stored_byte_count"]) if meta.get("yenc") == "1" else size
+        if meta.get("yenc") not in (None, "1") or not 1 <= stored_size <= VOICE_MAX_PART_BYTES * 2 + 4096:
+            raise ValueError()
+        if offset < 0 or not 1 <= size <= VOICE_MAX_PART_BYTES or stored_size != head["ContentLength"]:
             raise ValueError()
         if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
             raise ValueError()
@@ -169,11 +172,13 @@ def put_part(
     key = prefix + f"{index:06d}"
     existing = _head(s3, bucket, key)
     if existing is None:
+        stored, extra = _seal_voice(user_id, take_id, data, column=f"part:{index:06d}")
+        metadata.update(extra)
         try:
             s3.put_object(
-                Bucket=bucket, Key=key, Body=data, IfNoneMatch="*",
+                Bucket=bucket, Key=key, Body=stored, IfNoneMatch="*",
                 ContentType=_AUDIO_FORMATS[audio_format], CacheControl="no-store",
-                ChecksumSHA256=base64.b64encode(digest.digest()).decode("ascii"), Metadata=metadata,
+                ChecksumSHA256=base64.b64encode(hashlib.sha256(stored).digest()).decode("ascii"), Metadata=metadata,
             )
         except Exception as exc:
             if _error_code(exc) not in {"PreconditionFailed", "412", "ConditionalRequestConflict", "409"}:
@@ -189,38 +194,40 @@ def put_part(
             "sha256": digest.hexdigest(), "duplicate": existing is not None}
 
 
-def _seal_voice(user_id: int, take_id: str, data: bytes) -> tuple[bytes, dict]:
-    from storage.crypto.tenant import encryption_active, key_state, seal
+def _seal_voice(user_id: int, take_id: str, data: bytes, *, column: str = "original") -> tuple[bytes, dict]:
+    from storage.crypto.tenant import key_state, seal
     from storage.database.base import get_db
     with get_db() as session:
-        if not encryption_active(session, user_id):
-            return data, {}
         state = key_state(session, user_id)
+        if state.kind in {"none", "disabled"}:
+            return data, {}
         if state.active is None:
             raise VoiceStoreError("Voice encryption is unavailable.", "unavailable")
         token = seal(
-            state.active.dek, user_id=user_id, table="voice", column="original",
+            state.active.dek, user_id=user_id, table="voice", column=column,
             public_id=take_id, value=base64.b64encode(data).decode("ascii"), key_id=state.active.key_id,
         )
     stored = token.encode("ascii")
     return stored, {"yenc": "1", "stored_byte_count": str(len(stored))}
 
 
-def _open_voice(user_id: int, take_id: str, data: bytes) -> bytes:
+def _open_voice(user_id: int, take_id: str, data: bytes, *, sealed: bool, column: str = "original") -> bytes:
     from storage.crypto.tenant import encryption_active, open_stored
     from storage.database.base import get_db
     with get_db() as session:
-        if not encryption_active(session, user_id):
+        if not sealed:
+            if encryption_active(session, user_id) or data.startswith(b"yenc:v1:"):
+                raise VoiceStoreError("Stored voice metadata is invalid.", "unavailable")
             return data
         if not data.startswith(b"yenc:v1:"):
             raise VoiceStoreError("Stored voice metadata is invalid.", "unavailable")
         opened = open_stored(
-            session, user_id=user_id, table="voice", column="original", public_id=take_id,
+            session, user_id=user_id, table="voice", column=column, public_id=take_id,
             value=data.decode("ascii"),
         )
     if not isinstance(opened, str):
         raise VoiceStoreError("Stored voice metadata is invalid.", "unavailable")
-    return base64.b64decode(opened)
+    return base64.b64decode(opened, validate=True)
 
 
 def _final_result(take_id: str, head) -> dict[str, Any]:
@@ -233,6 +240,8 @@ def _final_result(take_id: str, head) -> dict[str, Any]:
         count = int(meta["part_count"])
         digest = meta["sha256"]
         stored_size = int(meta["stored_byte_count"]) if meta.get("yenc") == "1" else size
+        if meta.get("yenc") not in (None, "1") or not 1 <= stored_size <= VOICE_MAX_BYTES * 2 + 4096:
+            raise ValueError()
         if not 1 <= size <= VOICE_MAX_BYTES or stored_size != head["ContentLength"] or not 1 <= count <= VOICE_MAX_PARTS:
             raise ValueError()
         if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
@@ -295,15 +304,21 @@ def finalize_parts(
         total += meta["byte_count"]
         if total > byte_limit:
             raise VoiceStoreError("The assembled WAV exceeds 4,000,000 bytes.", "too_large")
-        manifest.append((key, head["VersionId"], meta))
+        stored_meta = head.get("Metadata", {})
+        sealed = stored_meta.get("yenc") == "1"
+        stored_size = int(stored_meta["stored_byte_count"]) if sealed else meta["byte_count"]
+        manifest.append((key, head["VersionId"], meta, sealed, stored_size))
     chunks = []
-    for key, version, meta in manifest:
+    for key, version, meta, sealed, stored_size in manifest:
         stored = s3.get_object(Bucket=bucket, Key=key, VersionId=version)
         body = stored["Body"]
         try:
-            chunk = body.read(meta["byte_count"] + 1)
+            chunk = body.read(stored_size + 1)
         finally:
             body.close()
+        if len(chunk) != stored_size:
+            raise VoiceStoreError("Stored part size does not match metadata.", "unavailable")
+        chunk = _open_voice(user_id, take_id, chunk, sealed=sealed, column=f"part:{key.rsplit('/', 1)[1]}")
         if len(chunk) != meta["byte_count"] or hashlib.sha256(chunk).hexdigest() != meta["sha256"]:
             raise VoiceStoreError("Stored part bytes do not match metadata.", "unavailable")
         chunks.append(chunk)
@@ -348,15 +363,18 @@ def get_object(user_id: int, take_id: str, *, version_id: str, client=None) -> b
     sealed = meta.get("yenc") == "1"
     try:
         stored_limit = int(meta["stored_byte_count"]) if sealed else VOICE_MAX_BYTES
-    except (KeyError, TypeError, ValueError):
-        stored_limit = VOICE_MAX_BYTES + (VOICE_MAX_BYTES // 3) + 1024
+        if meta.get("yenc") not in (None, "1") or not 1 <= stored_limit <= VOICE_MAX_BYTES * 2 + 4096:
+            raise ValueError()
+    except (KeyError, TypeError, ValueError) as exc:
+        body.close()
+        raise VoiceStoreError("Stored voice metadata is invalid.", "unavailable") from exc
     try:
         data = body.read(stored_limit + 1)
     finally:
         body.close()
     if len(data) > stored_limit:
         raise VoiceStoreError("The stored voice object exceeds the byte limit.", "unavailable")
-    opened = _open_voice(user_id, take_id, data)
+    opened = _open_voice(user_id, take_id, data, sealed=sealed)
     if len(opened) > VOICE_MAX_BYTES:
         raise VoiceStoreError("The stored voice object exceeds the byte limit.", "unavailable")
     return opened

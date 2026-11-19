@@ -69,8 +69,9 @@ jobs:
 
       - name: Parse config
         id: config
+        env:
+          CONFIG: ${{ secrets.CONFIG }}
         run: |
-          CONFIG='${{ secrets.CONFIG }}'
           echo "$CONFIG" | jq -r 'to_entries | .[] | "\(.key)=\(.value)"' >> $GITHUB_ENV
           echo "$CONFIG" | jq -r '.[]' | while read -r value; do
             [ -n "$value" ] && echo "::add-mask::$value"
@@ -85,29 +86,37 @@ jobs:
       - name: Build SAM application
         run: sam build
 
+      # Private RDS is unreachable here. The DB-reachable release host must
+      # run scripts/tenant_encryption_guard.py before pushing this candidate.
       - name: Deploy to AWS
+        env:
+          Y_AGENT_TENANT_MASTER_KEYS: ${{ secrets.Y_AGENT_TENANT_MASTER_KEYS }}
+          Y_AGENT_TENANT_MASTER_KEY_ID: ${{ secrets.Y_AGENT_TENANT_MASTER_KEY_ID }}
         run: |
-          PARAM_OVERRIDES=""
-          [ -n "$DATABASE_URL" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES DatabaseUrl=$DATABASE_URL"
-          [ -n "$JWT_SECRET_KEY" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES JwtSecretKey=$JWT_SECRET_KEY"
-          [ -n "$DOMAIN_NAME" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES DomainName=$DOMAIN_NAME"
-          [ -n "$CERTIFICATE_ARN" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES CertificateArn=$CERTIFICATE_ARN"
-          [ -n "$GOOGLE_CLIENT_ID" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES GoogleClientId=$GOOGLE_CLIENT_ID"
-          [ -n "$SUBNET_IDS" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES SubnetIds=$SUBNET_IDS"
-          [ -n "$LAMBDA_SECURITY_GROUP_ID" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES LambdaSecurityGroupId=$LAMBDA_SECURITY_GROUP_ID"
-          [ -n "$TELEGRAM_BOT_TOKEN" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES TelegramBotToken=$TELEGRAM_BOT_TOKEN"
-          [ -n "$TELEGRAM_WEBHOOK_SECRET" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES TelegramWebhookSecret=$TELEGRAM_WEBHOOK_SECRET"
-          [ -n "$Y_AGENT_S3_BUCKET" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES YAgentS3Bucket=$Y_AGENT_S3_BUCKET"
-          [ -n "$OXYLABS_USERNAME" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES OxylabsUsername=$OXYLABS_USERNAME"
-          [ -n "$OXYLABS_PASSWORD" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES OxylabsPassword=$OXYLABS_PASSWORD"
-          [ -n "$ALPHAVANTAGE_API_KEY" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES AlphaVantageApiKey=$ALPHAVANTAGE_API_KEY"
-          [ -n "$OPENROUTER_API_KEY" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES OpenRouterApiKey=$OPENROUTER_API_KEY"
-          [ -n "$OPENROUTER_INFERENCE_API_KEY" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES OpenRouterInferenceApiKey=$OPENROUTER_INFERENCE_API_KEY"
-          [ -n "$DEEPSEEK_API_KEY" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES DeepSeekApiKey=$DEEPSEEK_API_KEY"
-          [ -n "$Y_AGENT_MCP_GATEWAY_URL" ] && PARAM_OVERRIDES="$PARAM_OVERRIDES McpGatewayUrl=$Y_AGENT_MCP_GATEWAY_URL"
-
-          if [ -n "$PARAM_OVERRIDES" ]; then
-            sam deploy --no-confirm-changeset --no-fail-on-empty-changeset --parameter-overrides $PARAM_OVERRIDES
-          else
-            sam deploy --no-confirm-changeset --no-fail-on-empty-changeset
+          set +x
+          # Mask individual values as SAM can reformat the JSON map.
+          if [ -n "$Y_AGENT_TENANT_MASTER_KEYS" ]; then
+            echo "$Y_AGENT_TENANT_MASTER_KEYS" | jq -r '.[]' | while IFS= read -r value; do
+              echo "::add-mask::$value"
+            done
           fi
+          PARAM_OVERRIDES=()
+          [ -n "$DATABASE_URL" ] && PARAM_OVERRIDES+=("DatabaseUrl=$DATABASE_URL")
+          [ -n "$JWT_SECRET_KEY" ] && PARAM_OVERRIDES+=("JwtSecretKey=$JWT_SECRET_KEY")
+          [ -n "$DOMAIN_NAME" ] && PARAM_OVERRIDES+=("DomainName=$DOMAIN_NAME")
+          [ -n "$CERTIFICATE_ARN" ] && PARAM_OVERRIDES+=("CertificateArn=$CERTIFICATE_ARN")
+          [ -n "$GOOGLE_CLIENT_ID" ] && PARAM_OVERRIDES+=("GoogleClientId=$GOOGLE_CLIENT_ID")
+          [ -n "$SUBNET_IDS" ] && PARAM_OVERRIDES+=("SubnetIds=$SUBNET_IDS")
+          [ -n "$LAMBDA_SECURITY_GROUP_ID" ] && PARAM_OVERRIDES+=("LambdaSecurityGroupId=$LAMBDA_SECURITY_GROUP_ID")
+          [ -n "$TELEGRAM_BOT_TOKEN" ] && PARAM_OVERRIDES+=("TelegramBotToken=$TELEGRAM_BOT_TOKEN")
+          [ -n "$TELEGRAM_WEBHOOK_SECRET" ] && PARAM_OVERRIDES+=("TelegramWebhookSecret=$TELEGRAM_WEBHOOK_SECRET")
+          [ -n "$Y_AGENT_S3_BUCKET" ] && PARAM_OVERRIDES+=("YAgentS3Bucket=$Y_AGENT_S3_BUCKET")
+          [ -n "$OXYLABS_USERNAME" ] && PARAM_OVERRIDES+=("OxylabsUsername=$OXYLABS_USERNAME")
+          [ -n "$OXYLABS_PASSWORD" ] && PARAM_OVERRIDES+=("OxylabsPassword=$OXYLABS_PASSWORD")
+          [ -n "$ALPHAVANTAGE_API_KEY" ] && PARAM_OVERRIDES+=("AlphaVantageApiKey=$ALPHAVANTAGE_API_KEY")
+          [ -n "$OPENROUTER_API_KEY" ] && PARAM_OVERRIDES+=("OpenRouterApiKey=$OPENROUTER_API_KEY")
+          [ -n "$OPENROUTER_INFERENCE_API_KEY" ] && PARAM_OVERRIDES+=("OpenRouterInferenceApiKey=$OPENROUTER_INFERENCE_API_KEY")
+          [ -n "$DEEPSEEK_API_KEY" ] && PARAM_OVERRIDES+=("DeepSeekApiKey=$DEEPSEEK_API_KEY")
+          [ -n "$Y_AGENT_MCP_GATEWAY_URL" ] && PARAM_OVERRIDES+=("McpGatewayUrl=$Y_AGENT_MCP_GATEWAY_URL")
+
+          uv run python scripts/tenant_deploy.py deploy --no-confirm-changeset --no-fail-on-empty-changeset --parameter-overrides "${PARAM_OVERRIDES[@]}"

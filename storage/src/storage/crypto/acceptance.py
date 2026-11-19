@@ -1,6 +1,11 @@
-"""Local acceptance for the tenant envelope. No database and no KMS."""
+"""Local acceptance for the tenant envelope. No database, network, or real master keys."""
 
 from __future__ import annotations
+
+import json
+import os
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from storage.crypto.orm import _open_obj, apply_tenant_write, open_projected
 from storage.crypto.query import match_bidx
@@ -40,19 +45,48 @@ class _User:
         self.encryption_eligible = eligible
 
 
+_KEY_ROWS = {}
+
+
+def _fixture(user_id, material):
+    master_id, _ = tenant_mod.master_keys()
+    dek, nonce = tenant_mod.wrap_key(user_id, "dek", material.key_id, material.dek, master_id)
+    bidx, bnonce = tenant_mod.wrap_key(user_id, "bidx", material.key_id, material.bidx, master_id)
+    row = SimpleNamespace(user_id=user_id, key_id=material.key_id, status=material.status,
+                          master_key_id=master_id, wrapped_dek=dek, wrap_nonce=nonce,
+                          bidx_wrapped=bidx, bidx_nonce=bnonce, kms_key_arn="")
+    _KEY_ROWS[(user_id, material.key_id)] = row
+    return row
+
+
 class _Query:
     def __init__(self, session):
         self.session = session
+        self.filters = {}
 
-    def filter_by(self, **_kwargs):
+    def filter_by(self, **kwargs):
+        self.filters.update(kwargs)
         return self
+
+    def populate_existing(self):
+        return self
+
+    def with_for_update(self):
+        return self
+
+    def all(self):
+        return [row for row in _KEY_ROWS.values()
+                if all(getattr(row, key) == value for key, value in self.filters.items())]
 
     def delete(self):
         self.session.deleted += 1
+        for row in self.all():
+            _KEY_ROWS.pop((row.user_id, row.key_id))
         return 1
 
     def one_or_none(self):
-        return None
+        rows = self.all()
+        return rows[0] if rows else None
 
 
 class _Session:
@@ -67,7 +101,7 @@ class _Session:
         return _Query(self)
 
 
-def main() -> None:
+def _main() -> None:
     dek = b"\x11" * 32
     bidx = b"\x22" * 32
     token = seal(dek, user_id=7, table="todo", column="name", public_id="td_1", value="marker-2678", key_id="k1")
@@ -136,7 +170,7 @@ def main() -> None:
     hosted = _Session(_User("wu@example.com", False))
     clear_cache()
     retained = KeyMaterial(key_id="k1", dek=dek, bidx=bidx, status="active")
-    tenant_mod._cache_put(tenant_mod._dek_cache, (9, "k1"), retained, 600)
+    _fixture(9, retained)
     _check("cache hit before shred", material_for_key(hosted, 9, "k1").dek == dek)
     _check("shred deletes keys", shred_tenant(hosted, 9) == 1 and hosted.deleted == 1)
     try:
@@ -171,8 +205,8 @@ def _legacy_roundtrip() -> None:
     )
     _open_obj(row)
     _check("legacy read", read_back == marker and row.title == marker)
-    tenant_mod._cache_put(tenant_mod._state_cache, 1, KeyState("none"), 60)
-    clause = match_bidx(None, 1, ChatEntity.title, ChatEntity.title, "title", marker)
+    _KEY_ROWS.clear()
+    clause = match_bidx(_Session(None), 1, ChatEntity.title, ChatEntity.title, "title", marker)
     _check("legacy filter stays plaintext", getattr(clause.right, "value", None) == marker)
     default = UserEntity.encryption_eligible.default.arg
     _check("eligible default false", default is False)
@@ -187,7 +221,7 @@ def _active_roundtrip() -> None:
     dek = b"\x44" * 32
     material = KeyMaterial(key_id="k-active", dek=dek, bidx=b"\x55" * 32, status="active")
     clear_cache()
-    tenant_mod._cache_put(tenant_mod._dek_cache, (4, "k-active"), material, 600)
+    _fixture(4, material)
     row = ChatEntity(
         user_id=4, chat_id="c-active", title=marker,
         json_content="{\"text\":\"marker-2678\"}", search_text=marker, enc_version=0,
@@ -280,8 +314,9 @@ def _link_activity_rewrite() -> None:
     _check("set write refused", not classified_set_write(update(LinkActivityEntity).values(download_status="done")))
 
     clear_cache()
+    _KEY_ROWS.clear()
     material = KeyMaterial(key_id="k-rewrite", dek=b"\x66" * 32, bidx=b"\x77" * 32, status="active")
-    tenant_mod._cache_put(tenant_mod._dek_cache, (4, material.key_id), material, 600)
+    _fixture(4, material)
     alias = "https://example.com/new-alias"
     with Session() as session:
         row = LinkActivityEntity(user_id=4, activity_id="a-rewrite", link_id=1, source="rss", title=None,
@@ -290,7 +325,7 @@ def _link_activity_rewrite() -> None:
         session.add(row)
         _open_obj(row)
         row.url = alias
-        tenant_mod._cache_put(tenant_mod._state_cache, 4, KeyState("active", material), 60)
+        _KEY_ROWS[(4, material.key_id)].status = "active"
         _before_flush(session, None, None)
         _check("activity rewrite reseals", row.enc_version == 1 and row.url.startswith("yenc:")
                and row.url_bidx == blind_index(material.bidx, "url", alias)
@@ -298,7 +333,8 @@ def _link_activity_rewrite() -> None:
                                  public_id="a-rewrite", token=row.url) == alias)
         _open_obj(row)
         row.url = alias + "-disabled"
-        tenant_mod._cache_put(tenant_mod._state_cache, 4, KeyState("disabled"), 60)
+        for key_row in _KEY_ROWS.values():
+            key_row.status = "disabled"
         _before_flush(session, None, None)
         _check("disabled rewrite is plaintext", row.enc_version == 0 and row.url == alias + "-disabled"
                and row.url_bidx is None)
@@ -309,7 +345,8 @@ def _link_activity_rewrite() -> None:
             _check("plaintext v1 url closed", exc.code == "tenant_crypto_malformed")
         else:
             raise SystemExit("FAIL plaintext v1 url closed")
-        tenant_mod._cache_put(tenant_mod._state_cache, 4, KeyState("retired"), 60)
+        for key_row in _KEY_ROWS.values():
+            key_row.status = "retired"
         try:
             _before_flush(session, None, None)
         except TenantCryptoError as exc:
@@ -317,6 +354,132 @@ def _link_activity_rewrite() -> None:
         else:
             raise SystemExit("FAIL retired rewrite closed")
     clear_cache()
+
+
+def _closed(name, operation, code=None):
+    try:
+        operation()
+    except TenantCryptoError as exc:
+        _check(name, code is None or exc.code == code)
+    else:
+        raise SystemExit(f"FAIL {name}")
+
+
+def _master_acceptance():
+    from storage.crypto.guard import validate_master_key_ids
+    _KEY_ROWS.clear()
+    material = KeyMaterial("fixture", b"d" * 32, b"b" * 32, "active")
+    row = _fixture(59, material)
+    session = _Session(None)
+    _check("KEK roundtrip", material_for_key(session, 59, "fixture") == material)
+    for name, uid, purpose, kid in (("KEK wrong tenant", 60, "dek", "fixture"),
+                                     ("KEK wrong purpose", 59, "bidx", "fixture"),
+                                     ("KEK moved row", 59, "dek", "other")):
+        _closed(name, lambda uid=uid, purpose=purpose, kid=kid: tenant_mod.unwrap_key(uid, purpose, kid, row.wrapped_dek, row.wrap_nonce, "old"))
+    _closed("KEK malformed nonce", lambda: tenant_mod.unwrap_key(59, "dek", "fixture", row.wrapped_dek, b"", "old"))
+    _closed("unknown KEK", lambda: tenant_mod.unwrap_key(59, "dek", "fixture", row.wrapped_dek, row.wrap_nonce, "absent"))
+    _closed("guard unknown id", lambda: validate_master_key_ids(["absent"]))
+    # Simulates a different process deleting the row: deliberately do not clear.
+    _KEY_ROWS.clear()
+    _closed("remote shred defeats warm cache", lambda: material_for_key(session, 59, "fixture"), "tenant_key_missing")
+    _KEY_ROWS[(59, "fixture")] = row
+    os.environ["Y_AGENT_TENANT_MASTER_KEY_ID"] = "new"
+    _check("KEK rewrap count", tenant_mod.rewrap_keys(session) == 1)
+    _check("KEK rewrap preserves bytes", row.master_key_id == "new" and material_for_key(session, 59, "fixture") == material)
+    with patch.dict(os.environ, {"Y_AGENT_TENANT_MASTER_KEYS": json.dumps({"old": tenant_mod._b64e(b"o" * 32)}),
+                                 "Y_AGENT_TENANT_MASTER_KEY_ID": "old"}):
+        _closed("removed KEK defeats warm cache", lambda: material_for_key(session, 59, "fixture"))
+    with patch.dict(os.environ, {"Y_AGENT_TENANT_MASTER_KEYS": "", "Y_AGENT_TENANT_MASTER_KEY_ID": ""}):
+        _closed("no KEK closes reads", lambda: material_for_key(session, 59, "fixture"))
+    row.wrapped_dek = b"x" * 48
+    _closed("modified wrap defeats warm cache", lambda: material_for_key(session, 59, "fixture"))
+    _fixture(59, material)
+    _voice_acceptance(session)
+
+
+def _voice_acceptance(session):
+    from contextlib import contextmanager
+    from storage.service import voice_store as voice
+
+    @contextmanager
+    def db():
+        yield session
+
+    with patch("storage.database.base.get_db", db):
+        raw = b"\x00\x01" * 50
+        stored, meta = voice._seal_voice(59, "take", raw, column="part:000000")
+        _check("voice part sealed", stored.startswith(b"yenc:v1:") and meta["yenc"] == "1"
+               and int(meta["stored_byte_count"]) == len(stored))
+        _check("voice part roundtrip", voice._open_voice(59, "take", stored, sealed=True, column="part:000000") == raw)
+        _closed("voice part moved", lambda: voice._open_voice(59, "take", stored, sealed=True, column="part:000001"))
+        _voice_parts_flow()
+        _KEY_ROWS.clear()
+        _closed("voice sealed after shred", lambda: voice._open_voice(59, "take", stored, sealed=True, column="part:000000"))
+
+
+def _voice_parts_flow():
+    from io import BytesIO
+    from storage.service import voice_store as voice
+    from botocore.exceptions import ClientError
+
+    class Objects:
+        def __init__(self):
+            self.rows = {}
+
+        def head_object(self, *, Bucket, Key):
+            if Key not in self.rows:
+                raise ClientError({"Error": {"Code": "404"}}, "HeadObject")
+            row = self.rows[Key]
+            return {"Metadata": row["Metadata"], "ContentLength": len(row["Body"]), "VersionId": "v1"}
+
+        def put_object(self, **values):
+            self.rows[values["Key"]] = values
+            return {"VersionId": "v1"}
+
+        def get_object(self, *, Bucket, Key, VersionId):
+            return {**self.head_object(Bucket=Bucket, Key=Key), "Body": BytesIO(self.rows[Key]["Body"])}
+
+        def list_objects_v2(self, *, Bucket, Prefix):
+            return {"Contents": [{"Key": key} for key in self.rows if key.startswith(Prefix)]}
+
+    objects = Objects()
+    take = "00000000-0000-4000-8000-000000000001"
+    data = b"\x00\x01" * 100
+    with patch.object(voice, "_require_owner", return_value="fixture"), \
+            patch.object(voice, "_store", return_value=(objects, "fixture")), \
+            patch.object(voice, "_cleanup_parts"):
+        result = voice.put_part(59, take, 0, 0, data=data, audio_format="pcm", client=objects)
+        replay = voice.put_part(59, take, 0, 0, data=data, audio_format="pcm", client=objects)
+        _check("voice retry idempotent", not result["duplicate"] and replay["duplicate"])
+        part = next(iter(objects.rows.values()))
+        _check("voice stored part sealed", part["Body"].startswith(b"yenc:v1:") and part["Metadata"]["yenc"] == "1")
+        final = voice.finalize_parts(59, take, part_count=1, audio_format="pcm", duration_ms=100, client=objects)
+        opened = voice.get_object(59, take, version_id=final["version_id"], client=objects)
+        _check("voice finalize decrypts parts", opened == voice._assemble_wav(data, "pcm")
+               and final["byte_count"] == len(data) + 44)
+        replay = voice.finalize_parts(59, take, part_count=1, audio_format="pcm", duration_ms=100, client=objects)
+        _check("voice finalize replay", replay == final)
+
+
+def main():
+    from sqlalchemy.orm import Session
+    from storage.entity.tenant_key import TenantKeyEntity
+    original = Session.query
+
+    def query(session, *entities, **kwargs):
+        if entities == (TenantKeyEntity,):
+            return _Query(session)
+        return original(session, *entities, **kwargs)
+
+    # Published fixed fixtures only; never a usable generated production key.
+    config = {"old": tenant_mod._b64e(b"o" * 32), "new": tenant_mod._b64e(b"n" * 32)}
+    with patch.dict(os.environ, {"Y_AGENT_TENANT_MASTER_KEYS": json.dumps(config),
+                                 "Y_AGENT_TENANT_MASTER_KEY_ID": "old"}), patch.object(Session, "query", query):
+        _main()
+        _master_acceptance()
+    clear_cache()
+    _KEY_ROWS.clear()
+    print("master-key acceptance ok")
 
 
 if __name__ == "__main__":

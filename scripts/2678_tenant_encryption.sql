@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS tenant_key (
     wrap_nonce bytea NOT NULL,
     bidx_wrapped bytea NOT NULL,
     bidx_nonce bytea NOT NULL,
-    kms_key_arn text NOT NULL,
+    kms_key_arn text NOT NULL DEFAULT '',
+    master_key_id text NOT NULL DEFAULT '',
     created_at text,
     updated_at text,
     created_at_unix bigint,
@@ -19,6 +20,8 @@ CREATE TABLE IF NOT EXISTS tenant_key (
     CONSTRAINT ck_tenant_key_status CHECK (status IN ('active', 'retired', 'disabled')),
     CONSTRAINT uq_tenant_key_id UNIQUE (user_id, key_id)
 );
+
+ALTER TABLE tenant_key ADD COLUMN IF NOT EXISTS master_key_id text NOT NULL DEFAULT '';
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_tenant_key_one_active
     ON tenant_key (user_id) WHERE status = 'active';
