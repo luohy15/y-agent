@@ -14,6 +14,22 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Added
 
+- **Approval-based homepage admission (4396)**: sign-in now requires a per-verified-email admission record instead of an allowlist of existing user rows. A visitor can request access from the landing page with their Google account; the request is recorded once, queues a private Telegram notice to the maintainer, and failed sends are retried. Only the maintainer can list applications and approve one, and every protected API request and bound Telegram action re-checks admission, so an existing user no longer implies approval. `y access list|approve|inventory` manage the same records and print a clear refusal when the caller is not the maintainer.
+- **Daily model context window sync**: a daily admin job adds missing `model_context_window` rows for enabled bot models from the OpenRouter catalog without changing existing rows, and reports model IDs the catalog cannot resolve.
+
+### Changed
+
+### Fixed
+
+- **Access notice race (4396)**: an application approved while its notice send is in flight is marked skipped instead of retried, so approval does not leave a pending notification.
+- **Tenant key flush**: the key model registers its user foreign-key target before the first flush, so a fresh process such as the one-account migration no longer fails to resolve `tenant_key.user_id`.
+
+### Removed
+
+## [0.5.35] - 2026-11-22
+
+### Added
+
 - **Dormant tenant encryption**: classified columns and blobs can be sealed with AES-256-GCM under a per-tenant data key wrapped by a server-held 32-byte master key, so no customer-managed KMS key or paid key service is created. The master key resolves from the environment, then a private file outside the checkout, then an explicitly named SSM parameter (production `/y-agent/tenant/master-key`); a present but invalid source fails closed instead of fallthrough, and an untargeted process stays dormant rather than reading SSM. Key rows are re-read on every encrypted read, and voice parts are sealed too. `y tenant-encryption status` reports `master_key_configured` and the current `master_key_id` without key bytes. It is inactive: existing accounts stay plaintext, the API enable operation stays refused, and no tenant can be enabled until the owner-scoped read gate lands.
 - **Detail-only modules (4360)**: browser contract v33 accepts a module with a detail view and no sidebar panel. Its activity-bar entry opens a tab, and saved sidebar selections fall back when the panel is unavailable.
 - **Pi backend (4357)**: `pi` runs pi.dev in detached sessions, resumes its own session, streams tool/text events, and ends the turn on steer. Completion waits for retries to settle. Host contract v38 accepts up to three bot connection entries; provider credentials stay off argv.
