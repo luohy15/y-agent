@@ -30,6 +30,15 @@ def lambda_handler(event, context):
     if action == "todo_sla_digest":
         return _todo_sla_digest()
 
+    if action == "sync_model_context_window":
+        from storage.service.model_context import sync_missing_windows
+
+        result = sync_missing_windows()
+        absent = result["absent_from_catalog"]
+        logger.info("[{}] checked={} inserted={} absent={} first_absent={}", action, result["models_checked"],
+                    len(result["inserted"]), len(absent), [name[:128] for name in sorted(absent)[:20]])
+        return {"status": "ok", "action": action, **result}
+
     if action == "tick_routines":
         return _tick_routines()
 

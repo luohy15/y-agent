@@ -653,6 +653,11 @@ Resources:
           Properties:
             Schedule: rate(1 minute)
             Input: '{"action": "check_reminders"}'
+        SyncModelContextWindowSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: cron(20 18 * * ? *)
+            Input: '{"action": "sync_model_context_window"}'
         TodoSlaDigestSchedule:
           Type: Schedule
           Properties:

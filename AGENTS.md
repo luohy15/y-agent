@@ -452,7 +452,7 @@ exceptions noted):
   reports `context_window` = `max_context_window` = the row at 100% effective,
   so the reported window is the real one and auto-compaction starts at 90%. A
   missing row, an exam run, or a dump/staging failure launches unchanged.
-  `init_db` creates the table and does not seed it. Fifteen applied rows are
+  `init_db` creates the table and does not seed it. The daily admin action `sync_model_context_window` adds missing enabled-backend models from OpenRouter without changing existing rows and reports unresolved IDs. The fifteen initial rows are
   OpenRouter `context_length` values for bot-list models, including
   `gpt-6.1-sol` = 1050000, plus alias rows `opus[1m]`, `sonnet[1m]`, `fable`,
   and `deepseek-flash`. `grok-4-1-fast` has no row. No row leaves

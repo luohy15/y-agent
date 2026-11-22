@@ -704,7 +704,7 @@ later delivery.
   SSH error falls back to the `model_context_window` row for the resolved model
   id (exact match after quote and space stripping). An unresolved model keeps
   the stored window. `init_db` creates the table and does not seed
-  it. The applied data is fifteen maintainer-written rows from OpenRouter
+  it. The initial data was fifteen maintainer-written rows from OpenRouter
   `context_length` on 2026-11-16, keyed by `bot_config.model`. `gpt-6.1-sol`
   is 1,050,000 (`openai/gpt-6.1-sol`), replacing the earlier configured
   1,000,000 default. Alias rows, whose lookup key is still `bot_config.model`,
@@ -723,6 +723,7 @@ later delivery.
   to `codex_turn`, not `main_request` and not NULL. NULL is the legacy
   fallback that would treat the counters as Claude context and prepend the
   handoff reminder; `codex_turn` stays silent.
+- Daily at 02:20 Asia/Shanghai, `sync_model_context_window` checks every enabled bot backend across owners. For missing rows it uses the OpenRouter catalog's positive `context_length` (falling back to `top_provider.context_length`), matching the exact ID first, then a unique namespace suffix excluding `:` variants and `~` aliases. It records `openrouter:<catalog_id>` as provenance, never changes existing rows, and reports unmatched or ambiguous IDs without guessing.
 - Codex launches with a resolved model window now feed the CLI a per-launch
   model catalog, so the reported window and the auto-compaction threshold are
   the table's value instead of the bundled 272,000 fallback (258,400 usable).

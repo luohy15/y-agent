@@ -78,6 +78,12 @@ def list_configs(user_id: int) -> List[BotConfig]:
         return [_entity_to_dto(row) for row in rows]
 
 
+def list_all_configs() -> List[BotConfig]:
+    """Global inventory for the admin model context-window sync."""
+    with get_db() as session:
+        return [_entity_to_dto(row) for row in session.query(BotConfigEntity).all()]
+
+
 def get_config(user_id: int, name: str = "default") -> Optional[BotConfig]:
     with get_db() as session:
         row = session.query(BotConfigEntity).filter_by(user_id=user_id, name=name).first()

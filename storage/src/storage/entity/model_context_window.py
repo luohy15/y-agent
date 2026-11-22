@@ -7,7 +7,7 @@ class ModelContextWindowEntity(Base, BaseEntity):
     """Global badge denominator for one API model id.
 
     One row serves every bot. `init_db` creates the table and does not seed it.
-    Applied rows are maintainer SQL, not a single seeded model. Codex closeout
+    Rows come from maintainer SQL or the add-only catalog sync. Codex closeout
     uses a row only when the rollout did not report its own window.
     """
 
