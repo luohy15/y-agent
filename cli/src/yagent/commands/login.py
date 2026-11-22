@@ -16,6 +16,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
 
     token = None
     email = None
+    error = None
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -23,6 +24,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
 
         token = params.get("auth_token", [None])[0]
         email = params.get("auth_email", [None])[0]
+        error = params.get("auth_error", [None])[0]
 
         if token and email:
             _CallbackHandler.token = token
@@ -31,6 +33,12 @@ class _CallbackHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/html")
             self.end_headers()
             self.wfile.write(b"<html><body><h2>Login successful! You can close this tab.</h2></body></html>")
+        elif error:
+            _CallbackHandler.error = error
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            self.wfile.write(b"<html><body><h2>Login was refused. You can close this tab.</h2></body></html>")
         else:
             self.send_response(400)
             self.send_header("Content-Type", "text/html")
@@ -77,6 +85,7 @@ def login(token, email, no_browser):
     # Reset state
     _CallbackHandler.token = None
     _CallbackHandler.email = None
+    _CallbackHandler.error = None
 
     server = HTTPServer(("localhost", port), _CallbackHandler)
 
@@ -85,11 +94,15 @@ def login(token, email, no_browser):
     click.echo(f"If the browser doesn't open, visit: {login_url}")
     webbrowser.open(login_url)
 
-    # Wait for callback
-    while _CallbackHandler.token is None:
+    # Wait for callback. A refusal redirects with auth_error instead of hanging.
+    while _CallbackHandler.token is None and _CallbackHandler.error is None:
         server.handle_request()
 
     server.server_close()
+
+    if _CallbackHandler.error:
+        click.echo(f"Login refused: {_CallbackHandler.error}", err=True)
+        raise SystemExit(1)
 
     save_auth(_CallbackHandler.token, _CallbackHandler.email, web_url)
     click.echo(f"Logged in as {_CallbackHandler.email}")

@@ -13,6 +13,18 @@ export function clearToken(): void {
   localStorage.removeItem("user_email");
 }
 
+export const ACCESS_REVOKED_EVENT = "y-access-revoked";
+
+function observeAccess(res: Response): void {
+  if (res.status !== 403) return;
+  void res.clone().json().then((body) => {
+    if (!body || body.code !== "access_not_approved") return;
+    const state = body.state === "pending" ? "pending" : "required";
+    clearToken();
+    window.dispatchEvent(new CustomEvent(ACCESS_REVOKED_EVENT, { detail: { state } }));
+  }).catch(() => undefined);
+}
+
 export function getStoredEmail(): string | null {
   return localStorage.getItem("user_email");
 }
@@ -25,7 +37,10 @@ export function authFetch(url: string, opts: RequestInit = {}): Promise<Response
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
   }
-  return fetch(url, { ...opts, headers });
+  return fetch(url, { ...opts, headers }).then((res) => {
+    observeAccess(res);
+    return res;
+  });
 }
 
 export async function jsonFetcher(url: string, opts: { signal?: AbortSignal } = {}): Promise<any> {

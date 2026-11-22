@@ -7,7 +7,7 @@ import Landing from "./components/Landing";
 import ShareView from "./components/ShareView";
 import PublicTraceApp from "./components/PublicTraceApp";
 import ShareNoteView from "./components/ShareNoteView";
-import { useAuth } from "./hooks/useAuth";
+import { AuthProvider, useAuth } from "./hooks/useAuth";
 import { abortMiddleware } from "./utils/swrAbort";
 import { localStorageProvider } from "./utils/swrPersistedCache";
 import { applyPrefs, loadPrefs } from "./utils/theme";
@@ -43,18 +43,20 @@ installHostRegistry();
 createRoot(rootEl).render(
   <SWRConfig value={{ use: [abortMiddleware], provider: localStorageProvider }}>
     <BrowserRouter>
-      <ThemeRouteSync />
-      <Routes>
-        <Route path="/" element={<RootGate />} />
-        <Route path="/docs/*" element={<Navigate to="/" replace />} />
-        <Route path="/s/:shareId" element={<ShareView />} />
-        <Route path="/share/:shareId" element={<ShareView />} />
-        <Route path="/t/:shareId" element={<PublicTraceApp />} />
-        <Route path="/n/:shareId" element={<ShareNoteView />} />
-        <Route path="/trace/:traceId" element={<App />} />
-        <Route path="/ui/*" element={<Navigate to="/" replace />} />
-        <Route path="/*" element={<App />} />
-      </Routes>
+      <AuthProvider>
+        <ThemeRouteSync />
+        <Routes>
+          <Route path="/" element={<RootGate />} />
+          <Route path="/docs/*" element={<Navigate to="/" replace />} />
+          <Route path="/s/:shareId" element={<ShareView />} />
+          <Route path="/share/:shareId" element={<ShareView />} />
+          <Route path="/t/:shareId" element={<PublicTraceApp />} />
+          <Route path="/n/:shareId" element={<ShareNoteView />} />
+          <Route path="/trace/:traceId" element={<RootGate />} />
+          <Route path="/ui/*" element={<Navigate to="/" replace />} />
+          <Route path="/*" element={<RootGate />} />
+        </Routes>
+      </AuthProvider>
     </BrowserRouter>
   </SWRConfig>
 );

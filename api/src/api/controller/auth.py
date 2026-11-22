@@ -2,31 +2,23 @@ import os
 
 import jwt
 from fastapi import APIRouter, HTTPException
-from google.oauth2 import id_token
-from google.auth.transport import requests as google_requests
+from loguru import logger
 from pydantic import BaseModel
 
-from storage.repository.user import get_or_create_user_by_email, get_user_by_email
+from api.util.access_http import access_json
+from api.util.google_identity import GoogleIdentityError, verify_google_id_token
+from storage.repository.user import get_or_create_user_by_email
+from storage.service.user_access import admission_state
 
 router = APIRouter(prefix="/auth")
 
-GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
 JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
 JWT_ALGORITHM = "HS256"
 
-
-def _is_allowlisted(email: str) -> bool:
-    """Gate new-account signup behind an invite allowlist.
-
-    Fails closed: an unset/empty SIGNUP_ALLOWLIST allows no new signups (only
-    already-existing users can log in), until Phase 1/3 intentionally opens it.
-    """
-    allowlist = {
-        entry.strip().lower()
-        for entry in os.environ.get("SIGNUP_ALLOWLIST", "").split(",")
-        if entry.strip()
-    }
-    return email.lower() in allowlist
+_REFUSAL = {
+    "access_pending": "Your access request is pending approval.",
+    "access_required": "This email is not approved. Request access to continue.",
+}
 
 
 class GoogleLoginRequest(BaseModel):
@@ -41,33 +33,21 @@ class LoginResponse(BaseModel):
 @router.post("/google", response_model=LoginResponse)
 async def google_login(req: GoogleLoginRequest):
     try:
-        idinfo = id_token.verify_oauth2_token(
-            req.id_token,
-            google_requests.Request(),
-            GOOGLE_CLIENT_ID,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=401, detail="Invalid Google ID token") from e
+        identity = verify_google_id_token(req.id_token)
+    except GoogleIdentityError as exc:
+        raise HTTPException(status_code=401, detail="Invalid Google ID token") from exc
 
-    email = idinfo.get("email")
-    if not email:
-        raise HTTPException(status_code=401, detail="Email not found in token")
+    email = identity["email"]
+    state = admission_state(email)
+    if state != "approved":
+        code = "access_pending" if state == "pending" else "access_required"
+        logger.info("access denied email={} code={}", email, code)
+        return access_json(403, _REFUSAL[code], code)
 
-    username = idinfo.get("name", email.split("@")[0])
-
-    if not get_user_by_email(email) and not _is_allowlisted(email):
-        raise HTTPException(
-            status_code=403,
-            detail="This email is not invited yet. Ask the admin for an invite.",
-        )
-
-    user = get_or_create_user_by_email(email, username)
-    user_id = user.id
-
+    user = get_or_create_user_by_email(email, identity["name"])
     token = jwt.encode(
-        {"user_id": user_id, "email": email},
+        {"user_id": user.id, "email": email},
         JWT_SECRET_KEY,
         algorithm=JWT_ALGORITHM,
     )
-
     return LoginResponse(token=token, email=email)

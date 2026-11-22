@@ -13,6 +13,8 @@ def lambda_handler(event, context):
         init_db: Initialize database tables
         check_reminders: Send due reminders via Telegram
         tick_routines: Fire due routines via the chat dispatch pipeline
+        retry_access_notifications: Retry pending homepage-admission notices
+        seed_access_rollout: Idempotently approve the maintainer and named account
     """
     action = event.get("action", "")
     logger.info("[admin] action={} event={}", action, json.dumps(event))
@@ -41,6 +43,16 @@ def lambda_handler(event, context):
 
     if action == "tick_routines":
         return _tick_routines()
+
+    if action == "retry_access_notifications":
+        from storage.service.user_access import retry_notifications
+
+        return retry_notifications()
+
+    if action == "seed_access_rollout":
+        from storage.service.user_access import seed_rollout
+
+        return seed_rollout()
 
     return {"status": "error", "message": f"Unknown action: {action}"}
 

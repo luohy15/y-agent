@@ -639,6 +639,7 @@ Resources:
           TELEGRAM_BOT_TOKEN: !Ref TelegramBotToken
           Y_AGENT_TIMEZONE: Asia/Shanghai
           Y_AGENT_TENANT_MASTER_KEY_PARAMETER: !Ref TenantMasterKeyParameter
+          Y_AGENT_MODULE_MAINTAINER_USER_ID: !Ref ModuleMaintainerUserId
       Layers:
         - !Ref StorageLayer
         - !Ref AgentLayer
@@ -668,6 +669,14 @@ Resources:
           Properties:
             Schedule: rate(1 minute)
             Input: '{"action": "tick_routines"}'
+        RetryAccessNotificationsSchedule:
+          # Retries pending homepage-admission notices (todo 4396). Apply
+          # migration/4396_user_access.sql before this deploys. An empty
+          # table makes the pass a no-op.
+          Type: Schedule
+          Properties:
+            Schedule: rate(5 minutes)
+            Input: '{"action": "retry_access_notifications"}'
 
 Outputs:
   APIFunctionArn:

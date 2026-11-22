@@ -27,6 +27,24 @@ _TG_ROUTE_PREFIX_RE = re.compile(r"^/([0-9a-f]{6})\s+")
 # after the chat_id regex so 6-digit hex (which can be all-digits) still routes
 # as chat_id when applicable.
 _TG_ROUTE_TODO_PREFIX_RE = re.compile(r"^/(\d+)\s+")
+_ACCESS_REFUSAL = "This account is not approved."
+
+
+def _account_admitted(user_id, email) -> bool:
+    from storage.service.user_access import request_admitted
+
+    try:
+        return bool(request_admitted(user_id, email).get("admitted"))
+    except Exception:
+        logger.exception("telegram admission check failed")
+        return False
+
+
+async def _refuse_unapproved(telegram_chat_id, user) -> bool:
+    if _account_admitted(user.id, getattr(user, "email", None)):
+        return False
+    await _send_message(telegram_chat_id, _ACCESS_REFUSAL)
+    return True
 
 def _reply_context(message: dict) -> Optional[str]:
     """Quoted context from an inbound Telegram message, or None.
@@ -204,6 +222,8 @@ async def telegram_webhook(request: Request):
         if not user:
             await _send_message(telegram_chat_id, "Please /bind your account first.")
             return {"ok": True}
+        if await _refuse_unapproved(telegram_chat_id, user):
+            return {"ok": True}
         text = message.get("caption", "").strip() or "请看这张图片"
         from agent.config import resolve_vm_config
         vm_config = resolve_vm_config(user.id)
@@ -216,6 +236,8 @@ async def telegram_webhook(request: Request):
         user = get_user_by_telegram_id(telegram_user_id)
         if not user:
             await _send_message(telegram_chat_id, "Please /bind your account first.")
+            return {"ok": True}
+        if await _refuse_unapproved(telegram_chat_id, user):
             return {"ok": True}
         text = (message.get("caption") or "").strip() or "请看这个文件"
         kind = classify_document(document)
@@ -288,6 +310,8 @@ async def telegram_webhook(request: Request):
         user = get_user_by_telegram_id(telegram_user_id)
         if not user:
             await _send_message(telegram_chat_id, "Please /bind your account first.")
+            return {"ok": True}
+        if await _refuse_unapproved(telegram_chat_id, user):
             return {"ok": True}
         target_chat = find_latest_chat_by_trace_id(user.id, todo_id)
         if not target_chat:
@@ -447,6 +471,10 @@ async def _handle_bind(telegram_chat_id, telegram_user_id, text: str):
         return {"ok": True}
 
     email = payload.get("email", "")
+    if not _account_admitted(payload.get("user_id"), email):
+        await _send_message(telegram_chat_id, _ACCESS_REFUSAL)
+        return {"ok": True}
+
     user = bind_telegram_id(email, telegram_user_id)
     if user:
         await _send_message(telegram_chat_id, f"Bound to account: {email}")
@@ -471,6 +499,8 @@ async def _handle_clear(telegram_chat_id, telegram_user_id):
     if not user:
         await _send_message(telegram_chat_id, "Please /bind your account first.")
         return {"ok": True}
+    if await _refuse_unapproved(telegram_chat_id, user):
+        return {"ok": True}
 
     from storage.service import chat as chat_service
     await chat_service.restart_manager_session(user.id)
@@ -491,6 +521,8 @@ async def _handle_routed_message(telegram_chat_id, telegram_user_id, target_chat
     user = get_user_by_telegram_id(telegram_user_id)
     if not user:
         await _send_message(telegram_chat_id, "Please /bind your account first.")
+        return {"ok": True}
+    if await _refuse_unapproved(telegram_chat_id, user):
         return {"ok": True}
 
     if not text.strip():
@@ -534,6 +566,8 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
         return {"ok": True}
 
     logger.info("_handle_message: found user id={}", user.id)
+    if await _refuse_unapproved(telegram_chat_id, user):
+        return {"ok": True}
 
     # The Telegram group is retired: a DM always targets the manager role.
     role = 'manager'

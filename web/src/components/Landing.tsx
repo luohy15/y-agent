@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { MAIN_DOMAIN, useAuth, type AccessState } from "../hooks/useAuth";
 import { useTheme } from "../hooks/useTheme";
 import { prefersDark, resolveTheme } from "../utils/theme";
 import YovyMark from "./YovyMark";
@@ -34,6 +35,49 @@ const LEGEND = [
   { cls: "bg-sol-green", label: "voice" },
 ];
 
+const ACCESS_COPY: Record<Exclude<AccessState, null>, string> = {
+  pending: "Your access request is pending approval.",
+  required: "This is a private deployment. Request access with your Google account.",
+  requested: "Request received. An approver has been notified.",
+  already: "Your request is already pending.",
+  error: "Sign-in could not be verified. Try again.",
+};
+
+function AccessActions({ compact = false }: { compact?: boolean }) {
+  const { isPreview, gsiReady, accessState, beginSignIn, beginRequestAccess, recheck } = useAuth();
+  const disabled = !isPreview && !gsiReady;
+  const previewBack = encodeURIComponent(window.location.origin + window.location.pathname + window.location.search);
+  const signInHref = `https://${MAIN_DOMAIN}?auth_redirect=${previewBack}`;
+  const requestHref = `https://${MAIN_DOMAIN}?access=request&auth_redirect=${previewBack}`;
+  const primary = compact
+    ? "rounded bg-sol-blue px-2 py-1 text-[11px] font-semibold text-sol-base03 disabled:opacity-50"
+    : "yovy-btn-primary rounded bg-sol-blue px-4 py-[9px] text-[13px] font-semibold text-sol-base03 disabled:opacity-50";
+  const secondary = compact
+    ? "rounded border border-sol-base01 bg-transparent px-2 py-1 text-[11px] text-sol-base1 disabled:opacity-50"
+    : "rounded border border-sol-base01 bg-sol-base02 px-4 py-[9px] text-[13px] font-semibold text-sol-base1 hover:border-sol-blue hover:text-sol-blue disabled:opacity-50";
+  const showRecheck = accessState === "pending" || accessState === "requested" || accessState === "already";
+
+  if (isPreview) {
+    return (
+      <>
+        <a href={signInHref} className={primary}>Sign in</a>
+        <a href={requestHref} className={secondary}>Request access</a>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <button type="button" className={primary} disabled={disabled} onClick={showRecheck ? recheck : beginSignIn}>
+        {showRecheck ? "Check again" : "Sign in"}
+      </button>
+      <button type="button" className={secondary} disabled={disabled} onClick={beginRequestAccess}>
+        Request access
+      </button>
+    </>
+  );
+}
+
 function useOsPrefersDark(): boolean {
   const [osDark, setOsDark] = useState(prefersDark);
   useEffect(() => {
@@ -49,6 +93,7 @@ export default function Landing() {
   const { prefs, setMode } = useTheme(false);
   const osDark = useOsPrefersDark();
   const dark = resolveTheme(prefs, osDark) === "solarized-dark";
+  const { accessState } = useAuth();
 
   return (
     <div className="fixed inset-0 overflow-y-auto bg-sol-base03 text-sol-base0 font-mono scroll-smooth motion-reduce:scroll-auto">
@@ -61,6 +106,7 @@ export default function Landing() {
             <a href="#surfaces" className="hover:text-sol-blue">Surfaces</a>
             <a href={CHANGELOG_URL} target="_blank" rel="noopener noreferrer" className="hover:text-sol-blue">CHANGELOG</a>
             <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" className="hover:text-sol-blue">GitHub</a>
+            <AccessActions compact />
             <button
               type="button"
               className="rounded border border-dashed border-sol-base01 bg-transparent px-[9px] py-1 text-[11px] text-sol-base00 cursor-pointer hover:text-sol-base1"
@@ -83,9 +129,10 @@ export default function Landing() {
               Your todos, notes, links, mail, calendar, accounts and voice stay in one linked record, and an agent works across all of it.
             </p>
             <div className="mt-[26px] flex flex-wrap items-center gap-3">
+              <AccessActions />
               <a
                 href="#accumulates"
-                className="yovy-btn-primary rounded bg-sol-blue px-4 py-[9px] text-[13px] font-semibold text-sol-base03"
+                className="rounded border border-sol-base01 bg-sol-base02 px-4 py-[9px] text-[13px] font-semibold text-sol-base1 hover:border-sol-blue hover:text-sol-blue"
               >
                 See what accumulates
               </a>
@@ -98,7 +145,9 @@ export default function Landing() {
                 GitHub
               </a>
             </div>
-            <p className="mt-3.5 text-[11px] text-sol-base00">Private deployment. No public sign-up yet.</p>
+            <p className="mt-3.5 text-[11px] text-sol-base00">
+              {accessState ? ACCESS_COPY[accessState] : "Private deployment. Access is by approval."}
+            </p>
           </div>
 
           <figure className="m-0 rounded border border-sol-base02 bg-sol-base02 px-[18px] pb-3.5 pt-[18px]">

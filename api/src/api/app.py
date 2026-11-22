@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from agent.config import VmConfigError
 from api.controller.auth import router as auth_router
+from api.controller.access import router as access_router
 from api.controller.chat import router as chat_router
 from api.controller.todo import router as todo_router
 from api.controller.calendar_event import router as calendar_router
@@ -87,6 +88,7 @@ app.add_middleware(AuthMiddleware)
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(auth_router)
+api_router.include_router(access_router)
 api_router.include_router(chat_router)
 api_router.include_router(todo_router)
 api_router.include_router(calendar_router)
