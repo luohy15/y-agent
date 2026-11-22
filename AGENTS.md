@@ -45,6 +45,13 @@ Other top-level dirs: `scripts/` (deploy, DNS, IAM), `template.yaml` / `samconfi
 
 ## Notable Subsystems
 
+- **Homepage admission (todo 4396)**: the configured maintainer and explicitly approved
+  verified emails can sign in. Protected API requests and bound Telegram actions
+  re-check admission; an existing user row is not an approval. Only an explicit
+  access request creates a waitlist entry, deduplicated by normalized email.
+  The first application queues a private maintainer DM; the admin retry job
+  retries failed sends for pending applicants. See `docs/prd/public-homepage-admission.md`.
+
 - **Execution nodes (todo 4204)**: owner-scoped `vm_config` rows are the node
   registry. `y node list|add|show|enable|disable` manages non-default nodes;
   `y chat --on <name>` selects one for a new chat. `chat.execution_target`
@@ -416,7 +423,7 @@ The repo no longer contains an in-process agent loop — the worker shells out.
 By category (all entities get a Repository in `repository/` and a Service in `service/`;
 exceptions noted):
 
-- **Identity / chat**: `user`, `chat`
+- **Identity / chat**: `user`, `user_access` (admission decision and notice state), `chat`
 - **Tasks / time**: `todo` (coordinator claim columns `leader_chat` / `leader_claimed_at` / `leader_state`, todo 4080), `calendar_event`, `reminder`, `chat_wakeup` (todo 3655),
   `trace_runtime_snapshot` (worker-written per-owner runtime evidence, todo 4070)
 - **Notes / knowledge graph**: `note`, `note_todo_relation`, `entity`,
@@ -477,7 +484,8 @@ exceptions noted):
 
 Grouped by feature area:
 
-- **Auth / core**: `auth.py` (Google OAuth → JWT), `chat.py` (create + SSE streaming +
+- **Auth / core**: `auth.py` (Google OAuth → JWT), `access.py` (verified-email
+  application; maintainer-only list, approval and inventory), `chat.py` (create + SSE streaming +
   stop + steer + trace read-state + public share read + the union send/dispatch
   route `POST /api/chat/message` + host `GET /api/chat/bot-options` + the
   registered-wakeup routes `POST/GET /api/chat/wakeup` + `POST
@@ -583,7 +591,7 @@ Grouped by feature area:
 - `command_option.py` — root `y` group
 - Built-in `commands/`: hybrid `chat` (dispatch/stop/attach/wakeup stay built-in; browse
   falls through), `node` (execution-node registry), `todo`, `calendar`, `entity`,
-  `reminder`, `rss`, `link`,
+  `reminder`, `rss`, `link`, `access` (`y access list|approve|inventory`),
   `image`, `trace`, `english`, `module`, `assoc`/`unassoc`, `init`/`login`/
   `logout`. Domain groups (`y dev`, `y email`, `y finance`, `y bot`, `y file`, `y note`, …) resolve
   lazily from `code/y-module/<slug>/cli.py`. `y assoc note` stays built-in (3041
@@ -599,8 +607,9 @@ Grouped by feature area:
 
 ## Auth Flow
 
-Google OAuth → `POST /api/auth/google` (id_token) → JWT (HS256) stored in localStorage.
-Middleware validates Bearer token on all routes except `/api/auth/*`, `/api/telegram/*`,
+Google OAuth → `POST /api/auth/google` (verified identity + admission check) → JWT (HS256) stored in localStorage.
+`POST /api/access/request` verifies the Google ID token directly and does not issue a JWT.
+Middleware checks the bearer token and admission on protected routes. Exceptions include `/api/auth/*`, `/api/telegram/*`,
 public share routes (`/api/chat/share/*`, `/api/trace/share/*`) and
 `/api/mcp/runtime/<launch_id>` (authenticated by the per-launch grant instead of a JWT).
 

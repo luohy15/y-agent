@@ -1,13 +1,13 @@
 import click
 from tabulate import tabulate
 
-from yagent.api_client import api_request
+from yagent.commands.access.client import access_request
 
 
 @click.command(name="inventory")
 def access_inventory():
     """List existing users with maintainer and admission state. Read-only."""
-    rows = api_request("GET", "/api/access/inventory").json()
+    rows = access_request("GET", "/api/access/inventory").json()
     if not rows:
         click.echo("No users.")
         return

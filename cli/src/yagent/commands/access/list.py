@@ -1,7 +1,7 @@
 import click
 from tabulate import tabulate
 
-from yagent.api_client import api_request
+from yagent.commands.access.client import access_request
 
 
 @click.command(name="list")
@@ -9,7 +9,7 @@ from yagent.api_client import api_request
 def access_list(status):
     """List access applications."""
     params = {"status": status} if status else None
-    rows = api_request("GET", "/api/access/applications", params=params).json()
+    rows = access_request("GET", "/api/access/applications", params=params).json()
     if not rows:
         click.echo("No applications.")
         return

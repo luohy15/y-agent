@@ -208,6 +208,11 @@ def claim_notice(email: str) -> Optional[dict]:
                 return None
         else:
             return None
+        if row.status == "approved":
+            row.notification_status = "skipped"
+            row.notification_claimed_at = None
+            _touch(row, now)
+            return None
         row.notification_status = "sending"
         row.notification_claimed_at = now
         _touch(row, now)
@@ -238,7 +243,10 @@ def mark_notice_attempt_failed(email: str, error: str) -> Optional[str]:
         row.last_notification_attempt_at = now
         row.last_notification_error = error
         row.notification_claimed_at = None
-        row.notification_status = "failed" if attempts >= MAX_NOTIFICATION_ATTEMPTS else "pending"
+        if row.status == "approved":
+            row.notification_status = "skipped"
+        else:
+            row.notification_status = "failed" if attempts >= MAX_NOTIFICATION_ATTEMPTS else "pending"
         _touch(row, now)
         session.flush()
         return row.notification_status
