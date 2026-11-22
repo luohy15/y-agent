@@ -33,6 +33,12 @@ no audited target photo/upload/voice rows to migrate. Voice originals and
 voice part uploads use application envelopes when their owner is encryption-active;
 part identities are authenticated independently before final assembly.
 
+Homepage admission is a separate concern owned by
+[public-homepage-admission](public-homepage-admission.md): it decides who may
+sign in and call the API, does not change encryption eligibility or tenant
+activation, and preserves the same named accounts through an explicit
+inventory-first rollout.
+
 ## Guarantee
 
 - Classified encrypted content is unreadable from database/S3 copies alone.
