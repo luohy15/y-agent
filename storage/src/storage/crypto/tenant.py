@@ -275,8 +275,21 @@ def _cache_get(cache: dict, key):
         return found[1]
 
 
-def _rows(session, user_id: int):
+def _key_model():
+    """Return the key model with its foreign-key target registered.
+
+    A fresh process that imports only this module, such as the one-account
+    migration script, has no ``user`` table in the metadata until some other
+    entrypoint imports it; the first flush then fails to resolve
+    ``tenant_key.user_id``. Mirrors repository/chat.py.
+    """
     from storage.entity.tenant_key import TenantKeyEntity
+    from storage.entity.user import UserEntity  # noqa: F401 - needed for TenantKeyEntity FK resolution
+    return TenantKeyEntity
+
+
+def _rows(session, user_id: int):
+    TenantKeyEntity = _key_model()
 
     return session.query(TenantKeyEntity).populate_existing().filter_by(user_id=user_id).all()
 
@@ -314,7 +327,7 @@ def key_state(session, user_id: int) -> KeyState:
 
 
 def material_for_key(session, user_id: int, key_id: str) -> KeyMaterial:
-    from storage.entity.tenant_key import TenantKeyEntity
+    TenantKeyEntity = _key_model()
 
     row = (session.query(TenantKeyEntity).populate_existing()
            .filter_by(user_id=int(user_id), key_id=key_id).one_or_none())
@@ -363,7 +376,7 @@ def enable_tenant(session, user_id: int) -> None:
 
 
 def _insert_key(session, user_id: int, status: str) -> str:
-    from storage.entity.tenant_key import TenantKeyEntity
+    TenantKeyEntity = _key_model()
     from storage.util import get_utc_iso8601_timestamp
 
     key_id = os.urandom(16).hex()
@@ -390,7 +403,7 @@ def _insert_key(session, user_id: int, status: str) -> str:
 
 
 def rotate_dek(session, user_id: int) -> str:
-    from storage.entity.tenant_key import TenantKeyEntity
+    TenantKeyEntity = _key_model()
 
     state = key_state(session, user_id)
     if state.kind != "active":
@@ -405,7 +418,7 @@ def rotate_dek(session, user_id: int) -> str:
 
 def rewrap_keys(session) -> int:
     """Rewrap both tenant keys with the current KEK; data envelopes stay intact."""
-    from storage.entity.tenant_key import TenantKeyEntity
+    TenantKeyEntity = _key_model()
 
     master_id, _ = master_keys()
     _master_key(master_id)
@@ -432,9 +445,9 @@ def shred_tenant(session, user_id: int) -> int:
     This does not erase ciphertext, a copied DEK, or a database snapshot. Those
     copies still decrypt until the copy and backup retention are gone.
     """
-    from storage.entity.tenant_key import TenantKeyEntity
     from storage.entity.user import UserEntity
 
+    TenantKeyEntity = _key_model()
     user = session.get(UserEntity, user_id)
     if user is not None and is_legacy_account(user):
         raise TenantCryptoError("encryption_shred_refused")
