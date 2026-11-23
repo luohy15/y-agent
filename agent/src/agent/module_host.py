@@ -217,6 +217,8 @@ Todo 4357 bumps 37 to 38: pi is an agentic backend and BotConfig.backends
 accepts up to three unique connection entries. Deploy host v38 before publishing
 the Bot module that offers pi and declares min_backend_version 38. The chat
 backend rename is a separate data-only migration after deployed acceptance.
+Todo 4401 bumps 38 to 39: user_is_admin reads the request owner's admin marker.
+Apply migration/4401_user_admin.sql before deploying v39, then publish Bot.
 """
 
 from __future__ import annotations
@@ -235,8 +237,7 @@ from storage.project_key import ProjectKeyError as ProjectKeyError, normalize_pr
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-# v38: pi agentic connection entries and detached runtime (todo 4357).
-BACKEND_CONTRACT_VERSION = 38
+BACKEND_CONTRACT_VERSION = 39
 
 # Wall-clock budget for the wake="nowait" readiness check (todo 3777).
 NOWAIT_BUDGET_SECONDS = 1.0
@@ -475,6 +476,16 @@ def note_list_at_path(user_id: int, content_key: str) -> list[dict[str, str]]:
 # repository directly. No repositories, raw sessions, entities, or generic
 # host-table access are exposed.
 # ---------------------------------------------------------------------------
+
+
+def user_is_admin(user_id: int) -> bool:
+    """Read the authenticated request owner's admin marker."""
+    owner = _request_owner.get()
+    if owner is None or owner != user_id:
+        raise ModuleHostAuthError("admin marker is restricted to the authenticated request owner")
+    from storage.service import user as user_service
+
+    return user_service.is_admin(user_id)
 
 
 def _require_bot_config_owner(user_id: int) -> None:

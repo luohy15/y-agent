@@ -13,6 +13,7 @@ class UserEntity(Base, BaseEntity):
     deleted = Column(Boolean, default=False, nullable=False)
     telegram_id = Column(BigInteger, nullable=True, unique=True, index=True)
     encryption_eligible = Column(Boolean, nullable=False, server_default="false", default=False)
+    is_admin = Column(Boolean, nullable=False, server_default="false", default=False)
 
     def set_password(self, password: str) -> None:
         import bcrypt

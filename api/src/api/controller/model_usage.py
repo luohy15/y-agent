@@ -13,6 +13,7 @@ from storage.service import model_usage_hourly as hourly_service
 from storage.service import model_usage_limit_history as limit_history_service
 from storage.service import relay_credential as relay_service
 from storage.service import usage_rate as rate_service
+from storage.service import user as user_service
 from storage.service.time_range import describe_time_range, parse_time_range
 from storage.util import local_today
 
@@ -250,7 +251,7 @@ async def limit_history(
 
 @router.get("/limits")
 async def limits(request: Request, refresh: bool = False):
-    """Subscription limit-window status (Codex, Grok), read from the
+    """Admin-only subscription limit-window status (Codex, Grok), read from the
     persisted snapshot in `user_preference` key `usage_limits_latest`
     (todo 3226). Ordinary polls never touch the VM/SSH/CLI path — a
     30-minute worker sweep keeps that snapshot current, read here as a
@@ -262,6 +263,8 @@ async def limits(request: Request, refresh: bool = False):
     immediately with `refresh_in_progress` set rather than starting a second
     overlapping CLI run."""
     user_id = request.state.user_id
+    if not user_service.is_admin(user_id):
+        raise HTTPException(status_code=403, detail="Subscription limits are restricted")
     status = await limits_service.get_limit_status(user_id, refresh=refresh)
     return {
         **status,

@@ -24,6 +24,12 @@ def get_default_user_id() -> int:
     return user.id
 
 
+def is_admin(user_id: int) -> bool:
+    """Only a live user explicitly marked as admin has admin access."""
+    user = get_user_by_id(user_id)
+    return user is not None and user.is_admin is True
+
+
 def get_live_public_user_id(internal_id):
     """Map an authenticated internal PK to the live public user_id.
 
