@@ -49,8 +49,9 @@ Other top-level dirs: `scripts/` (deploy, DNS, IAM), `template.yaml` / `samconfi
   verified emails can sign in. Protected API requests and bound Telegram actions
   re-check admission; an existing user row is not an approval. Only an explicit
   access request creates a waitlist entry, deduplicated by normalized email.
-  The first application queues a private maintainer DM; the admin retry job
-  retries failed sends for pending applicants. See `docs/prd/public-homepage-admission.md`.
+  The first application queues one private maintainer notice through the notify
+  gateway; the admin retry job retries failed sends for pending applicants. See
+  `docs/prd/public-homepage-admission.md`.
 
 - **Execution nodes (todo 4204)**: owner-scoped `vm_config` rows are the node
   registry. `y node list|add|show|enable|disable` manages non-default nodes;
@@ -190,7 +191,7 @@ entity + controller + service + CLI slices, and most have a web panel.
   the host `PublicLinkList`.
 - **Browser cookies** — `y cookies sync` stores local browser cookies in the API/DB so remote `y link fetch` can pass them to `yt-dlp`.
 - **Reminder** — `reminder` table, `/api/reminder`, `y reminder` CLI. Admin Lambda runs
-  `check_reminders` on a schedule and pushes matches to Telegram.
+  `check_reminders` on a schedule and pushes matches through the notify gateway.
 - **Telegram** — private-chat-only webhook (secret verified, non-private chat
   types ignored before any command/chat write; the former forum group and its
   `tg_topic` binding table are retired). Inbound reply / selected-quote context
@@ -200,13 +201,25 @@ entity + controller + service + CLI slices, and most have a web panel.
   Telegram reply path, their detail surface is web. Markdown → HTML
   conversion, root-role callbacks short-circuited at the API layer. Web-only
   artifact fences are stripped to `[chart]` / `[diagram]` / `[svg]`
-  placeholders before Telegram delivery. See
+  placeholders before Telegram delivery. Proactive notices are not this path;
+  they use the notify gateway. See
   [`docs/prd/telegram-delivery.md`](docs/prd/telegram-delivery.md).
+- **Notify gateway** — proactive text (routine alerts, todo awaiting and SLA
+  digests, reminders, routine failures, death notices, access notices) goes
+  through `storage.service.notify`. Preference key `notify_channel` is `wechat`
+  or `telegram` (unset means `telegram`). The gateway tries the preferred
+  channel, then the other; WeChat counts as available only for the owner's
+  active account and peer with a heartbeat younger than 300 seconds.
+  `POST /api/notify/send`, `GET /api/notify/status`, `PUT /api/notify/config`,
+  and `y notify send|config|status`. No schema change. See
+  [`docs/prd/notify-gateway.md`](docs/prd/notify-gateway.md).
 - **WeChat** — maintainer-only text DMs use an iLink bridge on the always-on
   relay host `claude-relay`, supervised by systemd (`y-agent-wechat-bridge.service`).
   The four bridge POST routes authenticate the active bot's opaque token rather
   than a user JWT. Inbound receipts reserve manager turns; only WeChat-triggered
-  manager replies enter the leased outbox. Telegram mirroring is independent.
+  manager replies enter the leased outbox. Proactive gateway sends enqueue
+  through `notify_user` with no maintainer gate and are text-only. Telegram
+  mirroring is independent.
   Apply `migration/4400_wechat_channel.sql` before enabling the channel.
   See `docs/prd/wechat-channel.md`.
 - **Artifacts** — assistant markdown fences tagged `mermaid`, `vega-lite`, or
@@ -517,7 +530,8 @@ Grouped by feature area:
   disable / delete / bundle); module-owned domain routes are dispatched under
   `/api/module/<slug>/*` by `api/module_runtime/` (not a built-in controller per
   domain). Per-module route inventories live in `code/y-module/<slug>/README.md`.
-- **Infrastructure**: `telegram.py` (private-only webhook, bind/unbind, routing),
+- **Infrastructure**: `notify.py` (`POST /api/notify/send`, `GET /api/notify/status`,
+  `PUT /api/notify/config`), `telegram.py` (private-only webhook, bind/unbind, routing),
   `mcp.py` (the
   launch-grant-authenticated runtime gateway only; management and OAuth completion
   are the `mcp` module over `mcp_*` host capabilities), `vm_config.py` (owner-scoped
@@ -599,7 +613,7 @@ Grouped by feature area:
 - Built-in `commands/`: hybrid `chat` (dispatch/stop/attach/wakeup stay built-in; browse
   falls through), `node` (execution-node registry), `todo`, `calendar`, `entity`,
   `reminder`, `rss`, `link`, `access` (`y access list|approve|inventory`),
-  `image`, `trace`, `english`, `module`, `assoc`/`unassoc`, `init`/`login`/
+  `image`, `trace`, `english`, `notify` (`y notify send|config|status`), `module`, `assoc`/`unassoc`, `init`/`login`/
   `logout`. Domain groups (`y dev`, `y email`, `y finance`, `y bot`, `y file`, `y note`, …) resolve
   lazily from `code/y-module/<slug>/cli.py`. `y assoc note` stays built-in (3041
   content-path authority). `LazyModuleProxy` uses `module.json` `label` for help.

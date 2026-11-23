@@ -12,7 +12,7 @@ from storage.repository import dev_release as release_repo
 from storage.repository import todo as todo_repo
 from storage.repository import trace_runtime as runtime_repo
 from storage.repository import entity_tag as tag_repo
-from storage.service import telegram as telegram_service
+from storage.service import notify as notify_service
 from storage.service.trace_runtime import derive_runtime, machine_wait_live
 from storage.util import get_utc_iso8601_timestamp, get_unix_timestamp, local_today
 from storage.todo_sla import OPEN_STATUSES, resolve_sla, is_overdue, format_digest
@@ -410,7 +410,7 @@ def _maybe_notice(user_id: int, todo_id: str, todo: Optional[Todo], entered: boo
                   *, extra: Optional[str] = None) -> Optional[Todo]:
     if todo and entered:
         try:
-            telegram_service.send_owner_notice(user_id, awaiting_notice_text(todo, extra))
+            notify_service.send(user_id, awaiting_notice_text(todo, extra))
         except Exception:
             logger.exception(
                 "todo awaiting notice failed: user_id={} todo_id={}", user_id, todo_id,
@@ -549,7 +549,7 @@ def audit_todos(user_id: int) -> dict:
 
 def notify_sla_digest(user_id: int) -> bool:
     text = format_digest(audit_todos(user_id))
-    return telegram_service.send_owner_notice(user_id, text) if text else False
+    return bool(notify_service.send(user_id, text)) if text else False
 
 
 def update_status(

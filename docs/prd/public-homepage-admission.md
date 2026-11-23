@@ -45,8 +45,9 @@ The public homepage gains a visible "Sign in" action and an explicit "Request
 access" action. Sign-in succeeds only for the configured maintainer or an
 approved email. An unapproved visitor can request access, which records a
 pending waitlist entry, deduplicated by verified email, and sends the
-maintainer one private Telegram message the first time that identity applies.
-The notice is retried if Telegram delivery fails. A repeat request, or an
+maintainer one private notification through the [notify gateway](notify-gateway.md)
+the first time that identity applies.
+The notice is retried if that delivery fails. A repeat request, or an
 ordinary sign-in attempt, never sends another notice.
 
 Approval is maintainer-only. The maintainer lists applications and approves a
@@ -88,15 +89,15 @@ is retired as an authority.
    know what to expect and can stop retrying.
 8. As an approved applicant, I want my next sign-in to succeed without a second
    application, so approval has a clear, immediate effect.
-9. As the maintainer, I want one private Telegram message on the first
+9. As the maintainer, I want one private notification on the first
    successful application, so I learn about it without polling.
-10. As the maintainer, I want no Telegram message for ordinary sign-in attempts,
+10. As the maintainer, I want no notification for ordinary sign-in attempts,
     so the channel stays signal.
-11. As the maintainer, I want no second Telegram message for a repeat
+11. As the maintainer, I want no second notification for a repeat
     application from the same identity, so retries and impatience do not spam me.
 12. As the maintainer, I want the notice to contain the applicant email, the
     request time and the approval command, so I can act directly from it.
-13. As the maintainer, I want an application to survive a Telegram delivery
+13. As the maintainer, I want an application to survive a delivery
     failure and the notice to be retried, so a transient outage does not lose a
     request.
 14. As the maintainer, I want to list pending and approved applications, so I
@@ -252,8 +253,9 @@ is retired as an authority.
 
 ### Notification to the maintainer
 
-- A new application triggers exactly one private Telegram direct message to the
-  configured maintainer. Ordinary login attempts, repeat applications and
+- A new application triggers exactly one private notification to the
+  configured maintainer through the [notify gateway](notify-gateway.md).
+  Ordinary login attempts, repeat applications and
   approval actions never trigger another application notice for the same row.
 - The message contains the applicant email, the request time, and the exact
   approval command (`y access approve <email>`). It contains no token, password
@@ -263,7 +265,7 @@ is retired as an authority.
   from `pending` to `sending`; exactly one sender can hold that claim. On
   success the row becomes `sent`. On failure it returns to `pending`, increments
   `notification_attempts`, and records the sanitized error and attempt time.
-  The application response does not fail because Telegram failed.
+  The application response does not fail because notification delivery failed.
 - A scheduled admin action retries rows still `pending` at a bounded cadence
   (every five minutes), with a minimum gap between attempts and a bounded
   attempt count (ten). A row that exhausts attempts becomes `failed`. A stale
@@ -271,12 +273,12 @@ is retired as an authority.
 - Approving a row whose notice is still `pending` sets `notification_status` to
   `skipped`, because the maintainer has already acted. A send already in flight
   may still arrive once; that is acceptable and is the only duplicate case.
-- If the maintainer has no Telegram binding or the bot token is unset, the
+- If neither the preferred channel nor the fallback can deliver, the
   application still succeeds, the notice stays pending and then failed, and the
   state is visible in the application list. Retries never block the API request.
 - The admin Lambda needs the maintainer identity configured so the retry job can
-  resolve the recipient. The existing Telegram bot token is reused; no new
-  secret is introduced.
+  resolve the recipient. The gateway reuses the existing Telegram bot token and
+  WeChat bridge; no new secret is introduced.
 
 ### Maintainer approval
 
@@ -372,7 +374,7 @@ locked out, and so the baseline is reviewable before enforcement.
    - a sampled unapproved existing account is refused at login, is refused on
      a direct protected API call with its old token, and is shown the request
      access state in the web app;
-   - a request creates one pending row and one Telegram message;
+   - a request creates one pending row and one notify-gateway notice;
    - a repeat request sends no second message;
    - approval makes the next login succeed;
    - a public share link still opens without an account;
@@ -424,7 +426,7 @@ Acceptance matrix:
 | Existing unapproved email signs in | `403 access_required`; no token; no new user row |
 | Pending email signs in | `403 access_pending`; no token |
 | Invalid or unverified Google token | `401`; no row written |
-| First request access | One pending row; one Telegram notice; response says created |
+| First request access | One pending row; one notify-gateway notice; response says created |
 | Repeat request access | Same row; `request_count` increases; no second notice |
 | Approved email requests access | Response `approved`; sign-in succeeds |
 | Unapproved token calls a protected route | `403 access_not_approved` |
@@ -432,7 +434,7 @@ Acceptance matrix:
 | Public share link | Still opens without a token |
 | Non-maintainer lists or approves | `403` |
 | Maintainer lists and approves pending | Idempotent approval with decider and time |
-| Telegram delivery fails | Application succeeds; notice pending; retry later sends once |
+| Notification delivery fails | Application succeeds; notice pending; retry later sends once |
 | Approval before notice sent | Notice skipped; no stale alert |
 | Notification target permanently absent | Bounded attempts end in `failed`, visible in list |
 | Unapproved bound Telegram account | Refusal reply; no agent run |
@@ -445,7 +447,7 @@ application and a successful approval. Screenshots, if requested, go to the
 workspace screenshots directory.
 
 Prior art to preserve: the existing Google ID token verification and CLI
-manual-token flow, the owner Telegram notice path, and the existing public
+manual-token flow, the owner notification path, and the existing public
 share routes.
 
 ## Out of Scope

@@ -4,6 +4,8 @@ import time
 
 from sqlalchemy import delete, func, select, text
 
+from loguru import logger
+
 from storage.database.base import get_db
 from storage.entity.wechat import (
     WechatAccountEntity as Account, WechatContextEntity as Context,
@@ -70,8 +72,59 @@ def verify_code(peer, value, now):
     return valid
 
 
+WECHAT_BRIDGE_STALE_SECONDS = 300
+
+
 def admitted(user_id):
     return request_admitted(user_id, None)["admitted"]
+
+
+def bridge_live(heartbeat, now):
+    if isinstance(heartbeat, bool) or not isinstance(heartbeat, int):
+        return False
+    age = now - heartbeat
+    return 0 <= age < WECHAT_BRIDGE_STALE_SECONDS
+
+
+def _notify_target(db, user_id, now):
+    account = locked_account(db)
+    if not account or account.user_id != user_id or account.status != "active":
+        return None
+    if not bridge_live(account.heartbeat, now):
+        return None
+    peer = peer_for(db, account)
+    if not peer or peer.user_id != user_id or peer.status != "active":
+        return None
+    return account, peer
+
+
+def notify_available(user_id):
+    try:
+        with get_db() as db:
+            return _notify_target(db, user_id, int(time.time())) is not None
+    except Exception:
+        logger.exception("wechat notify availability failed user_id={}", user_id)
+        return False
+
+
+def notify_user(user_id, text):
+    """Queue a proactive text for the owner. No maintainer gate. Never raises."""
+    if not isinstance(text, str) or not text.strip():
+        return False
+    now = int(time.time())
+    try:
+        with get_db() as db:
+            target = _notify_target(db, user_id, now)
+            if not target:
+                return False
+            account, peer = target
+            enqueue(db, account, peer.peer, text, secrets.token_hex(16))
+        return True
+    except ChannelError:
+        return False
+    except Exception:
+        logger.exception("wechat notify failed user_id={}", user_id)
+        return False
 
 
 def authenticate(db, token):

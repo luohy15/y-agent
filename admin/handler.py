@@ -11,7 +11,7 @@ def lambda_handler(event, context):
 
     Supported actions:
         init_db: Initialize database tables
-        check_reminders: Send due reminders via Telegram
+        check_reminders: Send due reminders through the notify gateway
         tick_routines: Fire due routines via the chat dispatch pipeline
         retry_access_notifications: Retry pending homepage-admission notices
         seed_access_rollout: Idempotently approve the maintainer and named account
@@ -58,15 +58,9 @@ def lambda_handler(event, context):
 
 
 def _check_reminders():
-    """Query pending reminders that are due and send them via Telegram."""
+    """Query pending reminders that are due and send them through the notify gateway."""
+    from storage.service import notify as notify_service
     from storage.service import reminder as reminder_svc
-    from storage.repository import user as user_repo
-    from storage.util import get_telegram_bot_token, send_telegram_message
-
-    bot_token = get_telegram_bot_token()
-    if not bot_token:
-        logger.warning("[check_reminders] TELEGRAM_BOT_TOKEN not set, skipping")
-        return {"status": "skip", "action": "check_reminders", "reason": "no bot token"}
 
     pending = reminder_svc.get_pending_reminders()
     logger.info("[check_reminders] found {} due reminders", len(pending))
@@ -77,27 +71,24 @@ def _check_reminders():
         user_id = item["user_id"]
         reminder = item["reminder"]
 
-        user = user_repo.get_user_by_id(user_id)
-        if not user or not user.telegram_id:
-            logger.warning(
-                "[check_reminders] skip reminder {}: user {} has no telegram_id",
-                reminder.reminder_id,
-                user_id,
-            )
-            continue
-
         text = f"\U0001f514 提醒: {reminder.title}"
         if reminder.description:
             text += f"\n{reminder.description}"
 
         try:
-            send_telegram_message(bot_token, user.telegram_id, text)
+            result = notify_service.send(user_id, text)
+            if not result:
+                logger.warning(
+                    "[check_reminders] skip reminder {}: no channel",
+                    reminder.reminder_id,
+                )
+                continue
             reminder_svc.mark_sent(user_id, reminder.reminder_id)
             sent_count += 1
             logger.info(
-                "[check_reminders] sent reminder {} to telegram_id {}",
+                "[check_reminders] sent reminder {} via {}",
                 reminder.reminder_id,
-                user.telegram_id,
+                result.channel,
             )
         except Exception as e:
             errors.append({"reminder_id": reminder.reminder_id, "error": str(e)})
@@ -131,14 +122,11 @@ def _todo_sla_digest():
 
 def _tick_routines():
     """Fire enabled routines whose cron schedule is due."""
+    from storage.service import notify as notify_service
     from storage.service import routine as routine_svc
-    from storage.repository import user as user_repo
-    from storage.util import get_telegram_bot_token, send_telegram_message
 
     due = routine_svc.list_due_routines()
     logger.info("[tick_routines] found {} due routines", len(due))
-
-    bot_token = get_telegram_bot_token()
     fired = 0
     skipped = 0
     errors = []
@@ -181,20 +169,15 @@ def _tick_routines():
                 routine.routine_id,
                 e,
             )
-            if not bot_token:
-                continue
-            user = user_repo.get_user_by_id(user_id)
-            if not user or not user.telegram_id:
-                continue
             try:
-                send_telegram_message(
-                    bot_token,
-                    user.telegram_id,
-                    f"⚠️ routine '{routine.name}' failed: {e}",
-                )
+                if not notify_service.send(user_id, f"⚠️ routine '{routine.name}' failed: {e}"):
+                    logger.warning(
+                        "[tick_routines] notify skipped routine={}: no channel",
+                        routine.routine_id,
+                    )
             except Exception as notify_err:
                 logger.exception(
-                    "[tick_routines] telegram notify failed routine={} err={}",
+                    "[tick_routines] notify failed routine={} err={}",
                     routine.routine_id,
                     notify_err,
                 )

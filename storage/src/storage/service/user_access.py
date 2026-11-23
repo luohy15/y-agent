@@ -10,7 +10,6 @@ from loguru import logger
 
 from storage.repository import user as user_repo
 from storage.repository import user_access as access_repo
-from storage.util import get_telegram_bot_token, send_telegram_message_checked
 
 ROLLOUT_EMAIL = "roy.luo@alphavantage.co"
 _MAINTAINER_ENV = "Y_AGENT_MODULE_MAINTAINER_USER_ID"
@@ -146,18 +145,14 @@ def _notice_text(email: str, requested_at: str | None) -> str:
 
 
 def _notice_failure(row: dict) -> str | None:
-    token = get_telegram_bot_token()
-    if not token:
-        return "telegram bot token unset"
+    from storage.service import notify as notify_service
+
     maintainer = resolve_maintainer()
     if maintainer["internal_id"] is None:
         return "maintainer unresolved"
-    user = user_repo.get_user_by_id(maintainer["internal_id"])
-    if not user or not user.telegram_id:
-        return "maintainer telegram unbound"
     text = _notice_text(row["email"], row.get("first_requested_at"))
-    if not send_telegram_message_checked(token, user.telegram_id, text):
-        return "telegram send failed"
+    if not notify_service.send(maintainer["internal_id"], text):
+        return "notify send failed"
     return None
 
 
@@ -169,7 +164,7 @@ def deliver_notice(email: str) -> str:
         error = _notice_failure(claimed)
     except Exception:
         logger.exception("access notice send failed email={}", claimed["email"])
-        error = "telegram send failed"
+        error = "notify send failed"
     if error is None:
         access_repo.mark_notice_sent(claimed["email"])
         return "sent"
