@@ -33,7 +33,10 @@ def skills_group():
     """Check, export and publish a composed agents tree.
 
     Scope default is the unrestricted selection. It is not the node named default.
-    personal and work are rejected. An empty stored node namespace publishes as default.
+    personal and work are rejected. An empty stored node namespace publishes as default
+    for --node only. --local-target requires an explicit --namespace, and default there
+    also requires --full-tree. --host uses one node's stored namespace and refuses an
+    unset, default, or non-node-deliverable scope.
     """
 
 
@@ -70,17 +73,27 @@ def skills_export(namespace, source, out):
     click.echo(result['summary'])
 
 
+def _one_delivery(local_target, node, host):
+    chosen = [name for name, value in (('--local-target', local_target), ('--node', node), ('--host', host)) if value]
+    if len(chosen) > 1:
+        raise click.UsageError('choose only one of --node, --host, or --local-target')
+
+
 @skills_group.command('publish')
 @click.option('--run', is_flag=True, help='Upload archives and push selected nodes.')
 @click.option('--dry-run', is_flag=True, help='Read API policy and build only (the default).')
 @click.option('--source', type=click.Path(path_type=Path), default=lambda: Path.home() / '.agents')
 @click.option('--node', multiple=True, help='SSH-config alias registered as a node. Default: mac only.')
+@click.option('--host', type=str, default=None,
+              help='SSH alias of one tenant-owned node. Uses its stored namespace.')
 @click.option('--local-target', type=click.Path(path_type=Path), help='Local effective tree only; no upload or SSH.')
 @click.option('--namespace', type=str, default=None,
-              help='Local scope when --local-target is set. Omitted means default. '
-                   'Remote delivery rejects this flag and uses the registry scope. '
+              help='Required with --local-target. default also requires --full-tree. '
+                   'Remote --node and --host reject this flag and use the registry scope. '
                    'Scope default is not the node named default.')
-def skills_publish(run, dry_run, source, node, local_target, namespace):
+@click.option('--full-tree', is_flag=True,
+              help='With --local-target --namespace default, publish the unrestricted selection.')
+def skills_publish(run, dry_run, source, node, host, local_target, namespace, full_tree):
     """Publish composed trees only for node-deliverable scopes.
 
     Dry-run performs read-only API requests, never uploads or writes a target.
@@ -88,13 +101,17 @@ def skills_publish(run, dry_run, source, node, local_target, namespace):
     """
     if run and dry_run:
         raise click.UsageError('choose --run or --dry-run, not both')
-    if local_target and node:
-        raise click.UsageError('--local-target cannot be combined with --node')
+    _one_delivery(local_target, node, host)
+    if full_tree and (not local_target or namespace != 'default'):
+        raise click.UsageError('--full-tree applies only to --local-target --namespace default')
+    if local_target and namespace is None:
+        raise click.UsageError('--local-target requires an explicit --namespace')
+    if local_target and namespace == 'default' and not full_tree:
+        raise click.UsageError('--namespace default requires --full-tree')
     try:
         policies = agents_publish.load_registry(get=_get)
         if local_target:
-            chosen = namespace or 'default'
-            canonical = agents_publish.normalize_namespace(chosen)
+            canonical = agents_publish.normalize_namespace(namespace)
             if canonical != 'default' and not policies['by_name'].get(canonical, {}).get('node_deliverable', False):
                 raise click.UsageError('namespace is not node-deliverable')
             if run:
@@ -107,8 +124,12 @@ def skills_publish(run, dry_run, source, node, local_target, namespace):
             return
         if namespace is not None:
             raise click.UsageError('--namespace cannot override a remote node scope')
-        scopes = agents_publish.node_namespaces(
-            list(dict.fromkeys(node or ('mac',))), _get('/api/vm-config/list'), policies)
+        if host:
+            scope = agents_publish.resolve_host_scope(host, _get('/api/vm-config/list'), policies)
+            scopes = {host: scope}
+        else:
+            scopes = agents_publish.node_namespaces(
+                list(dict.fromkeys(node or ('mac',))), _get('/api/vm-config/list'), policies)
         for name, scope in scopes.items():
             click.echo(f'{name}: scope={scope}')
         archives = {}

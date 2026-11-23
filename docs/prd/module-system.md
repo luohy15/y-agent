@@ -498,6 +498,47 @@ changed slug with `y module publish <slug>`, then verify that an admitted
 non-maintainer's `GET /api/module/list?enabled_only=true` returns exactly the
 revised set. There is no separate host allowlist.
 
+### Tenant skill set for an admitted node
+
+Catalog access does not install the maintainer agent tree. An admitted node
+receives one curator-managed composition, `tenant-base`. The tenant cannot
+read or change that selection: namespace dispatch stays maintainer-only.
+
+`tenant-public` is the parent. It has no parent, overlay, or allowlist, it is
+not `node_deliverable`, and its only rules are the skills `chat`, `note`, and
+`artifact`. `module`, `todo`, `file`, `tag`, and `bot` are built-in `y`
+commands and are not skills in this tree. `tenant-base` is its child: overlay
+directory `tenant`, allowlist `private/tenant-allowlist.txt`,
+`node_deliverable`, and no rules of its own. An allowlist-bearing scope cannot
+also carry ordinary skill or path rules, so the core and the skills stay in
+different scopes. The allowlist's only entry is `tenant/global-instructions.md`.
+`private/approved-roots.tsv` binds that overlay directory to `tenant-base`.
+
+The composed tree is exactly `global-instructions.md` and
+`skills/{chat,note,artifact}/SKILL.md`. The entrypoint comes from the overlay.
+It is not composed with the maintainer `global-instructions.md`, and the
+selection does not include `private/`, `references/`, `hooks/`, `commands/`, or
+`synced/`. The tenant core is self-contained: it does not link to files that
+are not in the tree. Those three skill directories must not contain extra
+files, or the composition would be larger than this set.
+
+`y skills publish --local-target` requires an explicit `--namespace`.
+`--namespace default` also requires `--full-tree`; omitting either flag is a
+usage error and does not build the unrestricted tree. Remote delivery still
+takes the namespace from the node registry. `--namespace` cannot override
+`--node` or `--host`.
+
+`--host <ssh-alias>` delivers one enabled node. The alias is that node's
+registry name and the SSH target. An unset namespace, the `default` scope, and
+any scope that is not `node_deliverable` are refused before a build or upload.
+Dry-run prints the alias and scope and does not upload or SSH. `--run` reuses
+the existing archive upload and `install_archive` receiver. `--node` is
+unchanged: an empty stored namespace still means `default`, and the default
+target remains `mac`. When the alias cannot be used, stage the same selection
+with `--run --local-target <dir> --namespace tenant-base` (a direct tree write,
+not the archive receiver). Set the tenant node's `vm_config.namespace` to
+`tenant-base` before `--host` delivery. Do not install maintainer hooks.
+
 ### Per-user activity-bar pins
 
 Whether a module **appears in the left activity bar** is a personal navigation

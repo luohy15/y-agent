@@ -641,7 +641,7 @@ def assemble(source, namespace, get=None, policies=None, out=None):
     allowlist = allowlists.get(canonical, [])
     entries = list(iter_files(source, prefixes + tuple(allowlist) if canonical != "default" else ()))
     base, overlay = classify(entries, canonical, allowlist, prefixes, policy, controls, excluded)
-    if "global-instructions.md" not in base:
+    if "global-instructions.md" not in base and "global-instructions.md" not in overlay:
         raise ValueError("selection is missing global-instructions.md")
     sources = [(rel, rel, data) for rel, (data, _mode) in base.items()]
     sources += [(rel, src, data) for rel, (src, data, _mode) in overlay.items()]
@@ -927,26 +927,51 @@ def receiver_source():
     return Path(__file__).read_text() + '\nimport sys\nprint(install_archive(sys.stdin.buffer.read(), Path.home() / ".agents", sys.argv[2]))\n'
 
 
-def node_namespaces(nodes, records, policies):
-    registry = load_registry(policies=policies)
+def publish_alias(alias):
+    if (not isinstance(alias, str) or alias in ("default", "ec2")
+            or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*", alias)):
+        raise ValueError("Invalid publishing node: " + str(alias))
+    return alias
+
+
+def _node_row(alias, records):
+    publish_alias(alias)
     if not isinstance(records, list):
         raise ValueError("Invalid node registry response")
+    matches = [row for row in records if isinstance(row, dict) and row.get("name") == alias]
+    if len(matches) != 1:
+        raise ValueError("Unknown or invalid node scope: " + alias)
+    if matches[0].get("enabled") is not True:
+        raise ValueError("Disabled publishing node: " + alias)
+    return matches[0]
+
+
+def node_namespaces(nodes, records, policies):
+    registry = load_registry(policies=policies)
     scopes = {}
     for node in nodes:
-        if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*", node) or node in ("default", "ec2"):
-            raise ValueError("Invalid publishing node: " + node)
-        matches = [row for row in records if isinstance(row, dict) and row.get("name") == node]
-        if len(matches) != 1:
-            raise ValueError("Unknown or invalid node scope: " + node)
-        if matches[0].get("enabled") is not True:
-            raise ValueError("Disabled publishing node: " + node)
-        raw = matches[0].get("namespace")
+        raw = _node_row(node, records).get("namespace")
         scope = "default" if raw in (None, "") else normalize_namespace(raw)
         if scope != "default":
             if scope not in registry["by_name"] or not registry["by_name"][scope].get("node_deliverable", False):
                 raise ValueError("Namespace is not node-deliverable: " + scope)
         scopes[node] = scope
     return scopes
+
+
+def resolve_host_scope(alias, records, policies):
+    """Tenant delivery: the SSH alias is the node name, and default is never implied."""
+    registry = load_registry(policies=policies)
+    raw = _node_row(alias, records).get("namespace")
+    if raw in (None, ""):
+        raise ValueError("Host namespace is unset; refusing the default tree")
+    scope = normalize_namespace(raw)
+    if scope == "default":
+        raise ValueError("Host publication refuses the default tree")
+    row = registry["by_name"].get(scope)
+    if row is None or row.get("node_deliverable") is not True:
+        raise ValueError("Namespace is not node-deliverable: " + scope)
+    return scope
 
 
 def publish_archives(archives, scopes):
