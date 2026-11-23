@@ -49,11 +49,14 @@ interface AuthValue {
   gsiReady: boolean;
   isPreview: boolean;
   accessState: AccessState;
+  hasCredential: boolean;
   login: (credential: string) => Promise<void>;
   logout: () => void;
   beginSignIn: () => void;
   beginRequestAccess: () => void;
   recheck: () => void;
+  promptFor: (intent: Intent, quiet?: boolean) => void;
+  bindIntent: (intent: Intent) => void;
 }
 
 const AuthContext = createContext<AuthValue | null>(null);
@@ -63,10 +66,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoggedIn, setIsLoggedIn] = useState(!!getToken());
   const [gsiReady, setGsiReady] = useState(false);
   const [accessState, setAccessState] = useState<AccessState>(null);
+  const [hasCredential, setHasCredential] = useState(false);
   const intentRef = useRef<Intent>("sign-in");
   const credentialRef = useRef<string | null>(null);
-  const hiddenButtonRef = useRef<HTMLDivElement | null>(null);
   const handleRef = useRef<(credential: string) => void>(() => {});
+  const rememberCredential = useCallback((credential: string | null) => {
+    credentialRef.current = credential;
+    setHasCredential(Boolean(credential));
+  }, []);
 
   const finishRedirect = useCallback((token: string, address: string) => {
     const params = new URLSearchParams(window.location.search);
@@ -98,7 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refuseRedirect]);
 
   const signIn = useCallback(async (credential: string) => {
-    credentialRef.current = credential;
+    rememberCredential(credential);
     try {
       const res = await fetch(`${API}/api/auth/google`, {
         method: "POST",
@@ -120,10 +127,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error("Auth error:", err);
       setAccessState("error");
     }
-  }, [applyRefusal, finishRedirect]);
+  }, [applyRefusal, finishRedirect, rememberCredential]);
 
   const requestAccess = useCallback(async (credential: string) => {
-    credentialRef.current = credential;
+    rememberCredential(credential);
     try {
       const res = await fetch(`${API}/api/access/request`, {
         method: "POST",
@@ -145,7 +152,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error("Access request error:", err);
       setAccessState("error");
     }
-  }, [refuseRedirect, signIn]);
+  }, [refuseRedirect, rememberCredential, signIn]);
 
   handleRef.current = (credential: string) => {
     if (!credential) return;
@@ -153,41 +160,56 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     else void signIn(credential);
   };
 
-  const begin = useCallback((intent: Intent) => {
+  const bindIntent = useCallback((intent: Intent) => {
     intentRef.current = intent;
-    const iframe = hiddenButtonRef.current?.querySelector("iframe");
-    if (iframe instanceof HTMLElement) {
-      iframe.click();
-      return;
-    }
-    const google = (window as any).google;
-    google?.accounts?.id?.prompt?.();
   }, []);
 
-  const beginSignIn = useCallback(() => begin("sign-in"), [begin]);
+  const promptFor = useCallback((intent: Intent, quiet = false) => {
+    intentRef.current = intent;
+    const prompt = (window as any).google?.accounts?.id?.prompt;
+    if (typeof prompt !== "function") {
+      if (!quiet) setAccessState("error");
+      return;
+    }
+    prompt((notification: any) => {
+      if (typeof notification?.isDisplayMoment === "function" && notification.isDisplayMoment()) return;
+      if (typeof notification?.isDismissedMoment === "function" && notification.isDismissedMoment()) return;
+      const notDisplayed = typeof notification?.isNotDisplayed === "function" && notification.isNotDisplayed();
+      const skipped = typeof notification?.isSkippedMoment === "function" && notification.isSkippedMoment();
+      if ((notDisplayed || skipped) && !quiet) setAccessState("error");
+    });
+  }, []);
+
+  const beginSignIn = useCallback(() => {
+    if (credentialRef.current) {
+      void signIn(credentialRef.current);
+      return;
+    }
+    promptFor("sign-in");
+  }, [promptFor, signIn]);
   const beginRequestAccess = useCallback(() => {
     if (credentialRef.current) {
       void requestAccess(credentialRef.current);
       return;
     }
-    begin("request");
-  }, [begin, requestAccess]);
+    promptFor("request");
+  }, [promptFor, requestAccess]);
   const recheck = useCallback(() => {
     if (credentialRef.current) {
       void signIn(credentialRef.current);
       return;
     }
-    begin("sign-in");
-  }, [begin, signIn]);
+    promptFor("sign-in");
+  }, [promptFor, signIn]);
 
   const logout = useCallback(() => {
     clearToken();
-    credentialRef.current = null;
+    rememberCredential(null);
     setEmail(null);
     setIsLoggedIn(false);
     setAccessState(null);
     window.location.replace("/");
-  }, []);
+  }, [rememberCredential]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -238,14 +260,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             callback: (response: any) => handleRef.current(response?.credential || ""),
           });
         }
-        const node = hiddenButtonRef.current;
-        if (node && node.childElementCount === 0) {
-          (window as any).google.accounts.id.renderButton(node, {
-            theme: "filled_black",
-            size: "large",
-            type: "standard",
-          });
-        }
         setGsiReady(true);
       }
     }, 100);
@@ -255,20 +269,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!gsiReady || isPreview || getToken()) return;
     if (new URLSearchParams(window.location.search).get("access") !== "request") return;
-    begin("request");
-  }, [begin, gsiReady]);
+    promptFor("request", true);
+  }, [gsiReady, promptFor]);
 
   useEffect(() => {
     const onRevoked = (event: Event) => {
       const state = (event as CustomEvent).detail?.state;
-      credentialRef.current = null;
+      rememberCredential(null);
       setEmail(null);
       setIsLoggedIn(false);
       setAccessState(state === "pending" ? "pending" : "required");
     };
     window.addEventListener(ACCESS_REVOKED_EVENT, onRevoked);
     return () => window.removeEventListener(ACCESS_REVOKED_EVENT, onRevoked);
-  }, []);
+  }, [rememberCredential]);
 
   const value: AuthValue = {
     email,
@@ -276,22 +290,92 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     gsiReady,
     isPreview,
     accessState,
+    hasCredential,
     login: signIn,
     logout,
     beginSignIn,
     beginRequestAccess,
     recheck,
+    promptFor,
+    bindIntent,
   };
 
+  return createElement(AuthContext.Provider, { value }, children);
+}
+
+export function GoogleIntentButton({
+  intent,
+  label,
+  compact = false,
+  className,
+}: {
+  intent: Intent;
+  label: string;
+  compact?: boolean;
+  className: string;
+}) {
+  const hostRef = useRef<HTMLDivElement>(null);
+  const { gsiReady, bindIntent, promptFor } = useAuth();
+  const [rendered, setRendered] = useState(false);
+
+  useEffect(() => {
+    const node = hostRef.current;
+    if (!node) return;
+    node.dataset.gisIntent = intent;
+  }, [intent]);
+
+  useEffect(() => {
+    const node = hostRef.current;
+    if (!gsiReady || !node) return;
+    const google = (window as any).google?.accounts?.id;
+    if (!google?.renderButton || node.dataset.gsiMounted === "1") {
+      setRendered(node.childElementCount > 0);
+      return;
+    }
+    node.dataset.gsiMounted = "1";
+    try {
+      google.renderButton(node, {
+        theme: "filled_black",
+        size: compact ? "medium" : "large",
+        text: intent === "request" ? "continue_with" : "signin_with",
+        shape: "rectangular",
+        click_listener: () => bindIntent(node.dataset.gisIntent === "request" ? "request" : "sign-in"),
+      });
+    } catch (err) {
+      console.error("GIS button render failed:", err);
+      node.dataset.gsiMounted = "";
+    }
+    setRendered(node.childElementCount > 0);
+    const observer = new MutationObserver(() => setRendered(node.childElementCount > 0));
+    observer.observe(node, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [bindIntent, compact, gsiReady, intent]);
+
   return createElement(
-    AuthContext.Provider,
-    { value },
-    children,
-    createElement("div", {
-      ref: hiddenButtonRef,
-      className: "fixed -left-[9999px] top-0 h-px w-px overflow-hidden",
-      "aria-hidden": true,
+    "span",
+    { className: "inline-flex flex-col items-start gap-1 align-middle" },
+    createElement(
+      "span",
+      { className: compact ? "text-[10px] leading-none text-sol-base00" : "text-[11px] leading-none text-sol-base00" },
+      label,
+    ),
+    createElement("span", {
+      ref: hostRef,
+      "data-gis-intent": intent,
+      className: gsiReady ? "inline-flex min-h-8 min-w-[200px]" : "inline-flex",
     }),
+    rendered
+      ? null
+      : createElement(
+          "button",
+          {
+            type: "button",
+            className,
+            disabled: !gsiReady,
+            onClick: () => promptFor(intent),
+          },
+          label,
+        ),
   );
 }
 

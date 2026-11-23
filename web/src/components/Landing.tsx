@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { MAIN_DOMAIN, useAuth, type AccessState } from "../hooks/useAuth";
+import { GoogleIntentButton, MAIN_DOMAIN, useAuth, type AccessState } from "../hooks/useAuth";
 import { useTheme } from "../hooks/useTheme";
 import { prefersDark, resolveTheme } from "../utils/theme";
 import YovyMark from "./YovyMark";
@@ -44,8 +44,7 @@ const ACCESS_COPY: Record<Exclude<AccessState, null>, string> = {
 };
 
 function AccessActions({ compact = false }: { compact?: boolean }) {
-  const { isPreview, gsiReady, accessState, beginSignIn, beginRequestAccess, recheck } = useAuth();
-  const disabled = !isPreview && !gsiReady;
+  const { isPreview, hasCredential, accessState, beginSignIn, beginRequestAccess, recheck } = useAuth();
   const previewBack = encodeURIComponent(window.location.origin + window.location.pathname + window.location.search);
   const signInHref = `https://${MAIN_DOMAIN}?auth_redirect=${previewBack}`;
   const requestHref = `https://${MAIN_DOMAIN}?access=request&auth_redirect=${previewBack}`;
@@ -56,6 +55,7 @@ function AccessActions({ compact = false }: { compact?: boolean }) {
     ? "rounded border border-sol-base01 bg-transparent px-2 py-1 text-[11px] text-sol-base1 disabled:opacity-50"
     : "rounded border border-sol-base01 bg-sol-base02 px-4 py-[9px] text-[13px] font-semibold text-sol-base1 hover:border-sol-blue hover:text-sol-blue disabled:opacity-50";
   const showRecheck = accessState === "pending" || accessState === "requested" || accessState === "already";
+  const signLabel = showRecheck ? "Check again" : "Sign in";
 
   if (isPreview) {
     return (
@@ -66,14 +66,23 @@ function AccessActions({ compact = false }: { compact?: boolean }) {
     );
   }
 
+  if (hasCredential) {
+    return (
+      <>
+        <button type="button" className={primary} onClick={showRecheck ? recheck : beginSignIn}>
+          {signLabel}
+        </button>
+        <button type="button" className={secondary} onClick={beginRequestAccess}>
+          Request access
+        </button>
+      </>
+    );
+  }
+
   return (
     <>
-      <button type="button" className={primary} disabled={disabled} onClick={showRecheck ? recheck : beginSignIn}>
-        {showRecheck ? "Check again" : "Sign in"}
-      </button>
-      <button type="button" className={secondary} disabled={disabled} onClick={beginRequestAccess}>
-        Request access
-      </button>
+      <GoogleIntentButton intent="sign-in" label={signLabel} compact={compact} className={primary} />
+      <GoogleIntentButton intent="request" label="Request access" compact={compact} className={secondary} />
     </>
   );
 }
