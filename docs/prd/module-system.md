@@ -500,29 +500,63 @@ revised set. There is no separate host allowlist.
 
 ### Tenant skill set for an admitted node
 
-Catalog access does not install the maintainer agent tree. An admitted node
-receives one curator-managed composition, `tenant-base`. The tenant cannot
-read or change that selection: namespace dispatch stays maintainer-only.
+An admitted node has two zones: the maintainer publishes the **kernel** to
+`~/.agents/`; the tenant edits the **user zone** at `~/.agents-user/`.
+Catalog access grants neither namespace administration nor kernel edit rights.
 
-`tenant-public` is the parent. It has no parent, overlay, or allowlist, it is
-not `node_deliverable`, and its only rules are the skills `chat`, `note`, and
-`artifact`. `module`, `todo`, `file`, `tag`, and `bot` are built-in `y`
-commands and are not skills in this tree. `tenant-base` is its child: overlay
-directory `tenant`, allowlist `private/tenant-allowlist.txt`,
-`node_deliverable`, and no rules of its own. An allowlist-bearing scope cannot
-also carry ordinary skill or path rules, so the core and the skills stay in
-different scopes. The allowlist's only entry is `tenant/global-instructions.md`.
-`private/approved-roots.tsv` binds that overlay directory to `tenant-base`.
+**Kernel selection.** The `tenant-public` parent selects the former `public`
+skill and reference set from y-history, plus the kernel tools:
 
-The selected files are `global-instructions.md` and
-`skills/{chat,note,artifact}/SKILL.md`. The entrypoint comes from the overlay.
-It is not composed with the maintainer `global-instructions.md`, and the
-selection does not include `private/`, `references/`, `hooks/`, `commands/`, or
-`synced/`. The tenant core is self-contained: it does not link to files that
-are not in the tree. Those three skill directories must not contain extra
-files, or the composition would be larger than this set. The installed tree
-is those four files plus `COMPOSITION.sha256`, the composition manifest
-written beside them.
+- Skills: `artifact`, `chat`, `convert`, `dev`, `entity`, `git`, `hr`, `leader`,
+  `learning`, `manager`, `note`, `people`, `prd`, `research`, `site`, `test`.
+- Instructions: `global-instructions.md` and
+  `references/{dispatch,engineering,long-running,publication,todo,work-states}.md`.
+- Tools: `bin/compose-zones` and `bin/check-zones`.
+
+Only the child, `tenant-base`, is `node_deliverable`. It adds no selection
+rules: `private/approved-roots.tsv` binds the `tenant` overlay to that scope,
+and `private/tenant-allowlist.txt` admits only `tenant/global-instructions.md`.
+That maintainer-owned overlay supplies the installed `global-instructions.md`.
+The maintainer edits kernel sources in y-history and publishes upgrades. The
+overlay separately permits the admin account `luohycs@gmail.com` to edit the
+installed kernel. This exception does not grant publish rights: `check-zones`
+reports an in-place edit as drift until the maintainer republishes. For an
+admitted non-admin, even `hr` edits only the user zone.
+
+**User zone and composition.** The runtime user owns `~/.agents-user/` (0700)
+and may freely edit `global-instructions.md` and `skills/<name>/` there.
+This zone is node-local, outside y-history and publish; backup is the user's
+choice. `~/.claude/CLAUDE.md` remains a symlink to the kernel entrypoint,
+which directs each new session to read `~/.agents-user/global-instructions.md`
+if present. User instructions add to kernel rules; they cannot override them.
+Run `~/.agents/bin/compose-zones` after changing the skill set. It builds the
+user-owned `~/.claude/skills/` directory with symlinks to skill directories
+from both zones. Kernel names are reserved: a user-name collision is an
+error, never a way to shadow the kernel skill.
+
+**Manager conversation.** Each admitted account, not just the maintainer, has
+one manager role: its own root conversation, pinned in the web UI and the DM
+target. It dispatches work to leaders rather than participating in their traces
+or receiving callbacks as agent turns. To open a fresh manager from chat, run
+`y chat --role manager -m "load manager skill" --new`. This releases the old
+manager role for that account only. It uses the existing chat API and CLI; no
+new permission is needed. A launch from a traced session can still inherit
+`Y_TRACE_ID`; the root role is not itself a trace worker.
+
+**Upgrade and drift.** Upgrades are user-requested and maintainer-executed,
+never automatic. On tenant59 (no rclone), dry-run `y skills publish --host tenant59`
+to inspect the selection. Install the resulting archive with `install_archive`
+under sudo: atomically replace only `~/.agents/`, set root ownership and modes
+0555 for directories and executables, 0444 for other files, then recompose
+as the runtime user. At install, remove the runtime user's blanket passwordless
+sudo. The root-owned modes prevent ordinary kernel edits; for maintainer-run
+upgrades, a command-scoped sudoers rule permits only the kernel install/swap
+command. A tenant node has no deployment overlay file. The user zone survives
+the swap unchanged.
+`~/.agents/bin/check-zones` reports the `source_digest` from `COMPOSITION.sha256`
+as the kernel version and checks manifest hashes, ownership, modes, extra
+files, composed links and name collisions. Report drift rather than trusting
+a modified kernel; restore it from a maintainer-published archive.
 
 `y skills publish --local-target` requires an explicit `--namespace`.
 `--namespace default` also requires `--full-tree`; omitting either flag is a
