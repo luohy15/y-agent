@@ -14,6 +14,8 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Added
 
+- **Gateway prompt replies (4406)**: `y gateway send --reply-chat <chat_id>` prefixes the prompt with `/<chat_id>`. Start a Telegram or WeChat reply with that prefix to send it back to the specified chat.
+- **Channel bindings (4409)**: `y gateway channels status|bind|unbind` shows which channels are connected, guides setup, and asks for confirmation before disconnecting one. WeChat management remains maintainer-only.
 - A five-minute worker sweep hibernates idle EC2 execution nodes after checking
   activity across owners, including jump anchors. It never falls back to a plain stop.
 
