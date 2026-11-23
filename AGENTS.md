@@ -216,7 +216,9 @@ entity + controller + service + CLI slices, and most have a web panel.
   channel, then the other; WeChat counts as available only for the owner's
   active account and peer with a heartbeat younger than 300 seconds.
   `POST /api/gateway/send`, `GET /api/gateway/status`, `PUT /api/gateway/config`,
-  and `y gateway send|config|status`. No `y notify` alias. No schema change. See
+  and `y gateway send|config|status`. `send` takes optional `reply_chat`: the
+  delivered text starts with `/<chat_id> `, and a later `/<chat_id> ` reply on
+  either channel returns to that owner chat. No `y notify` alias. No schema change. See
   [`docs/prd/notify-gateway.md`](docs/prd/notify-gateway.md).
 - **Channel gateway** — the authenticated `gateway` module supplies the panel
   and its API. The built-in `y gateway channels status|bind|unbind` inspects
@@ -226,7 +228,10 @@ entity + controller + service + CLI slices, and most have a web panel.
 - **WeChat** — maintainer-only text DMs use an iLink bridge on the always-on
   relay host `claude-relay`, supervised by systemd (`y-agent-wechat-bridge.service`).
   The four bridge POST routes authenticate the active bot's opaque token rather
-  than a user JWT. Inbound receipts reserve manager turns; only WeChat-triggered
+  than a user JWT. Inbound receipts reserve manager turns unless the text
+  starts with `/<chat_id> ` (leading `> ` quotes are skipped); that route is
+  owner-scoped, and a miss notices `chat /<id> not found`. The receipt resumes
+  the target chat's role, skill, trace and work dir. Only WeChat-triggered
   manager replies enter the leased outbox. Proactive gateway sends enqueue
   through `notify_user` with no maintainer gate and are text-only. Telegram
   mirroring is independent.

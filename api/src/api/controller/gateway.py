@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -12,6 +12,7 @@ router = APIRouter(prefix="/gateway")
 class SendBody(BaseModel):
     model_config = {"extra": "forbid"}
     text: str = Field(min_length=1, max_length=120000)
+    reply_chat: Optional[str] = Field(default=None, pattern=r"^[0-9a-f]{6}$")
 
 
 class ConfigBody(BaseModel):
@@ -41,7 +42,9 @@ async def send(body: SendBody, request: Request):
     text = body.text.strip()
     if not text:
         raise HTTPException(422, "text is required")
-    result = await run_in_threadpool(gateway.send, _user_id(request), text)
+    result = await run_in_threadpool(gateway.send, _user_id(request), text, body.reply_chat)
+    if result.error == "chat_not_found":
+        raise HTTPException(404, "chat not found")
     if not result:
         raise HTTPException(503, result.to_dict())
     return result.to_dict()

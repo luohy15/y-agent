@@ -171,6 +171,7 @@ async def inbound(db, account, message_id, peer, text, context_token, media):
     from storage.dto.chat import Chat
     from storage.repository import chat as chat_repo
     from storage.service import chat as chats
+    from storage.service.reply_route import split_chat_route
     from storage.util import get_utc_iso8601_timestamp
 
     if db.get(Inbound, (account.account, message_id)):
@@ -204,41 +205,68 @@ async def inbound(db, account, message_id, peer, text, context_token, media):
     elif media or not text.strip():
         notice = "Text messages only for now."
     else:
-        reset = text.strip() in {"/clear", "/new"}
-        chat = chat_repo.find_latest_chat_by_role(account.user_id, "manager")
-        if not chat or reset:
-            timestamp = get_utc_iso8601_timestamp()
-            chat = Chat(id=chats.new_chat_id(account.user_id), role="manager", messages=[],
-                        create_time=timestamp, update_time=timestamp, running=False)
-            chat_repo._insert_chat_sync(account.user_id, chat, session=db)
-            chat_repo.release_role(account.user_id, "manager", except_chat_id=chat.id, session=db)
-        try:
-            accepted = await chats.accept_user_message(
-                account.user_id, chat, "load manager skill" if reset else text, role="manager",
-                source=None if reset else "wechat", human_reply=True, session=db,
-                event_id=f"wc_{binding.generation}_{event}")
-            if not accepted.already_running:
-                receipt.enqueue_chat = accepted.chat.id
-                receipt.enqueue_seq = accepted.chat.run_seq
-            if not reset:
-                return {"result": "accepted"}
-            notice = "Started a new manager conversation."
-        except chats.resume_gate.ChatReadOnly:
-            notice = "This conversation is read-only. Send /clear to start a new one."
+        routed_id, routed_body = split_chat_route(text, skip_leading_quotes=True)
+        if routed_id:
+            target = await chat_repo.get_chat(account.user_id, routed_id)
+            if not target:
+                notice = f"chat /{routed_id} not found"
+            else:
+                try:
+                    accepted = await chats.accept_user_message(
+                        account.user_id, target, routed_body, source="wechat",
+                        human_reply=True, session=db,
+                        event_id=f"wc_{binding.generation}_{event}")
+                    if not accepted.already_running:
+                        receipt.enqueue_chat = accepted.chat.id
+                        receipt.enqueue_seq = accepted.chat.run_seq
+                    return {"result": "accepted"}
+                except chats.resume_gate.ChatReadOnly:
+                    notice = "This conversation is read-only. Send /clear to start a new one."
+        else:
+            reset = text.strip() in {"/clear", "/new"}
+            chat = chat_repo.find_latest_chat_by_role(account.user_id, "manager")
+            if not chat or reset:
+                timestamp = get_utc_iso8601_timestamp()
+                chat = Chat(id=chats.new_chat_id(account.user_id), role="manager", messages=[],
+                            create_time=timestamp, update_time=timestamp, running=False)
+                chat_repo._insert_chat_sync(account.user_id, chat, session=db)
+                chat_repo.release_role(account.user_id, "manager", except_chat_id=chat.id, session=db)
+            try:
+                accepted = await chats.accept_user_message(
+                    account.user_id, chat, "load manager skill" if reset else text, role="manager",
+                    source=None if reset else "wechat", human_reply=True, session=db,
+                    event_id=f"wc_{binding.generation}_{event}")
+                if not accepted.already_running:
+                    receipt.enqueue_chat = accepted.chat.id
+                    receipt.enqueue_seq = accepted.chat.run_seq
+                if not reset:
+                    return {"result": "accepted"}
+                notice = "Started a new manager conversation."
+            except chats.resume_gate.ChatReadOnly:
+                notice = "This conversation is read-only. Send /clear to start a new one."
     enqueue(db, account, peer, notice, event)
     return {"result": "notice"}
 
 
-def deliver_receipt(token, message_id):
+async def deliver_receipt(token, message_id):
+    from storage.repository import chat as chat_repo
     from storage.service.chat import send_chat_message
 
     with get_db() as db:
         account = authenticate(db, token)
         receipt = db.get(Inbound, (account.account, message_id))
-        if receipt and receipt.enqueue_chat:
-            send_chat_message(receipt.enqueue_chat, user_id=account.user_id, role="manager",
-                              run_seq=receipt.enqueue_seq)
-            receipt.enqueue_chat = None
+        if not receipt or not receipt.enqueue_chat:
+            return
+        chat_id = receipt.enqueue_chat
+        run_seq = receipt.enqueue_seq
+        user_id = account.user_id
+        chat = await chat_repo.get_chat(user_id, chat_id)
+        send_chat_message(
+            chat_id, user_id=user_id, run_seq=run_seq,
+            role=getattr(chat, "role", None), skill=getattr(chat, "skill", None),
+            trace_id=getattr(chat, "trace_id", None), work_dir=getattr(chat, "work_dir", None),
+        )
+        receipt.enqueue_chat = None
 
 
 def enqueue(db, account, peer, body, key):

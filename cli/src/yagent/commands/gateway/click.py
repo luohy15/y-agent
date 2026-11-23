@@ -12,11 +12,15 @@ def gateway_group():
 
 @gateway_group.command("send")
 @click.option("-m", "--message", "text", required=True, help="Notification text")
-def gateway_send(text):
+@click.option("--reply-chat", default=None, help="Chat id whose reply this prompt asks for")
+def gateway_send(text, reply_chat):
     """Send text through the preferred channel, falling back to the other."""
     if not text.strip():
         raise click.UsageError("Provide a non-empty --message")
-    payload = api_request("POST", "/api/gateway/send", json={"text": text}).json()
+    body = {"text": text}
+    if reply_chat:
+        body["reply_chat"] = reply_chat
+    payload = api_request("POST", "/api/gateway/send", json=body).json()
     if payload.get("fallback_from"):
         click.echo(
             f"fallback from {payload['fallback_from']} to {payload.get('channel')}",

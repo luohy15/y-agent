@@ -119,7 +119,8 @@ def bridge_action(action, token, data):
                 return wechat.ack(db, account, **body.model_dump())
             else:
                 raise HTTPException(404)
-        wechat.deliver_receipt(token, body.message_id)
+        if action == "inbound":
+            asyncio.run(wechat.deliver_receipt(token, body.message_id))
         return result
     except wechat.ChannelError as exc:
         raise HTTPException(exc.status, exc.detail) from None

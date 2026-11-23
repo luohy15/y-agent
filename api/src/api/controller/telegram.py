@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from storage.repository.user import get_user_by_telegram_id, bind_telegram_id, unbind_telegram_id
 from storage.repository.chat import find_latest_chat_by_role, find_latest_chat_by_trace_id
+from storage.service.reply_route import split_chat_route
 from storage.service.telegram import resolve_target
 from storage.entity.dto import Message
 from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp, get_telegram_bot_token, send_telegram_message, send_telegram_photo_bytes
@@ -19,10 +20,6 @@ from api.util.images import decode_send_image_upload, resolve_send_image_path, s
 
 router = APIRouter(prefix="/telegram")
 
-# Matches a `/{chat_id}<whitespace>` prefix where chat_id is 6 lowercase hex
-# digits — same shape as `generate_id()`. The trailing `\s+` requires at least
-# one whitespace separator so the body is non-empty after the prefix.
-_TG_ROUTE_PREFIX_RE = re.compile(r"^/([0-9a-f]{6})\s+")
 # Matches a `/{todo_id}<whitespace>` prefix where todo_id is all digits. Tried
 # after the chat_id regex so 6-digit hex (which can be all-digits) still routes
 # as chat_id when applicable.
@@ -291,12 +288,11 @@ async def telegram_webhook(request: Request):
     # Explicit chat routing: `/{chat_id} <message>` targets a specific chat
     # instead of the default role. Matched before the default route so the
     # prefix wins over the manager-DM fallback.
-    route_match = _TG_ROUTE_PREFIX_RE.match(text)
-    if route_match:
-        target_chat_id = route_match.group(1)
-        body = _with_reply_context(text[route_match.end():], reply_context)
+    routed_chat_id, routed_body = split_chat_route(text)
+    if routed_chat_id:
+        body = _with_reply_context(routed_body, reply_context)
         return await _handle_routed_message(
-            telegram_chat_id, telegram_user_id, target_chat_id, body,
+            telegram_chat_id, telegram_user_id, routed_chat_id, body,
             images=images, files=files,
         )
 
@@ -361,14 +357,14 @@ async def _document_node_block(user, text: str) -> tuple[str, Optional[str]]:
     exist: nothing is stored, and the normal command or not-found reply still
     runs. A brand-new manager chat stores, because it runs on the default node.
     """
-    route_match = _TG_ROUTE_PREFIX_RE.match(text)
-    todo_match = None if route_match else _TG_ROUTE_TODO_PREFIX_RE.match(text)
+    routed_chat_id, routed_body = split_chat_route(text)
+    todo_match = None if routed_chat_id else _TG_ROUTE_TODO_PREFIX_RE.match(text)
     target = None
-    if route_match:
-        if not text[route_match.end():].strip():
+    if routed_chat_id:
+        if not routed_body.strip():
             return "skip", None
         from storage.repository import chat as chat_repo
-        target = await chat_repo.get_chat(user.id, route_match.group(1))
+        target = await chat_repo.get_chat(user.id, routed_chat_id)
         if not target:
             return "skip", None
     elif todo_match:

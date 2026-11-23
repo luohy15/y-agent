@@ -364,6 +364,11 @@ def chat_id_exists(user_id: int, chat_id: str) -> bool:
         )
 
 
+def chat_exists(user_id: int, chat_id: str) -> bool:
+    """Owner-scoped existence check for gateway reply routing."""
+    return chat_id_exists(user_id, chat_id)
+
+
 def _chat_status(chat: Chat) -> str:
     if chat.running:
         return "running"

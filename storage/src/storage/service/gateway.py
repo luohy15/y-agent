@@ -5,8 +5,10 @@ from typing import Optional
 
 from loguru import logger
 
+from storage.repository.chat import chat_exists
 from storage.service import user_preference as user_pref_service
 from storage.service import wechat as wechat_service
+from storage.service.reply_route import format_chat_route
 from storage.service.telegram import resolve_target
 from storage.util import send_telegram_message_checked
 
@@ -20,17 +22,21 @@ class GatewayResult:
     channel: Optional[str] = None
     fallback_from: Optional[str] = None
     preference: Optional[str] = None
+    error: Optional[str] = None
 
     def __bool__(self):
         return self.ok
 
     def to_dict(self):
-        return {
+        payload = {
             "ok": self.ok,
             "channel": self.channel,
             "fallback_from": self.fallback_from,
             "preference": self.preference,
         }
+        if self.error:
+            payload["error"] = self.error
+        return payload
 
 
 def resolve_order(pref, availability):
@@ -116,9 +122,17 @@ def status(user_id):
     }
 
 
-def send(user_id, text) -> GatewayResult:
+def send(user_id, text, reply_chat=None) -> GatewayResult:
     if not isinstance(text, str) or not text.strip():
         return GatewayResult(False)
+    if reply_chat is not None:
+        try:
+            prefixed = format_chat_route(reply_chat, text)
+        except ValueError:
+            return GatewayResult(False, error="chat_not_found")
+        if not chat_exists(user_id, reply_chat):
+            return GatewayResult(False, error="chat_not_found")
+        text = prefixed
     try:
         pref = _preference(user_id)
     except Exception:

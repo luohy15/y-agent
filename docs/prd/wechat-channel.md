@@ -169,7 +169,13 @@ Inbound:
 3. Non-text items receive one fixed "text only for now" notice and create no
    turn. Quoted text is prepended as a blockquote in the same shape Telegram
    uses.
-4. The text reaches the bound user's manager chat through the existing
+4. Text that starts with `/<chat_id> ` (after any leading `> ` quote lines the
+   bridge prepended) goes to that owner-scoped chat through
+   `accept_user_message` with `source="wechat"` and `human_reply=True`. It does
+   not reset the manager session. A missing or foreign chat gets one outbox
+   notice, `chat /<id> not found`, and no turn. The receipt resumes the target
+   chat with its own role, skill, trace and work dir.
+5. Other text reaches the bound user's manager chat through the existing
    append-or-steer path with `source="wechat"` and `human_reply=True`; a new
    manager chat is created when none exists. `/new` and `/clear` restart that
    manager session, mirroring Telegram.

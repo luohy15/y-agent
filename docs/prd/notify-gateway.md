@@ -42,6 +42,13 @@ fails only when neither channel is available or both attempts fail. The HTTP
 send then returns 503. WeChat notifications are text-only. `y telegram send`
 stays the explicit Telegram escape hatch for images and diagnostics.
 
+`send` accepts an optional `reply_chat`. The chat must already exist for that
+owner; a missing or foreign id returns `chat_not_found` and sends nothing
+(HTTP 404). A hit prefixes the delivered text once with `/<chat_id> `, on
+whichever channel actually sends, including a fallback. The same prefix on a
+later inbound message routes that reply back to the chat. `y gateway send
+--reply-chat <id>` passes it. `config` and `status` are unchanged.
+
 Manager-turn replies, the pre-run user mirror, attached-image delivery, and
 Telegram inbound replies stay on Telegram. WeChat-triggered turns still answer
 on WeChat through `enqueue_reply`.
@@ -65,6 +72,9 @@ No schema migration. The trial is `y gateway config --channel wechat`. Revert is
    when the bridge has to wait for a fresh context token.
 7. As Roy, I want manager replies and inbound Telegram to keep working as they
    do today.
+8. As Roy, I want a gateway prompt that asks for a reply to name its chat, so
+   answering `/<chat_id> ...` on WeChat or Telegram comes back to that chat
+   and not the manager thread.
 
 ## Out of Scope
 
@@ -90,6 +100,12 @@ No schema migration. The trial is `y gateway config --channel wechat`. Revert is
   routine failures, and manager death notices use the gateway. Telegram inbound,
   reply, pre-run, and image paths still call Telegram directly.
 - `y gateway send` prints a fallback note on stderr when `fallback_from` is set.
+- `y gateway send --reply-chat <id>` and `POST /api/gateway/send` with
+  `reply_chat` deliver text that starts with `/<id> `. An unknown id is 404
+  and neither channel is attempted. A reply that starts with `/<id> ` routes
+  to that owner chat on Telegram and WeChat. WeChat still routes it when the
+  bridge prepends `> ` quote lines. A miss tells the sender
+  `chat /<id> not found` and does not open a manager turn.
 - Deploy the host before pointing skills at `y gateway`, then set
   `--channel wechat`. Confirm one plain-text WeChat receipt, switch to
   Telegram and confirm that receipt, then restore WeChat.
