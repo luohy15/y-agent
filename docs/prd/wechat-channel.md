@@ -110,9 +110,9 @@ client without pretending to be OpenClaw.
 
 ### Components
 
-- **Bridge daemon** (`y wechat bridge --bot <name>`): a supervised process on the
-  owner's execution node (systemd, or tmux while the feature is being brought
-  up). It performs QR login when asked, holds one long poll per ClawBot account,
+- **Bridge daemon** (`y wechat bridge --bot default`): runs as `ubuntu` on the
+  always-on relay host `claude-relay` under the systemd unit
+  `y-agent-wechat-bridge.service`. It holds one long poll per ClawBot account,
   persists `get_updates_buf` and context tokens locally with mode 0600, sends
   outbound rows, and talks to the API only over HTTPS with the account's bridge
   token.
@@ -197,7 +197,11 @@ surfaces, matching how a web-triggered manager turn already behaves.
 
 - Each peer belongs to exactly one user; account and peer resolution are
   owner-scoped and fail closed.
-- The first version runs the bridge on Roy's existing default execution node.
+- QR login stays on the default node. To move polling to the relay host,
+  stop the old bridge, copy its final state (including the poll cursor) to
+  `/home/ubuntu/.y-agent/wechat/default.json` (owner `ubuntu`, mode `0600`),
+  then enable and start the relay service. Never run both pollers at once.
+- The relay hosts the bridge, not a dedicated user execution environment.
   Wu's dedicated node, separate `bot_config`, separate work directory and
   separate credentials are a later delivery; a shared node is not acceptable as
   isolation once a second user is live, because her shell tools could read the

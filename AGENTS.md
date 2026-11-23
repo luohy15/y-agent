@@ -202,7 +202,8 @@ entity + controller + service + CLI slices, and most have a web panel.
   artifact fences are stripped to `[chart]` / `[diagram]` / `[svg]`
   placeholders before Telegram delivery. See
   [`docs/prd/telegram-delivery.md`](docs/prd/telegram-delivery.md).
-- **WeChat** — maintainer-only text DMs use a default-node iLink bridge (`y wechat`).
+- **WeChat** — maintainer-only text DMs use an iLink bridge on the always-on
+  relay host `claude-relay`, supervised by systemd (`y-agent-wechat-bridge.service`).
   The four bridge POST routes authenticate the active bot's opaque token rather
   than a user JWT. Inbound receipts reserve manager turns; only WeChat-triggered
   manager replies enter the leased outbox. Telegram mirroring is independent.
