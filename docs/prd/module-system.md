@@ -514,13 +514,15 @@ also carry ordinary skill or path rules, so the core and the skills stay in
 different scopes. The allowlist's only entry is `tenant/global-instructions.md`.
 `private/approved-roots.tsv` binds that overlay directory to `tenant-base`.
 
-The composed tree is exactly `global-instructions.md` and
+The selected files are `global-instructions.md` and
 `skills/{chat,note,artifact}/SKILL.md`. The entrypoint comes from the overlay.
 It is not composed with the maintainer `global-instructions.md`, and the
 selection does not include `private/`, `references/`, `hooks/`, `commands/`, or
 `synced/`. The tenant core is self-contained: it does not link to files that
 are not in the tree. Those three skill directories must not contain extra
-files, or the composition would be larger than this set.
+files, or the composition would be larger than this set. The installed tree
+is those four files plus `COMPOSITION.sha256`, the composition manifest
+written beside them.
 
 `y skills publish --local-target` requires an explicit `--namespace`.
 `--namespace default` also requires `--full-tree`; omitting either flag is a
@@ -528,16 +530,29 @@ usage error and does not build the unrestricted tree. Remote delivery still
 takes the namespace from the node registry. `--namespace` cannot override
 `--node` or `--host`.
 
-`--host <ssh-alias>` delivers one enabled node. The alias is that node's
-registry name and the SSH target. An unset namespace, the `default` scope, and
-any scope that is not `node_deliverable` are refused before a build or upload.
-Dry-run prints the alias and scope and does not upload or SSH. `--run` reuses
-the existing archive upload and `install_archive` receiver. `--node` is
-unchanged: an empty stored namespace still means `default`, and the default
-target remains `mac`. When the alias cannot be used, stage the same selection
-with `--run --local-target <dir> --namespace tenant-base` (a direct tree write,
-not the archive receiver). Set the tenant node's `vm_config.namespace` to
-`tenant-base` before `--host` delivery. Do not install maintainer hooks.
+`--host <ssh-alias>` delivers one enabled node from the maintainer's
+registry. The alias is that node's registry name and the SSH target. The
+maintainer registry row for this node is `tenant59`: enabled,
+`ssh:ec2-user@10.2.1.152:22`, namespace `tenant-base`, with its API key
+inherited from `default`. The SSH alias `tenant59` uses `~/.ssh/id_rsa`. The
+instance launch key remains, and the inherited default key is not the proven
+publish path. The tenant user's own node is `default` and is not this row.
+An unset namespace, the `default` scope, and any scope that is not
+`node_deliverable` are refused before a build or upload. Dry-run prints the
+alias and scope and does not upload or SSH. `--run` reuses the existing
+archive upload and `install_archive` receiver. `--node` is unchanged: an empty
+stored namespace still means `default`, and the default target remains `mac`.
+When the alias cannot be used, stage the same selection with
+`--run --local-target <dir> --namespace tenant-base` (a direct tree write, not
+the archive receiver). Set `tenant59`'s `vm_config.namespace` to `tenant-base`
+before `--host` delivery. Do not install maintainer hooks.
+
+On the tenant node, `y skills check` is the host command and returns 403,
+because namespace dispatch stays maintainer-only. `y namespace` is a module
+command. While `code/y-module/namespace` is present, `y namespace rule list`
+loads that checkout in-process and does not call the API. On this node the
+checkout's database is uninitialized, so the command exits without printing
+rules and is not a 403. That local result is not access to the namespace rules.
 
 ### Per-user activity-bar pins
 
