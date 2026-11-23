@@ -99,10 +99,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const applyRefusal = useCallback((code: string) => {
     if (code === "access_pending") setAccessState("pending");
-    else if (code === "access_required") setAccessState("required");
-    else setAccessState("error");
+    else if (code === "access_required") {
+      rememberCredential(null);
+      setAccessState("required");
+    } else {
+      rememberCredential(null);
+      setAccessState("error");
+    }
     refuseRedirect(code);
-  }, [refuseRedirect]);
+  }, [refuseRedirect, rememberCredential]);
 
   const signIn = useCallback(async (credential: string) => {
     rememberCredential(credential);
@@ -125,6 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       finishRedirect(data.token, data.email);
     } catch (err) {
       console.error("Auth error:", err);
+      rememberCredential(null);
       setAccessState("error");
     }
   }, [applyRefusal, finishRedirect, rememberCredential]);
@@ -138,6 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ id_token: credential }),
       });
       if (!res.ok) {
+        rememberCredential(null);
         setAccessState("error");
         refuseRedirect(await readCode(res) || "auth_failed");
         return;
@@ -150,6 +157,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setAccessState(data.created ? "requested" : "already");
     } catch (err) {
       console.error("Access request error:", err);
+      rememberCredential(null);
       setAccessState("error");
     }
   }, [refuseRedirect, rememberCredential, signIn]);
@@ -180,27 +188,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const replayCredential = accessState !== "required" && accessState !== "error" ? credentialRef.current : null;
   const beginSignIn = useCallback(() => {
-    if (credentialRef.current) {
-      void signIn(credentialRef.current);
+    if (replayCredential) {
+      void signIn(replayCredential);
       return;
     }
     promptFor("sign-in");
-  }, [promptFor, signIn]);
+  }, [promptFor, replayCredential, signIn]);
   const beginRequestAccess = useCallback(() => {
-    if (credentialRef.current) {
-      void requestAccess(credentialRef.current);
+    if (replayCredential) {
+      void requestAccess(replayCredential);
       return;
     }
     promptFor("request");
-  }, [promptFor, requestAccess]);
+  }, [promptFor, replayCredential, requestAccess]);
   const recheck = useCallback(() => {
-    if (credentialRef.current) {
-      void signIn(credentialRef.current);
+    if (replayCredential) {
+      void signIn(replayCredential);
       return;
     }
     promptFor("sign-in");
-  }, [promptFor, signIn]);
+  }, [promptFor, replayCredential, signIn]);
 
   const logout = useCallback(() => {
     clearToken();

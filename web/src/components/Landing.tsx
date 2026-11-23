@@ -55,6 +55,7 @@ function AccessActions({ compact = false }: { compact?: boolean }) {
     ? "rounded border border-sol-base01 bg-transparent px-2 py-1 text-[11px] text-sol-base1 disabled:opacity-50"
     : "rounded border border-sol-base01 bg-sol-base02 px-4 py-[9px] text-[13px] font-semibold text-sol-base1 hover:border-sol-blue hover:text-sol-blue disabled:opacity-50";
   const showRecheck = accessState === "pending" || accessState === "requested" || accessState === "already";
+  const replayCredential = hasCredential && accessState !== "required" && accessState !== "error";
   const signLabel = showRecheck ? "Check again" : "Sign in";
 
   if (isPreview) {
@@ -66,7 +67,7 @@ function AccessActions({ compact = false }: { compact?: boolean }) {
     );
   }
 
-  if (hasCredential) {
+  if (replayCredential) {
     return (
       <>
         <button type="button" className={primary} onClick={showRecheck ? recheck : beginSignIn}>
