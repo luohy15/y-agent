@@ -471,6 +471,27 @@ without `panel` opens its centre tab from a pinned rail icon, and a saved sideba
 selection for it falls back to Todo. Missing claims retain the legacy panel
 behavior. Treat the column as claims on host slots, not as a manifest of exports.
 
+### Base module set for admitted users
+
+Base set: `chat`, `module`, `todo`, `note`, `file`, `tag`.
+
+An admitted non-maintainer sees exactly these six enabled modules in the catalog.
+Their active versions use `authenticated` dispatch; data access remains scoped
+to the caller. Other modules, including `calendar`, `reminder`, `dev`, and `im`,
+remain maintainer-only. The maintainer still sees the full catalog.
+
+Modules is always on the activity bar. Users can open base modules from its list
+without pinning them or pin them individually; no pins are seeded. Module detail
+tells non-maintainers that version history is maintainer-only rather than asking
+them to retry. Catalog access does not provision a bot for new chats or a default
+execution node for Notes and Files; a chat-only node cannot run file commands.
+
+To change the set, update this list and the affected slugs' `dispatch` values in
+`module.json`. Push the manifests to canonical `y-module` main, publish each
+changed slug with `y module publish <slug>`, then verify that an admitted
+non-maintainer's `GET /api/module/list?enabled_only=true` returns exactly the
+revised set. There is no separate host allowlist.
+
 ### Per-user activity-bar pins
 
 Whether a module **appears in the left activity bar** is a personal navigation
