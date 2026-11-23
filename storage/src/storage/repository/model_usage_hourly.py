@@ -8,6 +8,7 @@ from sqlalchemy.dialects.postgresql import insert
 from storage.database.base import get_db
 from storage.dto.model_usage_hourly import ModelUsageHourly
 from storage.entity.model_usage_hourly import ModelUsageHourlyEntity
+from storage.repository.usage_scope import personal_only
 from storage.util import get_utc_iso8601_timestamp
 
 
@@ -100,7 +101,7 @@ def count_for(
     parsed_from = date.fromisoformat(from_date) if from_date else None
     parsed_to = date.fromisoformat(to_date) if to_date else None
     with get_db() as session:
-        query = session.query(ModelUsageHourlyEntity).filter_by(user_id=user_id)
+        query = personal_only(session.query(ModelUsageHourlyEntity).filter_by(user_id=user_id), ModelUsageHourlyEntity)
         if source:
             query = query.filter_by(source=source)
         if parsed_from:
@@ -120,7 +121,7 @@ def list_for(
     parsed_from = date.fromisoformat(from_date) if from_date else None
     parsed_to = date.fromisoformat(to_date) if to_date else None
     with get_db() as session:
-        query = session.query(ModelUsageHourlyEntity).filter_by(user_id=user_id)
+        query = personal_only(session.query(ModelUsageHourlyEntity).filter_by(user_id=user_id), ModelUsageHourlyEntity)
         if source:
             query = query.filter_by(source=source)
         if parsed_from:

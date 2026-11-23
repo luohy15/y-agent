@@ -99,4 +99,5 @@ SPECS = {
         "mcp_credential", "kind", ("secret_json",), credential=True,
     ),
     "McpOAuthTransactionEntity": _spec("mcp_oauth_transaction", "transaction_id", ("secret_json",)),
+    "RelayCredentialEntity": _spec("relay_credential", "credential_id", ("api_key",)),
 }

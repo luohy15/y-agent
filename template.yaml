@@ -115,6 +115,20 @@ Parameters:
     NoEcho: true
     Default: ""
 
+  RelayCredentialMode:
+    Type: String
+    Description: >
+      Launch source for relay-origin bots. Deploy bot_key, provision per-user
+      keys, then flip to credential. Rollback is this flag; bot keys stay stored.
+    Default: credential
+    AllowedPattern: "^(bot_key|credential)$"
+
+  RelayOrigins:
+    Type: String
+    Description: Comma-separated relay origins. A selected launch entry on one of these uses the per-user key.
+    Default: https://cc1.yovy.app
+    AllowedPattern: "^https://[A-Za-z0-9._:-]+(,https://[A-Za-z0-9._:-]+)*$"
+
 Conditions:
   HasCustomDomain: !Not [!Equals [!Ref DomainName, ""]]
   HasVpc: !Not [!Equals [!Ref LambdaSecurityGroupId, ""]]
@@ -457,6 +471,8 @@ Resources:
           OPENROUTER_API_KEY: !Ref OpenRouterApiKey
           OPENROUTER_INFERENCE_API_KEY: !Ref OpenRouterInferenceApiKey
           DEEPSEEK_API_KEY: !Ref DeepSeekApiKey
+          Y_AGENT_RELAY_CREDENTIAL_MODE: !Ref RelayCredentialMode
+          Y_AGENT_RELAY_ORIGINS: !Ref RelayOrigins
           Y_AGENT_TENANT_MASTER_KEY_PARAMETER: !Ref TenantMasterKeyParameter
           # Temporary /api/todo/list stage timing (todo 3788 R1); remove after B3.
           Y_AGENT_TODO_LIST_TIMING: "1"
@@ -509,6 +525,8 @@ Resources:
           CRAWLER_RATE_LIMIT: "10"
           Y_AGENT_MCP_GATEWAY_URL: !Ref McpGatewayUrl
           Y_AGENT_MODULE_MAINTAINER_USER_ID: !Ref ModuleMaintainerUserId
+          Y_AGENT_RELAY_CREDENTIAL_MODE: !Ref RelayCredentialMode
+          Y_AGENT_RELAY_ORIGINS: !Ref RelayOrigins
           Y_AGENT_TENANT_MASTER_KEY_PARAMETER: !Ref TenantMasterKeyParameter
       Layers:
         - !Ref StorageLayer

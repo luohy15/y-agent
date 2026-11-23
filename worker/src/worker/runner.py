@@ -715,8 +715,12 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
     # Guard bot resolution: a bad bot field/column (e.g. a new column not yet
     # migrated) must not crash the core chat chain. On any failure, fall back to
     # a hand-built default bot so the conversation keeps running. Explicit effort,
-    # an auth-mode miss, and a cross-backend continuation fail the launch instead
-    # of running on a bot that was not asked for.
+    # an auth-mode miss, a cross-backend continuation, and a missing per-user
+    # relay credential fail the launch instead of running on a bot that was not
+    # asked for.
+    from storage.crypto.tenant import TenantCryptoError
+    from storage.service.relay_credential import RelayCredentialMissing, resolve_for_launch
+
     try:
         if rebot:
             requested = _resolve_rebot_target(
@@ -779,8 +783,16 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
             launch = entry["backend"]
         if explicit_effort:
             resolve_reasoning_effort(selected_inputs, launch)
+        bot_config = resolve_for_launch(user_id, bot_config, entry)
+        entry = agent_config.launch_entry(launch, bot_config)
+        launch = entry["backend"]
     except Exception as e:
-        if explicit_effort or isinstance(e, (agent_config.BotAuthModeError, agent_config.BackendMismatchError)):
+        if explicit_effort or isinstance(e, (
+            agent_config.BotAuthModeError,
+            agent_config.BackendMismatchError,
+            RelayCredentialMissing,
+            TenantCryptoError,
+        )):
             _abort_unlaunched(chat, chat_id, user_id, e)
             raise
         # The fallback config below is synthetic, so it must never be persisted

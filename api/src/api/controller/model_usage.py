@@ -11,6 +11,7 @@ from storage.service import chat_model_activity as activity_service
 from storage.service import model_usage_daily as usage_service
 from storage.service import model_usage_hourly as hourly_service
 from storage.service import model_usage_limit_history as limit_history_service
+from storage.service import relay_credential as relay_service
 from storage.service import usage_rate as rate_service
 from storage.service.time_range import describe_time_range, parse_time_range
 from storage.util import local_today
@@ -186,11 +187,17 @@ async def list_daily_totals(
     return usage_service.daily_totals(user_id, year=year, source=source)
 
 
+@router.get("/availability")
+async def availability(request: Request):
+    """Relay usage state for the caller. Non-relay bots are named, never zeroed."""
+    return relay_service.availability(request.state.user_id)
+
+
 @router.post("/sync")
 async def sync(request: Request, source: Optional[str] = Query("crs")):
     """Trigger the CRS model-usage sync, then return the result envelope.
-    Mirrors finance /refresh: pulls fresh per-model daily aggregates so the
-    usage view can revalidate after the call completes."""
+    A caller with no sealed relay credential gets status=unavailable and no
+    upstream request. Otherwise the envelope is the per-grain sync result."""
     user_id = request.state.user_id
     return usage_service.sync(user_id, source=source)
 

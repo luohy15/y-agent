@@ -1,25 +1,22 @@
 """Provider-generic daily LLM usage: per-source pulls into one upsert table.
 
 One source in scope:
-- CRS (claude-relay-service): POST {origin}/apiStats/api/user-model-stats with each
-  distinct cr_ relay key referenced by the user's bot_configs, period='daily' ->
-  today's per-model tokens + real cost. The endpoint is strictly per-key, so we
-  enumerate every distinct key and SUM per model to reconstruct the global per-model
-  aggregate (cc1 is a single-user relay, so the sum equals CRS's own
-  usage:model:daily:* global). Stored as scope='aggregate' rows (key enumeration is an
-  invisible impl detail — no per-key rows). Today-only (no history); we pull daily.
+- CRS (claude-relay-service): POST {origin}/apiStats/api/user-model-stats with the
+  caller's sealed relay credential only, period='daily' -> today's per-model tokens
+  and cost. Bot-config keys are not enumerated. No credential returns
+  status=unavailable. Stored as scope='aggregate' rows with an empty scope_id.
+  Today-only (no history); we pull daily.
 """
 
 import concurrent.futures
 import os
 from datetime import date, timedelta
-from urllib.parse import urlsplit
 
 import httpx
 from loguru import logger
 
 from storage.repository import model_usage_daily as repo
-from storage.service import bot_config as bot_config_service
+from storage.repository.usage_scope import LEGACY_SCOPE_ID
 from storage.service import user_preference as user_pref_service
 from storage.util import get_utc_iso8601_timestamp, local_today
 
@@ -142,28 +139,27 @@ def _local_today() -> str:
 
 # --- CRS pull ---------------------------------------------------------------
 
-def _crs_targets(user_id: int) -> list[tuple[str, str]]:
-    """Distinct CRS (origin, api_key) pairs across the user's bot_configs.
+def _credential_target(user_id: int) -> tuple[str, str, str] | None:
+    """The caller's sealed relay key, or None when usage cannot be attributed."""
+    from storage.service.relay_credential import lookup, primary_origin
 
-    Enumerates every cr_ key referenced by a bot_config and dedups by
-    (origin, api_key) so a key shared by multiple bots (e.g. the subscription key
-    used by claude_code + codex) is queried once. Self-maintaining: a new bot
-    repointed to CRS is auto-discovered with no code change here. Enumeration is an
-    invisible impl detail — the results are summed into one global aggregate."""
-    seen: set[tuple[str, str]] = set()
-    out: list[tuple[str, str]] = []
-    for c in bot_config_service.list_configs(user_id):
-        ak = c.api_key or ""
-        if not ak.startswith("cr_"):
-            continue
-        parts = urlsplit(c.base_url or "https://cc1.yovy.app/api")
-        origin = f"{parts.scheme or 'https'}://{parts.netloc}"
-        target = (origin, ak)
-        if target in seen:
-            continue
-        seen.add(target)
-        out.append(target)
-    return out
+    row = lookup(user_id, primary_origin())
+    if row is None:
+        return None
+    return (row.relay_origin, row.api_key, row.billing_mode)
+
+
+def credential_targets(user_id: int) -> list[tuple[str, str]] | None:
+    """One ``(origin, api_key)`` target, or None when the user has no credential."""
+    found = _credential_target(user_id)
+    if found is None:
+        return None
+    origin, api_key, _billing = found
+    return [(origin, api_key)]
+
+
+def _unavailable(source: str) -> dict:
+    return {"source": source, "status": "unavailable", "reason": "no_relay_credential", "rows": 0}
 
 
 def _fetch_crs_key(client: httpx.Client, origin: str, api_key: str) -> list[dict]:
@@ -178,13 +174,23 @@ def _fetch_crs_key(client: httpx.Client, origin: str, api_key: str) -> list[dict
     return resp.json().get("data") or []
 
 
-def _crs_key_basis(client: httpx.Client, origin: str, api_key: str) -> str:
-    """Whether a relay key rides a flat-fee subscription (`notional` list-price
-    cost) or pay-per-token billing (`real`). The relay exposes each key's name
-    at GET {origin}/openai/key-info; the y-agent subscription key is literally
-    named `subscription`, so its list-price cost figure is notional, never
-    dollars charged. Failures and any non-subscription name default to `real`
-    (conservative: never downgrade a spend figure to notional on uncertainty)."""
+def _mode_from_key_info(payload) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+    mode = str(payload.get("billing_mode") or "").strip().lower()
+    if mode in {"notional", "real"}:
+        return mode
+    name = str(payload.get("name") or "").strip().lower()
+    if name == "subscription":
+        return "notional"
+    return None
+
+
+def _crs_key_basis(client: httpx.Client, origin: str, api_key: str, fallback: str | None = None) -> str:
+    """Cost basis for one relay key. key-info ``billing_mode`` wins; a stored
+    credential mode is the fallback. The legacy subscription key name still
+    means notional when the relay has not sent ``billing_mode`` yet."""
+    stored = fallback if fallback in {"notional", "real"} else None
     try:
         resp = client.get(
             f"{origin}/openai/key-info",
@@ -192,22 +198,23 @@ def _crs_key_basis(client: httpx.Client, origin: str, api_key: str) -> str:
             timeout=15,
         )
         resp.raise_for_status()
-        name = (resp.json() or {}).get("name") or ""
+        mode = _mode_from_key_info(resp.json() or {})
     except Exception as e:
-        logger.warning("_crs_key_basis: key-info failed for {}; assuming real: {}", origin, e)
-        return "real"
-    return "notional" if name.strip().lower() == "subscription" else "real"
+        logger.warning("_crs_key_basis: key-info failed for {}; using stored basis: {}", origin, e)
+        return stored or "real"
+    return mode or stored or "real"
 
 
-def resolve_key_basis(client: httpx.Client, targets: list[tuple[str, str]]) -> dict[tuple[str, str], str]:
-    """One basis lookup per distinct (origin, api_key), bounded concurrency,
-    computed once and shared across the daily + hourly grains of the same
-    sync() call instead of each grain re-resolving every key's basis.
-    `_crs_key_basis` already defaults to "real" on its own failures, so
-    nothing here can raise."""
+def resolve_key_basis(
+    client: httpx.Client,
+    targets: list[tuple[str, str]],
+    fallback: dict[tuple[str, str], str] | None = None,
+) -> dict[tuple[str, str], str]:
+    """One basis lookup per distinct (origin, api_key), bounded concurrency."""
     if not targets:
         return {}
-    work = {target: (lambda t=target: _crs_key_basis(client, *t)) for target in targets}
+    stored = fallback or {}
+    work = {target: (lambda t=target: _crs_key_basis(client, *t, stored.get(t))) for target in targets}
     return _run_bounded(work)
 
 
@@ -227,8 +234,8 @@ def sync_crs(
     targets: list[tuple[str, str]] | None = None,
     fetched: dict[tuple[str, str], list[dict]] | None = None,
 ) -> dict:
-    """Pull today's per-model usage across all distinct CRS keys, SUM per model, and
-    upsert as global source='crs' scope='aggregate' rows (one row per model).
+    """Pull today's per-model usage for the caller's relay credential and
+    upsert source='crs' scope='aggregate' rows (one row per model).
 
     `client` / `key_basis` / `targets` let `sync()` share one connection-pooled
     client, one already-resolved basis map, and one target enumeration across
@@ -239,14 +246,20 @@ def sync_crs(
     hourly reads instead of a separate wave; a standalone caller that omits it
     still fetches (with the same bounded concurrency) on its own.
     """
-    targets = targets if targets is not None else _crs_targets(user_id)
-    if not targets:
-        return {"source": "crs", "status": "skip", "reason": "no cr_ keys in bot_configs", "rows": 0}
+    basis_fallback = None
+    if targets is None:
+        found = _credential_target(user_id)
+        if found is None:
+            return _unavailable("crs")
+        targets = [(found[0], found[1])]
+        basis_fallback = {targets[0]: found[2]}
+    elif not targets:
+        return _unavailable("crs")
 
     owns_client = client is None
     client = client or new_http_client()
     try:
-        basis_map = key_basis if key_basis is not None else resolve_key_basis(client, targets)
+        basis_map = key_basis if key_basis is not None else resolve_key_basis(client, targets, basis_fallback)
 
         # Independent per-key reads run with bounded concurrency; failures are
         # collected and checked in original target order below so a failing
@@ -322,15 +335,8 @@ def _crs_config_block() -> dict:
         return tomllib.load(f).get("crs") or {}
 
 
-def _crs_admin_creds(user_id: int | None = None) -> dict:
-    """Admin credentials from the DB, then env or the local [crs] config block."""
-    if user_id is not None:
-        pref = user_pref_service.get_preference(user_id, "crs_admin")
-        value = pref.value if pref and isinstance(pref.value, dict) else None
-        if isinstance(value, dict) and isinstance(value.get("username"), str) and isinstance(value.get("password"), str):
-            if value["username"] and value["password"]:
-                return {"username": value["username"], "password": value["password"]}
-
+def _crs_admin_creds_from_env() -> dict:
+    """Bootstrap source for `y usage crs-creds set` only. Not a usage fallback."""
     username = os.getenv("CRS_ADMIN_USERNAME")
     password = os.getenv("CRS_ADMIN_PASSWORD")
     if not (username and password):
@@ -343,6 +349,17 @@ def _crs_admin_creds(user_id: int | None = None) -> dict:
             "[crs] block (admin_username/admin_password) in ~/.y-agent/config.toml"
         )
     return {"username": username, "password": password}
+
+
+def _crs_admin_creds(user_id: int) -> dict:
+    """The caller's stored crs_admin preference. Env and local config are not used."""
+    pref = user_pref_service.get_preference(user_id, "crs_admin")
+    value = pref.value if pref and isinstance(pref.value, dict) else None
+    username = value.get("username") if isinstance(value, dict) else None
+    password = value.get("password") if isinstance(value, dict) else None
+    if isinstance(username, str) and username and isinstance(password, str) and password:
+        return {"username": username, "password": password}
+    raise RuntimeError("CRS admin creds missing: the caller has no crs_admin preference")
 
 
 def crs_admin_login(origin: str, username: str, password: str, timeout: float = 30) -> str:
@@ -372,17 +389,20 @@ def crs_admin_get(origin: str, path: str, token: str, timeout: float = 60) -> di
 
 
 def _crs_origin(user_id: int) -> str:
-    """Admin-endpoint origin: the user's first CRS bot_config origin, else cc1."""
-    targets = _crs_targets(user_id)
-    return targets[0][0] if targets else "https://cc1.yovy.app"
+    """Admin-endpoint origin for this caller. Bot keys are not consulted."""
+    from storage.service.relay_credential import primary_origin
+
+    if not isinstance(user_id, int):
+        raise RuntimeError("CRS origin requires the caller id")
+    return primary_origin()
 
 
 def backfill_crs(user_id: int, days: int = 32, synced_at: str | None = None) -> dict:
     """One-shot historical backfill via the CRS admin routes (manual, not the
     recurring worker). For each day in [today-days, yesterday] call
     GET /admin/model-stats?startDate=D&endDate=D and write scope='aggregate'/
-    scope_id='' rows — the SAME shape as the go-forward daily sync, so re-running
-    (or overlapping a go-forward day) upserts in place. Today is left to the
+    scope_id='legacy-shared' rows. Personal reads exclude that scope. A re-run
+    upserts those legacy rows and does not overwrite empty-scope rows. Today is left to the
     go-forward sync (cap at yesterday). Only the dated daily window (~32d, the
     CRS daily-bucket TTL) is recoverable; older history has expired in Redis.
 
@@ -421,7 +441,7 @@ def backfill_crs(user_id: int, days: int = 32, synced_at: str | None = None) -> 
                 "provider": _derive_provider(model),
                 "model": model,
                 "scope": "aggregate",
-                "scope_id": "",
+                "scope_id": LEGACY_SCOPE_ID,
                 "scope_name": "",
                 "input_tokens": int(item.get("inputTokens") or 0),
                 "output_tokens": int(item.get("outputTokens") or 0),
@@ -470,10 +490,18 @@ def sync(user_id: int, source: str | None = None) -> dict:
         # imports daily helpers for key/basis).
         from storage.service import model_usage_hourly as hourly_service
 
-        targets = _crs_targets(user_id)
+        found = _credential_target(user_id)
+        if found is None:
+            return {"status": "unavailable", "reason": "no_relay_credential"}
+        origin, api_key, billing = found
+        targets = [(origin, api_key)]
+        fallback = {targets[0]: billing}
         date_list = hourly_service.default_hourly_dates()
         with new_http_client() as client:
-            basis_work = {("basis", *t): (lambda t=t: _crs_key_basis(client, *t)) for t in targets}
+            basis_work = {
+                ("basis", *t): (lambda t=t: _crs_key_basis(client, *t, fallback.get(t)))
+                for t in targets
+            }
             daily_work = {("daily", *t): (lambda t=t: _fetch_crs_key(client, *t)) for t in targets}
             hourly_work = {
                 ("hourly", d, *t): (lambda t=t, d=d: hourly_service._fetch_crs_key_hourly(client, t[0], t[1], d))

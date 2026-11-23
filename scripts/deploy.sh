@@ -67,6 +67,8 @@ add_param "OpenRouterApiKey" "OPENROUTER_API_KEY"
 add_param "OpenRouterInferenceApiKey" "OPENROUTER_INFERENCE_API_KEY"
 add_param "DeepSeekApiKey" "DEEPSEEK_API_KEY"
 add_param "McpGatewayUrl" "Y_AGENT_MCP_GATEWAY_URL"
+add_param "RelayCredentialMode" "Y_AGENT_RELAY_CREDENTIAL_MODE"
+add_param "RelayOrigins" "Y_AGENT_RELAY_ORIGINS"
 
 # Run only from a DB-reachable deploy host. With no parameter name set, the
 # guard does not read SSM, so this deploy stays available before the separate

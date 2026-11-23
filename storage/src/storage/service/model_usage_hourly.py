@@ -1,9 +1,8 @@
 """Provider-generic hourly LLM usage: per-source pulls into model_usage_hourly.
 
-CRS already records per-key per-model hourly counters (7-day TTL). The go-forward
-path reuses the same key enumeration / basis detection as the daily service and
-calls POST {origin}/apiStats/api/user-model-stats with period='hourly' + date,
-then sums per (model, hour) into one global aggregate row per hour (todo 3165).
+CRS records per-key per-model hourly counters (7-day TTL). The go-forward path
+reads only the caller's sealed relay credential, with the same basis detection
+as the daily service, then stores one aggregate row per model and hour.
 """
 
 from datetime import date, timedelta
@@ -14,10 +13,11 @@ from loguru import logger
 from storage.repository import model_usage_hourly as repo
 from storage.service.model_usage_daily import (
     _aggregate_basis,
-    _crs_targets,
     _derive_provider,
     _local_today,
     _run_bounded,
+    _credential_target,
+    _unavailable,
     new_http_client,
     resolve_key_basis,
 )
@@ -124,27 +124,21 @@ def sync_crs_hourly(
     targets: list[tuple[str, str]] | None = None,
     fetched: dict[tuple[str, str, str], list[dict]] | None = None,
 ) -> dict:
-    """Pull per-model hourly usage across all distinct CRS keys for each date,
-    SUM per (model, hour), and upsert as source='crs' scope='aggregate' rows.
+    """Pull per-model hourly usage for the caller's relay credential.
 
     `client` / `key_basis` / `targets` let `sync()` share one connection-pooled
-    client, one already-resolved basis map, and one target enumeration with
-    the daily grain of the same call; a standalone caller (tests, the CLI
-    `backfill --hourly-days`) that omits them gets an owned client and
-    resolves its own basis exactly as before. `fetched` additionally lets
-    `sync()` submit this grain's (date, key) reads into one merged bounded
-    batch alongside basis and daily reads instead of a separate wave; a
-    standalone caller that omits it still fetches (with the same bounded
-    concurrency) on its own.
+    client and the already-resolved credential target with the daily grain.
+    A standalone caller that omits them resolves the same credential.
     """
-    targets = targets if targets is not None else _crs_targets(user_id)
-    if not targets:
-        return {
-            "source": "crs-hourly",
-            "status": "skip",
-            "reason": "no cr_ keys in bot_configs",
-            "rows": 0,
-        }
+    basis_fallback = None
+    if targets is None:
+        found = _credential_target(user_id)
+        if found is None:
+            return _unavailable("crs-hourly")
+        targets = [(found[0], found[1])]
+        basis_fallback = {targets[0]: found[2]}
+    elif not targets:
+        return _unavailable("crs-hourly")
 
     date_list = list(dates) if dates is not None else default_hourly_dates()
     if not date_list:
@@ -153,7 +147,7 @@ def sync_crs_hourly(
     owns_client = client is None
     client = client or new_http_client()
     try:
-        basis_map = key_basis if key_basis is not None else resolve_key_basis(client, targets)
+        basis_map = key_basis if key_basis is not None else resolve_key_basis(client, targets, basis_fallback)
 
         # Every (date, target) pull is independent; run them with bounded
         # concurrency and check failures in the original nested-loop order

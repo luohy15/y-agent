@@ -127,6 +127,7 @@ def init_tables():
     import storage.entity.api_latency_rollup  # noqa: F401
     import storage.entity.module  # noqa: F401
     import storage.entity.module_version  # noqa: F401
+    import storage.entity.relay_credential  # noqa: F401
     __import__("storage.entity.wechat")
 
     Base.metadata.create_all(bind=_engine)

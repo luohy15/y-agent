@@ -15,7 +15,7 @@ def crs_creds():
 @crs_creds.command("set")
 def set_creds():
     """Copy admin credentials from env or [crs] config into the database."""
-    creds = usage_service._crs_admin_creds()
+    creds = usage_service._crs_admin_creds_from_env()
     user_pref_service.upsert_preference(get_cli_user_id(), "crs_admin", {
         "username": creds["username"],
         "password": creds["password"],

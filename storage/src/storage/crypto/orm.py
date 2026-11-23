@@ -87,6 +87,7 @@ def _model(name: str):
     import storage.entity.link as link
     import storage.entity.mcp as mcp
     import storage.entity.note as note
+    import storage.entity.relay_credential as relay_credential
     import storage.entity.reminder as reminder
     import storage.entity.routine as routine
     import storage.entity.rss_feed as rss_feed
@@ -102,6 +103,7 @@ def _model(name: str):
         wechat, chat, chat_wakeup, todo, entity_tag, tag_vocabulary, calendar_event, reminder,
         routine, email, email_account, english_correction, entity, note, link, rss_feed,
         bot_config, vm_config, user_cookies, user_preference, upload_job, chat_context, mcp,
+        relay_credential,
     )
     for module in modules:
         if hasattr(module, name):
