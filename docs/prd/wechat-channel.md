@@ -136,9 +136,12 @@ client without pretending to be OpenClaw.
    a valid saved login, the command tells him to run `y login` before showing
    a QR code. The API uses the authenticated identity and requires the admitted
    maintainer for this first version.
-2. The command starts a short-lived binding session, prints the QR from
-   `qrcode_img_content` and a fresh six-digit code, and polls the QR status. If
-   WeChat asks for a PIN, the operator enters it in the terminal.
+2. The command starts a short-lived binding session and writes a PNG of the
+   QR from `qrcode_img_content` to `~/.y-agent/wechat/<bot>.png` (mode `0600`).
+   It prints that absolute path and does not render a terminal QR. Roy opens
+   the file, scans it, and the command polls the QR status. After the scan is
+   confirmed it removes the PNG, then prints a fresh six-digit code. If WeChat
+   asks for a PIN, the operator enters it in the terminal.
 3. The scanner's `ilink_user_id` is recorded against the target user, but the
    peer stays `pending` until that WeChat account sends the six-digit code as its
    first message within ten minutes. A QR scanned by someone else therefore

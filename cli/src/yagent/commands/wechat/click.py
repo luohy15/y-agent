@@ -15,10 +15,15 @@ def wechat_group():
     """Bind and operate the maintainer's WeChat DMs."""
 
 
-def qr(value):
-    image = qrcode.QRCode(border=2)
-    image.add_data(value)
-    image.print_ascii(invert=True)
+def write_qr(value, path):
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    code = qrcode.QRCode(border=2)
+    code.add_data(value)
+    code.make(fit=True)
+    image = code.make_image()
+    image.save(path, format="PNG")
+    path.chmod(0o600)
+    click.echo(path)
 
 
 @wechat_group.command()
@@ -39,7 +44,12 @@ def login(bot):
         path = bridge.state_path(bot)
         with bridge.exclusive(path), httpx.Client(follow_redirects=False) as http:
             authenticated_request(api, token, "GET", "/api/wechat/status")
-            result = Client(http).login(qr, lambda: click.prompt("WeChat PIN", hide_input=True))
+            image = path.with_suffix(".png")
+            result = Client(http).login(
+                lambda value: write_qr(value, image),
+                lambda: click.prompt("WeChat PIN", hide_input=True),
+            )
+            image.unlink(missing_ok=True)
             bound = authenticated_request(api, token, "POST", "/api/wechat/bind/complete", json={
                 "account": result["ilink_bot_id"], "peer": result["ilink_user_id"],
                 "bot_token": result["bot_token"],
