@@ -218,6 +218,11 @@ entity + controller + service + CLI slices, and most have a web panel.
   `POST /api/gateway/send`, `GET /api/gateway/status`, `PUT /api/gateway/config`,
   and `y gateway send|config|status`. No `y notify` alias. No schema change. See
   [`docs/prd/notify-gateway.md`](docs/prd/notify-gateway.md).
+- **Channel gateway** — the authenticated `gateway` module supplies the panel
+  and its API. The built-in `y gateway channels status|bind|unbind` inspects
+  Telegram and WeChat bindings, guides binding, and confirms unbinding.
+  The host keeps credentials; WeChat management remains maintainer-only.
+  See [`docs/prd/channel-gateway.md`](docs/prd/channel-gateway.md).
 - **WeChat** — maintainer-only text DMs use an iLink bridge on the always-on
   relay host `claude-relay`, supervised by systemd (`y-agent-wechat-bridge.service`).
   The four bridge POST routes authenticate the active bot's opaque token rather
@@ -255,7 +260,8 @@ entity + controller + service + CLI slices, and most have a web panel.
   conventional `common` (vendored at publish). Rollback/activate change code only;
   delete removes deployed metadata/bytes, not source/tables. No worker half:
   deterministic work is `routine` `vm_command`; judgment stays chat dispatch.
-  Backend host contract (`agent.module_host`) is **v38** (todo 3627's v18 adds
+  Backend host contract (`agent.module_host`) is **v40** (v40 adds owner-bound
+  `channel_list` / `channel_unbind`; v39 added `user_is_admin`; todo 3627's v18 adds
   owner-bound no-wake VM execution; v19 / v20 are todos 3777 / 3781; v21 adds the
   maintainer-bound `mcp_*` connector capabilities of todo 3796; v22 is its round 2
   loopback OAuth start/complete; v23 adds the private photo object primitives,

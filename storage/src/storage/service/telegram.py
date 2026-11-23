@@ -4,8 +4,21 @@ from typing import Optional, Tuple
 
 from loguru import logger
 
-from storage.repository.user import get_user_by_id
+from storage.repository.user import get_user_by_id, unbind_telegram_id
 from storage.util import get_telegram_bot_token
+
+
+def channel_state(user_id):
+    user = get_user_by_id(user_id)
+    peer = user.telegram_id if user else None
+    return {"peer": peer, "bound": bool(peer), "status": "active" if peer else "unbound",
+            "token_configured": bool(get_telegram_bot_token())}
+
+
+def unbind_owner(user_id):
+    user = get_user_by_id(user_id)
+    if user and user.telegram_id:
+        unbind_telegram_id(user.telegram_id, owner_id=user_id)
 
 
 def resolve_target(user_id: int, role: Optional[str] = None) -> Optional[Tuple[str, int]]:

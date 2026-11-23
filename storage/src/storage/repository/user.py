@@ -59,9 +59,12 @@ def bind_telegram_id(email: str, telegram_id: int) -> Optional[UserEntity]:
         return user
 
 
-def unbind_telegram_id(telegram_id: int) -> Optional[UserEntity]:
+def unbind_telegram_id(telegram_id: int, *, owner_id: Optional[int] = None) -> Optional[UserEntity]:
     with get_db() as session:
-        user = session.query(UserEntity).filter_by(telegram_id=telegram_id, deleted=False).first()
+        query = session.query(UserEntity).filter_by(telegram_id=telegram_id, deleted=False)
+        if owner_id is not None:
+            query = query.filter_by(id=owner_id)
+        user = query.with_for_update().first()
         if not user:
             return None
         user.telegram_id = None

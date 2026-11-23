@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from storage.service import gateway
+from storage.service import channel as channel_service, gateway
 
 router = APIRouter(prefix="/gateway")
 
@@ -21,6 +21,19 @@ class ConfigBody(BaseModel):
 
 def _user_id(request: Request) -> int:
     return request.state.user_id
+
+
+@router.get("/channels")
+async def channels(request: Request):
+    return await run_in_threadpool(channel_service.list_channels, _user_id(request))
+
+
+@router.post("/channels/{channel}/unbind")
+async def unbind_channel(channel: Literal["telegram", "wechat"], request: Request):
+    try:
+        return await run_in_threadpool(channel_service.unbind, _user_id(request), channel)
+    except channel_service.ChannelError as exc:
+        raise HTTPException(exc.status, exc.detail) from None
 
 
 @router.post("/send")

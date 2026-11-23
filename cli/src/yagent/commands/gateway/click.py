@@ -1,11 +1,13 @@
+import json
+
 import click
 
-from yagent.api_client import api_request
+from yagent.api_client import api_request, load_auth
 
 
 @click.group("gateway")
 def gateway_group():
-    """Send a proactive notification on the configured channel."""
+    """Send notifications and manage IM channel bindings."""
 
 
 @gateway_group.command("send")
@@ -47,3 +49,59 @@ def gateway_status():
     click.echo(f"wechat: {'available' if availability.get('wechat') else 'unavailable'}")
     click.echo(f"telegram: {'available' if availability.get('telegram') else 'unavailable'}")
     click.echo(f"order: {', '.join(order) if order else 'none'}")
+
+
+@gateway_group.group("channels")
+def channels_group():
+    """Inspect, bind, or unbind your IM channels."""
+
+
+_CHANNEL = click.Choice(("telegram", "wechat"))
+
+
+@channels_group.command("status")
+@click.option("--json", "as_json", is_flag=True, help="Print the complete channel inventory as JSON.")
+def channels_status(as_json):
+    """Show bindings, channel health, and notification preference."""
+    payload = api_request("GET", "/api/gateway/channels").json()
+    if as_json:
+        click.echo(json.dumps(payload, ensure_ascii=False))
+        return
+    for row in payload["channels"]:
+        click.echo(f"{row['channel']}: {row['health']}  peer={row['peer'] or '-'}")
+        if row["channel"] == "wechat" and row["supported"]:
+            for key in ("account", "heartbeat_age_seconds", "last_poll_age_seconds", "last_error", "outbox"):
+                if row.get(key) is not None:
+                    click.echo(f"  {key}: {row[key]}")
+    notify = payload["notify"]
+    click.echo(f"preference: {notify['preference']}  order: {', '.join(notify['order']) or 'none'}")
+
+
+@channels_group.command("bind")
+@click.argument("channel", type=_CHANNEL)
+def channels_bind(channel):
+    """Print the existing bind step. Use the Telegram command only in the bot's private DM."""
+    if channel == "wechat":
+        click.echo("y wechat login")
+        return
+    try:
+        auth = load_auth()
+    except (OSError, ValueError):
+        raise click.ClickException("No usable saved login. Run 'y login' first.") from None
+    token = auth.get("token") if isinstance(auth, dict) else None
+    if not isinstance(token, str) or not token.strip():
+        raise click.ClickException("Not logged in. Run 'y login' first.")
+    click.echo(f"/bind {token}")
+
+
+@channels_group.command("unbind")
+@click.argument("channel", type=_CHANNEL)
+@click.option("--yes", is_flag=True, help="Skip confirmation.")
+def channels_unbind(channel, yes):
+    """Remove a binding. WeChat unbind revokes the bridge and clears its outbox."""
+    prompt = ("Unbind WeChat, revoke the bridge and peer, and clear the outbox?"
+              if channel == "wechat" else "Unbind Telegram from this account?")
+    if not yes:
+        click.confirm(prompt, abort=True)
+    api_request("POST", f"/api/gateway/channels/{channel}/unbind")
+    click.echo(f"Unbound {channel}.")

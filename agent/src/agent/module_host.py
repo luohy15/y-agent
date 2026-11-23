@@ -219,6 +219,8 @@ the Bot module that offers pi and declares min_backend_version 38. The chat
 backend rename is a separate data-only migration after deployed acceptance.
 Todo 4401 bumps 38 to 39: user_is_admin reads the request owner's admin marker.
 Apply migration/4401_user_admin.sql before deploying v39, then publish Bot.
+Todo 4409 bumps 39 to 40: channel_list and channel_unbind manage the request
+owner's IM bindings. Deploy v40 before publishing Gateway; no migration.
 """
 
 from __future__ import annotations
@@ -237,7 +239,7 @@ from storage.project_key import ProjectKeyError as ProjectKeyError, normalize_pr
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-BACKEND_CONTRACT_VERSION = 39
+BACKEND_CONTRACT_VERSION = 40
 
 # Wall-clock budget for the wake="nowait" readiness check (todo 3777).
 NOWAIT_BUDGET_SECONDS = 1.0
@@ -486,6 +488,31 @@ def user_is_admin(user_id: int) -> bool:
     from storage.service import user as user_service
 
     return user_service.is_admin(user_id)
+
+
+def _require_channel_owner(user_id: int) -> None:
+    owner = _request_owner.get()
+    if owner is None or owner != user_id:
+        raise ModuleHostAuthError("channel operation is restricted to the authenticated request owner")
+
+
+def channel_list(user_id: int) -> dict:
+    _require_channel_owner(user_id)
+    from storage.service.channel import list_channels
+
+    return list_channels(user_id)
+
+
+def channel_unbind(user_id: int, channel: str) -> dict:
+    _require_channel_owner(user_id)
+    from storage.service.channel import ChannelError, unbind
+
+    try:
+        return unbind(user_id, channel)
+    except ChannelError as exc:
+        if exc.status == 403:
+            raise ModuleHostAuthError(exc.detail) from exc
+        raise
 
 
 def _require_bot_config_owner(user_id: int) -> None:

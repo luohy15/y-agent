@@ -21,9 +21,12 @@ class ChannelError(Exception):
         self.detail = detail
 
 
+def is_operator(user_id):
+    return user_id is not None and resolve_maintainer()["internal_id"] == user_id
+
+
 def operator(user_id):
-    maintainer = resolve_maintainer()
-    if user_id is None or maintainer["internal_id"] != user_id:
+    if not is_operator(user_id):
         raise ChannelError(403, "Binding requires the admitted maintainer's own account")
 
 
@@ -47,7 +50,33 @@ def bind(user_id, account, peer, bot_token):
     return {"bridge_token": secret, "code": code}
 
 
+def _summary(db, account, peer):
+    now = int(time.time())
+    return {
+        "account": account.account, "peer": peer.peer, "status": peer.status,
+        "heartbeat": account.heartbeat, "last_poll": account.last_poll,
+        "heartbeat_age_seconds": now - account.heartbeat if account.heartbeat is not None else None,
+        "last_poll_age_seconds": now - account.last_poll if account.last_poll is not None else None,
+        "available": _available(account, peer, now),
+        "last_error": account.last_error, "last_delivery_error": account.last_error,
+        "outbox": dict(db.execute(select(Outbox.status, func.count()).where(
+            Outbox.account == account.account).group_by(Outbox.status)).all()),
+    }
+
+
+def channel_summary(user_id):
+    operator(user_id)
+    with get_db() as db:
+        account = db.scalar(select(Account).filter_by(user_id=user_id))
+        peer = peer_for(db, account) if account else None
+        if not peer or peer.user_id != user_id:
+            return {"status": "unbound"}
+        return _summary(db, account, peer)
+
+
 def owner_state(user_id, action):
+    if action == "status":
+        return channel_summary(user_id)
     operator(user_id)
     with get_db() as db:
         account = locked_account(db)
@@ -59,10 +88,7 @@ def owner_state(user_id, action):
             account.bridge_hash = account.bot_token = peer.code_hash = None
             for model in (Context, Outbox):
                 db.execute(delete(model).where(model.account == account.account))
-        return {"status": peer.status, "heartbeat": account.heartbeat, "last_poll": account.last_poll,
-                "last_delivery_error": account.last_error,
-                "outbox": dict(db.execute(select(Outbox.status, func.count()).where(
-                    Outbox.account == account.account).group_by(Outbox.status)).all())}
+        return _summary(db, account, peer)
 
 
 def verify_code(peer, value, now):
@@ -86,14 +112,17 @@ def bridge_live(heartbeat, now):
     return 0 <= age < WECHAT_BRIDGE_STALE_SECONDS
 
 
-def _notify_target(db, user_id, now):
-    account = locked_account(db)
-    if not account or account.user_id != user_id or account.status != "active":
-        return None
-    if not bridge_live(account.heartbeat, now):
+def _available(account, peer, now):
+    return (account.status == "active" and bridge_live(account.heartbeat, now)
+            and peer is not None and peer.user_id == account.user_id and peer.status == "active")
+
+
+def _notify_target(db, user_id, now, *, lock=True):
+    account = locked_account(db) if lock else db.scalar(select(Account).filter_by(user_id=user_id))
+    if not account or account.user_id != user_id:
         return None
     peer = peer_for(db, account)
-    if not peer or peer.user_id != user_id or peer.status != "active":
+    if not _available(account, peer, now):
         return None
     return account, peer
 
@@ -101,7 +130,7 @@ def _notify_target(db, user_id, now):
 def notify_available(user_id):
     try:
         with get_db() as db:
-            return _notify_target(db, user_id, int(time.time())) is not None
+            return _notify_target(db, user_id, int(time.time()), lock=False) is not None
     except Exception:
         logger.exception("wechat notify availability failed user_id={}", user_id)
         return False
