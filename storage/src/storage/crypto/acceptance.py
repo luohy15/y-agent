@@ -185,6 +185,7 @@ def _main() -> None:
     _check("backup dek still decrypts", backup == "marker-2678")
     _legacy_roundtrip()
     _link_activity_rewrite()
+    _partial_refresh()
     print("acceptance ok")
 
 
@@ -355,6 +356,70 @@ def _link_activity_rewrite() -> None:
             _check("retired rewrite closed", exc.code == "tenant_key_retired")
         else:
             raise SystemExit("FAIL retired rewrite closed")
+    clear_cache()
+
+
+def _partial_refresh() -> None:
+    from sqlalchemy.orm import Session
+    from sqlalchemy.orm.attributes import set_committed_value
+    from storage.crypto.orm import _on_refresh, install
+
+    install()
+    clear_cache()
+    _KEY_ROWS.clear()
+    dek = b"\x11" * 32
+    material = KeyMaterial(key_id="k-refresh", dek=dek, bidx=b"\x22" * 32, status="active")
+    _fixture(59, material)
+    title = seal(
+        dek, user_id=59, table="chat", column="title", public_id="c-refresh",
+        value="plain-title", key_id="k-refresh",
+    )
+    body = seal(
+        dek, user_id=59, table="chat", column="json_content", public_id="c-refresh",
+        value="plain-body", key_id="k-refresh",
+    )
+    with Session() as session:
+        row = ChatEntity(
+            user_id=59, chat_id="c-refresh", title=title, json_content=body, enc_version=1,
+        )
+        session.add(row)
+        _open_obj(row)
+        _check("load opens chat", row.title == "plain-title" and row.json_content == "plain-body")
+        _on_refresh(row, None, frozenset({"user_id"}))
+        _check(
+            "owner refresh does not reopen",
+            row.title == "plain-title" and row.json_content == "plain-body",
+        )
+        set_committed_value(row, "title", title)
+        _on_refresh(row, None, frozenset({"title"}))
+        _check(
+            "title refresh leaves body",
+            row.title == "plain-title" and row.json_content == "plain-body",
+        )
+        set_committed_value(row, "title", title)
+        set_committed_value(row, "json_content", body)
+        _on_refresh(row, None, None)
+        _check("full refresh opens both", row.title == "plain-title" and row.json_content == "plain-body")
+        set_committed_value(row, "title", "not-an-envelope")
+        try:
+            _on_refresh(row, None, frozenset({"title"}))
+        except TenantCryptoError as exc:
+            _check("partial plaintext stays closed", exc.code == "tenant_crypto_malformed")
+        else:
+            raise SystemExit("FAIL partial plaintext stays closed")
+        state = __import__("sqlalchemy").inspect(row)
+
+        def _steal(target, only=None):
+            __import__("sqlalchemy").inspect(target).runid = 99
+
+        state.runid = 7
+        with patch("storage.crypto.orm._open_obj", _steal):
+            state.manager.dispatch.load(state, None)
+        _check("load restores context", state.runid == 7)
+        state.runid = 7
+        with patch("storage.crypto.orm._open_obj", _steal):
+            state.manager.dispatch.refresh(state, None, None)
+        _check("refresh restores context", state.runid == 7)
     clear_cache()
 
 

@@ -69,8 +69,8 @@ def install() -> None:
     event.listen(Session, "after_rollback", _after_rollback)
     for name in SPECS:
         model = _model(name)
-        event.listen(model, "load", _on_load)
-        event.listen(model, "refresh", _on_refresh)
+        event.listen(model, "load", _on_load, restore_load_context=True)
+        event.listen(model, "refresh", _on_refresh, restore_load_context=True)
 
 
 def _model(name: str):
@@ -250,7 +250,7 @@ def _after_rollback(session) -> None:
     _restore(session)
 
 
-def _open_obj(target) -> None:
+def _open_obj(target, only: set[str] | None = None) -> None:
     spec = SPECS.get(type(target).__name__)
     if spec is None:
         return
@@ -274,6 +274,8 @@ def _open_obj(target) -> None:
     public_id = _public_id(target, spec, bidx_values)
     unloaded = set(inspect(target).unloaded)
     for name in spec.fields:
+        if only is not None and name not in only:
+            continue
         if name in unloaded:
             continue
         value = getattr(target, name)
@@ -290,7 +292,15 @@ def _on_load(target, context) -> None:
 
 
 def _on_refresh(target, context, attrs) -> None:
-    _open_obj(target)
+    spec = SPECS.get(type(target).__name__)
+    if spec is None:
+        return
+    if attrs is None:
+        _open_obj(target)
+        return
+    reloaded = {name for name in spec.fields if name in attrs}
+    if reloaded:
+        _open_obj(target, only=reloaded)
 
 
 def open_projected(session, *, user_id: int, table: str, column: str, public_id: str, enc_version, value):
