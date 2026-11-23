@@ -229,6 +229,8 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
     # A disabled node still tails: this chat already lives there. An unknown
     # node fails closed instead of falling back to the orchestrator.
     node = layout(user_id, proc.get("target_id") or "default", allow_disabled=True)
+    from storage.service.vm_config import touch_activity
+    touch_activity(node.node, node.anchor)
 
     # Get pooled SSH client if pool is available. Jump nodes are a jump on it.
     client = ssh_pool.get_or_create(node) if ssh_pool else None

@@ -15,6 +15,7 @@ class VmConfig:
     namespace: Optional[str] = None  # NULL means the default namespace
     enabled: bool = True
     auth_mode: Optional[str] = None  # NULL means relay
+    last_active_at: Optional[int] = None
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'VmConfig':

@@ -25,6 +25,9 @@ CONTINUATION_THRESHOLD_MS = 120_000  # 2 min before timeout
 
 
 def _handle_scheduled_action(action: str, event: dict) -> dict:
+    if action == "idle_stop_nodes":
+        from worker.steps.idle_stop_nodes import handle_idle_stop_nodes
+        return handle_idle_stop_nodes(dry_run=event.get("dry_run", False) is not False)
     if action == "recover_upload_jobs":
         from worker.steps.recover_upload_jobs import handle_recover_upload_jobs
         return handle_recover_upload_jobs()

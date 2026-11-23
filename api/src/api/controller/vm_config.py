@@ -46,6 +46,7 @@ def _node_dict(config: VmConfig) -> dict:
         "ec2_instance_id": config.ec2_instance_id,
         "ec2_region": config.ec2_region,
         "last_up": config.last_up,
+        "last_active_at": config.last_active_at,
     }
 
 
@@ -79,16 +80,22 @@ async def set_vm_config(req: VmConfigRequest, request: Request):
         if req.api_token is None:
             config.api_token = existing.api_token if existing else ""
         try:
+            vm_service.preserve_ec2(config, existing, req.model_fields_set)
             vm_service.assign_auth_mode(config, existing, provided=req.auth_mode is not None)
             vm_service.set_config(user_id, config)
         except vm_service.InvalidNode as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         return {"ok": True, "name": name}
     try:
+        if req.model_fields_set.intersection({"ec2_instance_id", "ec2_region"}):
+            from storage.service.user import get_module_maintainer_user_id
+            if user_id != get_module_maintainer_user_id():
+                raise HTTPException(status_code=403, detail="EC2 jump-node enrollment requires the maintainer")
         stored = vm_service.set_node(
             user_id, config,
             api_token_provided=req.api_token is not None,
             enabled_provided=req.enabled is not None,
+            ec2_fields=req.model_fields_set,
             auth_mode_provided=req.auth_mode is not None,
         )
     except vm_service.NodeProtected as exc:

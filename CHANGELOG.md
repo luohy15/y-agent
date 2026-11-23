@@ -14,6 +14,9 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Added
 
+- A five-minute worker sweep hibernates idle EC2 execution nodes after checking
+  activity across owners, including jump anchors. It never falls back to a plain stop.
+
 - **Approval-based homepage admission (4396)**: sign-in now requires a per-verified-email admission record instead of an allowlist of existing user rows. A visitor can request access from the landing page with their Google account; the request is recorded once, queues a private Telegram notice to the maintainer, and failed sends are retried. Only the maintainer can list applications and approve one, and every protected API request and bound Telegram action re-checks admission, so an existing user no longer implies approval. `y access list|approve|inventory` manage the same records and print a clear refusal when the caller is not the maintainer.
 - **Daily model context window sync**: a daily admin job adds missing `model_context_window` rows for enabled bot models from the OpenRouter catalog without changing existing rows, and reports model IDs the catalog cannot resolve.
 

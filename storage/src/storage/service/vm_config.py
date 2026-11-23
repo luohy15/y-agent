@@ -6,6 +6,7 @@ dialed through it.
 """
 
 import re
+import time
 from typing import List, Optional
 from storage.entity.dto import VmConfig
 from storage.repository import vm_config as vm_repo
@@ -21,6 +22,24 @@ NODE_AUTH_MODES = frozenset({"relay", "subscription"})
 
 class NodeError(ValueError):
     """Base for execution-node resolution and registry errors."""
+
+
+def touch_activity(*configs):
+    ids = {config.id for config in configs if config.id}
+    if ids:
+        vm_repo.touch_activity(ids, int(time.time()))
+
+
+def idle_stop_action(config):
+    return f"node-idle-stop:{config.ec2_region}:{config.ec2_instance_id}"
+
+
+def preserve_ec2(config, existing, provided):
+    for field in ("ec2_instance_id", "ec2_region"):
+        if field not in provided and existing:
+            setattr(config, field, getattr(existing, field))
+    if bool(config.ec2_instance_id) != bool(config.ec2_region):
+        raise InvalidNode("EC2 instance ID and region must be configured together")
 
 
 class UnknownNode(NodeError):
@@ -120,7 +139,8 @@ def assign_auth_mode(config: VmConfig, existing: Optional[VmConfig], *, provided
 
 
 def set_node(user_id: int, config: VmConfig, *, api_token_provided: bool = True,
-             enabled_provided: bool = True, auth_mode_provided: bool = False) -> VmConfig:
+             enabled_provided: bool = True, auth_mode_provided: bool = False,
+             ec2_fields=("ec2_instance_id", "ec2_region")) -> VmConfig:
     """Create or update a non-default node.
 
     An omitted key inherits the default node's key (empty `api_token`), and an
@@ -137,6 +157,7 @@ def set_node(user_id: int, config: VmConfig, *, api_token_provided: bool = True,
     config.name = canonical
     config.platform = config.platform or None
     existing = vm_repo.get_config(user_id, canonical)
+    preserve_ec2(config, existing, ec2_fields)
     if not api_token_provided:
         config.api_token = existing.api_token if existing else ""
     if not enabled_provided:

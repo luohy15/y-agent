@@ -3,6 +3,11 @@ Transform: AWS::Serverless-2016-10-31
 Description: y-agent serverless backend — API, Worker, Admin with shared Storage and Agent layers
 
 Parameters:
+  IdleStopNodesEnabled:
+    Type: String
+    AllowedValues: ["ENABLED", "DISABLED"]
+    Default: "DISABLED"
+    Description: Enable after guest setup and the worker dry run pass.
   DatabaseUrl:
     Type: String
     Description: PostgreSQL database connection URL
@@ -588,13 +593,17 @@ Resources:
           Properties:
             Schedule: rate(10 minutes)
             Input: '{"action": "rollup_api_latency"}'
+        IdleStopNodesSchedule:
+          Type: Schedule
+          Properties:
+            State: !Ref IdleStopNodesEnabled
+            Schedule: rate(5 minutes)
+            Input: '{"action":"idle_stop_nodes"}'
         RefreshUsageLimitsSchedule:
           # Keeps each eligible user's persisted usage_limits_latest snapshot
           # current so ordinary GET /api/usage/limits reads never touch
-          # VM/SSH/CLI (todo 3226). Cadence is 30 minutes because each awake
-          # refresh renews the VM's SSH idle marker, and that marker's host
-          # hibernation threshold is 900s; 5 minutes was shorter than 900s so
-          # auto-hibernate.sh could never fire (todo 3564). Per-user pipeline
+          # VM/SSH/CLI (todo 3226). This read-only sweep does not renew
+          # vm_config.last_active_at or wake a sleeping node. Per-user pipeline
           # locks still make this safe against a still-running sweep or a
           # concurrent manual ?refresh=true. The step also sizes its own run
           # budget against this interval (_SCHEDULE_INTERVAL_SECONDS in

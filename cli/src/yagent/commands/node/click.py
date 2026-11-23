@@ -76,7 +76,10 @@ def node_show(name):
 @click.option('--work-dir', default='', help='Default workspace on the node.')
 @click.option('--auth-mode', type=click.Choice(['relay', 'subscription']),
               help='How claude authenticates on this node. Omit to keep the stored mode.')
-def node_add(name, host, user, port, platform, namespace, key_file, inherit_key, work_dir, auth_mode):
+@click.option('--ec2-instance-id', help='EC2 instance ID. Omit to preserve.')
+@click.option('--ec2-region', help='EC2 region. Omit to preserve.')
+def node_add(name, host, user, port, platform, namespace, key_file, inherit_key, work_dir, auth_mode,
+             ec2_instance_id, ec2_region):
     """Create or update a non-default node. No deploy is needed."""
     if key_file and inherit_key:
         raise click.UsageError('choose --key-file or --inherit-key, not both')
@@ -92,6 +95,10 @@ def node_add(name, host, user, port, platform, namespace, key_file, inherit_key,
     }
     if auth_mode:
         payload['auth_mode'] = auth_mode
+    if ec2_instance_id is not None:
+        payload['ec2_instance_id'] = ec2_instance_id
+    if ec2_region is not None:
+        payload['ec2_region'] = ec2_region
     if key_file:
         payload['api_token'] = key_file.read_text()
     node = api_request('POST', '/api/vm-config', json=payload).json()

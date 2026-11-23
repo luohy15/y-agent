@@ -197,13 +197,15 @@ def _parse_address(raw: Optional[str]) -> Optional[tuple[str, str, int]]:
     if not sep or not user or not hostport or "@" in hostport:
         return None
     host, port_sep, port_str = hostport.rpartition(":")
-    if not port_sep or not host:
+    if not port_sep:
+        return user, hostport, 22
+    if not host:
         return None
     try:
         port = int(port_str)
     except ValueError:
         return None
-    if port <= 0:
+    if not 0 < port <= 65535:
         return None
     return user, host, port
 
@@ -279,6 +281,27 @@ def open_owned_client(node: NodeTarget):
         raise
     jump._y_agent_outer = outer
     return jump
+
+
+def prepare_jump_launch(node):
+    from agent.ec2_wake import _start_and_wait, prepare_runtime
+
+    prepare_runtime(node.node)
+    if node.node.ec2_instance_id and node.node.ec2_region:
+        _start_and_wait(node.node.ec2_instance_id, node.node.ec2_region)
+        deadline = time.monotonic() + 180
+        outer = connect_vm(node.anchor)
+        try:
+            while True:
+                try:
+                    open_jump_client(outer, node).close()
+                    break
+                except Exception:
+                    if time.monotonic() >= deadline:
+                        raise
+                    time.sleep(1)
+        finally:
+            outer.close()
 
 
 def close_owned_client(client) -> None:

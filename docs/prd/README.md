@@ -6,6 +6,7 @@ near-duplicate.
 
 | PRD | Scope |
 |-----|-------|
+| [vm-wake-lifecycle](vm-wake-lifecycle.md) | EC2 activity, coordinated idle hibernation and chat-triggered wake, including shared anchors. |
 | [hosted-tenant-confidentiality](hosted-tenant-confidentiality.md) | L1 application-layer encryption for a future hosted tenant. Existing accounts, including the operator, stay plaintext with no backfill. Encryption stays dormant until todo 4371; deletion is crypto-shred. |
 | [multi-machine-execution](multi-machine-execution.md) | Owns the `vm_config` execution-node registry and `y chat --on <name>`: default EC2 orchestration and SSH jump anchor, non-default node transport/stop/monitor, strict fail-closed admission, and the retirement of bounded Mac browser jobs and their Machines panel while the physical tables remain. |
 | [api-latency-monitoring](api-latency-monitoring.md) | Owns privacy-safe server-boundary latency capture and bounded raw/hourly/daily evidence for y-agent API routes, plus the API Latency overview and route drill-down inside the extensible `monitor` module, and the bounded daily latency review routine that turns evidence-qualified slow routes into at most one optimization todo per day. |

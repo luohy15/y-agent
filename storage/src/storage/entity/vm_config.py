@@ -14,6 +14,7 @@ class VmConfigEntity(Base, BaseEntity):
     ec2_instance_id = Column(String, nullable=False, default="")
     ec2_region = Column(String, nullable=False, default="")
     last_up = Column(Integer, nullable=True)
+    last_active_at = Column(Integer, nullable=True)
     # Execution-node metadata (todo 4204). A NULL platform means linux. A NULL
     # namespace is the default namespace (`default` is accepted on input and
     # stored NULL). Every row is a node in the registry; `default` is the

@@ -4,6 +4,7 @@ from typing import List, Optional
 from storage.entity.vm_config import VmConfigEntity
 from storage.entity.dto import VmConfig
 from storage.database.base import get_db
+from storage.entity.chat import ChatEntity
 
 
 def _entity_to_dto(entity: VmConfigEntity) -> VmConfig:
@@ -16,6 +17,7 @@ def _entity_to_dto(entity: VmConfigEntity) -> VmConfig:
         ec2_instance_id=entity.ec2_instance_id or "",
         ec2_region=entity.ec2_region or "",
         last_up=entity.last_up,
+        last_active_at=entity.last_active_at,
         platform=entity.platform,
         namespace=entity.namespace,
         enabled=True if entity.enabled is None else bool(entity.enabled),
@@ -43,6 +45,21 @@ def list_configs(user_id: int) -> List[VmConfig]:
     with get_db() as session:
         rows = session.query(VmConfigEntity).filter_by(user_id=user_id).all()
         return [_entity_to_dto(r) for r in rows]
+
+
+def idle_snapshot():
+    with get_db() as session:
+        nodes = [(row.user_id, _entity_to_dto(row)) for row in session.query(VmConfigEntity)]
+        active = session.query(ChatEntity.user_id, ChatEntity.execution_target).filter_by(status="running").all()
+        return nodes, active
+
+
+def touch_activity(ids, now):
+    with get_db() as session:
+        entity = VmConfigEntity
+        session.query(entity).filter(entity.id.in_(ids),
+                                     entity.last_active_at.is_(None) | (entity.last_active_at < now)
+                                     ).update({entity.last_active_at: now}, synchronize_session=False)
 
 
 def list_user_ids_with_config(name: str = "default") -> List[int]:

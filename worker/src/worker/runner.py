@@ -1304,7 +1304,9 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
     # itself runs on a jump node.
     node = params["node"]
     ensure_and_touch_vm(node.anchor)
-    from agent.chat_target import apply_launch
+    from agent.chat_target import apply_launch, prepare_jump_launch
+    if node.transport == "jump":
+        prepare_jump_launch(node)
     params["cmd"], params["env"] = apply_launch(node, params["cmd"], params["env"])
 
     # The launch prompt is one input group. Claude completes it from

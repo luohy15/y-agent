@@ -75,6 +75,11 @@ Other top-level dirs: `scripts/` (deploy, DNS, IAM), `template.yaml` / `samconfi
   See
   `docs/prd/multi-machine-execution.md`.
 
+- **Idle-stop (todo 4407)**: the scheduled worker groups SSH endpoints across
+  owners. `vm_config.last_active_at` is runtime activity, not the `last_up`
+  readiness cache. Apply `migration/4407_vm_idle_stop.sql` before deployment;
+  see `docs/prd/vm-wake-lifecycle.md` for hibernation prerequisites and rollout.
+
 - **Bounded-job retirement (todo 4204)**: the former Codex browser-job API, CLI,
   runner and storage code are removed, and the UI-only Machine module's authoring
   source is removed. Deleting the deployed module is the final step of that

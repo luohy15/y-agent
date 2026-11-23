@@ -13,10 +13,12 @@ from loguru import logger
 
 from storage.entity.dto import VmConfig
 from storage.service import vm_config as vm_service
+from storage.repository import pipeline_lock
 
 
 # If last_up is older than this, assume the VM may be stopped/hibernated.
 IDLE_THRESHOLD_SECONDS = 60
+STOP_LOCK_SECONDS = 960
 
 # EC2 calls run in a thread their caller cannot cancel (ssh_exec's prelude,
 # the usage-limit sweep's sleep-state probe), so the transport carries its own
@@ -84,29 +86,19 @@ def _start_and_wait(instance_id: str, region: str) -> None:
     """Start an EC2 instance and wait until it's running."""
     ec2 = _ec2_client(region)
 
-    state = get_instance_state(instance_id, region)
-
-    if state == "running":
-        logger.info("ec2_wake: {} already running", instance_id)
-        return
-
-    logger.info("ec2_wake: {} is {}, starting...", instance_id, state)
-    ec2.start_instances(InstanceIds=[instance_id])
-
+    started = False
     deadline = time.monotonic() + 600
     while time.monotonic() < deadline:
         try:
-            response = ec2.describe_instance_status(
-                InstanceIds=[instance_id], IncludeAllInstances=True,
-            )
+            state = get_instance_state(instance_id, region, ec2)
         except ClientError as exc:
             logger.warning("ec2_wake: describe failed while waiting: {}", exc)
         else:
-            statuses = response.get("InstanceStatuses", [])
-            state = statuses[0]["InstanceState"]["Name"] if statuses else "unknown"
             if state == "running":
-                logger.info("ec2_wake: {} is now running", instance_id)
                 return
+            if state == "stopped" and not started:
+                ec2.start_instances(InstanceIds=[instance_id])
+                started = True
             if state in ("terminated", "shutting-down"):
                 raise RuntimeError(f"ec2_wake: instance entered {state}")
         remaining = deadline - time.monotonic()
@@ -219,6 +211,8 @@ def request_wake_or_probe(
     response), a running VM that fails one bounded SSH probe is left to boot,
     and an in-flight blocking prelude is never joined. Never sleeps or waits.
     """
+    if not prepare_runtime(vm_config, wait=False):
+        return False
     if not (vm_config.vm_name and vm_config.vm_name.startswith("ssh:")):
         return True
     if not vm_config.ec2_instance_id or not vm_config.ec2_region:
@@ -301,6 +295,33 @@ def _run_prelude(vm_config: VmConfig) -> None:
                 _CONFIRMED_UP[_vm_key(vm_config)] = vm_config.last_up
 
 
+def prepare_runtime(vm_config, *, wait=True):
+    vm_service.touch_activity(vm_config)
+    if not vm_config.id or not vm_config.ec2_instance_id or not vm_config.ec2_region:
+        return True
+    action = vm_service.idle_stop_action(vm_config)
+    deadline = time.monotonic() + STOP_LOCK_SECONDS
+    while pipeline_lock.is_locked(action, STOP_LOCK_SECONDS):
+        vm_config.last_up = None
+        with _FLIGHTS_GUARD:
+            _CONFIRMED_UP.pop(_vm_key(vm_config), None)
+        if not wait:
+            return False
+        if time.monotonic() >= deadline:
+            raise TimeoutError("idle-stop lock did not clear")
+        time.sleep(1)
+    stop = pipeline_lock.get_marker(action, "stop_requested")
+    if stop:
+        key = _vm_key(vm_config)
+        cutoff = int(stop.timestamp())
+        if vm_config.last_up and vm_config.last_up <= cutoff:
+            vm_config.last_up = None
+        with _FLIGHTS_GUARD:
+            if _CONFIRMED_UP.get(key, 0) <= cutoff:
+                _CONFIRMED_UP.pop(key, None)
+    return True
+
+
 def ensure_and_touch_vm(vm_config: VmConfig) -> None:
     """Ensure the EC2 VM is running and update last_up timestamp.
 
@@ -308,6 +329,7 @@ def ensure_and_touch_vm(vm_config: VmConfig) -> None:
     SSH readiness, last_up write). last_up is still written on the whole
     stale branch, as it was before this change.
     """
+    prepare_runtime(vm_config)
     if not (vm_config.vm_name and vm_config.vm_name.startswith("ssh:")):
         return
     if not vm_config.ec2_instance_id or not vm_config.ec2_region:

@@ -173,7 +173,7 @@ async def _run_usage_limits_cli(vm_config, refresh: bool = False) -> str:
     cmd = ["y", "usage", "limits", "--json"]
     if refresh:
         cmd.append("--refresh")
-    return await execute_vm_command(vm_config, cmd, timeout=_CLI_TIMEOUT_SECONDS)
+    return await execute_vm_command(vm_config, cmd, timeout=_CLI_TIMEOUT_SECONDS, wake=False)
 
 
 def _error_code(e: Exception) -> str:

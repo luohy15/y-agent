@@ -1159,17 +1159,10 @@ later delivery.
   return a bounded `{"providers": [], "errors": [{"origin": "snapshot",
   "error": "snapshot_unavailable"}]}` envelope — startup is fail-fast and
   never wakes or probes the VM from an ordinary poll.
-- **Refresh cadence is 30 minutes so the sweep cannot keep the VM awake
-  (todo 3564).** Each awake refresh still opens two short SSH sessions and
-  renews `/tmp/ec2-ssh-last-seen`. The host idle threshold is 900s, so the
-  original 5-minute cadence (todo 3226) never let `auto-hibernate.sh`
-  fire. The schedule is now `rate(30 minutes)` / `_SCHEDULE_INTERVAL_SECONDS
-  = 1800`, strictly longer than that threshold. An asleep VM still records
-  `vm_unreachable` and is not woken. Under an isolated idle window the
-  awake tail after the last genuine activity is typically 15-30 minutes;
-  scheduler jitter, a stalled process, or other SSH work can stretch that
-  tail, and the remaining sub-second probe race is not closed. Once asleep
-  the VM stays asleep until a genuine interactive wake. Freshness
+- **Refresh cadence is 30 minutes.** The read-only sweep neither wakes a
+  sleeping VM nor renews the runtime activity clock used by
+  [idle-stop](vm-wake-lifecycle.md). An asleep VM records `vm_unreachable`.
+  Freshness
   consequence: `READ_FRESH_SECONDS` stays 600, so provider rows read `fresh`
   for 10 minutes after each refresh and `stale` for the other 20, and they
   read `stale` with a `vm_unreachable` attempt error while the VM sleeps.
