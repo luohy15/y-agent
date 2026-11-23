@@ -1,4 +1,5 @@
 import json
+import time
 from urllib.parse import urlsplit
 
 import click
@@ -7,12 +8,11 @@ import qrcode
 
 from yagent.api_client import DEFAULT_WEB_URL, api_request, authenticated_request, load_auth
 from yagent.wechat import bridge
-from yagent.wechat.client import Client, ProviderError
 
 
 @click.group("wechat")
 def wechat_group():
-    """Bind and operate the maintainer's WeChat DMs."""
+    """Bind a WeChat peer, or operate the shared bridge."""
 
 
 def write_qr(value, path):
@@ -26,10 +26,7 @@ def write_qr(value, path):
     click.echo(path)
 
 
-@wechat_group.command()
-@click.option("--bot", default="default", show_default=True)
-def login(bot):
-    """Bind WeChat to the current y login on the default node."""
+def saved_login():
     try:
         auth = load_auth()
     except (ValueError, OSError):
@@ -39,29 +36,81 @@ def login(bot):
         raise click.ClickException("Not logged in. Run 'y login' first.")
     api = auth.get("web_url", DEFAULT_WEB_URL).rstrip("/")
     if urlsplit(api).scheme != "https":
-        raise click.ClickException("Login requires an HTTPS y-agent API")
+        raise click.ClickException("WeChat binding requires an HTTPS y-agent API")
+    return api, token
+
+
+def _call(api, token, method, path, **kwargs):
     try:
-        path = bridge.state_path(bot)
-        with bridge.exclusive(path), httpx.Client(follow_redirects=False) as http:
-            authenticated_request(api, token, "GET", "/api/wechat/status")
-            image = path.with_suffix(".png")
-            result = Client(http).login(
-                lambda value: write_qr(value, image),
-                lambda: click.prompt("WeChat PIN", hide_input=True),
-            )
-            image.unlink(missing_ok=True)
-            bound = authenticated_request(api, token, "POST", "/api/wechat/bind/complete", json={
-                "account": result["ilink_bot_id"], "peer": result["ilink_user_id"],
-                "bot_token": result["bot_token"],
-            }).json()
-            bridge.save(path, {"api": api, "bridge_token": bound["bridge_token"],
-                               "ilink_bot_id": result["ilink_bot_id"], "baseurl": result["baseurl"],
-                               "bot_token": result["bot_token"], "get_updates_buf": ""})
-            click.echo(f"Start y wechat bridge --bot {bot}, then DM this code within 10 minutes: {bound['code']}")
-    except (httpx.HTTPError, ProviderError, KeyError):
-        raise click.ClickException("Binding failed; check account and network, then retry") from None
+        return authenticated_request(api, token, method, path, timeout=30, **kwargs)
+    except httpx.HTTPStatusError as exc:
+        raise click.ClickException(str(exc)) from None
+
+
+def bind_session(save_bridge, bot):
+    api, token = saved_login()
+    path = bridge.state_path(bot)
+    session_id = None
+    done = False
+    image = path.with_suffix(".png")
+    try:
+        with bridge.exclusive(path):
+            started = _call(api, token, "POST", "/api/wechat/bind/start", json={}).json()
+            session_id = started["session_id"]
+            write_qr(started["qrcode"], image)
+            deadline = time.monotonic() + 480
+            pin = None
+            while time.monotonic() < deadline:
+                body = {"session_id": session_id}
+                if pin:
+                    body["pin"] = pin
+                    pin = None
+                result = _call(api, token, "POST", "/api/wechat/bind/poll", json=body).json()
+                status = result.get("status")
+                if status == "need_verifycode":
+                    pin = click.prompt("WeChat PIN", hide_input=True)
+                    continue
+                if status == "confirmed":
+                    if save_bridge:
+                        bridge.save(path, {"api": api, "bridge_token": result["bridge_token"],
+                                           "ilink_bot_id": result["account"], "baseurl": result["baseurl"],
+                                           "bot_token": result["bot_token"], "get_updates_buf": ""})
+                    elif any(key in result for key in ("bot_token", "bridge_token")):
+                        raise click.ClickException("Binding response included a bot credential")
+                    click.echo(f"DM this code within 10 minutes: {result['code']}")
+                    done = True
+                    return
+                if status in {"wait", "scaned"}:
+                    time.sleep(1)
+                    continue
+                raise click.ClickException(result.get("detail") or "Binding stopped")
+            raise click.ClickException("QR login expired; start again")
     except ValueError as exc:
-        raise click.ClickException("Login stopped: already bound, expired QR, invalid host or local state") from exc
+        raise click.ClickException(str(exc) or "Binding stopped") from None
+    except (httpx.HTTPError, OSError, KeyError):
+        raise click.ClickException("Binding failed; check account and network, then retry") from None
+    finally:
+        image.unlink(missing_ok=True)
+        if session_id and not done:
+            try:
+                _call(api, token, "POST", "/api/wechat/bind/cancel", json={"session_id": session_id})
+            except (click.ClickException, httpx.HTTPError, OSError):
+                pass
+
+
+@wechat_group.command()
+@click.option("--bot", default="default", show_default=True)
+def login(bot):
+    """Bind or refresh the ClawBot as the maintainer and write bridge state."""
+    bind_session(True, bot)
+    click.echo(f"Start y wechat bridge --bot {bot}")
+
+
+@wechat_group.command()
+@click.option("--bot", default="default", show_default=True)
+def bind(bot):
+    """Bind this login's own WeChat. The bot token stays on the maintainer side."""
+    bind_session(False, bot)
 
 
 @wechat_group.command("bridge")
@@ -79,8 +128,21 @@ def status():
 
 
 @wechat_group.command()
+def peers():
+    """List every peer. Maintainer only; no message bodies."""
+    click.echo(json.dumps(api_request("GET", "/api/wechat/peers").json()))
+
+
+@wechat_group.command()
 def unbind():
     click.echo(json.dumps(api_request("POST", "/api/wechat/unbind").json()))
+
+
+@wechat_group.command()
+@click.argument("peer")
+def revoke(peer):
+    """Revoke one peer. Maintainer only."""
+    click.echo(json.dumps(api_request("POST", "/api/wechat/revoke", json={"peer": peer}).json()))
 
 
 @wechat_group.command()

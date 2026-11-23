@@ -14,18 +14,33 @@ Identifier = Annotated[str, Field(min_length=1, max_length=256)]
 Token = Annotated[str, Field(min_length=1, max_length=8192)]
 
 
-class Binding(BaseModel):
+class Empty(BaseModel):
     model_config = {"extra": "forbid"}
-    account: Identifier
-    peer: Identifier
-    bot_token: Token
+
+
+class Session(BaseModel):
+    model_config = {"extra": "forbid"}
+    session_id: Identifier
+
+
+class Poll(BaseModel):
+    model_config = {"extra": "forbid"}
+    session_id: Identifier
+    pin: Annotated[str, Field(min_length=1, max_length=32)] | None = None
 
 
 class Send(BaseModel):
+    model_config = {"extra": "forbid"}
     text: Annotated[str, Field(min_length=1, max_length=120000)]
 
 
+class Revoke(BaseModel):
+    model_config = {"extra": "forbid"}
+    peer: Identifier
+
+
 class Inbound(BaseModel):
+    model_config = {"extra": "forbid"}
     message_id: Identifier
     peer: Identifier
     text: Annotated[str, Field(max_length=64000)] = ""
@@ -34,12 +49,14 @@ class Inbound(BaseModel):
 
 
 class Ack(BaseModel):
+    model_config = {"extra": "forbid"}
     outbox_id: Identifier
     lease: Identifier
     ok: bool
 
 
 class Heartbeat(BaseModel):
+    model_config = {"extra": "forbid"}
     polled: bool = False
 
 
@@ -59,6 +76,12 @@ def parse_body(data, model):
         raise HTTPException(422, "Invalid channel request") from None
 
 
+def parse_optional(data, model):
+    if not data.strip():
+        return model()
+    return parse_body(data, model)
+
+
 def invoke(call, *args):
     try:
         return call(*args)
@@ -68,22 +91,51 @@ def invoke(call, *args):
         raise HTTPException(503, "Channel operation unavailable") from None
 
 
-@router.post("/bind/complete")
-async def complete(request: Request):
+def _no_query(request):
     if request.query_params:
         raise HTTPException(422, "Binding accepts no query parameters")
-    body = parse_body(await read_bytes(request), Binding)
-    return await run_in_threadpool(invoke, wechat.bind, request.state.user_id, body.account, body.peer, body.bot_token)
+
+
+@router.post("/bind/start")
+async def start(request: Request):
+    _no_query(request)
+    parse_optional(await read_bytes(request), Empty)
+    return await run_in_threadpool(invoke, wechat.start, request.state.user_id)
+
+
+@router.post("/bind/poll")
+async def poll(request: Request):
+    _no_query(request)
+    body = parse_body(await read_bytes(request), Poll)
+    return await run_in_threadpool(invoke, wechat.poll, request.state.user_id, body.session_id, body.pin)
+
+
+@router.post("/bind/cancel")
+async def cancel(request: Request):
+    _no_query(request)
+    body = parse_body(await read_bytes(request), Session)
+    return await run_in_threadpool(invoke, wechat.cancel, request.state.user_id, body.session_id)
 
 
 @router.get("/status")
 def status(request: Request):
-    return invoke(wechat.owner_state, request.state.user_id, "status")
+    return invoke(wechat.status, request.state.user_id)
+
+
+@router.get("/peers")
+def peers(request: Request):
+    return invoke(wechat.peers, request.state.user_id)
 
 
 @router.post("/unbind")
 def unbind(request: Request):
-    return invoke(wechat.owner_state, request.state.user_id, "unbind")
+    return invoke(wechat.unbind, request.state.user_id)
+
+
+@router.post("/revoke")
+async def revoke(request: Request):
+    body = parse_body(await read_bytes(request), Revoke)
+    return await run_in_threadpool(invoke, wechat.revoke, request.state.user_id, body.peer)
 
 
 @router.post("/send")
@@ -102,23 +154,29 @@ async def bridge(action: str, request: Request):
 
 def bridge_action(action, token, data):
     try:
+        if action == "heartbeat":
+            body = parse_body(data or b"{}", Heartbeat)
+        elif action == "inbound":
+            body = parse_body(data, Inbound)
+        elif action == "claim":
+            body = parse_optional(data, Empty)
+        elif action == "ack":
+            body = parse_body(data, Ack)
+        else:
+            raise HTTPException(404)
         with get_db() as db:
             account = wechat.authenticate(db, token)
             if action == "heartbeat":
                 account.heartbeat = int(time.time())
-                if parse_body(data or b"{}", Heartbeat).polled:
+                if body.polled:
                     account.last_poll = account.heartbeat
                 return {"ok": True}
             if action == "inbound":
-                body = parse_body(data, Inbound)
                 result = asyncio.run(wechat.inbound(db, account, **body.model_dump()))
             elif action == "claim":
                 return wechat.claim(db, account)
-            elif action == "ack":
-                body = parse_body(data, Ack)
-                return wechat.ack(db, account, **body.model_dump())
             else:
-                raise HTTPException(404)
+                return wechat.ack(db, account, **body.model_dump())
         if action == "inbound":
             asyncio.run(wechat.deliver_receipt(token, body.message_id))
         return result

@@ -1,11 +1,11 @@
-"""All channel writes serialize on the singleton bot row."""
+"""Channel writes serialize on the singleton bot row and advisory lock 4400,1."""
 
 import hashlib
 import hmac
 
 from sqlalchemy import select
 
-from storage.entity.wechat import WechatAccountEntity, WechatPeerEntity
+from storage.entity.wechat import WechatAccountEntity
 
 
 def digest(value):
@@ -25,7 +25,3 @@ def bridge_account(db, token):
         WechatAccountEntity.status == "active",
     ).with_for_update())
     return row if row and hmac.compare_digest(row.bridge_hash, fingerprint) else None
-
-
-def peer_for(db, account):
-    return db.get(WechatPeerEntity, account.account)

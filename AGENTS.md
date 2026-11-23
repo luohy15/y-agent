@@ -225,19 +225,23 @@ entity + controller + service + CLI slices, and most have a web panel.
 - **Channel gateway** — the authenticated `gateway` module supplies the panel
   and its API. The built-in `y gateway channels status|bind|unbind` inspects
   Telegram and WeChat bindings, guides binding, and confirms unbinding.
-  The host keeps credentials; WeChat management remains maintainer-only.
+  The host keeps credentials. WeChat unbind removes only the caller's peer;
+  maintainer revoke is separate.
   See [`docs/prd/channel-gateway.md`](docs/prd/channel-gateway.md).
-- **WeChat** — maintainer-only text DMs use an iLink bridge on the always-on
-  relay host `claude-relay`, supervised by systemd (`y-agent-wechat-bridge.service`).
-  The four bridge POST routes authenticate the active bot's opaque token rather
-  than a user JWT. Inbound receipts reserve manager turns unless the text
-  starts with `/<chat_id> ` (leading `> ` quotes are skipped); that route is
-  owner-scoped, and a miss notices `chat /<id> not found`. The receipt resumes
-  the target chat's role, skill, trace and work dir. WeChat-triggered manager
-  turns reply only through `enqueue_reply` in the leased outbox, regardless of
+- **WeChat** — one ClawBot serves several peers. Each admitted user binds their
+  own WeChat from their own `y login`; DMs run in that user's manager chat on
+  that user's node. One iLink bridge on `claude-relay`
+  (`y-agent-wechat-bridge.service`) polls every peer. Bridge routes authenticate
+  the bot's opaque token. Inbound resolves the sender's peer. A `/<chat_id> `
+  prefix, after leading `> ` quotes, routes to that owner's chat and resumes
+  its role, skill, trace and work dir; a miss notices `chat /<id> not found`.
+  Other text reserves that owner's manager turn. WeChat-triggered manager
+  turns reply only through `enqueue_reply` in that peer's outbox, regardless of
   channel preference. Gateway sends that select WeChat enqueue text through
-  `notify_user` with no maintainer gate.
-  Apply `migration/4400_wechat_channel.sql` before enabling the channel.
+  `notify_user` for the peer owner, with no maintainer gate. A non-maintainer
+  never receives the bot token.
+  Apply `migration/4400_wechat_channel.sql` and `migration/4404_wechat_multipeer.sql`
+  before enabling the multi-peer routes.
   See `docs/prd/wechat-channel.md`.
 - **Artifacts** — assistant markdown fences tagged `mermaid`, `vega-lite`, or
   `artifact-svg` render inline via lazy Mermaid / Vega-Lite / sanitized SVG rendering.
