@@ -473,12 +473,18 @@ behavior. Treat the column as claims on host slots, not as a manifest of exports
 
 ### Base module set for admitted users
 
-Base set: `chat`, `module`, `todo`, `note`, `file`, `tag`.
+Base set: `chat`, `module`, `todo`, `note`, `file`, `tag`, `bot`.
 
-An admitted non-maintainer sees exactly these six enabled modules in the catalog.
+An admitted non-maintainer sees exactly these seven enabled modules in the catalog.
 Their active versions use `authenticated` dispatch; data access remains scoped
-to the caller. Other modules, including `calendar`, `reminder`, `dev`, and `im`,
-remain maintainer-only. The maintainer still sees the full catalog.
+to the caller except for the balance endpoint below. Other modules, including
+`calendar`, `reminder`, `dev`, and `im`, remain maintainer-only. The maintainer
+still sees the full catalog.
+
+Bot configurations belong to the caller, but `GET /api/module/bot/balances`
+uses the process environment and shows the maintainer's balances to any admitted
+caller. This exposure is accepted only for the current two accounts. Restrict
+the endpoint to the maintainer before admitting anyone else.
 
 Modules is always on the activity bar. Users can open base modules from its list
 without pinning them or pin them individually; no pins are seeded. Module detail
