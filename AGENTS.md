@@ -202,6 +202,12 @@ entity + controller + service + CLI slices, and most have a web panel.
   artifact fences are stripped to `[chart]` / `[diagram]` / `[svg]`
   placeholders before Telegram delivery. See
   [`docs/prd/telegram-delivery.md`](docs/prd/telegram-delivery.md).
+- **WeChat** — maintainer-only text DMs use a default-node iLink bridge (`y wechat`).
+  The four bridge POST routes authenticate the active bot's opaque token rather
+  than a user JWT. Inbound receipts reserve manager turns; only WeChat-triggered
+  manager replies enter the leased outbox. Telegram mirroring is independent.
+  Apply `migration/4400_wechat_channel.sql` before enabling the channel.
+  See `docs/prd/wechat-channel.md`.
 - **Artifacts** — assistant markdown fences tagged `mermaid`, `vega-lite`, or
   `artifact-svg` render inline via lazy Mermaid / Vega-Lite / sanitized SVG rendering.
   Plain `svg` fences remain code blocks. Fence dispatch lives in the chat module's

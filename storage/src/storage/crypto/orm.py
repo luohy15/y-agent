@@ -96,9 +96,10 @@ def _model(name: str):
     import storage.entity.user_cookies as user_cookies
     import storage.entity.user_preference as user_preference
     import storage.entity.vm_config as vm_config
+    import storage.entity.wechat as wechat
 
     modules = (
-        chat, chat_wakeup, todo, entity_tag, tag_vocabulary, calendar_event, reminder,
+        wechat, chat, chat_wakeup, todo, entity_tag, tag_vocabulary, calendar_event, reminder,
         routine, email, email_account, english_correction, entity, note, link, rss_feed,
         bot_config, vm_config, user_cookies, user_preference, upload_job, chat_context, mcp,
     )

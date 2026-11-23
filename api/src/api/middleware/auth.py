@@ -31,6 +31,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # Allow public routes
+        if request.method == "POST" and path in {
+            "/api/wechat/bridge/inbound", "/api/wechat/bridge/claim",
+            "/api/wechat/bridge/ack", "/api/wechat/bridge/heartbeat",
+        }:
+            return await call_next(request)
+
         if any(path.startswith(p) for p in PUBLIC_PREFIXES):
             return await call_next(request)
 

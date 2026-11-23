@@ -372,7 +372,7 @@ def _chat_status(chat: Chat) -> str:
     return "idle"
 
 
-def _insert_chat_sync(user_id: int, chat: Chat) -> Chat:
+def _insert_chat_sync(user_id: int, chat: Chat, *, session=None) -> Chat:
     """Insert a new chat row. Never updates an existing row.
 
     Raises ChatIdCollision on a pre-check hit or on the DB unique constraint
@@ -411,7 +411,7 @@ def _insert_chat_sync(user_id: int, chat: Chat) -> Chat:
         status=status,
     )
     try:
-        with get_db() as session:
+        with (nullcontext(session) if session is not None else get_db()) as session:
             from storage.repository.todo import lock_todo
             if chat.trace_id and chat.role != ROOT_ROLE:
                 lock_todo(session, user_id, chat.trace_id)
@@ -1013,11 +1013,11 @@ def list_trace_ids(user_id: int, limit: int = 50, offset: int = 0, trace_id: str
         ]
 
 
-def release_role(user_id: int, role: str, except_chat_id: Optional[str] = None) -> int:
+def release_role(user_id: int, role: str, except_chat_id: Optional[str] = None, *, session=None) -> int:
     """Release effective managers, retaining old-host archival semantics."""
     if role != ROOT_ROLE:
         raise ValueError("Only the manager role is singleton")
-    with get_db() as session:
+    with (nullcontext(session) if session is not None else get_db()) as session:
         q = session.query(ChatEntity).filter(
             ChatEntity.user_id == user_id, effective_role_expr(role))
         if except_chat_id:

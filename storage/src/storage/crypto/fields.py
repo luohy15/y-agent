@@ -41,6 +41,9 @@ def _spec(table: str, public: str, fields: tuple[str, ...], bidx=(), clear=(), o
 
 
 SPECS = {
+    "WechatAccountEntity": _spec("wechat_account", "account", ("bot_token",)),
+    "WechatContextEntity": _spec("wechat_context", "key", ("context_token",)),
+    "WechatOutboxEntity": _spec("wechat_outbox", "outbox_id", ("text",)),
     "ChatEntity": _spec("chat", "chat_id", ("title", "json_content"), clear=("search_text",)),
     "ChatWakeupEntity": _spec("chat_wakeup", "wakeup_id", ("message",)),
     "TodoEntity": _spec("todo", "todo_id", ("name", "desc", "progress", "tags", "history")),

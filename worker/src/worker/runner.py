@@ -513,6 +513,11 @@ async def _run_inline(chat, chat_id: str, user_id: int, bot_config, backend: str
     if not fresh.interrupted:
         chat_service.mark_chat_completion_unread(user_id, chat_id)
         try:
+            from storage.service.wechat import enqueue_reply
+            enqueue_reply(fresh, user_id)
+        except Exception:
+            logger.error("WeChat enqueue failed for chat {}", chat_id)
+        try:
             if _send_telegram_reply(fresh, user_id, trace_id):
                 await chat_repo.save_chat_by_id(fresh)
         except Exception as e:

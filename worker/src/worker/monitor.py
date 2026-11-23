@@ -519,6 +519,12 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                     logger.exception("turn image consolidation failed: {}", e)
 
                 try:
+                    from storage.service.wechat import enqueue_reply
+                    enqueue_reply(fresh, user_id)
+                except Exception:
+                    logger.error("WeChat enqueue failed for chat {}", fresh.id)
+
+                try:
                     from worker.runner import _send_telegram_reply
                     _send_telegram_reply(fresh, user_id, proc.get("trace_id"), vm_config=node.anchor, ssh_client=client)
                 except Exception as e:
