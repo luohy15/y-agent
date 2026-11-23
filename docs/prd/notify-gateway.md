@@ -19,11 +19,12 @@ Telegram as the fallback, and revert by changing config.
 
 ## Solution
 
-A host-owned gateway chooses the channel at send time. `storage.service.notify`
+A host-owned gateway chooses the channel at send time. `storage.service.gateway`
 reads the owner preference `notify_channel` (`wechat` or `telegram`; unset means
 `telegram`), probes availability, tries the preferred channel, then the other.
-`POST /api/notify/send`, `GET /api/notify/status`, and `PUT /api/notify/config`
-are the authenticated HTTP surface. `y notify send|config|status` is the CLI.
+`POST /api/gateway/send`, `GET /api/gateway/status`, and `PUT /api/gateway/config`
+are the authenticated HTTP surface. `y gateway send|config|status` is the CLI.
+There is no `y notify` command for this surface.
 Admin, worker, and storage callers use the service directly because they are
 not request-scoped module clients.
 
@@ -45,7 +46,7 @@ Manager-turn replies, the pre-run user mirror, attached-image delivery, and
 Telegram inbound replies stay on Telegram. WeChat-triggered turns still answer
 on WeChat through `enqueue_reply`.
 
-No schema migration. The trial is `y notify config --channel wechat`. Revert is
+No schema migration. The trial is `y gateway config --channel wechat`. Revert is
 `--channel telegram` or `--channel default` (delete the preference).
 
 ## User Stories
@@ -58,7 +59,7 @@ No schema migration. The trial is `y notify config --channel wechat`. Revert is
    the WeChat attempt fails, so a stale bridge does not drop the notice.
 4. As Roy, I want to revert to Telegram, or back to the default, with one
    config command.
-5. As Roy, I want `y notify status` to show the preference and which channels
+5. As Roy, I want `y gateway status` to show the preference and which channels
    can deliver, without sending a message.
 6. As Roy, I want a WeChat notification to be readable plain text, including
    when the bridge has to wait for a fresh context token.
@@ -88,7 +89,7 @@ No schema migration. The trial is `y notify config --channel wechat`. Revert is
 - Host callers for todo awaiting, the SLA digest, access notices, reminders,
   routine failures, and manager death notices use the gateway. Telegram inbound,
   reply, pre-run, and image paths still call Telegram directly.
-- `y notify send` prints a fallback note on stderr when `fallback_from` is set.
-- Deploy the host before pointing skills at `y notify`, then set
+- `y gateway send` prints a fallback note on stderr when `fallback_from` is set.
+- Deploy the host before pointing skills at `y gateway`, then set
   `--channel wechat`. Confirm one plain-text WeChat receipt, switch to
   Telegram and confirm that receipt, then restore WeChat.

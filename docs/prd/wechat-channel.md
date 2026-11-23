@@ -178,7 +178,7 @@ Outbound:
 
 1. A manager reply is enqueued when the turn was triggered by a WeChat user
    message. Explicit proactive delivery from routines or completed work uses the
-   same queue when the [notify gateway](notify-gateway.md) selects WeChat.
+   same queue when the [gateway](notify-gateway.md) selects WeChat.
 2. The bridge reads the queue, sends `sendmessage` with the peer's latest
    `context_token`, and acks the result. A missing or expired token leaves the
    row `blocked_on_context`; it is delivered after the next inbound message

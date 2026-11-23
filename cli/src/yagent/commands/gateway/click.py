@@ -3,18 +3,18 @@ import click
 from yagent.api_client import api_request
 
 
-@click.group("notify")
-def notify_group():
+@click.group("gateway")
+def gateway_group():
     """Send a proactive notification on the configured channel."""
 
 
-@notify_group.command("send")
+@gateway_group.command("send")
 @click.option("-m", "--message", "text", required=True, help="Notification text")
-def notify_send(text):
+def gateway_send(text):
     """Send text through the preferred channel, falling back to the other."""
     if not text.strip():
         raise click.UsageError("Provide a non-empty --message")
-    payload = api_request("POST", "/api/notify/send", json={"text": text}).json()
+    payload = api_request("POST", "/api/gateway/send", json={"text": text}).json()
     if payload.get("fallback_from"):
         click.echo(
             f"fallback from {payload['fallback_from']} to {payload.get('channel')}",
@@ -23,23 +23,23 @@ def notify_send(text):
     click.echo(f"sent via {payload.get('channel')}")
 
 
-@notify_group.command("config")
+@gateway_group.command("config")
 @click.option(
     "--channel",
     required=True,
     type=click.Choice(["wechat", "telegram", "default"]),
     help="wechat, telegram, or default (unset; telegram)",
 )
-def notify_config(channel):
+def gateway_config(channel):
     """Set or clear the notification channel preference."""
-    payload = api_request("PUT", "/api/notify/config", json={"channel": channel}).json()
+    payload = api_request("PUT", "/api/gateway/config", json={"channel": channel}).json()
     click.echo(payload.get("preference", channel))
 
 
-@notify_group.command("status")
-def notify_status():
+@gateway_group.command("status")
+def gateway_status():
     """Show the preference and which channels can deliver."""
-    payload = api_request("GET", "/api/notify/status").json()
+    payload = api_request("GET", "/api/gateway/status").json()
     availability = payload.get("availability") or {}
     order = payload.get("order") or []
     click.echo(f"preference: {payload.get('preference')}")

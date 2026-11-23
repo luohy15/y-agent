@@ -145,14 +145,14 @@ def _notice_text(email: str, requested_at: str | None) -> str:
 
 
 def _notice_failure(row: dict) -> str | None:
-    from storage.service import notify as notify_service
+    from storage.service import gateway as gateway_service
 
     maintainer = resolve_maintainer()
     if maintainer["internal_id"] is None:
         return "maintainer unresolved"
     text = _notice_text(row["email"], row.get("first_requested_at"))
-    if not notify_service.send(maintainer["internal_id"], text):
-        return "notify send failed"
+    if not gateway_service.send(maintainer["internal_id"], text):
+        return "gateway send failed"
     return None
 
 
@@ -164,7 +164,7 @@ def deliver_notice(email: str) -> str:
         error = _notice_failure(claimed)
     except Exception:
         logger.exception("access notice send failed email={}", claimed["email"])
-        error = "notify send failed"
+        error = "gateway send failed"
     if error is None:
         access_repo.mark_notice_sent(claimed["email"])
         return "sent"

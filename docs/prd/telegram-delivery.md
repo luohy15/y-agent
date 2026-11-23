@@ -44,7 +44,7 @@ DM. These trace-level alerts, plus the reminder delivery and routine-failure
 alerts in `admin/handler.py` and the liveness watchdog
 (`worker/steps/check_trace_liveness.py`), are **not** per-topic session
 replies and are unaffected by the manager-only gate. Their transport is the
-[notify gateway](notify-gateway.md): the configured channel, with this Telegram
+[gateway](notify-gateway.md): the configured channel, with this Telegram
 DM as the fallback. Manager replies, pre-run mirrors, and image attachments
 stay on Telegram.
 
@@ -96,7 +96,7 @@ best-effort drop.
    DM escalation, so that a silent failure never simply disappears.
 4. As a user, I want explicit routine alerts (daily-scan, weekly-review,
    org-review, openrouter-credit-check, news-ingest-monitor) to keep arriving
-   through the [notify gateway](notify-gateway.md) regardless of the
+   through the [gateway](notify-gateway.md) regardless of the
    manager-only session gate, since they are explicit alerts, not session
    replies. Telegram delivers them when it is the preferred or fallback channel.
 5. As a user, I want a message sent into the (retired) Telegram group to be

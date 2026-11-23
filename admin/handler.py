@@ -11,7 +11,7 @@ def lambda_handler(event, context):
 
     Supported actions:
         init_db: Initialize database tables
-        check_reminders: Send due reminders through the notify gateway
+        check_reminders: Send due reminders through the gateway
         tick_routines: Fire due routines via the chat dispatch pipeline
         retry_access_notifications: Retry pending homepage-admission notices
         seed_access_rollout: Idempotently approve the maintainer and named account
@@ -58,8 +58,8 @@ def lambda_handler(event, context):
 
 
 def _check_reminders():
-    """Query pending reminders that are due and send them through the notify gateway."""
-    from storage.service import notify as notify_service
+    """Query pending reminders that are due and send them through the gateway."""
+    from storage.service import gateway as gateway_service
     from storage.service import reminder as reminder_svc
 
     pending = reminder_svc.get_pending_reminders()
@@ -76,7 +76,7 @@ def _check_reminders():
             text += f"\n{reminder.description}"
 
         try:
-            result = notify_service.send(user_id, text)
+            result = gateway_service.send(user_id, text)
             if not result:
                 logger.warning(
                     "[check_reminders] skip reminder {}: no channel",
@@ -122,7 +122,7 @@ def _todo_sla_digest():
 
 def _tick_routines():
     """Fire enabled routines whose cron schedule is due."""
-    from storage.service import notify as notify_service
+    from storage.service import gateway as gateway_service
     from storage.service import routine as routine_svc
 
     due = routine_svc.list_due_routines()
@@ -170,14 +170,14 @@ def _tick_routines():
                 e,
             )
             try:
-                if not notify_service.send(user_id, f"⚠️ routine '{routine.name}' failed: {e}"):
+                if not gateway_service.send(user_id, f"⚠️ routine '{routine.name}' failed: {e}"):
                     logger.warning(
-                        "[tick_routines] notify skipped routine={}: no channel",
+                        "[tick_routines] gateway skipped routine={}: no channel",
                         routine.routine_id,
                     )
             except Exception as notify_err:
                 logger.exception(
-                    "[tick_routines] notify failed routine={} err={}",
+                    "[tick_routines] gateway failed routine={} err={}",
                     routine.routine_id,
                     notify_err,
                 )

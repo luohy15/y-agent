@@ -4,9 +4,9 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from storage.service import notify
+from storage.service import gateway
 
-router = APIRouter(prefix="/notify")
+router = APIRouter(prefix="/gateway")
 
 
 class SendBody(BaseModel):
@@ -28,7 +28,7 @@ async def send(body: SendBody, request: Request):
     text = body.text.strip()
     if not text:
         raise HTTPException(422, "text is required")
-    result = await run_in_threadpool(notify.send, _user_id(request), text)
+    result = await run_in_threadpool(gateway.send, _user_id(request), text)
     if not result:
         raise HTTPException(503, result.to_dict())
     return result.to_dict()
@@ -36,13 +36,13 @@ async def send(body: SendBody, request: Request):
 
 @router.get("/status")
 async def status(request: Request):
-    return await run_in_threadpool(notify.status, _user_id(request))
+    return await run_in_threadpool(gateway.status, _user_id(request))
 
 
 @router.put("/config")
 async def config(body: ConfigBody, request: Request):
     try:
-        preference = await run_in_threadpool(notify.set_channel, _user_id(request), body.channel)
+        preference = await run_in_threadpool(gateway.set_channel, _user_id(request), body.channel)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from None
     return {"preference": preference, "channel": body.channel}

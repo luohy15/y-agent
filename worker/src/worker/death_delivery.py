@@ -74,7 +74,7 @@ def inbox_fault_detail(prefix: str, error_text: str) -> str:
 
 
 async def deliver_death(chat_id, proc, outcome, error):
-    from storage.service import notify as notify_service
+    from storage.service import gateway as gateway_service
     from storage.service import todo as todo_service
     from storage.entity.chat import ChatEntity
 
@@ -89,7 +89,7 @@ async def deliver_death(chat_id, proc, outcome, error):
     text = f"{prefix} {error_text}"
     if chat.role == "manager":
         try:
-            if notify_service.send(user_id, text):
+            if gateway_service.send(user_id, text):
                 return "role"
         except Exception:
             logger.warning("Death role delivery failed: chat_id={}", chat_id)

@@ -15,7 +15,7 @@ CHANNELS = ("wechat", "telegram")
 
 
 @dataclass
-class NotifyResult:
+class GatewayResult:
     ok: bool
     channel: Optional[str] = None
     fallback_from: Optional[str] = None
@@ -93,7 +93,7 @@ def _flag(hook, user_id):
     try:
         return bool(hook(user_id) if callable(hook) else hook)
     except Exception:
-        logger.exception("notify probe failed user_id={}", user_id)
+        logger.exception("gateway probe failed user_id={}", user_id)
         return False
 
 
@@ -116,14 +116,14 @@ def status(user_id):
     }
 
 
-def send(user_id, text) -> NotifyResult:
+def send(user_id, text) -> GatewayResult:
     if not isinstance(text, str) or not text.strip():
-        return NotifyResult(False)
+        return GatewayResult(False)
     try:
         pref = _preference(user_id)
     except Exception:
-        logger.exception("notify preference failed user_id={}", user_id)
-        return NotifyResult(False)
+        logger.exception("gateway preference failed user_id={}", user_id)
+        return GatewayResult(False)
     availability = {
         "wechat": _flag(_wechat_available, user_id),
         "telegram": _flag(_telegram_available, user_id),
@@ -134,14 +134,14 @@ def send(user_id, text) -> NotifyResult:
         try:
             ok = _deliver(hook, user_id, text)
         except Exception:
-            logger.exception("notify send failed user_id={} channel={}", user_id, channel)
+            logger.exception("gateway send failed user_id={} channel={}", user_id, channel)
             ok = False
         if not ok:
             continue
         fallback = order[0] if index else None
         if fallback:
             logger.warning(
-                "notify fallback user_id={} from={} to={}", user_id, fallback, channel,
+                "gateway fallback user_id={} from={} to={}", user_id, fallback, channel,
             )
-        return NotifyResult(True, channel=channel, fallback_from=fallback, preference=pref)
-    return NotifyResult(False, preference=pref)
+        return GatewayResult(True, channel=channel, fallback_from=fallback, preference=pref)
+    return GatewayResult(False, preference=pref)

@@ -45,7 +45,7 @@ The public homepage gains a visible "Sign in" action and an explicit "Request
 access" action. Sign-in succeeds only for the configured maintainer or an
 approved email. An unapproved visitor can request access, which records a
 pending waitlist entry, deduplicated by verified email, and sends the
-maintainer one private notification through the [notify gateway](notify-gateway.md)
+maintainer one private notification through the [gateway](notify-gateway.md)
 the first time that identity applies.
 The notice is retried if that delivery fails. A repeat request, or an
 ordinary sign-in attempt, never sends another notice.
@@ -254,7 +254,7 @@ is retired as an authority.
 ### Notification to the maintainer
 
 - A new application triggers exactly one private notification to the
-  configured maintainer through the [notify gateway](notify-gateway.md).
+  configured maintainer through the [gateway](notify-gateway.md).
   Ordinary login attempts, repeat applications and
   approval actions never trigger another application notice for the same row.
 - The message contains the applicant email, the request time, and the exact
@@ -374,7 +374,7 @@ locked out, and so the baseline is reviewable before enforcement.
    - a sampled unapproved existing account is refused at login, is refused on
      a direct protected API call with its old token, and is shown the request
      access state in the web app;
-   - a request creates one pending row and one notify-gateway notice;
+   - a request creates one pending row and one gateway notice;
    - a repeat request sends no second message;
    - approval makes the next login succeed;
    - a public share link still opens without an account;
@@ -426,7 +426,7 @@ Acceptance matrix:
 | Existing unapproved email signs in | `403 access_required`; no token; no new user row |
 | Pending email signs in | `403 access_pending`; no token |
 | Invalid or unverified Google token | `401`; no row written |
-| First request access | One pending row; one notify-gateway notice; response says created |
+| First request access | One pending row; one gateway notice; response says created |
 | Repeat request access | Same row; `request_count` increases; no second notice |
 | Approved email requests access | Response `approved`; sign-in succeeds |
 | Unapproved token calls a protected route | `403 access_not_approved` |
