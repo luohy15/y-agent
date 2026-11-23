@@ -52,7 +52,7 @@ protocol; it is not a dependency and does not run any agent for this design.
 
 1. As Roy, I want to bind my own WeChat to my existing y-agent account, so that
    my WeChat conversation reaches the same assistant I already use.
-2. As Roy, I want to start the binding from the CLI by naming my account and
+2. As Roy, I want to bind the account already signed in to my CLI by
    scanning one QR code, so that onboarding needs no web UI.
 3. As Roy, I want the QR binding to require a fresh one-time code sent from the
    WeChat side, so that a forwarded or leaked QR cannot attach a stranger.
@@ -131,8 +131,11 @@ client without pretending to be OpenClaw.
 
 ### Binding
 
-1. Roy runs `y wechat login --user <email>` for an existing y-agent user. The
-   command refuses an unknown or unadmitted address.
+1. Roy runs `y wechat login` on the default node. It binds only the y-agent
+   account signed in there with `y login`; there is no email override. Without
+   a valid saved login, the command tells him to run `y login` before showing
+   a QR code. The API uses the authenticated identity and requires the admitted
+   maintainer for this first version.
 2. The command starts a short-lived binding session, prints the QR from
    `qrcode_img_content` and a fresh six-digit code, and polls the QR status. If
    WeChat asks for a PIN, the operator enters it in the terminal.
@@ -144,8 +147,8 @@ client without pretending to be OpenClaw.
    from that peer id. `binded_redirect` means the ClawBot is already bound
    elsewhere; the flow stops with an explicit message instead of reusing
    credentials.
-5. Binding a second peer to the same ClawBot repeats the login flow for that
-   user; the bot credentials are reused and a new peer binding is created.
+5. A second user's binding is outside this version. It cannot be initiated by
+   naming that user from Roy's CLI session.
 
 Binding sessions are single-use. Expiry, cancellation and a second scan
 invalidate them. `y wechat unbind` moves a peer to `revoked`, and revoking the

@@ -10,7 +10,7 @@ from storage.entity.wechat import (
     WechatInboundEntity as Inbound, WechatOutboxEntity as Outbox, WechatPeerEntity as Peer,
 )
 from storage.repository.wechat import bridge_account, digest, locked_account, peer_for
-from storage.service.user_access import normalize_email, request_admitted, resolve_maintainer
+from storage.service.user_access import request_admitted, resolve_maintainer
 
 
 class ChannelError(Exception):
@@ -19,14 +19,14 @@ class ChannelError(Exception):
         self.detail = detail
 
 
-def operator(user_id, email=None):
+def operator(user_id):
     maintainer = resolve_maintainer()
-    if maintainer["internal_id"] != user_id or (email is not None and normalize_email(email) != maintainer["email"]):
+    if user_id is None or maintainer["internal_id"] != user_id:
         raise ChannelError(403, "Binding requires the admitted maintainer's own account")
 
 
-def bind(user_id, email, account, peer, bot_token):
-    operator(user_id, email)
+def bind(user_id, account, peer, bot_token):
+    operator(user_id)
     secret = secrets.token_urlsafe(40)
     code = f"{secrets.randbelow(1000000):06d}"
     with get_db() as db:

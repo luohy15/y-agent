@@ -64,7 +64,10 @@ def api_request(method: str, path: str, timeout: float = 30, **kwargs) -> httpx.
         timeout: request timeout in seconds (default 30)
         **kwargs: passed to httpx.request (params, json, etc.)
     """
-    api_url, token = resolve_api_auth()
+    return authenticated_request(*resolve_api_auth(), method, path, timeout=timeout, **kwargs)
+
+
+def authenticated_request(api_url: str, token: str, method: str, path: str, timeout: float = 30, **kwargs) -> httpx.Response:
     url = f"{api_url}{path}"
     headers = {"Authorization": f"Bearer {token}"}
 

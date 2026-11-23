@@ -15,7 +15,7 @@ Token = Annotated[str, Field(min_length=1, max_length=8192)]
 
 
 class Binding(BaseModel):
-    email: Identifier
+    model_config = {"extra": "forbid"}
     account: Identifier
     peer: Identifier
     bot_token: Token
@@ -70,14 +70,14 @@ def invoke(call, *args):
 
 @router.post("/bind/complete")
 async def complete(request: Request):
+    if request.query_params:
+        raise HTTPException(422, "Binding accepts no query parameters")
     body = parse_body(await read_bytes(request), Binding)
-    return await run_in_threadpool(invoke, wechat.bind, request.state.user_id, body.email, body.account, body.peer, body.bot_token)
+    return await run_in_threadpool(invoke, wechat.bind, request.state.user_id, body.account, body.peer, body.bot_token)
 
 
 @router.get("/status")
-def status(request: Request, email: str | None = None):
-    if email is not None:
-        invoke(wechat.operator, request.state.user_id, email)
+def status(request: Request):
     return invoke(wechat.owner_state, request.state.user_id, "status")
 
 

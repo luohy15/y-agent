@@ -5,7 +5,7 @@ import click
 import httpx
 import qrcode
 
-from yagent.api_client import api_request, resolve_api_auth
+from yagent.api_client import DEFAULT_WEB_URL, api_request, authenticated_request, load_auth
 from yagent.wechat import bridge
 from yagent.wechat.client import Client, ProviderError
 
@@ -22,20 +22,26 @@ def qr(value):
 
 
 @wechat_group.command()
-@click.option("--user", required=True)
 @click.option("--bot", default="default", show_default=True)
-def login(user, bot):
-    """On the default node, scan the QR then send the one-time code."""
-    api, _ = resolve_api_auth()
+def login(bot):
+    """Bind WeChat to the current y login on the default node."""
+    try:
+        auth = load_auth()
+    except (ValueError, OSError):
+        raise click.ClickException("No usable saved login. Run 'y login' first.") from None
+    token = auth.get("token") if isinstance(auth, dict) else None
+    if not isinstance(token, str) or not token.strip():
+        raise click.ClickException("Not logged in. Run 'y login' first.")
+    api = auth.get("web_url", DEFAULT_WEB_URL).rstrip("/")
     if urlsplit(api).scheme != "https":
         raise click.ClickException("Login requires an HTTPS y-agent API")
     try:
         path = bridge.state_path(bot)
         with bridge.exclusive(path), httpx.Client(follow_redirects=False) as http:
-            api_request("GET", "/api/wechat/status", params={"email": user})
+            authenticated_request(api, token, "GET", "/api/wechat/status")
             result = Client(http).login(qr, lambda: click.prompt("WeChat PIN", hide_input=True))
-            bound = api_request("POST", "/api/wechat/bind/complete", json={
-                "email": user, "account": result["ilink_bot_id"], "peer": result["ilink_user_id"],
+            bound = authenticated_request(api, token, "POST", "/api/wechat/bind/complete", json={
+                "account": result["ilink_bot_id"], "peer": result["ilink_user_id"],
                 "bot_token": result["bot_token"],
             }).json()
             bridge.save(path, {"api": api, "bridge_token": bound["bridge_token"],
