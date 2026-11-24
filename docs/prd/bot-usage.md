@@ -1810,7 +1810,11 @@ later delivery.
   with one unique row per tuple. Recompute replaces one chat's derived facts in
   one transaction; each incremental pass replaces every changed chat, sweeps
   deleted-chat orphans, and advances its chat-update watermark atomically, with
-  an overlap on the next pass. `GET /api/usage/model-activity?time=&tz=` uses
+  an overlap on the next pass. The hourly `sync_model_usage` worker and
+  `POST /api/usage/sync` both run that pass for the caller. The web envelope
+  adds `activity` with the activity result. An activity failure stays isolated:
+  usage results are still returned and `activity` is `{status: error, rows: 0}`.
+  `GET /api/usage/model-activity?time=&tz=` uses
   the same optionally unbounded date-window handling as `model-daily` and
   returns `{from_date, to_date, coverage_from, models, total}`. The UI computes
   row `Avg requests` as that usage row's Requests divided by its attributed

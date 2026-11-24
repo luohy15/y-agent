@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from loguru import logger
 
 from agent import usage_limits as limits_service
 from storage.service import chat_context as context_service
@@ -196,11 +197,25 @@ async def availability(request: Request):
 
 @router.post("/sync")
 async def sync(request: Request, source: Optional[str] = Query("crs")):
-    """Trigger the CRS model-usage sync, then return the result envelope.
-    A caller with no sealed relay credential gets status=unavailable and no
-    upstream request. Otherwise the envelope is the per-grain sync result."""
+    """Trigger the CRS model-usage sync and this caller's chat-activity sync.
+
+    Activity uses the same isolation as the hourly worker: a failure is logged
+    and returned as ``activity.status=error`` without dropping the usage
+    envelope. A caller with no sealed relay credential still gets
+    status=unavailable and no upstream usage request; activity still runs.
+    """
     user_id = request.state.user_id
-    return usage_service.sync(user_id, source=source)
+    envelope = usage_service.sync(user_id, source=source)
+    try:
+        envelope["activity"] = activity_service.sync(user_id)
+    except Exception as exc:
+        logger.opt(exception=exc).error(
+            "usage sync: chat activity sync failed for user {}: {}",
+            user_id,
+            exc,
+        )
+        envelope["activity"] = {"status": "error", "rows": 0}
+    return envelope
 
 
 @router.get("/rate")
