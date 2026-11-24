@@ -111,5 +111,6 @@ jobs:
           [ -n "$OPENROUTER_INFERENCE_API_KEY" ] && PARAM_OVERRIDES+=("OpenRouterInferenceApiKey=$OPENROUTER_INFERENCE_API_KEY")
           [ -n "$DEEPSEEK_API_KEY" ] && PARAM_OVERRIDES+=("DeepSeekApiKey=$DEEPSEEK_API_KEY")
           [ -n "$Y_AGENT_MCP_GATEWAY_URL" ] && PARAM_OVERRIDES+=("McpGatewayUrl=$Y_AGENT_MCP_GATEWAY_URL")
+          [ -n "$Y_AGENT_WORKSPACE" ] && PARAM_OVERRIDES+=("AgentWorkspace=$Y_AGENT_WORKSPACE")
 
           uv run python scripts/tenant_deploy.py deploy --no-confirm-changeset --no-fail-on-empty-changeset --parameter-overrides "${PARAM_OVERRIDES[@]}"
