@@ -25,9 +25,8 @@ became the primary way Roy read a non-manager session's outcome.
 
 ## Solution
 
-Only the manager session (`chat.role == "manager"`, the owner's DM) is
-eligible for automatic Telegram delivery: final replies, pre-run message
-mirrors, and immediate image attachments. A non-manager named session or an
+Only manager turns (`chat.role == "manager"`) are eligible for automatic
+delivery of final replies, pre-run mirrors, and image attachments. A non-manager named session or an
 anonymous chat gets no automatic Telegram push — its outcome lives in web
 persistence, unread state, and existing parent-callback / todo-inbox
 mechanics, not a Telegram message. This is a narrowing of transport
@@ -44,9 +43,10 @@ DM. These trace-level alerts, plus the reminder delivery and routine-failure
 alerts in `admin/handler.py` and the liveness watchdog
 (`worker/steps/check_trace_liveness.py`), are **not** per-topic session
 replies and are unaffected by the manager-only gate. Their transport is the
-[gateway](notify-gateway.md): the configured channel, with this Telegram
-DM as the fallback. Manager replies, pre-run mirrors, and image attachments
-stay on Telegram.
+[gateway](notify-gateway.md): the preferred channel, then the other. Manager
+text also uses the gateway, except that WeChat-origin replies use only the
+WeChat outbox. Neither Telegram nor WeChat input gets a pre-run mirror.
+Image attachments remain Telegram-only.
 
 Inbound Telegram is now private-chat-only: the webhook rejects (silently, no
 reply into the retired group) any update whose `chat.type != "private"` before
@@ -90,7 +90,7 @@ best-effort drop.
 ## User Stories
 
 1. As a user, I want a completed manager-session turn to be pushed to my
-   Telegram DM, so that I learn of completion without watching the screen.
+   configured channel (or WeChat for a WeChat DM), without watching the screen.
 2. As a user, I want a non-manager named session's completion to stay web-only
    (no Telegram push), so that my DM isn't a mixed stream of every dispatched
    sub-session.

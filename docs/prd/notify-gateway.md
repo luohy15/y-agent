@@ -49,9 +49,11 @@ whichever channel actually sends, including a fallback. The same prefix on a
 later inbound message routes that reply back to the chat. `y gateway send
 --reply-chat <id>` passes it. `config` and `status` are unchanged.
 
-Manager-turn replies, the pre-run user mirror, attached-image delivery, and
-Telegram inbound replies stay on Telegram. WeChat-triggered turns still answer
-on WeChat through `enqueue_reply`.
+For manager turns, the worker mirrors user text from web or CLI through the
+gateway before execution. Neither channel echoes its own input. WeChat-origin
+turns reply only through the WeChat outbox (`enqueue_reply`), regardless of
+the preference. All other manager replies use the gateway, including replies
+to Telegram input. Images travel separately and only when Telegram is bound.
 
 No schema migration. The trial is `y gateway config --channel wechat`. Revert is
 `--channel telegram` or `--channel default` (delete the preference).
@@ -70,8 +72,8 @@ No schema migration. The trial is `y gateway config --channel wechat`. Revert is
    can deliver, without sending a message.
 6. As Roy, I want a WeChat notification to be readable plain text, including
    when the bridge has to wait for a fresh context token.
-7. As Roy, I want manager replies and inbound Telegram to keep working as they
-   do today.
+7. As Roy, I want manager text on my configured channel without receiving a
+   second copy of a reply to my WeChat DM.
 8. As Roy, I want a gateway prompt that asks for a reply to name its chat, so
    answering `/<chat_id> ...` on WeChat or Telegram comes back to that chat
    and not the manager thread.
@@ -79,8 +81,7 @@ No schema migration. The trial is `y gateway config --channel wechat`. Revert is
 ## Out of Scope
 
 - WeChat images, attachments, and files.
-- Moving manager reply mirroring, the pre-run mirror, or image delivery off
-  Telegram.
+- Changing inbound routing or moving image delivery off Telegram.
 - Deleting `y telegram send` or `POST /api/telegram/send`.
 - A deployment-wide or bot-level channel default.
 - Bridge recovery beyond the existing bounded outbox retry.
@@ -97,8 +98,10 @@ No schema migration. The trial is `y gateway config --channel wechat`. Revert is
   `telegram` and `fallback_from=wechat`, and logs a warning. Both attempts
   failing is a failure and does not claim a fallback.
 - Host callers for todo awaiting, the SLA digest, access notices, reminders,
-  routine failures, and manager death notices use the gateway. Telegram inbound,
-  reply, pre-run, and image paths still call Telegram directly.
+  routine failures, and manager death notices use the gateway.
+- A WeChat manager DM gets one outbox reply and no gateway send. A Telegram
+  DM gets no mirror and one gateway reply. Web and CLI manager text gets a
+  gateway mirror then a gateway reply, even when Telegram is unbound.
 - `y gateway send` prints a fallback note on stderr when `fallback_from` is set.
 - `y gateway send --reply-chat <id>` and `POST /api/gateway/send` with
   `reply_chat` deliver text that starts with `/<id> `. An unknown id is 404

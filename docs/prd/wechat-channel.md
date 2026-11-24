@@ -84,9 +84,8 @@ protocol; it is not a dependency and does not run any agent for this design.
 15. As Roy, I want y-agent-initiated messages (finished work, reminders) to reach
     me over WeChat on a best-effort basis, queued until my next message refreshes
     the context.
-16. As Roy, I want WeChat delivery to happen only for turns triggered from
-    WeChat, while my existing Telegram mirroring keeps working exactly as it
-    does today.
+16. As Roy, I want one reply in WeChat for a WeChat DM, even when Telegram
+    is bound and selected.
 17. As Roy, I want an operator status command showing binding state, last poll
     time and last delivery error, so that I can diagnose without reading message
     bodies.
@@ -125,8 +124,8 @@ client without pretending to be OpenClaw.
   binding state, timestamps), `wechat_context` (account and peer to the latest
   `context_token`), `wechat_outbox` (pending reply, attempts, outcome) and an
   inbound dedupe record keyed by account and provider message id.
-- **Delivery hook**: the worker's manager reply path gains a WeChat branch beside
-  the Telegram branch. It enqueues an outbox row instead of sending inline,
+- **Delivery hook**: the worker sends WeChat-origin manager replies through
+  the WeChat outbox instead of the gateway,
   because only the bridge holds the bot token and context tokens.
 
 ### Binding
@@ -195,9 +194,9 @@ Outbound:
    placeholders Telegram uses. Long messages are split with an explicit
    continuation marker.
 
-Telegram delivery stays role-based and unchanged: Roy's manager replies continue
-to mirror to Telegram. A WeChat-triggered turn therefore appears in both
-surfaces, matching how a web-triggered manager turn already behaves.
+WeChat-origin manager turns get no mirror and reply only through the WeChat
+outbox. Other manager replies and non-channel pre-run mirrors use the
+[gateway](notify-gateway.md), with its configured preference and fallback.
 
 ### Isolation and deployment
 

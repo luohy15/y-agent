@@ -512,7 +512,6 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             if not fresh.interrupted and result["status"] != "error":
                 chat_service.mark_chat_completion_unread(user_id, chat_id)
 
-            # Telegram reply + post hooks
             if not fresh.interrupted and result["status"] != "error":
                 try:
                     from worker.runner import _consolidate_turn_images
@@ -521,16 +520,10 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                     logger.exception("turn image consolidation failed: {}", e)
 
                 try:
-                    from storage.service.wechat import enqueue_reply
-                    enqueue_reply(fresh, user_id)
-                except Exception:
-                    logger.error("WeChat enqueue failed for chat {}", fresh.id)
-
-                try:
-                    from worker.runner import _send_telegram_reply
-                    _send_telegram_reply(fresh, user_id, proc.get("trace_id"), vm_config=node.anchor, ssh_client=client)
+                    from worker.runner import _deliver_manager_reply
+                    _deliver_manager_reply(fresh, user_id, vm_config=node.anchor, ssh_client=client)
                 except Exception as e:
-                    logger.exception("telegram reply failed: {}", e)
+                    logger.exception("manager reply failed: {}", e)
 
                 # Both hooks only touch fields on this turn's own messages, so
                 # carry those across instead of writing the whole snapshot back

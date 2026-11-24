@@ -325,49 +325,50 @@ def _consolidate_turn_images(chat) -> bool:
     return mutated
 
 
-def _send_telegram_user_message(chat, user_id: int, vm_config=None, ssh_client=None) -> None:
-    """Send the last user message to Telegram immediately (before agent runs)."""
-    from storage.util import send_telegram_message
+def manager_delivery_plan(role, source) -> tuple[bool, bool]:
+    """Return gateway (mirror, reply) flags; WeChat-origin replies use only the outbox."""
+    return role == "manager" and source not in ("wechat", "telegram"), role == "manager" and source != "wechat"
+
+
+def _send_manager_text(user_id, text, kind):
+    from storage.service import gateway
+
+    result = gateway.send(user_id, text)
+    if result.ok:
+        logger.info("manager {} accepted via {}", kind, result.channel)
+    else:
+        logger.warning("manager {} gateway send failed for user {}", kind, user_id)
+
+
+def _send_manager_user_message(chat, user_id, vm_name, work_dir):
     from storage.repository.user import get_user_by_id
 
-    target = _resolve_telegram_target(chat, user_id)
-    if not target:
+    msg = next((msg for msg in reversed(chat.messages) if msg.role == "user"), None)
+    if not msg or not manager_delivery_plan(chat.role, msg.source)[0]:
         return
-    bot_token, tg_chat_id = target
-
-    for msg in reversed(chat.messages):
-        if msg.role != "user":
-            continue
-        if msg.source == 'telegram':
-            break
-
-        content = msg.content if isinstance(msg.content, str) else ""
-        text = content.strip()
-        images = list(msg.images or [])
-        if not text and not images:
-            break
-
-        if text and not text.startswith('[trace:'):
+    text = msg.content.strip() if isinstance(msg.content, str) else ""
+    if text:
+        if not text.startswith('[trace:'):
             user = get_user_by_id(user_id)
             display_name = (user.username or user.email.split('@')[0]) if user else 'unknown'
             text = f"{display_name}: {text}"
+        _send_manager_text(user_id, text, "mirror")
 
-        if images:
-            for index, image_path in enumerate(images):
-                _send_telegram_photo_reference(bot_token, tg_chat_id, image_path, caption=text if index == 0 and text else None, vm_config=vm_config, ssh_client=ssh_client)
-        elif text:
-            send_telegram_message(bot_token, tg_chat_id, text)
-        break
+    if msg.images and (target := _resolve_telegram_target(chat, user_id)):
+        vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
+        for image_path in msg.images:
+            _send_telegram_photo_reference(*target, image_path, vm_config=vm_config)
 
 
-def _send_telegram_reply(chat, user_id: int, trace_id: str = None, vm_config=None, ssh_client=None) -> bool:
-    """Send assistant reply to Telegram, routing by role."""
-    from storage.util import send_telegram_message
+def _deliver_manager_reply(chat, user_id: int, vm_config=None, ssh_client=None) -> bool:
+    from storage.service.wechat import enqueue_reply
 
-    target = _resolve_telegram_target(chat, user_id)
-    if not target:
+    user_msg = next((msg for msg in reversed(chat.messages) if msg.role == "user"), None)
+    if not user_msg or chat.role != "manager":
         return False
-    bot_token, tg_chat_id = target
+    if not manager_delivery_plan(chat.role, user_msg.source)[1]:
+        enqueue_reply(chat, user_id)
+        return False
 
     reply_text = None
     images = []
@@ -393,27 +394,18 @@ def _send_telegram_reply(chat, user_id: int, trace_id: str = None, vm_config=Non
                     target_message = msg
                     break
 
-    if target_message is not None and images:
-        delivered = set(target_message.telegram_delivered_images or [])
-        had_images_before_filter = bool(images)
-        images = [image_path for image_path in images if image_path not in delivered]
-    else:
-        had_images_before_filter = False
-
+    if reply_text:
+        _send_manager_text(user_id, strip_artifact_fences_for_telegram(reply_text), "reply")
     if images:
-        sent_count = 0
+        delivered = set(target_message.telegram_delivered_images or [])
+        images = [image_path for image_path in images if image_path not in delivered]
+
+    if images and (target := _resolve_telegram_target(chat, user_id)):
         delivered_now = []
-        reply_caption = strip_artifact_fences_for_telegram(reply_text) if reply_text else None
-        for index, image_path in enumerate(images):
-            if _send_telegram_photo_reference(bot_token, tg_chat_id, image_path, caption=reply_caption if index == 0 and reply_caption else None, vm_config=vm_config, ssh_client=ssh_client):
-                sent_count += 1
+        for image_path in images:
+            if _send_telegram_photo_reference(*target, image_path, vm_config=vm_config, ssh_client=ssh_client):
                 delivered_now.append(image_path)
-        changed = _append_delivered_images(target_message, delivered_now) if target_message is not None else False
-        logger.info("telegram reply: sent {} photos to role={} tg_chat_id={}", sent_count, chat.role, tg_chat_id)
-        return changed
-    elif reply_text and not had_images_before_filter:
-        send_telegram_message(bot_token, tg_chat_id, strip_artifact_fences_for_telegram(reply_text))
-        logger.info("telegram reply: sent to role={} tg_chat_id={}", chat.role, tg_chat_id)
+        return _append_delivered_images(target_message, delivered_now)
     return False
 
 
@@ -457,7 +449,7 @@ async def _run_inline(chat, chat_id: str, user_id: int, bot_config, backend: str
     """Run one turn on an inline backend and close the chat out.
 
     perplexity, openai and the xai_* search backends differ only in the
-    callable, so message shaping, the running flag, the telegram reply and the
+    callable, so message shaping, the running flag, manager reply delivery and the
     post-hooks live here once.
     """
     from storage.repository import chat as chat_repo
@@ -513,15 +505,10 @@ async def _run_inline(chat, chat_id: str, user_id: int, bot_config, backend: str
     if not fresh.interrupted:
         chat_service.mark_chat_completion_unread(user_id, chat_id)
         try:
-            from storage.service.wechat import enqueue_reply
-            enqueue_reply(fresh, user_id)
-        except Exception:
-            logger.error("WeChat enqueue failed for chat {}", chat_id)
-        try:
-            if _send_telegram_reply(fresh, user_id, trace_id):
+            if _deliver_manager_reply(fresh, user_id):
                 await chat_repo.save_chat_by_id(fresh)
         except Exception as e:
-            logger.exception("telegram reply failed: {}", e)
+            logger.exception("manager reply failed: {}", e)
 
         if post_hooks:
             _run_post_hooks(fresh, user_id, post_hooks, trace_id=trace_id)
@@ -664,12 +651,10 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
         )
         return "done"
 
-    # Send user message to Telegram immediately (before agent runs)
     try:
-        vm_config = agent_config.resolve_vm_config(user_id, vm_name, work_dir=work_dir)
-        _send_telegram_user_message(chat, user_id, vm_config=vm_config)
+        _send_manager_user_message(chat, user_id, vm_name, work_dir)
     except Exception as e:
-        logger.exception("telegram user message failed: {}", e)
+        logger.exception("manager user mirror failed: {}", e)
 
     # A chat is not sticky to its bot: a bot change requested mid-conversation is
     # honored when the request resolves to a runnable bot on the same backend.

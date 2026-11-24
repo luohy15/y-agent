@@ -200,10 +200,9 @@ entity + controller + service + CLI slices, and most have a web panel.
 - **Telegram** — private-chat-only webhook (secret verified, non-private chat
   types ignored before any command/chat write; the former forum group and its
   `tg_topic` binding table are retired). Inbound reply / selected-quote context
-  is prepended as a `> ` blockquote. Only the manager session
-  (`chat.role == "manager"`) gets automatic DM delivery (final replies,
-  pre-run mirrors, immediate image attachments); non-manager sessions have no
-  Telegram reply path, their detail surface is web. Markdown → HTML
+  is prepended as a `> ` blockquote. Automatic DM delivery is manager-only.
+  Image attachments remain Telegram-only and require a binding; non-manager
+  sessions have no Telegram reply path. Their detail surface is web. Markdown → HTML
   conversion, root-role callbacks short-circuited at the API layer. Web-only
   artifact fences are stripped to `[chart]` / `[diagram]` / `[svg]`
   placeholders before Telegram delivery. Proactive notices are not this path;
@@ -211,7 +210,10 @@ entity + controller + service + CLI slices, and most have a web panel.
   [`docs/prd/telegram-delivery.md`](docs/prd/telegram-delivery.md).
 - **Gateway** — proactive text (routine alerts, todo awaiting and SLA
   digests, reminders, routine failures, death notices, access notices) goes
-  through `storage.service.gateway`. Preference key `notify_channel` is `wechat`
+  through `storage.service.gateway`. The worker also uses the gateway for
+  manager text: it mirrors inputs not from Telegram or WeChat before the run
+  and sends final replies for all turns except those from WeChat.
+  Preference key `notify_channel` is `wechat`
   or `telegram` (unset means `telegram`). The gateway tries the preferred
   channel, then the other; WeChat counts as available only for the owner's
   active account and peer with a heartbeat younger than 300 seconds.
@@ -231,10 +233,10 @@ entity + controller + service + CLI slices, and most have a web panel.
   than a user JWT. Inbound receipts reserve manager turns unless the text
   starts with `/<chat_id> ` (leading `> ` quotes are skipped); that route is
   owner-scoped, and a miss notices `chat /<id> not found`. The receipt resumes
-  the target chat's role, skill, trace and work dir. Only WeChat-triggered
-  manager replies enter the leased outbox. Proactive gateway sends enqueue
-  through `notify_user` with no maintainer gate and are text-only. Telegram
-  mirroring is independent.
+  the target chat's role, skill, trace and work dir. WeChat-triggered manager
+  turns reply only through `enqueue_reply` in the leased outbox, regardless of
+  channel preference. Gateway sends that select WeChat enqueue text through
+  `notify_user` with no maintainer gate.
   Apply `migration/4400_wechat_channel.sql` before enabling the channel.
   See `docs/prd/wechat-channel.md`.
 - **Artifacts** — assistant markdown fences tagged `mermaid`, `vega-lite`, or
