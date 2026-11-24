@@ -292,6 +292,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             launch_input_uuid=launch_input_uuid,
             pending_result=_load_json_field(proc, "pending_result") or None,
             resume_thread_id=proc.get("resume_thread_id"),
+            model=proc.get("model"),
         )
     elif backend_type == "pi":
         from agent.pi_cli import tail_pi_output

@@ -57,7 +57,8 @@ def register_process(chat_id: str, user_id: int, vm_name: str,
                      mcp_launch_id: str = None,
                      target_id: str = None,
                      codex_refusal_retries: int = 0,
-                     resume_thread_id: str = None) -> None:
+                     resume_thread_id: str = None,
+                     model: str = None) -> None:
     """Register a running tmux process in DynamoDB. status=running, offset=0."""
     now = int(time.time())
     item = {
@@ -88,6 +89,8 @@ def register_process(chat_id: str, user_id: int, vm_name: str,
         item["post_hooks"] = {"S": json.dumps(post_hooks)}
     if backend_type:
         item["backend_type"] = {"S": backend_type}
+    if model:
+        item["model"] = {"S": model}
     if initial_msg_count is not None:
         item["initial_msg_count"] = {"N": str(initial_msg_count)}
     if resume_5xx_retries:

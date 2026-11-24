@@ -337,8 +337,9 @@ def read_codex_rollout(client, thread_id: str):
 class CodexStreamConverter:
     """Stateful JSONL event converter that maps Codex events to y-agent Messages."""
 
-    def __init__(self, last_message_id: Optional[str] = None):
+    def __init__(self, last_message_id: Optional[str] = None, model: Optional[str] = None):
         self.last_message_id = last_message_id
+        self.model = model
         self.thread_id: Optional[str] = None
         self.usage = normalize_usage(None)
         self.has_usable_output: bool = False
@@ -371,6 +372,7 @@ class CodexStreamConverter:
                 self._pending_items[item_id] = item_id
                 msg = Message.from_dict({
                     "role": "assistant",
+                    "model": self.model,
                     "content": "",
                     "timestamp": get_utc_iso8601_timestamp(),
                     "unix_timestamp": get_unix_timestamp(),
@@ -393,6 +395,7 @@ class CodexStreamConverter:
                 self._pending_items[item_id] = item_id
                 msg = Message.from_dict({
                     "role": "assistant",
+                    "model": self.model,
                     "content": "",
                     "timestamp": get_utc_iso8601_timestamp(),
                     "unix_timestamp": get_unix_timestamp(),
@@ -427,6 +430,7 @@ class CodexStreamConverter:
                 if text:
                     msg = Message.from_dict({
                         "role": "assistant",
+                        "model": self.model,
                         "content": text,
                         "timestamp": get_utc_iso8601_timestamp(),
                         "unix_timestamp": get_unix_timestamp(),
@@ -772,6 +776,7 @@ async def tail_codex_output(
     launch_input_uuid: Optional[str] = None,
     pending_result: Optional[dict] = None,
     resume_thread_id: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> dict:
     """Tail a detached codex process's stdout file via SSH.
 
@@ -796,7 +801,7 @@ async def tail_codex_output(
     stdout_file = f"/tmp/cc-{chat_id}.stdout"
     exit_file = f"/tmp/cc-{chat_id}.exit"
 
-    converter = CodexStreamConverter(last_message_id=last_message_id)
+    converter = CodexStreamConverter(last_message_id=last_message_id, model=model)
     ledger = input_ledger if input_ledger is not None else InputLedger(chat_id)
     result_data = pending_result if isinstance(pending_result, dict) else None
     if result_data and result_data.get("type") == "turn.completed" and not result_data.get("is_error"):
