@@ -46,6 +46,25 @@ html {
   }
 }
 
+/* Keep the owner panel outside utility layers so a module's scoped .fixed
+ * cannot override its desktop anchor. */
+.y-share-popover {
+  position: fixed;
+  left: 0.5rem;
+  right: 0.5rem;
+  top: 4rem;
+}
+
+@media (width >= 40rem) {
+  .y-share-popover {
+    position: absolute;
+    left: auto;
+    right: 0;
+    top: 100%;
+    width: 24rem;
+  }
+}
+
 /* Keep shared chat typography independent of a consuming module's scoped
  * utilities, including the pairs its other components still happen to emit. */
 .y-chat-turn-text {

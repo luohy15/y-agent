@@ -164,7 +164,7 @@ export default function SharePopover({ onCreate, buildUrl, buttonClassName, butt
         </button>
       )}
       {open && (
-        <div role="dialog" aria-label="Share" className={`${ownerPanel ? "fixed inset-x-2 top-16 sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:w-96 max-h-[75dvh] overflow-auto" : `absolute ${align === "left" ? "left-0" : "right-0"} top-full w-64`} mt-1 z-20 bg-sol-base03 border border-sol-base02 rounded shadow-float p-2 text-xs`}>
+        <div role="dialog" aria-label="Share" className={`${ownerPanel ? "y-share-popover max-h-[75dvh] overflow-auto" : `absolute ${align === "left" ? "left-0" : "right-0"} top-full w-64`} mt-1 z-20 bg-sol-base03 border border-sol-base02 rounded shadow-float p-2 text-xs`}>
           {ownerPanel ?? (existingShare ? (
             <>
               <div className="text-sol-base01 mb-1.5">Currently shared</div>
