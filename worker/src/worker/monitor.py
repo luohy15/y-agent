@@ -957,7 +957,7 @@ def _selected_usage_stamp(iterations, observed_usage):
 def _apply_codex_completion(fresh, result: dict, result_data: dict, proc: dict, chat_id: str,
                             cwd_matches: bool, codex_turn=None):
     """Persist a Codex thread id and turn.completed usage. No Claude resume gate."""
-    from agent.codex import CODEX_CONTINUITY_NOTE, clear_refused_thread_id
+    from agent.codex import CODEX_CONTINUITY_NOTE, clear_refused_thread_id, format_codex_turn_failure
     from storage.entity.dto import Message
     from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
 
@@ -1046,6 +1046,8 @@ def _apply_codex_completion(fresh, result: dict, result_data: dict, proc: dict, 
                     )
     if result.get("status") == "error":
         error_text = (result_data.get("result") if isinstance(result_data, dict) else None) or "Codex exited with an error."
+        if not isinstance(error_text, str) or not error_text.startswith("Codex "):
+            error_text = format_codex_turn_failure(error_text if isinstance(error_text, str) else None)
         fresh.messages.append(Message(
             id=generate_message_id(),
             role="assistant",

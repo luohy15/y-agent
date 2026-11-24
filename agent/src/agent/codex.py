@@ -8,7 +8,7 @@ Codex `codex exec --json` emits JSONL events:
   - item.completed  : tool/message item finishes
   - turn.completed  : usage stats; the launch input group completes here
   - turn.failed     : fatal turn error
-  - error           : fatal top-level error
+  - error           : transient retry notice; fatal only if the turn never completes
 
 `item.completed` of `type=error` (unknown model metadata) is ignored. It is
 not a failed turn. `codex exec` has no live input channel: a mid-run message
@@ -153,6 +153,76 @@ def clear_refused_thread_id(current_id, refused_id, attempted_id) -> tuple:
     if current_id and refused_id and attempted_id and current_id == refused_id == attempted_id:
         return None, True
     return current_id, False
+
+
+CODEX_TURN_FAILURE_PREFIX = "Codex turn failed: "
+
+
+def format_codex_turn_failure(message: Optional[str]) -> str:
+    """One bounded diagnostic that cannot be read as model output."""
+    text = message.strip() if isinstance(message, str) else ""
+    if not text:
+        text = "Unknown error"
+    if not text.startswith("Codex "):
+        text = f"{CODEX_TURN_FAILURE_PREFIX}{text}"
+    raw = text.encode("utf-8")
+    if len(raw) <= DIAGNOSTIC_DISPLAY_BYTES:
+        return text
+    return raw[:DIAGNOSTIC_DISPLAY_BYTES].decode("utf-8", errors="ignore")
+
+
+def _codex_failure_data(message: Optional[str]) -> Dict:
+    return {"is_error": True, "result": format_codex_turn_failure(message)}
+
+
+def reduce_codex_turn_events(events) -> Dict:
+    """Fold Codex protocol events into completion, fatal, and transient latches.
+
+    `turn.completed` clears a transient `error` notice. It does not clear
+    `turn.failed`. A later `error` can latch again.
+    """
+    completed = None
+    fatal = None
+    transient = None
+    for obj in events or []:
+        if not isinstance(obj, dict):
+            continue
+        event_type = obj.get("type")
+        if event_type == "turn.completed":
+            completed = obj
+            transient = None
+        elif event_type == "turn.failed":
+            error = obj.get("error") or {}
+            fatal = _codex_failure_data(error.get("message") or "Turn failed")
+        elif event_type == "error":
+            transient = _codex_failure_data(obj.get("message") or "Unknown error")
+    return {"completed": completed, "fatal": fatal, "transient": transient}
+
+
+def codex_turn_status(events, *, steered: bool = False, exit_reason: Optional[str] = None) -> str:
+    """End-of-turn status from protocol events. No SSH and no process probe.
+
+    `interrupted` and `deadline` win. `turn.failed` is always fatal. A
+    transient `error` does not fail a later `turn.completed` and does not
+    block a steer. An `error` that is still latched (no completion, or an
+    error after completion) is fatal unless the turn was steered.
+    `pending` means the caller still has to look at the process.
+    """
+    reduced = reduce_codex_turn_events(events)
+    if exit_reason == "interrupted":
+        return "interrupted"
+    if exit_reason == "deadline":
+        return "monitoring"
+    if reduced["fatal"] is not None:
+        return "error"
+    # A transient notice still present was not cleared by turn.completed.
+    # Steer treats that notice as compatible with a completed turn; anything
+    # else, including an error after completion, is fatal.
+    if reduced["transient"] is not None and not steered:
+        return "error"
+    if reduced["completed"] is not None or steered:
+        return "completed"
+    return "pending"
 
 
 def _json_string(value: JSONValue) -> str:
@@ -787,9 +857,10 @@ async def tail_codex_output(
     keeps priority. `turn.completed` marks the launch input group completed;
     otherwise anything that arrived during the run stays outstanding.
 
-    Fatal only on a top-level `error` or `turn.failed`, or on a session that
-    exits without `turn.completed` (a self-kill for steer or interrupt is not
-    a death).
+    Fatal on `turn.failed`, on a top-level `error` that no later
+    `turn.completed` clears, or on a session that exits without
+    `turn.completed`. A cleared retry notice is not fatal and does not block
+    steer. A self-kill for steer or interrupt is not a death.
     """
     owns_client = ssh_client is None
     if owns_client:
@@ -807,7 +878,9 @@ async def tail_codex_output(
     if result_data and result_data.get("type") == "turn.completed" and not result_data.get("is_error"):
         _complete_launch_group(ledger, launch_input_uuid)
         converter.usage = normalize_usage(result_data.get("usage"))
-    last_error_data = None
+    turn_events = []
+    if isinstance(result_data, dict) and result_data.get("type") == "turn.completed":
+        turn_events.append(result_data)
     current_offset = offset
     stream_error = None
     poll = None
@@ -888,7 +961,7 @@ async def tail_codex_output(
         poll.start()
 
         def _read_lines():
-            nonlocal result_data, last_error_data, current_offset, stream_error, torn_down
+            nonlocal result_data, current_offset, stream_error, torn_down
             try:
                 for raw_line in stdout_ch:
                     line = raw_line.strip() if isinstance(raw_line, str) else raw_line.decode("utf-8", errors="replace").strip()
@@ -922,23 +995,18 @@ async def tail_codex_output(
 
                     if evt == "turn.completed":
                         result_data = obj
+                        turn_events.append(obj)
                         with steer_lock:
                             _complete_launch_group(ledger, launch_input_uuid)
                         converter.process_line(line)
                         continue
 
                     if evt == "turn.failed":
-                        last_error_data = {
-                            "is_error": True,
-                            "result": (obj.get("error") or {}).get("message") or "Turn failed",
-                        }
+                        turn_events.append(obj)
                         converter.process_line(line)
                         continue
                     if evt == "error":
-                        last_error_data = {
-                            "is_error": True,
-                            "result": obj.get("message") or "Unknown error",
-                        }
+                        turn_events.append(obj)
                         converter.process_line(line)
                         continue
 
@@ -976,9 +1044,16 @@ async def tail_codex_output(
                 close_owned_client(client)
             return cancelled_result
 
-        if steered.is_set() and exit_reason != "interrupted" and result_data is None and last_error_data is None:
-            # Our own steer kill ended the turn before it completed. This is
-            # not a death: consume the sentinel so no later check misreads it,
+        reduced = reduce_codex_turn_events(turn_events)
+        decision = codex_turn_status(
+            turn_events,
+            steered=steered.is_set(),
+            exit_reason=exit_reason,
+        )
+        if decision == "completed" and reduced["completed"] is None and exit_reason != "interrupted":
+            # Our own steer kill ended the turn before it completed. A transient
+            # retry notice does not block this. A fatal failure does not take
+            # this branch. Consume the sentinel so no later check misreads it,
             # and report a completed turn so the closeout continuation
             # relaunches the same thread with the pending message.
             _consume_self_kill_sentinel(client, chat_id)
@@ -992,7 +1067,7 @@ async def tail_codex_output(
         no_result_error = None
         no_result_attempt = None
         self_killed = False
-        if exit_reason is None and result_data is None and last_error_data is None:
+        if decision == "pending" and exit_reason is None:
             self_killed = _consume_self_kill_sentinel(client, chat_id)
             if not self_killed:
                 no_result_session_alive = _tmux_session_alive(client, chat_id, node=node)
@@ -1005,18 +1080,18 @@ async def tail_codex_output(
             from agent.chat_target import close_owned_client
             close_owned_client(client)
 
-        if exit_reason == "interrupted":
+        if decision == "interrupted":
             return _view(True, "interrupted", None)
 
-        if exit_reason == "deadline":
-            return _view(False, "monitoring", result_data)
+        if decision == "monitoring":
+            return _view(False, "monitoring", reduced["completed"])
 
         status = "completed"
-        data = result_data
-        if last_error_data:
+        data = reduced["completed"]
+        if decision == "error":
             status = "error"
-            data = last_error_data
-        elif result_data is None:
+            data = reduced["fatal"] or reduced["transient"]
+        elif reduced["completed"] is None:
             if self_killed or no_result_session_alive:
                 logger.warning(
                     "tail_codex_output: chat_id={} no turn.completed event but session still in play (offset={}); resuming monitoring",

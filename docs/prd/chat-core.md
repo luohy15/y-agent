@@ -731,6 +731,15 @@ mode (`-i`) serves a human at a terminal.
     unreadable stderr still reports the exit status. Each launch clears that
     attempt's stdout, stderr and exit files before preflight, so a previous
     run cannot supply the excerpt or the refusal signal.
+  - **Codex retry notices are progress, not failure** (todo 4420). A top-level
+    `error` event, including `Reconnecting...`, is a transient notice. The same
+    turn's later `turn.completed` clears it: the turn stays `completed`, and the
+    notice is not appended as an assistant message. `turn.failed` stays fatal
+    even if a completion event is also present. An `error` with no later
+    `turn.completed` still fails the turn. A failed turn keeps one bounded
+    diagnostic prefixed `Codex turn failed:` (or the existing `Codex exited...`
+    startup text) so it cannot be read as model output. A steer still ends the
+    turn as completed when the only prior protocol event was a transient notice.
 - **Identity immutability**: backend, skill, trace id, and routine id
   are write-once at the repository layer; later saves keep the existing value
   and log a warning on attempted mutation. Role is assigned only at insertion

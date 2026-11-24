@@ -92,6 +92,9 @@ worker/VM crashes.
   continuation launches `codex exec resume <thread>` with it, preserving
   context. A steer that arrives before `thread.started` stays unclaimed and is
   answered by the ordinary turn-end continuation instead. Interrupt still wins.
+  A transient top-level `error` retry notice earlier in the turn does not block
+  the completed steer result or the continuation (todo 4420). `turn.failed`, or
+  an `error` the turn never completes past, still blocks that continuation.
 - **Discovery is not consumption.** The checker claims stable message IDs so
   one ordered writer submits each input once. A failed SSH append releases the
   claim. Teardown never drains or submits new work. Interrupt remains the first
