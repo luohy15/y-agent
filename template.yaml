@@ -6,8 +6,8 @@ Parameters:
   IdleStopNodesEnabled:
     Type: String
     AllowedValues: ["ENABLED", "DISABLED"]
-    Default: "DISABLED"
-    Description: Enable after guest setup and the worker dry run pass.
+    Default: "ENABLED"
+    Description: Five-minute idle hibernation sweep stays on across deploys. Set DISABLED only to pause it.
   DatabaseUrl:
     Type: String
     Description: PostgreSQL database connection URL

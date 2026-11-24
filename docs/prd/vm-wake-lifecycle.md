@@ -51,7 +51,9 @@ anchor wake. A failed probe never authorizes hibernation.
    use its current values instead. Only the two EC2 fields should change.
 3. Invoke `idle_stop_nodes` with `"dry_run":true` and inspect decisions.
    No stop or wake is issued in dry run. Retire the node-local timer and cron
-   entry and set `IdleStopNodesEnabled=ENABLED`; the deployment default is disabled.
+   entry before the sweep runs. `IdleStopNodesEnabled` defaults to `ENABLED`,
+   matching the already-live rule, so the next deploy does not turn it off.
+   Pass `DISABLED` only to pause the schedule.
 4. In a quiescent window, verify EC2 reaches `stopped`, a chat wakes the same
    boot (unchanged Linux boot ID), and SSH and launch are ready in under 600s.
    Do not exercise this check against an active control host.

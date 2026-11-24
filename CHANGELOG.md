@@ -24,6 +24,8 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Changed
 
+- **Idle-stop schedule default (4407)**: `IdleStopNodesEnabled` now defaults to `ENABLED`. The live five-minute sweep is already on, and the next deploy keeps it on instead of restoring the old disabled default. Set the parameter to `DISABLED` only to pause it.
+
 ### Fixed
 
 - **Access notice race (4396)**: an application approved while its notice send is in flight is marked skipped instead of retried, so approval does not leave a pending notification.
