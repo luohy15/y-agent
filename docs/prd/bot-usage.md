@@ -719,10 +719,16 @@ later delivery.
   1,048,576. `grok-4-1-fast` has no row: it is the native xAI model on
   grok-web / grok-x, not an OpenRouter id. A resolved model with no row sets
   `chat.context_window` to NULL. An unresolvable bot config or a failed table
-  read leaves the stored window. A successful turn sets `context_usage_source`
-  to `codex_turn`, not `main_request` and not NULL. NULL is the legacy
-  fallback that would treat the counters as Claude context and prepend the
-  handoff reminder; `codex_turn` stays silent.
+  read leaves the stored window. A successful turn whose rollout
+  final-request occupancy is observed (`request_usage.usage_state ==
+  "observed"`) sets `context_usage_source` to `codex_request`. That source is
+  prompt occupancy (input + cache read + cache creation) and participates in
+  the handoff reminder the same way `main_request` does. Any other successful
+  turn, including one whose badge is the turn delta, sets `codex_turn`, not
+  `main_request` and not NULL. NULL is the legacy fallback that would treat
+  the counters as Claude context and prepend the handoff reminder;
+  `codex_turn` stays silent. Existing rows are not rewritten; the next
+  completed turn reclassifies the chat.
 - Daily at 02:20 Asia/Shanghai, `sync_model_context_window` checks every enabled bot backend across owners. For missing rows it uses the OpenRouter catalog's positive `context_length` (falling back to `top_provider.context_length`), matching the exact ID first, then a unique namespace suffix excluding `:` variants and `~` aliases. It records `openrouter:<catalog_id>` as provenance, never changes existing rows, and reports unmatched or ambiguous IDs without guessing.
 - Codex launches with a resolved model window now feed the CLI a per-launch
   model catalog, so the reported window and the auto-compaction threshold are

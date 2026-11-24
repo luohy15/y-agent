@@ -1012,10 +1012,10 @@ def _apply_codex_completion(fresh, result: dict, result_data: dict, proc: dict, 
             and not result_data.get("is_error")):
         # A missing prepare must not store the thread total as current context.
         request_usage = codex_turn.get("request_usage")
-        if isinstance(request_usage, dict) and request_usage.get("usage_state") == "observed":
-            badge = request_usage
-        else:
-            badge = codex_turn.get("delta") or {}
+        observed_request = (
+            isinstance(request_usage, dict) and request_usage.get("usage_state") == "observed"
+        )
+        badge = request_usage if observed_request else (codex_turn.get("delta") or {})
         fresh.input_tokens = badge.get("input_tokens")
         fresh.output_tokens = badge.get("output_tokens")
         fresh.cache_read_input_tokens = badge.get("cache_read_tokens")
@@ -1026,8 +1026,9 @@ def _apply_codex_completion(fresh, result: dict, result_data: dict, proc: dict, 
         fresh.cumulative_cache_read_input_tokens = cumulative.get("cache_read_tokens")
         fresh.cumulative_cache_creation_input_tokens = cumulative.get("cache_creation_tokens")
         # NULL provenance is the legacy Claude fallback and would prepend the
-        # handoff reminder. This is not a main-request measurement.
-        fresh.context_usage_source = "codex_turn"
+        # handoff reminder. Only observed rollout occupancy is prompt context;
+        # a turn delta is not and stays silent.
+        fresh.context_usage_source = "codex_request" if observed_request else "codex_turn"
         window = codex_turn.get("context_window")
         if type(window) is int and window > 0:
             fresh.context_window = window

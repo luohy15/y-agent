@@ -863,10 +863,12 @@ mode (`-i`) serves a human at a terminal.
 ### Context handoff visibility and reuse advice (todo 4211)
 
 - The advisory threshold remains strictly greater than `min(50% window, 200k)`.
-  Prefer main-request prompt tokens (input + cache read + cache creation), not
-  generated output or cumulative spend. Only legacy rows without provenance
-  retain the `used_tokens()` fallback; explicit unknown measurements stay silent.
-  The separate resume-limit gate is unchanged.
+  Prefer prompt tokens (input + cache read + cache creation), not generated
+  output or cumulative spend, when `context_usage_source` is `main_request` or
+  `codex_request`. `codex_request` is observed Codex rollout final-request
+  occupancy; `codex_turn` and every other explicit source stay silent. Only
+  legacy rows without provenance retain the `used_tokens()` fallback. The
+  separate resume-limit gate is unchanged and remains Claude-only.
 - Persisted dispatch shape is `[trace:...]\n[context-handoff-reminder] ...\n\n<task>`.
   Plain sends prepend the same reminder without a trace line. Pending-batch
   deduplication remains; English correction strips both new leading reminders
@@ -879,7 +881,9 @@ mode (`-i`) serves a human at a terminal.
   guarantee about a concurrently changing target.
 - For an idle target, `over` / `under` require a known positive target window,
   valid `main_request` counters and an aware observation time no older than its
-  last user message. Missing/invalid/future observation or absent usage/window is
+  last user message. `codex_request` counts for the reminder but not for this
+  reuse state: Codex closeout stores no observation timestamp, so the target
+  stays `unknown`. Missing/invalid/future observation or absent usage/window is
   `unknown`; an older observation is `stale`. A running target has the same
   states prefixed `running_`; running and closeout cannot be distinguished here,
   and a retained `closeout_receipt` is never a state signal. Only `over` and

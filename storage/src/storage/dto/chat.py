@@ -326,7 +326,7 @@ class Chat:
         return result
 
     def prompt_tokens(self) -> Optional[int]:
-        if self.context_usage_source != "main_request":
+        if self.context_usage_source not in ("main_request", "codex_request"):
             return None
         counters = (self.input_tokens, self.cache_read_input_tokens, self.cache_creation_input_tokens)
         if any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in counters):
