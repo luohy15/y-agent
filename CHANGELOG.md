@@ -14,6 +14,8 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 ### Added
 
+- Recipients can open one selected shared note or chat, read-only, through `GET /api/todo/shared/item`.
+
 - The todo share icon manages both public links and private recipients. Owners can edit or revoke each share and choose its chats, notes, and links. Reapply `migration/4422_todo_share.sql` before deploying the host.
 
 - **Private todo sharing (4422)**: an owner can grant one todo to one admitted user and choose which related notes, chats, and links travel with it. Recipients get a redacted read-only row; note bodies are sealed snapshots, and a logged-in visit to a public todo share is kept for the Public list. `y todo share|unshare|shares|shared|public`. Apply `migration/4422_todo_share.sql` before deploy.

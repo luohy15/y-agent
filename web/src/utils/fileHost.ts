@@ -4,6 +4,7 @@
 // tests can exercise payload parsing without mounting App.
 import { useEffect } from "react";
 import { setArtifactIntent } from "../host/intents";
+import { isSharedItemTabKey } from "./sharedItemTabs";
 
 export interface FileLocationContext {
   vmName: string | null;
@@ -139,7 +140,7 @@ export function fileSearchPayload(payload: unknown): { vmName: string | null; wo
  * classifies special identities for restore/filter. */
 export function isHostWorkspaceTab(path: string): boolean {
   if (!path) return false;
-  if (path.startsWith("ui:") || path.startsWith("artifact:") || path.startsWith("diff:")) return true;
+  if (path.startsWith("ui:") || path.startsWith("artifact:") || path.startsWith("diff:") || isSharedItemTabKey(path)) return true;
   // Ordinary host tab ids are JSON.stringify([vm, workDir, path]).
   if (path.startsWith("[")) return false;
   // Authenticated `trace.md` is retired (todo 3179 H3), and so are the

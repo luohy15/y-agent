@@ -45,6 +45,7 @@ import {
   publishFileReveal,
   usePublishFileContext,
 } from "./utils/fileHost";
+import { isSharedItemTabKey, parseOpenSharedItem } from "./utils/sharedItemTabs";
 import {
   closeWorkspaceTabKey,
   dropTabHistory,
@@ -274,6 +275,7 @@ export default function App() {
     workDir: null,
   });
   const [artifactTabs, setArtifactTabs] = useState<Record<string, ArtifactTab>>({});
+  const [sharedItemTabs, setSharedItemTabs] = useState<Record<string, { label: string; nonce: number }>>({});
   // Which mounted artifacts actually define a detail surface. Only known once
   // the module has loaded, so the "open full view" affordance appears with the
   // panel rather than being promised up front for a panel-only artifact.
@@ -806,6 +808,14 @@ export default function App() {
     if (path.startsWith("artifact:")) {
       setArtifactTabs((prev) => { const next = { ...prev }; delete next[path]; return next; });
     }
+    if (isSharedItemTabKey(path)) {
+      setSharedItemTabs((prev) => {
+        if (!(path in prev)) return prev;
+        const next = { ...prev };
+        delete next[path];
+        return next;
+      });
+    }
   }, [touchWorkspace]);
 
   const handleCloseAllFiles = useCallback(() => {
@@ -820,6 +830,7 @@ export default function App() {
     setFileHistory({});
     setFileDirty({});
     setFileFocus({});
+    setSharedItemTabs({});
   }, [touchWorkspace]);
 
   const handleSelectFile = useCallback((path: string) => {
@@ -835,7 +846,7 @@ export default function App() {
       previewFileRef.current,
       fileTabsRef.current,
       (path) => isHostWorkspaceTab(path) && !RETIRED_TABS.has(path),
-      isPersistableTab,
+      (path) => isPersistableTab(path) || isSharedItemTabKey(path),
     );
     setOpenFiles(next.openTabs);
     setActiveFile(next.active);
@@ -954,6 +965,15 @@ export default function App() {
       if (!parsed) return;
       applyOrdinaryOpen(parsed.path, parsed.vmName, parsed.workDir, true, parsed.line);
     });
+    const unregisterSharedItem = registerHostCommand("todo.openSharedItem", (payload) => {
+      const parsed = parseOpenSharedItem(payload);
+      if (!parsed) return;
+      setSharedItemTabs((prev) => ({
+        ...prev,
+        [parsed.key]: { label: parsed.label, nonce: (prev[parsed.key]?.nonce ?? 0) + 1 },
+      }));
+      openHostWorkspaceTab(parsed.key);
+    });
     // Plan 3906 H1: reveal a directory in the left Files tree. Pins stay
     // untouched. No Files artifact means the command is a no-op.
     const unregisterFileReveal = registerHostCommand("file.reveal", (payload) => {
@@ -1005,6 +1025,7 @@ export default function App() {
     });
     return () => {
       unregisterFileOpen();
+      unregisterSharedItem();
       unregisterFileClose();
       unregisterFileSearch();
       unregisterFileDirty();
@@ -1012,7 +1033,7 @@ export default function App() {
       unregisterFileRemove();
       unregisterFileReveal();
     };
-  }, [applyOrdinaryOpen, handleCloseFile, handleRemapOrdinaryFiles, handleRemoveOrdinaryFiles, uiArtifactBySlug]);
+  }, [applyOrdinaryOpen, handleCloseFile, handleRemapOrdinaryFiles, handleRemoveOrdinaryFiles, openHostWorkspaceTab, uiArtifactBySlug]);
 
   useEffect(() => { localStorage.setItem("chatHide", String(chatHide)); }, [chatHide]);
   useEffect(() => { if (selectedChatId) localStorage.setItem("selectedChatId", selectedChatId); else localStorage.removeItem("selectedChatId"); }, [selectedChatId]);
@@ -1741,7 +1762,7 @@ export default function App() {
               {/* FileViewer (shown when chat hidden) */}
               <div className={`absolute inset-0 ${chatHide ? "" : "hidden"}`}>
                 <ErrorBoundary label="Panel">
-                  <FileViewer openFiles={workspaceVisible ? openFiles : []} activeFile={workspaceVisible ? activeFile : null} onSelectFile={handleSelectFile} onCloseFile={handleCloseFile} onReorderFiles={handleReorderFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} fileTabs={workspaceVisible ? fileTabs : {}} fileDirty={fileDirty} fileFocus={fileFocus} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} onSelectChat={(id) => { setSelectedChatId(id); applySurface(surfaceActionForHostNavigation("chat-select")); setChatHide(false); }} previewFile={workspaceVisible ? previewFile : null} onPinFile={handlePinFile} fileHistory={fileHistory} onFileBack={handleFileBack} onFileForward={handleFileForward} />
+                  <FileViewer openFiles={workspaceVisible ? openFiles : []} activeFile={workspaceVisible ? activeFile : null} onSelectFile={handleSelectFile} onCloseFile={handleCloseFile} onReorderFiles={handleReorderFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} sharedItemTabs={sharedItemTabs} fileTabs={workspaceVisible ? fileTabs : {}} fileDirty={fileDirty} fileFocus={fileFocus} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} onSelectChat={(id) => { setSelectedChatId(id); applySurface(surfaceActionForHostNavigation("chat-select")); setChatHide(false); }} previewFile={workspaceVisible ? previewFile : null} onPinFile={handlePinFile} fileHistory={fileHistory} onFileBack={handleFileBack} onFileForward={handleFileForward} />
                 </ErrorBoundary>
               </div>
               {/* Chat stays mounted while hidden. The shell module owns the live

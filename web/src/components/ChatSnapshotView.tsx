@@ -8,7 +8,7 @@ interface ChatSnapshotViewProps {
 }
 
 export default function ChatSnapshotView({ chatId, messages: rawMessages, onRefresh }: ChatSnapshotViewProps) {
-  const [messages, setMessages] = useState<HostMessage[]>([]);
+  const [messages, setMessages] = useState<HostMessage[]>(() => parseChatMessages(rawMessages));
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {

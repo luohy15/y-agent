@@ -18,6 +18,8 @@ import { fileDetailContext, type FocusRequest, type OrdinaryFileTab, type TabHis
 import { closeTabShortcutLabel, isApplePlatform } from "../utils/platform";
 import FileTabStrip, { FileBreadcrumb } from "./shell/FileTabStrip";
 import MarkdownPreview from "./shell/MarkdownPreview";
+import { SharedItemPane } from "./SharedItemTabs";
+import { parseSharedItemTab, sharedItemLabel } from "../utils/sharedItemTabs";
 
 
 interface FileViewerProps {
@@ -31,6 +33,7 @@ interface FileViewerProps {
   defaultWorkDir?: string;
   diffFiles?: Set<string>;
   artifactTabs?: Record<string, { type: ArtifactType; spec: string }>;
+  sharedItemTabs?: Record<string, { label: string; nonce: number }>;
   fileTabs?: Record<string, OrdinaryFileTab>;
   fileDirty?: Record<string, boolean>;
   fileFocus?: Record<string, FocusRequest>;
@@ -168,7 +171,7 @@ function PublicFileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, on
   );
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, fileTabs = {}, fileDirty = {}, fileFocus = {}, uiArtifacts = [], uiArtifactsLoaded = true, onUiArtifactRolledBack, onSelectChat, previewFile, onPinFile, fileHistory = {}, onFileBack, onFileForward, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, sharedItemTabs = {}, fileTabs = {}, fileDirty = {}, fileFocus = {}, uiArtifacts = [], uiArtifactsLoaded = true, onUiArtifactRolledBack, onSelectChat, previewFile, onPinFile, fileHistory = {}, onFileBack, onFileForward, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
   const [mdPreview, setMdPreview] = useState<Record<string, boolean>>({});
   // One refresh registry, remount nonce, and spin flag per open module tab
   // (todo 3674, contract v18; shared runner extracted for todo 3680). Keyed by
@@ -178,9 +181,10 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
   const isDiff = !!(activeFile && diffFiles?.has(activeFile));
   const isArtifact = !!activeFile?.startsWith("artifact:");
   const isUiArtifact = !!activeFile?.startsWith("ui:");
+  const isSharedItem = !!(activeFile && parseSharedItemTab(activeFile));
   // C1: host FileViewer no longer fetches ordinary files; only special tabs remain.
 
-  const hostRefreshable = !!activeFile && !isArtifact && !isUiArtifact && !fileTabs[activeFile];
+  const hostRefreshable = !!activeFile && !isArtifact && !isUiArtifact && !isSharedItem && !fileTabs[activeFile];
   const showRefresh = tabRefreshVisible(hostRefreshable, isUiArtifact);
   const refreshing = !!activeFile && tabRefreshChrome.isRefreshing(activeFile);
 
@@ -213,21 +217,29 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
 
   const moduleLabelCache = readUiModuleLabelCache();
   const uiTabLabel = (filePath: string) => resolveArtifactTabLabel(filePath, uiArtifacts ?? [], moduleLabelCache);
-  const tabs = openFiles.map((filePath) => ({
-    key: filePath,
-    label: fileTabs[filePath]
-      ? getFileName(fileTabs[filePath].path)
-      : filePath.startsWith("artifact:")
-      ? inlineArtifactLabel(filePath, artifactTabs)
-      : filePath.startsWith("ui:")
-      ? uiTabLabel(filePath)
-      : filePath.startsWith("diff:")
-      ? `${getFileName(filePath.slice(5))} (diff)`
-      : getFileName(filePath),
-    title: filePath.startsWith("ui:") ? uiTabLabel(filePath) : (fileTabs[filePath]?.path ?? filePath),
-    dirty: !!fileDirty[filePath],
-    italic: filePath === previewFile,
-  }));
+  const sharedTabLabel = (filePath: string) => {
+    const parsed = parseSharedItemTab(filePath);
+    if (!parsed) return null;
+    return sharedItemTabs[filePath]?.label || sharedItemLabel("", parsed.kind);
+  };
+  const tabs = openFiles.map((filePath) => {
+    const shared = sharedTabLabel(filePath);
+    return {
+      key: filePath,
+      label: shared ?? (fileTabs[filePath]
+        ? getFileName(fileTabs[filePath].path)
+        : filePath.startsWith("artifact:")
+        ? inlineArtifactLabel(filePath, artifactTabs)
+        : filePath.startsWith("ui:")
+        ? uiTabLabel(filePath)
+        : filePath.startsWith("diff:")
+        ? `${getFileName(filePath.slice(5))} (diff)`
+        : getFileName(filePath)),
+      title: shared ?? (filePath.startsWith("ui:") ? uiTabLabel(filePath) : (fileTabs[filePath]?.path ?? filePath)),
+      dirty: !!fileDirty[filePath],
+      italic: filePath === previewFile,
+    };
+  });
 
   const activeOrdinaryTab = activeFile ? fileTabs[activeFile] : undefined;
   const activeTabHistory = activeFile ? fileHistory[activeFile] : undefined;
@@ -281,7 +293,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
         leading={tabHistoryNav}
         closeHint={closeTabShortcutLabel()}
         onDoubleClick={(filePath) => { if (filePath === previewFile && onPinFile) onPinFile(filePath); }}
-        breadcrumb={activeFile && !fileTabs[activeFile] ? (
+        breadcrumb={activeFile && !fileTabs[activeFile] && !isSharedItem ? (
           <FileBreadcrumb
             path={breadcrumbPath}
             leading={isDiff ? <span className="text-sol-yellow font-semibold mr-1 shrink-0">DIFF</span> : undefined}
@@ -294,7 +306,7 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                     onClick={onRefreshClick}
                   />
                 )}
-                {!isArtifact && !isUiArtifact && <button
+                {!isArtifact && !isUiArtifact && !isSharedItem && <button
                   onClick={() => navigator.clipboard.writeText(activeFile.replace(/^\.\//, ""))}
                   className="text-sol-base01 hover:text-sol-base1 cursor-pointer p-0.5 ml-1 shrink-0"
                   title="Copy path"
@@ -321,11 +333,12 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
             ? uiArtifacts.find((artifact) => artifact.slug === "file")
             : undefined;
           const fileName = filePath.replace(/^\.\//, "").replace(/^diff:/, "");
+          const sharedItem = parseSharedItemTab(filePath);
           const isActive = filePath === activeFile;
           return (
             <div
               key={filePath}
-              className={`absolute inset-0 ${ordinaryTab || fileArtifact || fileUiArtifactSlug || fileDiff ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
+              className={`absolute inset-0 ${ordinaryTab || fileArtifact || fileUiArtifactSlug || fileDiff || sharedItem ? "overflow-hidden" : "overflow-auto"} ${isActive ? "" : "hidden"}`}
             >
               {ordinaryTab && fileModule ? (
                 <div className="h-full overflow-hidden" data-ui-artifact-route="file" data-file-tab={ordinaryTab.id}>
@@ -374,6 +387,14 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
                   mode={(mdPreview[filePath] !== false ? "preview" : "raw") as ArtifactMode}
                   onModeChange={(mode) => setMdPreview((prev) => ({ ...prev, [filePath]: mode === "preview" }))}
                   variant="tab"
+                />
+              ) : sharedItem ? (
+                <SharedItemPane
+                  kind={sharedItem.kind}
+                  shareId={sharedItem.shareId}
+                  refId={sharedItem.refId}
+                  title={sharedItemTabs[filePath]?.label || sharedItemLabel("", sharedItem.kind)}
+                  nonce={sharedItemTabs[filePath]?.nonce ?? 0}
                 />
               ) : (
                 <p className="text-sol-base01 italic text-sm p-3">Unknown tab.</p>

@@ -1,4 +1,5 @@
 import type { ArtifactVersionRef } from "./loader";
+import { isSharedItemTabKey } from "../utils/sharedItemTabs";
 
 export interface Module extends Record<string, unknown> {
   module_id: string;
@@ -53,7 +54,7 @@ export function artifactSlugFromTab(path: string): string | null {
 // in-memory map, so a restored tab would be dead; `ui:` tabs are fully
 // reconstructible from their slug, so they are safe to persist.
 export function isPersistableTab(path: string): boolean {
-  return !path.startsWith("artifact:");
+  return !path.startsWith("artifact:") && !isSharedItemTabKey(path);
 }
 
 export function artifactLabel(artifact: MountableModule): string {

@@ -134,6 +134,115 @@ def _project_messages(messages) -> List[dict]:
     return projected
 
 
+def _notes_by_id(owner_id: int, note_ids: List[str]) -> dict:
+    if not note_ids:
+        return {}
+    return {note.note_id: note for note in note_repo.get_notes_by_ids(owner_id, note_ids)}
+
+
+def _note_payload(item: dict, notes_by_id: dict) -> dict:
+    note = notes_by_id.get(item["ref_id"])
+    return {
+        "note_id": item["ref_id"],
+        "title": note_title(note) if note else item["ref_id"],
+        "content": _read_snapshot(item.get("snapshot_key")),
+    }
+
+
+async def _chat_payload(owner_id: int, todo_id: str, chat_id: str, titles: dict) -> Optional[dict]:
+    chat = await get_chat(owner_id, chat_id)
+    if chat is None or (chat.trace_id or "") != todo_id:
+        return None
+    return {
+        "chat_id": chat_id,
+        "title": titles.get(chat_id) or "",
+        "messages": _project_messages(chat.messages),
+    }
+
+
+async def _link_payloads(owner_id: int, link_ids: List[str]) -> List[dict]:
+    activities = {
+        row.activity_id: row for row in link_repo.get_links_by_activity_ids(owner_id, link_ids)
+    }
+    links = []
+    for activity_id in link_ids:
+        activity = activities.get(activity_id)
+        if activity is None:
+            continue
+        content, _content_status = await _read_link_content(owner_id, activity.content_key)
+        summary, _summary_status = await _read_link_content(owner_id, activity.summary_content_key)
+        links.append({
+            "activity_id": activity.activity_id,
+            "link_id": activity.link_id,
+            "title": activity.title or "",
+            "url": activity.url or "",
+            "summary": summary,
+            "content": content,
+        })
+    return links
+
+
+def _selected_item(items: List[dict], kind: str, ref_id: str) -> Optional[dict]:
+    if kind not in {"note", "chat"} or not ref_id:
+        return None
+    for item in items:
+        if item["kind"] == kind and item["ref_id"] == ref_id:
+            return item
+    return None
+
+
+def _as_shared_item(kind: str, payload: dict) -> dict:
+    if kind == "note":
+        return {
+            "kind": "note",
+            "ref_id": payload["note_id"],
+            "title": payload["title"],
+            "content": payload["content"],
+        }
+    return {
+        "kind": "chat",
+        "ref_id": payload["chat_id"],
+        "title": payload["title"],
+        "messages": payload["messages"],
+    }
+
+
+async def _shared_detail_payload(meta: dict) -> dict:
+    owner_id = meta["owner_id"]
+    items = meta["items"]
+    note_items = [item for item in items if item["kind"] == "note"]
+    notes_by_id = _notes_by_id(owner_id, [item["ref_id"] for item in note_items])
+    notes = [_note_payload(item, notes_by_id) for item in note_items]
+    chat_ids = [item["ref_id"] for item in items if item["kind"] == "chat"]
+    titles = get_chat_metas(owner_id, chat_ids)
+    chats = []
+    for chat_id in chat_ids:
+        chat = await _chat_payload(owner_id, meta["todo_id"], chat_id, titles)
+        if chat is not None:
+            chats.append(chat)
+    link_ids = [item["ref_id"] for item in items if item["kind"] == "link"]
+    return {
+        "todo": meta["todo"],
+        "notes": notes,
+        "chats": chats,
+        "links": await _link_payloads(owner_id, link_ids),
+    }
+
+
+async def _shared_item_payload(meta: dict, kind: str, ref_id: str) -> Optional[dict]:
+    item = _selected_item(meta["items"], kind, ref_id)
+    if item is None:
+        return None
+    if kind == "note":
+        payload = _note_payload(item, _notes_by_id(meta["owner_id"], [item["ref_id"]]))
+        return _as_shared_item("note", payload)
+    titles = get_chat_metas(meta["owner_id"], [item["ref_id"]])
+    payload = await _chat_payload(meta["owner_id"], meta["todo_id"], item["ref_id"], titles)
+    if payload is None:
+        return None
+    return _as_shared_item("chat", payload)
+
+
 @router.post("/share")
 async def create_share(req: ShareTodoRequest, request: Request):
     user_id = _get_user_id(request)
@@ -200,50 +309,24 @@ async def shared_detail(request: Request, share_id: str = Query(...)):
     meta = _run(share_service.shared_detail, user_id, share_id)
     if meta is None:
         raise HTTPException(status_code=404, detail="Share not found")
-    owner_id = meta["owner_id"]
-    items = meta["items"]
-    note_ids = [item["ref_id"] for item in items if item["kind"] == "note"]
-    notes_by_id = {note.note_id: note for note in note_repo.get_notes_by_ids(owner_id, note_ids)}
-    notes = []
-    for item in items:
-        if item["kind"] != "note":
-            continue
-        note = notes_by_id.get(item["ref_id"])
-        notes.append({
-            "note_id": item["ref_id"],
-            "title": note_title(note) if note else item["ref_id"],
-            "content": _read_snapshot(item.get("snapshot_key")),
-        })
-    chat_ids = [item["ref_id"] for item in items if item["kind"] == "chat"]
-    titles = get_chat_metas(owner_id, chat_ids)
-    chats = []
-    for chat_id in chat_ids:
-        chat = await get_chat(owner_id, chat_id)
-        if chat is None or (chat.trace_id or "") != meta["todo_id"]:
-            continue
-        chats.append({
-            "chat_id": chat_id,
-            "title": titles.get(chat_id) or "",
-            "messages": _project_messages(chat.messages),
-        })
-    link_ids = [item["ref_id"] for item in items if item["kind"] == "link"]
-    activities = {row.activity_id: row for row in link_repo.get_links_by_activity_ids(owner_id, link_ids)}
-    links = []
-    for activity_id in link_ids:
-        activity = activities.get(activity_id)
-        if activity is None:
-            continue
-        content, _content_status = await _read_link_content(owner_id, activity.content_key)
-        summary, _summary_status = await _read_link_content(owner_id, activity.summary_content_key)
-        links.append({
-            "activity_id": activity.activity_id,
-            "link_id": activity.link_id,
-            "title": activity.title or "",
-            "url": activity.url or "",
-            "summary": summary,
-            "content": content,
-        })
-    return {"todo": meta["todo"], "notes": notes, "chats": chats, "links": links}
+    return await _shared_detail_payload(meta)
+
+
+@router.get("/shared/item")
+async def shared_item(
+    request: Request,
+    share_id: str = Query(...),
+    kind: str = Query(...),
+    ref_id: str = Query(...),
+):
+    user_id = _get_user_id(request)
+    meta = _run(share_service.shared_detail, user_id, share_id)
+    if meta is None:
+        raise HTTPException(status_code=404, detail="Share not found")
+    payload = await _shared_item_payload(meta, kind, ref_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Share not found")
+    return payload
 
 
 @router.get("/share/summary")
