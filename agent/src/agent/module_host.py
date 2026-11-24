@@ -221,6 +221,8 @@ Todo 4401 bumps 38 to 39: user_is_admin reads the request owner's admin marker.
 Apply migration/4401_user_admin.sql before deploying v39, then publish Bot.
 Todo 4409 bumps 39 to 40: channel_list and channel_unbind manage the request
 owner's IM bindings. Deploy v40 before publishing Gateway; no migration.
+Todo 4431 bumps 40 to 41: chat_message_bounds reads owner-scoped transcript
+endpoints without returning message bodies.
 """
 
 from __future__ import annotations
@@ -239,7 +241,7 @@ from storage.project_key import ProjectKeyError as ProjectKeyError, normalize_pr
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-BACKEND_CONTRACT_VERSION = 40
+BACKEND_CONTRACT_VERSION = 41
 
 # Wall-clock budget for the wake="nowait" readiness check (todo 3777).
 NOWAIT_BUDGET_SECONDS = 1.0
@@ -723,6 +725,24 @@ async def chat_get(user_id: int, chat_id: str) -> Optional[dict[str, Any]]:
         "create_time": chat.create_time,
         "update_time": chat.update_time,
     }
+
+
+async def chat_message_bounds(
+    user_id: int, chat_ids: list[str], limit: int = 200,
+) -> dict[str, dict[str, Any]]:
+    """Return the first and last transcript timestamps for owned chats only."""
+    _require_chat_owner(user_id)
+    if type(limit) is not int or not 1 <= limit <= 200:
+        raise ValueError("limit must be between 1 and 200")
+    if not isinstance(chat_ids, (list, tuple)) or len(chat_ids) > limit:
+        raise ValueError("expected a bounded list of chat IDs")
+    if any(not isinstance(key, str) or not key or "\0" in key for key in chat_ids):
+        raise ValueError("expected nonempty chat IDs")
+    if not chat_ids:
+        return {}
+    from storage.service import chat as chat_service
+
+    return await asyncio.to_thread(chat_service.chat_message_bounds, user_id, list(chat_ids))
 
 
 async def chat_create_share(

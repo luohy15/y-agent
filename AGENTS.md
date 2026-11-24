@@ -281,7 +281,8 @@ entity + controller + service + CLI slices, and most have a web panel.
   conventional `common` (vendored at publish). Rollback/activate change code only;
   delete removes deployed metadata/bytes, not source/tables. No worker half:
   deterministic work is `routine` `vm_command`; judgment stays chat dispatch.
-  Backend host contract (`agent.module_host`) is **v40** (v40 adds owner-bound
+  Backend host contract (`agent.module_host`) is **v41** (v41 adds owner-bound
+  `chat_message_bounds`; v40 adds owner-bound
   `channel_list` / `channel_unbind`; v39 added `user_is_admin`; todo 3627's v18 adds
   owner-bound no-wake VM execution; v19 / v20 are todos 3777 / 3781; v21 adds the
   maintainer-bound `mcp_*` connector capabilities of todo 3796; v22 is its round 2

@@ -771,6 +771,15 @@ established one for a control-plane module over host-owned runtime state — a
 short list of named, owner-bound functions, added as a version bump, never a
 generic table accessor.
 
+Backend **v41** (todo 4431) adds `await chat_message_bounds(user_id, chat_ids,
+limit=200)`. It checks the request owner and rejects more than `limit` IDs
+(`1 <= limit <= 200`). One PostgreSQL 16+ read returns only owned matches,
+keyed by chat ID, with `enc_version`, `first_message_at` and `last_message_at`.
+Bounds refer to the first and last array elements, not sorted timestamp extrema.
+Encrypted or unreadable transcripts have null bounds; a missing or malformed
+endpoint timestamp is null. No chat bodies are returned. Deploy v41 before
+publishing a benchmark module that requires it; no migration.
+
 Todo 3068 added the first extension to an *existing* capability rather than a
 new one: `run_vm_command` gained explicit `work_dir` and stdin parameters
 (the underlying local/SSH execution already supported both; the file module

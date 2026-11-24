@@ -40,6 +40,44 @@ CONTEXT_HANDOFF_ABSOLUTE_TOKENS = 200_000
 HANDOFF_REMINDER_MARKER = "[context-handoff-reminder]"
 
 
+def chat_message_bounds(user_id: int, chat_ids: list[str]) -> dict:
+    """Project only transcript endpoints; malformed or encrypted data has no bounds."""
+    from sqlalchemy import text
+    from storage.database.base import get_db
+
+    query = text("""
+        WITH transcripts AS MATERIALIZED (
+            SELECT chat_id, enc_version,
+                   CASE WHEN enc_version = 0 AND pg_input_is_valid(json_content, 'jsonb')
+                        THEN CAST(json_content AS jsonb) -> 'messages' END AS messages
+            FROM chat WHERE user_id = :owner AND chat_id = ANY(:ids)
+        )
+        SELECT chat_id, enc_version,
+               left(messages -> 0 ->> 'timestamp', 65) AS first_message_at,
+               left(messages -> -1 ->> 'timestamp', 65) AS last_message_at
+        FROM transcripts
+    """)
+
+    def timestamp(value):
+        if not value or len(value) > 64 or "T" not in value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+        return value if parsed.tzinfo is not None else None
+
+    with get_db() as db:
+        return {
+            row.chat_id: {
+                "enc_version": row.enc_version,
+                "first_message_at": timestamp(row.first_message_at),
+                "last_message_at": timestamp(row.last_message_at),
+            }
+            for row in db.execute(query, {"owner": user_id, "ids": chat_ids})
+        }
+
+
 def context_prompt_tokens(chat: Chat) -> Optional[int]:
     """Prefer measured prompt context; retain only the legacy unknown-source fallback."""
     measured = chat.prompt_tokens()
