@@ -31,7 +31,6 @@ export interface TodoInfo {
   due_date?: string;
   progress?: string;
   completed_at?: string;
-  awaiting_chat?: string | null;
   handle_chat?: string | null;
   /** Read-only. Earliest outstanding wakeup, milliseconds. Not part of a save. */
   next_wakeup_at_unix?: number | null;
@@ -447,23 +446,6 @@ export default function TraceTodoDetail({
                   </button>
                 ) : (
                   <span className="font-mono text-sol-base0 break-all">{todoInfo.handle_chat}</span>
-                )}
-              </>
-            )}
-            {todoInfo.status === "awaiting" && todoInfo.awaiting_chat && todoInfo.awaiting_chat !== todoInfo.handle_chat && (
-              <>
-                <span className="text-sol-base01">Reply in</span>
-                {onSelectChat ? (
-                  <button
-                    type="button"
-                    onClick={() => onSelectChat(todoInfo.awaiting_chat!)}
-                    className="font-mono text-sol-blue hover:text-sol-cyan underline underline-offset-2 break-all cursor-pointer"
-                    title={`Open chat ${todoInfo.awaiting_chat}`}
-                  >
-                    {todoInfo.awaiting_chat}
-                  </button>
-                ) : (
-                  <span className="font-mono text-sol-base0 break-all">{todoInfo.awaiting_chat}</span>
                 )}
               </>
             )}

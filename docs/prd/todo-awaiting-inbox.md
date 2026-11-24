@@ -57,11 +57,13 @@ Roy handles tasks, not chats. So the inbox is not a new noun and not a new
 table. It is the existing todo list filtered on `status=awaiting`.
 
 Use `y todo status <id> <status> [--chat <chat_id>]` as the single public
-write. Target `awaiting` with optional `--chat` parks the todo in the inbox;
-target `active` continues work. Keep one optional navigation pointer, the
-existing `awaiting_chat` column, valid only while status is awaiting. It is
-not a second state, reason, ownership claim, or prerequisite for leaving
-awaiting. Dedicated `y todo await` / `y todo resume` commands and
+write. Target `awaiting` with optional `--chat` parks the todo in the inbox
+and, when a chat is passed, moves `handle_chat` to that chat. A chat-less
+await leaves the handle untouched. Target `active` continues work and keeps
+the handle. `handle_chat` is the one conversation pointer: valid in every
+open status, cleared only on completed or deleted, and not a second state,
+reason, ownership claim, or prerequisite for leaving awaiting. Dedicated
+`y todo await` / `y todo resume` commands and
 `POST /api/todo/await|resume` are retired.
 
 Drop the reason enum and the `external` machine-wait plus its deadline field.
@@ -274,11 +276,11 @@ activates or reopens work that is not currently awaiting (human) or active
 (fault). There is no previous-status column; leaving awaiting always goes to
 the requested target.
 
-One optional navigation column remains on the kernel `todo` table:
+One optional conversation column remains on the kernel `todo` table:
 
 | Column | Type | Meaning |
 |--------|------|---------|
-| `awaiting_chat` | string, nullable | public chat id to navigate to while `status=awaiting`; navigation only, never used to decide which chat may resume |
+| `handle_chat` | string, nullable | public chat id this todo opens into; an awaiting write that passes a chat moves it there, resume keeps it, completed/deleted clear it; navigation only, never used to decide which chat may resume |
 
 The obsolete physical columns `awaiting` and `awaiting_until` are nulled at
 cutover and left unread/unwritten until a separately authorized destructive
@@ -299,8 +301,8 @@ y todo list --status awaiting
 
 | Surface | Meaning |
 |---|---|
-| `status ID awaiting [--chat CHAT] [--note TEXT]` | Move any current status to awaiting (including completed/deleted as one atomic reopen-to-inbox write), or replace/clear the optional pointer on an already-awaiting todo. `--note` is the optional one-sentence DM context, valid only with awaiting, and only on entry into awaiting. A nonempty note on an already-awaiting row is rejected with no pointer or history mutation and no new DM (the error says no new notice was sent). Pointer-only already-awaiting writes without `--note` stay idempotent. |
-| `status ID active` | Move any current status to active and clear the pointer; identical resulting state is a no-op. |
+| `status ID awaiting [--chat CHAT] [--note TEXT]` | Move any current status to awaiting (including completed/deleted as one atomic reopen-to-inbox write). When CHAT is passed, set `handle_chat` to that chat; omit CHAT and the handle stays as it is, including on an already-awaiting todo. `--note` is the optional one-sentence DM context, valid only with awaiting, and only on entry into awaiting. A nonempty note on an already-awaiting row is rejected with no handle or history mutation and no new DM (the error says no new notice was sent). An already-awaiting write of the same chat without `--note` stays idempotent. |
+| `status ID active` | Move any current status to active and keep `handle_chat`; identical resulting state is a no-op. |
 | `POST /api/todo/status` | Body: public `todo_id`, enum `status`, optional public `chat_id`, optional `notice`; same transition as CLI. Keep the existing public todo response shape (no `changed` field). |
 | Generic update and bulk | Accept awaiting and reuse the same transition helper; they are not a second state writer. Bulk does not take `chat_id`. |
 | Retired | `y todo await` / `y todo resume` and `POST /api/todo/await` / `POST /api/todo/resume` are gone. Stale calls fail without mutation (CLI unknown command; HTTP 404/405). No thin aliases. |
@@ -310,14 +312,14 @@ y todo list --status awaiting
   `notice` are valid only for target awaiting; a supplied non-null chat or
   notice with any other target is rejected before mutation (CLI before the
   request). API null/omitted chat or notice on other targets is harmless.
-- Omitted or null chat on target awaiting clears an old pointer, including
-  when already awaiting. Target awaiting plus a chat sets or replaces the
-  pointer. Identical resulting state is a no-op. UI same-status
-  re-select / re-drop remains no-write to preserve an existing pointer.
+- Omitted or null chat on target awaiting does not clear `handle_chat`,
+  including when already awaiting. Target awaiting plus a chat sets or
+  replaces the handle. Identical resulting state is a no-op. UI same-status
+  re-select / re-drop remains no-write to preserve an existing handle.
   `--note` / `notice` is entry-only: it is folded into history and sent as
   the DM second line only when status newly becomes awaiting. An already-
   awaiting row that also carries a nonempty notice is rejected inside the
-  locked transition before any pointer or history write, so the writer
+  locked transition before any handle or history write, so the writer
   cannot lose a sentence against a stale fault DM. The write does not
   auto-resume to active and does not resend. An explicit empty or
   whitespace-only note is rejected the same way as an over-long note.
@@ -328,11 +330,10 @@ y todo list --status awaiting
 - Supplied chat must exist for the owner and have this persisted trace ID.
   No root-manager pointer inferred from dispatch metadata. Missing pointer
   still leaves todo-to-trace navigation available.
-- Changing status away from awaiting clears the pointer. Metadata-only
-  edits do not change status or erase a pointer. A repeated generic
-  `status=awaiting` write on an already-awaiting todo therefore clears an
-  existing pointer; UI writers must not issue a no-op status write on
-  re-drop / re-select.
+- Completed and deleted clear `handle_chat`. Pending and active keep it.
+  Metadata-only edits do not change status or erase the handle. A repeated
+  generic `status=awaiting` write without a chat leaves the handle in place.
+  UI writers must not issue a no-op status write on re-drop / re-select.
 - Keep activate/deactivate/reopen/finish/delete as ordinary status
   conveniences, not additional transition authorities. `activate` /
   `reopen` remain `status=active`. The canonical agent wording is
@@ -415,13 +416,13 @@ y todo list --status awaiting
   trace is preserved. The accepted record is
   `pages/decision-3458-trace-identity-rejection.md`.
 - **Finish and delete** (single, bulk, or generic status update) move
-  awaiting to completed/deleted and clear the pointer. Deactivate moves it
-  to pending and clears the pointer.
+  awaiting to completed/deleted and clear `handle_chat`. Deactivate moves it
+  to pending and keeps the handle.
 - **`chat.needs_attention` is the explicit user-checkpoint signal.** At every
   checkpoint, including the first before any user reply, a session records
   progress/note and runs `y chat attention` before stopping. The shared idle
   recheck selects the newest idle same-owner, same-trace attention chat (by
-  updated time, then chat id), sets `awaiting_chat` to it and reports
+  updated time, then chat id), sets `handle_chat` to it and reports
   `Chat <id> is waiting for your reply.` This also overrides a live declared
   machine wait, but never running chats/processes/tmux, unknown or stale
   runtime, pending release waiters or registered wakeups. Human replies clear
@@ -435,9 +436,10 @@ y todo list --status awaiting
 - `y todo list --status awaiting` is an additional AND over every existing
   priority, tag, time and pagination filter. There is no independent
   `--awaiting` flag.
-- Every returned row carries `status` and `awaiting_chat` (explicit null
-  when unset). `y todo get` renders `Reply in:` only when a pointer is set.
-  Public DTOs omit the obsolete `awaiting` / `awaiting_until` fields.
+- Every returned row carries `status` and `handle_chat` (explicit null
+  when unset). `y todo get` renders `Handle:` only when a pointer is set.
+  `y todo list`'s Chat column reads `handle_chat`. Public DTOs omit the
+  obsolete `awaiting` / `awaiting_until` fields.
 - Active rows in host list and detail also carry read-only `runtime`
   (`todo 4070`): `{state, jobs, observed_at_unix, fresh_until_unix}` with
   `state` one of `session`, `child`, `tmux`, `wait`, `unknown`, `ended` (`wait`
@@ -445,12 +447,11 @@ y todo list --status awaiting
   rows carry null. It is derived on read, never accepted on write, and is
   not part of the trace payload, public shares or the CLI.
 - The trace todo projection, both authenticated and public share, carries
-  `status` and `awaiting_chat` so the host todo detail renders awaiting and,
-  when set, the chat pointer without another request. The pointer is a
-  chat-navigation control only when the viewer is authenticated and
-  `status === "awaiting"`; on a public share it is inert text. The
-  projection widens no disclosure: a pointer can only name a same-owner chat
-  of a trace the share already lists.
+  `status` and `handle_chat` so the host todo detail renders the
+  conversation chat without another request. The pointer is a
+  chat-navigation control when the viewer is authenticated; on a public
+  share it is inert text. The projection widens no disclosure: a pointer
+  can only name a same-owner chat of a trace the share already lists.
 - The todo module panel (UI-only, consuming host REST) treats awaiting as a
   status: sidebar shortcut, table filter, kanban column with its own
   status-scoped fetch and drag-drop, context-menu status list, detail sort
@@ -643,14 +644,14 @@ distinction between a human-declared await and a fault claim. Shipped in
 heading, then `extra` when present, and nothing else. The chat pointer is not
 rendered by any writer.
 
-**The `awaiting_chat` pointer and its consumers are retained.** What was
-removed is a rendered instruction, not a column and not a navigation path.
-`y todo status <id> awaiting --chat` still stores the pointer and echoes it, `y todo get`
-still prints `Reply in:` when it is set, `y todo list` still carries its
-pointer column, and the host trace todo detail still renders it as a
-chat-navigation control while the viewer is authenticated and
-`status === "awaiting"` (see Schema and Reading above). Only the notice path
-stopped reading it.
+**`handle_chat` is the only chat pointer.** The separate reply column is
+gone (todo 4441). What the notice trim removed is a rendered instruction,
+not the navigation path. `y todo status <id> awaiting --chat` stores the
+handle and echoes it while the resulting status is awaiting. `y todo get`
+prints `Handle:` when it is set, in every status. `y todo list`'s Chat
+column is the handle. The host trace todo detail renders Talk to from that
+handle and has no second reply row (see Schema and Reading above). The
+notice path still does not render it.
 
 This wording changed twice and the reasons are kept as history, because the
 fault-notice argument still explains the shape even though it is no longer
@@ -661,11 +662,12 @@ expressed as a branch:
    line on question-style awaits, on the grounds that the chat id is not
    derivable from the todo id.
 2. Todo 3506 S2 (`6ef2766`) scoped that line out of fault notices only
-   (`if todo.awaiting_chat and not extra`). A watchdog idle/backstop claim or
-   an undeliverable death stores the newest-chat id as `awaiting_chat`, that
-   chat is often a dead child, and replying there would auto-resume the todo
-   and restart it. A fault notice is inspection context (last chat, exit,
-   bounded error text), not a place to type the next instruction.
+   (only when a reply pointer was set and the notice had no extra text). A
+   watchdog idle/backstop claim or an undeliverable death stores the
+   newest-chat id as the pointer, that chat is often a dead child, and
+   replying there would auto-resume the todo and restart it. A fault notice
+   is inspection context (last chat, exit, bounded error text), not a place
+   to type the next instruction.
 3. Todo 3506 follow-up (`93da425`) deleted the line outright for every
    awaiting notice, after Roy read a real human-declared notice and asked for
    it to go. This is a user-directed override of step 1's visible-instruction
@@ -1185,7 +1187,7 @@ Tests are local-only and untracked per repo convention.
 - **Direct delivery for the tail-retry-exhausted and orphan-running-chat
   paths.** Covered by the watchdog once the orphan sweep clears the
   SQL-running row, not by targeted messages.
-- **Multiple simultaneous questions on one trace.** `awaiting_chat` holds
+- **Multiple simultaneous questions on one trace.** `handle_chat` holds
   one pointer; leaf sessions are expected to route questions through their
   parent, so one question per trace at a time is the contract. Widen to a
   list only if it is observed to collide.

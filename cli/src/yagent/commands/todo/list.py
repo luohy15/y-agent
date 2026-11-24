@@ -47,7 +47,7 @@ def todo_list(status, priority, tag, on, from_, to, created_on, created_from, cr
             t["todo_id"],
             f"{pin_marker}{t['name']}",
             t["status"],
-            t.get("awaiting_chat") or "-",
+            t.get("handle_chat") or "-",
             t.get("priority") or "-",
             t.get("due_date") or "-",
             sla_label(t),

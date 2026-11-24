@@ -18,7 +18,6 @@ class TodoEntity(Base, BaseEntity):
     sla_due_at = Column(String(10), nullable=True)
     priority = Column(String, nullable=True)
     status = Column(String, nullable=False, default="pending")
-    awaiting_chat = Column(String, nullable=True)
     handle_chat = Column(String, nullable=True)
     machine_wait = Column(JSON, nullable=True)
     progress = Column(Text, nullable=True)

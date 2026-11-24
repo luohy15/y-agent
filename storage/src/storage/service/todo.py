@@ -237,7 +237,7 @@ def _legacy_awaiting_rejected(fields) -> None:
         )
 
 
-def _pointer_chat(session, row, chat_id: str, field: str = "awaiting_chat") -> None:
+def _pointer_chat(session, row, chat_id: str, field: str = "handle_chat") -> None:
     from storage.entity.chat import ChatEntity
     if not session.query(ChatEntity.id).filter_by(
         user_id=row.user_id, chat_id=chat_id, trace_id=row.todo_id,
@@ -252,8 +252,6 @@ def _status_side_effects(row, fields, status: str) -> None:
         return
     fields["machine_wait"] = None
     fields["completed_at"] = get_utc_iso8601_timestamp() if status == "completed" else None
-    if status != "awaiting":
-        fields["awaiting_chat"] = None
     if row.pinned and "pinned" not in fields and status in UNPIN_STATUSES:
         fields["pinned"] = False
 
@@ -272,28 +270,17 @@ def _transition_locked(session, row, fields, *, action="updated", extra_note=Non
         status = fields["status"]
         if status not in STATUS_ACTION:
             raise ValueError("Invalid todo status")
-        if status == "awaiting":
-            if "awaiting_chat" not in fields:
-                fields["awaiting_chat"] = None
-            if notice and row.status == "awaiting":
-                raise ValueError(
-                    "notice is only sent when a todo newly enters awaiting; "
-                    "no new notice was sent. Resume to active, then await with --note"
-                )
-        elif fields.get("awaiting_chat"):
-            raise ValueError("awaiting_chat is only valid while status is awaiting")
+        if status == "awaiting" and notice and row.status == "awaiting":
+            raise ValueError(
+                "notice is only sent when a todo newly enters awaiting; "
+                "no new notice was sent. Resume to active, then await with --note"
+            )
         _status_side_effects(row, fields, status)
-    elif "awaiting_chat" in fields and row.status != "awaiting":
-        raise ValueError("awaiting_chat is only valid while status is awaiting")
     if "handle_chat" in fields:
         if "status" not in fields and row.status in {"completed", "deleted"}:
             raise ValueError("handle_chat is not writable on closed work")
         if fields.get("handle_chat"):
             _pointer_chat(session, row, fields["handle_chat"], "handle_chat")
-    if fields.get("awaiting_chat"):
-        if fields.get("status", row.status) != "awaiting":
-            raise ValueError("awaiting_chat is only valid while status is awaiting")
-        _pointer_chat(session, row, fields["awaiting_chat"])
     if "tags" in fields:
         fields["tags"] = tag_repo.require_known_tags(session, row.user_id, fields["tags"])
         tag_repo.sync_tags_locked(session, row.user_id, "todo", row.todo_id, fields["tags"])
@@ -433,8 +420,7 @@ def _mutate_transition(user_id: int, todo_id: str, mutate, *, lock_tags: bool = 
 
 
 def update_todo(user_id: int, todo_id: str, **fields) -> Optional[Todo]:
-    allowed = {"name", "desc", "tags", "due_date", "priority", "progress", "status",
-               "awaiting_chat"}
+    allowed = {"name", "desc", "tags", "due_date", "priority", "progress", "status"}
     unknown = fields.keys() - allowed - LEGACY_AWAITING_FIELDS
     if unknown:
         raise ValueError("Unknown todo fields")
@@ -577,9 +563,11 @@ def _await_locked(
     session, row, chat_id: Optional[str], *, extra_note: Optional[str] = None,
     notice: Optional[str] = None,
 ) -> bool:
+    fields = {"status": "awaiting"}
+    if chat_id is not None:
+        fields["handle_chat"] = chat_id
     return _transition_locked(
-        session, row, {"status": "awaiting", "awaiting_chat": chat_id},
-        extra_note=extra_note, notice=notice,
+        session, row, fields, extra_note=extra_note, notice=notice,
     )
 
 

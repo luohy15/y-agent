@@ -43,7 +43,6 @@ class Todo:
     priority: Optional[str] = None
     pinned: bool = False
     status: str = "pending"
-    awaiting_chat: Optional[str] = None
     handle_chat: Optional[str] = None
     machine_wait: Optional[Dict] = None
     progress: Optional[str] = None
@@ -77,7 +76,6 @@ class Todo:
             priority=data.get('priority'),
             pinned=data.get('pinned', False),
             status=data.get('status', 'pending'),
-            awaiting_chat=data.get('awaiting_chat'),
             handle_chat=data.get('handle_chat'),
             machine_wait=data.get('machine_wait'),
             progress=data.get('progress'),
@@ -104,7 +102,6 @@ class Todo:
             'sla_due_at': self.sla_due_at,
             'overdue': self.overdue,
             'status': self.status,
-            'awaiting_chat': self.awaiting_chat,
             'handle_chat': self.handle_chat,
             'machine_wait': self.machine_wait,
             'next_wakeup_at_unix': self.next_wakeup_at_unix,

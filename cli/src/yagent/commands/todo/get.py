@@ -69,8 +69,6 @@ def todo_get(todo_id):
     click.echo(f"Tags:      {', '.join(todo['tags']) if todo.get('tags') else '-'}")
     if todo.get('handle_chat'):
         click.echo(f"Handle:    {todo['handle_chat']}")
-    if todo.get('awaiting_chat'):
-        click.echo(f"Reply in:  {todo['awaiting_chat']}")
     if todo.get('desc'):
         click.echo(f"Desc:      {todo['desc']}")
     if todo.get('progress'):

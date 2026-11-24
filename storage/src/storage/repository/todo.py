@@ -77,7 +77,6 @@ def _entity_to_dto(entity: TodoEntity, *, include_history: bool = True) -> Todo:
         priority=entity.priority,
         pinned=bool(entity.pinned) if entity.pinned is not None else False,
         status=entity.status,
-        awaiting_chat=entity.awaiting_chat,
         handle_chat=entity.handle_chat,
         machine_wait=entity.machine_wait,
         progress=entity.progress,

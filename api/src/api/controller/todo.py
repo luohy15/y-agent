@@ -37,7 +37,6 @@ class UpdateTodoRequest(BaseModel):
     tags: Optional[List[str]] = None
     due_date: Optional[str] = None
     priority: Optional[str] = None
-    awaiting_chat: Optional[str] = None
     progress: Optional[str] = None
     status: Optional[Literal["pending", "active", "awaiting", "completed", "deleted"]] = None
     awaiting: Optional[str] = None

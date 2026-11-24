@@ -24,7 +24,11 @@ def todo_status(todo_id, status, chat_id, notice):
         body["notice"] = notice
     resp = api_request("POST", "/api/todo/status", json=body)
     todo = resp.json()
-    pointer = f" chat={todo['awaiting_chat']}" if todo.get("awaiting_chat") else ""
+    pointer = (
+        f" chat={todo['handle_chat']}"
+        if todo.get("status") == "awaiting" and todo.get("handle_chat")
+        else ""
+    )
     click.echo(f"Todo '{todo['name']}' ({todo['todo_id']}): {todo['status']}{pointer}")
     if status == "awaiting" and notice is None:
         click.echo("No --note supplied; the attention DM will have no context line.")

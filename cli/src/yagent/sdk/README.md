@@ -96,6 +96,7 @@ publish stores the normalized markup on `module_version.icon`. The host renders
 a value that starts with `<svg` as that glyph. An older host treats the markup
 as an unknown registry key and falls back to `box`. A module that publishes an
 SVG icon sets `min_host_version: 27`.
+Contract v34 (todo 4441) drops the reply-chat field from `TodoInfo`. Older bundles still mount.
 See `docs/prd/module-system.md`, *The `shell`
 surface and the renderer seam*, before bundling anything heavy into a module.
 
