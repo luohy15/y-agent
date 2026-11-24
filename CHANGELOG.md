@@ -30,6 +30,8 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 ### Changed
 
 - **Idle-stop schedule default (4407)**: `IdleStopNodesEnabled` now defaults to `ENABLED`. The live five-minute sweep is already on, and the next deploy keeps it on instead of restoring the old disabled default. Set the parameter to `DISABLED` only to pause it.
+- **Todo handle chat (4441)**: the awaiting pointer becomes `handle_chat`, the one conversation a todo opens into. It now survives pending, active and awaiting; only completed or deleted clears it. `y todo status <id> awaiting --chat <id>` moves it, an awaiting write without a chat leaves it, and `y todo get` (as `Handle:`) and the list Chat column read it.
+- **Codex window for unknown models (4435)**: a model slug the Codex CLI does not know now clones the first bundled catalog template that exists (`gpt-5.2`, then `gpt-5.5`, otherwise the first entry except `codex-auto-review`) and still reports its real `model_context_window`, so those bots keep a usable context badge instead of depending on one template being present. Recognized slugs keep their own prompt.
 
 ### Fixed
 
