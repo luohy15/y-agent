@@ -651,15 +651,25 @@ def revoke_peer(db, account, row):
     stop_account_if_idle(db, account)
 
 
+def cancel_caller_live(db, user_id):
+    """Cancel this caller's open or awaiting_code rows so bind is not blocked."""
+    db.execute(update(Binding).where(
+        Binding.user_id == user_id, Binding.status.in_(LIVE),
+    ).values(status="cancelled", code_hash=None))
+
+
 def unbind(user_id):
     _require_admitted(user_id)
     with get_db() as db:
         account = lock_channel(db)
+        cancel_caller_live(db, user_id)
         row = peer_for_user(db, user_id)
-        if not account or not row or row.status != "active":
-            return {"status": "unbound"}
-        revoke_peer(db, account, row)
-        return {"status": "revoked"}
+        if account and row and row.status == "active":
+            revoke_peer(db, account, row)
+            return {"status": "revoked"}
+        if account:
+            stop_account_if_idle(db, account)
+        return {"status": "unbound"}
 
 
 def revoke(user_id, peer):
