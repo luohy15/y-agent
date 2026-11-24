@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy import JSON, Column, Integer, String, ForeignKey
 from .base import Base, BaseEntity
 
 
@@ -11,3 +11,4 @@ class TraceShareEntity(Base, BaseEntity):
     trace_id = Column(String, nullable=False)
     password_hash = Column(String, nullable=True)
     revoked_at = Column(String, nullable=True)
+    selection = Column(JSON(none_as_null=True), nullable=True)

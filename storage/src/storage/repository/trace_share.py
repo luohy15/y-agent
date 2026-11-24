@@ -17,18 +17,27 @@ def get_by_trace_id(user_id: int, trace_id: str, include_revoked: bool = False) 
         return query.first()
 
 
-def create(user_id: int, share_id: str, trace_id: str, password_hash: Optional[str] = None) -> TraceShareEntity:
+def create(user_id: int, share_id: str, trace_id: str, password_hash: Optional[str] = None, selection=None) -> TraceShareEntity:
     with get_db() as session:
         entity = TraceShareEntity(
             user_id=user_id,
             share_id=share_id,
             trace_id=trace_id,
             password_hash=password_hash,
+            selection=selection,
         )
         session.add(entity)
         session.flush()
         session.expunge(entity)
         return entity
+
+
+def update_options(share_id: str, selection, password_hash: Optional[str], replace_password: bool) -> None:
+    values = {"selection": selection, "revoked_at": None}
+    if replace_password:
+        values["password_hash"] = password_hash
+    with get_db() as session:
+        session.query(TraceShareEntity).filter_by(share_id=share_id).update(values)
 
 
 def set_password_hash(share_id: str, password_hash: Optional[str]) -> None:

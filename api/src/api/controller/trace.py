@@ -224,6 +224,20 @@ class CreateShareRequest(BaseModel):
     password: Optional[str] = None
     generate_password: bool = False
     note_ids: Optional[List[str]] = None
+    chat_ids: Optional[List[str]] = None
+    link_ids: Optional[List[str]] = None
+
+
+def _public_selection(req, related):
+    selection = {}
+    for kind, ids in related.items():
+        key = f"{kind}_ids"
+        requested = getattr(req, key)
+        if requested is not None:
+            if not set(requested) <= ids:
+                raise HTTPException(status_code=422, detail=f"Unknown or unrelated {kind}")
+            selection[key] = list(dict.fromkeys(requested))
+    return selection or None
 
 
 @router.post("/share")
@@ -235,9 +249,14 @@ async def create_share(req: CreateShareRequest, request: Request):
     ``note_ids`` keeps the original ``{share_id, password?}`` shape (back-compat).
     """
     from storage import share_password as sp
-    from storage.repository.trace_share import get_by_trace_id, create, set_password_hash, set_revoked
+    from api.controller.note import revoke_note_share
+    from storage.repository.note_share import get_by_note_ids
+    from storage.repository.trace_share import get_by_trace_id, create, update_options
+    from storage.service.todo_share import related_ids
 
     user_id = _get_user_id(request)
+    related = related_ids(user_id, req.trace_id)
+    selection = _public_selection(req, related)
 
     generated_password: Optional[str] = None
     password_hash: Optional[str] = None
@@ -249,14 +268,15 @@ async def create_share(req: CreateShareRequest, request: Request):
 
     existing = get_by_trace_id(user_id, req.trace_id, include_revoked=True)
     if existing:
-        if existing.revoked_at is not None:
-            set_revoked(existing.share_id, None)
-        if password_hash is not None:
-            set_password_hash(existing.share_id, password_hash)
         share_id = existing.share_id
+        previous = (existing.selection or {}).get("note_ids", related["note"])
+        if not existing.revoked_at and req.note_ids is not None:
+            for note_share in get_by_note_ids(user_id, list(set(previous) - set(req.note_ids))):
+                revoke_note_share(note_share)
+        update_options(share_id, selection, password_hash, password_hash is not None or req.password == "")
     else:
         share_id = generate_id()
-        create(user_id, share_id, req.trace_id, password_hash=password_hash)
+        create(user_id, share_id, req.trace_id, password_hash=password_hash, selection=selection)
 
     resp = {"share_id": share_id}
     if generated_password is not None:
@@ -301,7 +321,9 @@ async def delete_share(request: Request, share_id: str = Query(...)):
         raise HTTPException(status_code=404, detail="Share not found")
     set_revoked(share_id, get_utc_iso8601_timestamp())
 
-    note_ids = list_note_relations(user_id, share.trace_id)
+    note_ids = (share.selection or {}).get("note_ids")
+    if note_ids is None:
+        note_ids = list_note_relations(user_id, share.trace_id)
     if note_ids:
         for note_share in get_by_note_ids(user_id, note_ids):
             revoke_note_share(note_share)
@@ -324,6 +346,7 @@ async def get_my_share(request: Request, trace_id: str = Query(...)):
         "share_id": share.share_id,
         "trace_id": share.trace_id,
         "has_password": bool(share.password_hash),
+        "selection": share.selection,
     }
 
 
@@ -366,10 +389,13 @@ async def get_share(share_id: str = Query(...), password: Optional[str] = Query(
 
     user_id = share.user_id
     trace_id = share.trace_id
+    selection = share.selection or {}
 
     chats = find_chats_with_messages_by_trace_id(user_id, trace_id)
     result_chats = []
     for chat_id, title, topic, role, skill, backend, bot_name, json_content in chats:
+        if "chat_ids" in selection and chat_id not in selection["chat_ids"]:
+            continue
         messages = json.loads(json_content).get("messages", []) if json_content else []
         segments = _extract_segments(messages)
         result_chats.append({
@@ -411,12 +437,16 @@ async def get_share(share_id: str = Query(...), password: Optional[str] = Query(
         }
 
     links = _associated_links(user_id, trace_id)
+    if "link_ids" in selection:
+        links = [link for link in links if link["activity_id"] in selection["link_ids"]]
 
     # Fetch associated notes
     from storage.repository.note_todo_relation import list_by_todo as list_note_relations
     from storage.repository.note import get_notes_by_ids
     from storage.repository.note_share import get_by_note_ids as get_note_shares_by_note_ids
     note_ids = list_note_relations(user_id, trace_id)
+    if "note_ids" in selection:
+        note_ids = [note_id for note_id in note_ids if note_id in selection["note_ids"]]
     note_shares = {
         share.note_id: {
             "share_id": share.share_id,

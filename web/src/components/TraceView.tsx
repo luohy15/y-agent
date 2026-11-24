@@ -6,6 +6,7 @@ import { type TraceChat } from "./WaterfallChart";
 import { statusBadgeClass } from "./badges";
 import TraceSection from "./TraceSection";
 import SharePopover, { type ExistingShare } from "./SharePopover";
+import TodoSharePanel, { type OutgoingGrant } from "./TodoSharePanel";
 import TraceTodoDetail, { type TodoInfo, type TodoPatch } from "./TraceTodoDetail";
 
 export type { TraceChat } from "./WaterfallChart";
@@ -239,7 +240,7 @@ export default function TraceView({
 
   // Fetch current share (if any) for this trace
   const myShareKey = selectedTraceId && isLoggedIn && !publicMode ? `${API}/api/trace/share/mine?trace_id=${encodeURIComponent(selectedTraceId)}` : null;
-  const { data: myShare, mutate: mutateMyShare } = useSWR<ExistingShare | null>(
+  const { data: myShare, error: shareError, mutate: mutateMyShare } = useSWR<ExistingShare | null>(
     myShareKey,
     async (url: string) => {
       const res = await authFetch(url);
@@ -261,6 +262,10 @@ export default function TraceView({
   const traceNotes = publicMode ? injectedData?.notes : (authedTraceData?.notes ?? []);
   const traceEvents = publicMode ? injectedData?.calendar_events : (authedTraceData?.calendar_events ?? []);
   const hasValidTodo = !!(todoInfo && typeof todoInfo.todo_id === "string" && todoInfo.todo_id);
+  const { data: outgoing, error: grantsError, mutate: mutateGrants } = useSWR<OutgoingGrant[]>(
+    !publicMode && isLoggedIn && hasValidTodo ? `${API}/api/todo/shares` : null, fetcher,
+  );
+  const grants = outgoing?.filter(row => row.todo_id === selectedTraceId) ?? [];
   const unavailable = !publicMode && requireTodo && loaded && !fetchFailed && !hasValidTodo;
 
   const [todoDetailOpen, setTodoDetailOpen] = useState(true);
@@ -268,13 +273,9 @@ export default function TraceView({
   const [notesOpen, setNotesOpen] = useState(true);
   const [eventsOpen, setEventsOpen] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(false);
-  // Notes deselected from the batch-share picker (default: none → all selected).
-  const [deselectedNoteIds, setDeselectedNoteIds] = useState<Set<string>>(new Set());
   // Latch onUnavailable once per selectedTraceId while unavailable holds, so an
   // inline module closure identity change cannot re-fire it every render.
   const unavailableNotifiedForRef = useRef<string | null>(null);
-  // Reset the batch-share selection when switching traces.
-  useEffect(() => { setDeselectedNoteIds(new Set()); }, [selectedTraceId]);
 
   const [todoIdCopied, setTodoIdCopied] = useState(false);
   const todoIdCopiedTimerRef = useRef<number | null>(null);
@@ -305,25 +306,16 @@ export default function TraceView({
 
   const createTraceShare = async (opts: { password?: string; generate_password?: boolean }) => {
     if (!selectedTraceId) throw new Error("no trace");
-    // Batch-share selected assoc'd notes server-side in one request: the backend
-    // shares each note in public mode (no password), skipping already-shared ones.
-    // Note links surface on the public trace page as bare /n/<share_id>, so a
-    // per-note password would force a second prompt there.
-    const noteIds = (traceNotes ?? [])
-      .filter((n) => !n.share_id && !deselectedNoteIds.has(n.note_id))
-      .map((n) => n.note_id);
     const res = await authFetch(`${API}/api/trace/share`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         trace_id: selectedTraceId,
         ...opts,
-        ...(noteIds.length > 0 ? { note_ids: noteIds } : {}),
       }),
     });
     if (!res.ok) throw new Error("share failed");
     const result = await res.json();
-    if (noteIds.length > 0) await mutateTrace();
     mutateMyShare();
     return result;
   };
@@ -407,7 +399,8 @@ export default function TraceView({
                   {todoStatus}
                 </span>
               )}
-              {!publicMode && <SharePopover
+              {!publicMode && loaded && <SharePopover
+                key={selectedTraceId}
                 onCreate={createTraceShare}
                 buildUrl={buildTraceShareUrl}
                 buttonClassName="cursor-pointer"
@@ -415,35 +408,18 @@ export default function TraceView({
                 align="right"
                 existingShare={myShare ?? null}
                 onDelete={deleteTraceShare}
-                extra={traceNotes && traceNotes.length > 0 ? (
-                  <div className="mt-2 pt-2 border-t border-sol-base02">
-                    <div className="text-sol-base01 mb-1">Also share notes</div>
-                    <div className="max-h-32 overflow-y-auto space-y-0.5">
-                      {traceNotes.map((note) => {
-                        const shared = !!note.share_id;
-                        const checked = shared || !deselectedNoteIds.has(note.note_id);
-                        return (
-                          <label key={note.note_id} className="flex items-center gap-2 py-0.5 cursor-pointer">
-                            <input
-                              type="checkbox" className="y-check"
-                              checked={checked}
-                              disabled={shared}
-                              onChange={(e) => {
-                                setDeselectedNoteIds((prev) => {
-                                  const next = new Set(prev);
-                                  if (e.target.checked) next.delete(note.note_id);
-                                  else next.add(note.note_id);
-                                  return next;
-                                });
-                              }}
-                            />
-                            <span className="text-sol-base0 font-mono text-[0.65rem] truncate min-w-0">#{note.note_id}</span>
-                            {shared && <span className="ml-auto shrink-0 text-[0.6rem] text-sol-green">shared</span>}
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
+                hasGrants={grants.length > 0}
+                ownerPanel={hasValidTodo && selectedTraceId ? (
+                  shareError || grantsError ? <span>Could not load existing shares.</span> :
+                  myShare === undefined || !outgoing ? <span>Loading shares…</span> :
+                  <TodoSharePanel todoId={selectedTraceId} publicShare={myShare} grants={grants}
+                    options={{
+                      chat: (traceChats ?? []).map(chat => ({ id: chat.chat_id, label: chat.title || chat.chat_id })),
+                      note: (traceNotes ?? []).map(note => ({ id: note.note_id, label: note.content_key })),
+                      link: (traceLinks ?? []).flatMap(link => link.activity_id
+                        ? [{ id: link.activity_id, label: link.title || link.base_url }] : []),
+                    }}
+                    refresh={() => Promise.all([mutateTrace(), mutateMyShare(), mutateGrants()])} />
                 ) : undefined}
               />}
               <button

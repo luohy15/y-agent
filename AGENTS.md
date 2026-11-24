@@ -124,7 +124,9 @@ entity + controller + service + CLI slices, and most have a web panel.
   a `trace_share`. `y todo share|unshare|shares|shared|public` and
   `/api/todo/share|shares|shared|shared/detail|share/summary|visit|public`.
   A logged-in load of a public todo share records a visit (newest 200). Apply
-  `migration/4422_todo_share.sql` before deploy.
+  `migration/4422_todo_share.sql` before deploy, including the additive
+  `trace_share.selection` column. The owner share popover manages both audiences;
+  missing public selection lists include all related items, empty lists include none.
 - **Declared machine wait (todo 4100)**: `y todo hold <id> --on <dependency> --chat <id> [--until +6h]` (with `wait` retained as a hidden alias) stores bounded `todo.machine_wait` on active work and suppresses automatic awaiting claims until lapse, except when the shared idle recheck proves no live work and finds an idle same-trace `chat.needs_attention` checkpoint (todo 4278). That checkpoint enters awaiting with the chat pointer and a reply notice; running work, unknown runtime, release waiters and wakeups still suppress. The declaration clears on a real status change, a new accepted message into the declaring chat, or `--clear`.
 - **Role**: every chat has an optional closed `role` (`manager` or `leader`).
   Manager is the singleton root conversation; leader identifies coordinators.

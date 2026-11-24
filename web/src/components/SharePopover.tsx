@@ -10,6 +10,7 @@ interface CreateResult {
 export interface ExistingShare {
   share_id: string;
   has_password: boolean;
+  selection?: Partial<Record<"chat_ids" | "note_ids" | "link_ids", string[]>> | null;
 }
 
 interface SharePopoverProps {
@@ -24,9 +25,11 @@ interface SharePopoverProps {
   onRefresh?: () => Promise<unknown>;
   onDelete?: (shareId: string) => Promise<void>;
   extra?: ReactNode;
+  ownerPanel?: ReactNode;
+  hasGrants?: boolean;
 }
 
-export default function SharePopover({ onCreate, buildUrl, buttonClassName, buttonLabel = "share", align = "right", iconOnly = false, existingShare, onRefresh, onDelete, extra }: SharePopoverProps) {
+export default function SharePopover({ onCreate, buildUrl, buttonClassName, buttonLabel = "share", align = "right", iconOnly = false, existingShare, onRefresh, onDelete, extra, ownerPanel, hasGrants }: SharePopoverProps) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<ShareMode>("public");
   const [customPassword, setCustomPassword] = useState("");
@@ -138,9 +141,9 @@ export default function SharePopover({ onCreate, buildUrl, buttonClassName, butt
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className={`${buttonClassName ?? ""} ${iconStateCls}`}
-          title={iconLabel}
-          aria-label={iconLabel}
+          className={`${buttonClassName ?? ""} ${hasGrants ? "text-sol-green" : iconStateCls}`}
+          title={hasGrants ? "Shared" : iconLabel}
+          aria-label={hasGrants ? "Shared" : iconLabel}
           aria-haspopup="dialog"
           aria-expanded={open}
         >
@@ -161,8 +164,8 @@ export default function SharePopover({ onCreate, buildUrl, buttonClassName, butt
         </button>
       )}
       {open && (
-        <div className={`absolute ${align === "left" ? "left-0" : "right-0"} top-full mt-1 z-20 w-64 bg-sol-base03 border border-sol-base02 rounded shadow-float p-2 text-xs`}>
-          {existingShare ? (
+        <div role="dialog" aria-label="Share" className={`${ownerPanel ? "fixed inset-x-2 top-16 sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:w-96 max-h-[75dvh] overflow-auto" : `absolute ${align === "left" ? "left-0" : "right-0"} top-full w-64`} mt-1 z-20 bg-sol-base03 border border-sol-base02 rounded shadow-float p-2 text-xs`}>
+          {ownerPanel ?? (existingShare ? (
             <>
               <div className="text-sol-base01 mb-1.5">Currently shared</div>
               <div className="bg-sol-base02/50 rounded px-2 py-1 mb-2 font-mono text-[0.65rem] text-sol-base0 break-all">
@@ -245,7 +248,7 @@ export default function SharePopover({ onCreate, buildUrl, buttonClassName, butt
                 {busy ? "..." : "Copy link"}
               </button>
             </>
-          )}
+          ))}
         </div>
       )}
     </div>

@@ -95,7 +95,7 @@ def _owner_label(owner_id: int) -> str:
     return _labels([owner_id]).get(owner_id, "")
 
 
-def _related(owner_id: int, todo_id: str) -> Dict[str, set]:
+def related_ids(owner_id: int, todo_id: str) -> Dict[str, set]:
     note_ids = note_relation_repo.list_by_todo(owner_id, todo_id)
     live_notes = {note.note_id for note in note_repo.get_notes_by_ids(owner_id, note_ids)}
     with get_db() as session:
@@ -143,7 +143,7 @@ def _materialize(owner_id: int, note_ids: List[str], chat_ids: List[str], link_i
 
 
 def _selection_items(owner_id: int, todo_id: str, notes, chats, links) -> List[Dict]:
-    related = _related(owner_id, todo_id)
+    related = related_ids(owner_id, todo_id)
     return _materialize(
         owner_id,
         _expand(notes, related["note"]),
