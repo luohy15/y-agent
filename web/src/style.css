@@ -65,6 +65,38 @@ html {
   }
 }
 
+.y-share-popover .share-check {
+  appearance: none;
+  position: relative;
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  flex: none;
+  border: 1px solid var(--color-sol-base01);
+  border-radius: 2px;
+  background: transparent;
+  cursor: pointer;
+}
+.y-share-popover .share-check:checked {
+  border-color: var(--color-sol-blue);
+  background: var(--color-sol-blue);
+}
+.y-share-popover .share-check:checked::after {
+  content: "";
+  position: absolute;
+  left: 3.5px;
+  top: 0.5px;
+  width: 3px;
+  height: 6px;
+  border-right: 1.5px solid var(--color-sol-base03);
+  border-bottom: 1.5px solid var(--color-sol-base03);
+  transform: rotate(45deg);
+}
+.y-share-popover .share-check:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-sol-blue) 45%, transparent);
+  outline-offset: 2px;
+}
+
 /* Keep shared chat typography independent of a consuming module's scoped
  * utilities, including the pairs its other components still happen to emit. */
 .y-chat-turn-text {
