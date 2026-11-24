@@ -17,6 +17,7 @@ from .handle import todo_handle
 from .pin import todo_pin, todo_unpin
 from .usage import todo_usage
 from .claim import todo_claim, todo_release
+from .share import todo_public, todo_share, todo_shared, todo_shares, todo_unshare
 
 @click.group('todo')
 def todo_group():
@@ -44,3 +45,8 @@ todo_group.add_command(todo_release)
 
 todo_group.add_command(todo_renew)
 todo_group.add_command(todo_audit)
+todo_group.add_command(todo_share)
+todo_group.add_command(todo_unshare)
+todo_group.add_command(todo_shares)
+todo_group.add_command(todo_shared)
+todo_group.add_command(todo_public)

@@ -14,6 +14,7 @@ from api.controller.auth import router as auth_router
 from api.controller.access import router as access_router
 from api.controller.chat import router as chat_router
 from api.controller.todo import router as todo_router
+from api.controller.todo_share import router as todo_share_router
 from api.controller.calendar_event import router as calendar_router
 from api.controller.vm_config import router as vm_config_router
 from api.controller.link import router as link_router
@@ -94,6 +95,7 @@ api_router.include_router(auth_router)
 api_router.include_router(access_router)
 api_router.include_router(chat_router)
 api_router.include_router(todo_router)
+api_router.include_router(todo_share_router)
 api_router.include_router(calendar_router)
 api_router.include_router(vm_config_router)
 api_router.include_router(link_router)

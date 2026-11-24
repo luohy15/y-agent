@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
-import { API } from "../api";
+import { API, authFetch, getToken } from "../api";
 import ChatSnapshotView from "./ChatSnapshotView";
 import ChatList from "./ChatList";
 import FileViewer from "./FileViewer";
@@ -74,6 +74,13 @@ export default function PublicTraceApp() {
     if (!r.ok) throw new Error("Shared chat not found");
     const d: TraceShareResponse = await r.json();
     setData(d);
+    if (d.todo && getToken()) {
+      void authFetch(`${API}/api/todo/visit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ share_id: shareId }),
+      }).catch(() => undefined);
+    }
     setPasswordRequired(false);
     setPasswordError(null);
     setSelectedChatId((prev) => (prev && d.chats.some((c) => c.chat_id === prev)) ? prev : (d.chats[0]?.chat_id ?? null));

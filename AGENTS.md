@@ -117,6 +117,14 @@ entity + controller + service + CLI slices, and most have a web panel.
   `y todo audit` and the admin `todo_sla_digest` daily schedule share read-only
   audit data. Backfill is separate, approval-gated SQL, never automatic. See
   `docs/prd/todo-admission-sla.md`.
+- **Private todo sharing (todo 4422)**: an owner grants one todo to one admitted
+  user, read-only, with an explicit selection of related notes, chats, and links
+  (default empty). Note bodies are sealed snapshots; chats are read live with
+  tool results removed; links use the existing content helper. The grant is not
+  a `trace_share`. `y todo share|unshare|shares|shared|public` and
+  `/api/todo/share|shares|shared|shared/detail|share/summary|visit|public`.
+  A logged-in load of a public todo share records a visit (newest 200). Apply
+  `migration/4422_todo_share.sql` before deploy.
 - **Declared machine wait (todo 4100)**: `y todo hold <id> --on <dependency> --chat <id> [--until +6h]` (with `wait` retained as a hidden alias) stores bounded `todo.machine_wait` on active work and suppresses automatic awaiting claims until lapse, except when the shared idle recheck proves no live work and finds an idle same-trace `chat.needs_attention` checkpoint (todo 4278). That checkpoint enters awaiting with the chat pointer and a reply notice; running work, unknown runtime, release waiters and wakeups still suppress. The declaration clears on a real status change, a new accepted message into the declaring chat, or `--clear`.
 - **Role**: every chat has an optional closed `role` (`manager` or `leader`).
   Manager is the singleton root conversation; leader identifies coordinators.
@@ -507,6 +515,8 @@ exceptions noted):
   and `deepseek-flash`. `grok-4-1-fast` has no row. No row leaves
   `chat.context_window` unset.
 - **Dev / trace**: `dev_worktree`, `dev_release`, `dev_release_waiter`, `trace_share`
+- **Todo sharing** (todo 4422): `todo_share`, `todo_share_item` (`entity/todo_share.py`),
+  `todo_visit` (`entity/todo_visit.py`)
 - **API telemetry**: `api_latency_event`, `api_latency_rollup`
 - **MCP connectors** (todo 3796): `mcp_connector`, `mcp_credential`,
   `mcp_oauth_transaction`, `mcp_launch`, `mcp_launch_connector` (all in
@@ -536,7 +546,8 @@ Grouped by feature area:
   (listing, share, lookup by chat_id, and `GET /api/trace/usage`, the per-trace
   token/request aggregate, todo 3729), `git.py` (status/diff/discard, VM
   execution via `agent.vm_command`), `terminal.py` (shell exec)
-- **Tasks / notes**: `todo.py`, `reminder.py`, `calendar_event.py`, `note.py`
+- **Tasks / notes**: `todo.py`, `todo_share.py` (private grant, incoming/outgoing
+  lists, shared detail, visit, public history), `reminder.py`, `calendar_event.py`, `note.py`
   (five host share routes and sharing helpers only), `entity.py`,
   `entity_note_relation.py`, `entity_rss_relation.py`
 - **Chat resume gate** (todo 4092): admission and worker block a resumed over-limit chat only when its trusted measurement is strictly older than `Y_AGENT_OPUS_RESUME_WARM_WINDOW_SECONDS` (default 300; `0` disables the grace period; invalid values use 300). Unknown or future timestamps do not refuse. `bot_config.resume_context_limit` overrides `Y_AGENT_OPUS_RESUME_CONTEXT_LIMIT` (100000, 0 disables the token gate), and the warning stays at 80% of that limit.
@@ -633,7 +644,8 @@ Grouped by feature area:
 ### CLI (`cli/src/yagent/`)
 - `command_option.py` — root `y` group
 - Built-in `commands/`: hybrid `chat` (dispatch/stop/attach/wakeup stay built-in; browse
-  falls through), `node` (execution-node registry), `todo`, `calendar`, `entity`,
+  falls through), `node` (execution-node registry), `todo` (`share`, `unshare`,
+  `shares`, `shared`, `public`), `calendar`, `entity`,
   `reminder`, `rss`, `link`, `access` (`y access list|approve|inventory`),
   `image`, `trace`, `english`, `gateway` (`y gateway send|config|status`), `module`, `assoc`/`unassoc`, `init`/`login`/
   `logout`. Domain groups (`y dev`, `y email`, `y finance`, `y bot`, `y file`, `y note`, …) resolve

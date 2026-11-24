@@ -99,6 +99,8 @@ def init_tables():
     import storage.entity.mcp  # noqa: F401
     import storage.entity.trace_share  # noqa: F401
     import storage.entity.note_share  # noqa: F401
+    import storage.entity.todo_share  # noqa: F401
+    import storage.entity.todo_visit  # noqa: F401
     import storage.entity.link_todo_relation  # noqa: F401
     import storage.entity.note  # noqa: F401
     import storage.entity.note_todo_relation  # noqa: F401
