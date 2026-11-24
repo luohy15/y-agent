@@ -14,6 +14,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,6 +30,8 @@ from agent.claude_code import (
 
 logger = logging.getLogger(__name__)
 
+INITIAL_ID_WAIT_SECONDS = 2.0
+INITIAL_ID_POLL_SECONDS = 0.1
 ORPHAN_WRAPPER_MIN_AGE_SECONDS = 120
 TMUX_SOCKET = "y-agent"
 
@@ -268,8 +271,8 @@ async def _start_detached_tmux(
          optional `cd`, backend exec (from `spec.build_exec`), stdout/stderr
          redirect, and exit-code capture.
       4. Launch `tmux new-session -d -s cc-<chat_id> <inner>`.
-      5. Sleep briefly, read the first few stdout lines, and extract the
-         initial id via `spec.parse_initial`.
+      5. Poll the first few stdout lines for up to 2s. Return the id from
+         `spec.parse_initial` as soon as it parses, else None.
     """
     with _with_ssh_client(node, ssh_client) as client:
         session_name = f"cc-{chat_id}"
@@ -357,20 +360,36 @@ async def _start_detached_tmux(
                 _ssh_exec(client, spec.cleanup())
             raise
 
-        # 5. Sniff initial stdout for session/thread id
-        await asyncio.sleep(2)
+        # 5. Sniff initial stdout for session/thread id. The budget matches
+        # the previous fixed sleep; a ready id returns on the first read.
+        stdout_read = f"head -5 {_shell_quote(stdout_file)} 2>/dev/null"
+        return await _await_initial_id(
+            lambda: _ssh_exec(client, stdout_read),
+            spec.parse_initial,
+        )
 
-        initial_id: Optional[str] = None
+
+async def _await_initial_id(read_output, parse_initial) -> Optional[str]:
+    """Return the first parsed id, or None when the 2s budget is spent.
+
+    The first read is immediate. Later reads are about 100ms apart, and one
+    read still happens at the deadline. A read or parse error is ignored for
+    that attempt and does not raise or end the wait early.
+    """
+    deadline = time.monotonic() + INITIAL_ID_WAIT_SECONDS
+    while True:
         try:
-            output = _ssh_exec(client, f"head -5 {_shell_quote(stdout_file)} 2>/dev/null")
+            output = read_output()
             for line in output.strip().split("\n"):
                 obj = parse_stream_line(line)
                 if not obj:
                     continue
-                initial_id = spec.parse_initial(obj)
+                initial_id = parse_initial(obj)
                 if initial_id:
-                    break
+                    return initial_id
         except Exception:
             pass
-
-        return initial_id
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None
+        await asyncio.sleep(min(INITIAL_ID_POLL_SECONDS, remaining))
