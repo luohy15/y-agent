@@ -1,4 +1,5 @@
 import click
+import httpx
 from tabulate import tabulate
 from yagent.api_client import api_request
 
@@ -63,9 +64,7 @@ def todo_shares():
     click.echo(tabulate(table, headers=["Todo", "Name", "Recipient", "Shared", "Items"], tablefmt="simple"))
 
 
-@click.command("shared")
-def todo_shared():
-    """List todos other users have shared with you."""
+def _print_shared():
     rows = api_request("GET", "/api/todo/shared").json()
     if not rows:
         click.echo("No shared todos")
@@ -78,6 +77,97 @@ def todo_shared():
         row.get("shared_at") or "-",
     ] for row in rows]
     click.echo(tabulate(table, headers=["Share", "Name", "Owner", "Status", "Shared"], tablefmt="simple"))
+
+
+def _field(todo, key):
+    value = todo.get(key)
+    if value is None or value == "":
+        return "-"
+    if key == "tags":
+        return ", ".join(value) if value else "-"
+    return value
+
+
+def _echo_block(title, body):
+    click.echo(title)
+    text = body if isinstance(body, str) else ""
+    if text:
+        click.echo(text)
+
+
+def _render_shared_detail(payload):
+    todo = payload.get("todo") if isinstance(payload, dict) else None
+    if not isinstance(todo, dict):
+        raise click.ClickException("Shared todo detail is missing")
+    click.echo(f"Share:     {_field(todo, 'share_id')}")
+    click.echo(f"Name:      {_field(todo, 'name')}")
+    click.echo(f"Status:    {_field(todo, 'status')}")
+    click.echo(f"Priority:  {_field(todo, 'priority')}")
+    click.echo(f"Due:       {_field(todo, 'due_date')}")
+    click.echo(f"SLA:       {_field(todo, 'sla_due_at')}")
+    click.echo(f"Tags:      {_field(todo, 'tags')}")
+    click.echo(f"Owner:     {_field(todo, 'owner')}")
+    click.echo(f"Shared:    {_field(todo, 'shared_at')}")
+    if todo.get("completed_at"):
+        click.echo(f"Completed: {todo['completed_at']}")
+    if todo.get("desc"):
+        click.echo(f"Desc:      {todo['desc']}")
+    if todo.get("progress"):
+        click.echo(f"Progress:  {todo['progress']}")
+    for note in payload.get("notes") or []:
+        if not isinstance(note, dict):
+            continue
+        click.echo(f"Note:      {note.get('note_id') or '-'}  {note.get('title') or '-'}")
+        if note.get("content") is None:
+            click.echo("Note snapshot is unreadable")
+        elif note.get("content"):
+            click.echo(note["content"])
+    for chat in payload.get("chats") or []:
+        if not isinstance(chat, dict):
+            continue
+        title = chat.get("title") or ""
+        label = chat.get("chat_id") or "-"
+        click.echo(f"Chat:      {label}" + (f"  {title}" if title else ""))
+        for message in chat.get("messages") or []:
+            if not isinstance(message, dict):
+                continue
+            role = message.get("role") or "-"
+            content = message.get("content") or ""
+            if role == "tool" and not content:
+                click.echo("  tool: [tool result removed]")
+            else:
+                click.echo(f"  {role}: {content}")
+    for link in payload.get("links") or []:
+        if not isinstance(link, dict):
+            continue
+        click.echo(f"Link:      {link.get('activity_id') or '-'}  {link.get('title') or '-'}")
+        if link.get("url"):
+            click.echo(link["url"])
+        if link.get("summary"):
+            _echo_block("Summary:", link["summary"])
+        if link.get("content"):
+            _echo_block("Content:", link["content"])
+
+
+@click.group("shared", invoke_without_command=True)
+@click.pass_context
+def todo_shared(ctx):
+    """List todos other users have shared with you."""
+    if ctx.invoked_subcommand is None:
+        _print_shared()
+
+
+@todo_shared.command("open")
+@click.argument("share_id")
+def todo_shared_open(share_id):
+    """Open one shared todo by share id."""
+    try:
+        payload = api_request(
+            "GET", "/api/todo/shared/detail", params={"share_id": share_id},
+        ).json()
+    except httpx.HTTPStatusError as exc:
+        raise click.ClickException(str(exc).split("\n", 1)[0]) from exc
+    _render_shared_detail(payload)
 
 
 @click.command("public")

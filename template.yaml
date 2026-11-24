@@ -84,6 +84,13 @@ Parameters:
     Description: S3 bucket name for storing link content
     Default: ""
 
+  AgentWorkspace:
+    Type: String
+    Description: >
+      Absolute Y_AGENT_WORKSPACE forwarded into agent launches. Empty forwards
+      nothing; the kernel does not guess a path.
+    Default: ""
+
   OxylabsUsername:
     Type: String
     Description: Oxylabs Web Scraper API username
@@ -533,6 +540,7 @@ Resources:
           Y_AGENT_RELAY_CREDENTIAL_MODE: !Ref RelayCredentialMode
           Y_AGENT_RELAY_ORIGINS: !Ref RelayOrigins
           Y_AGENT_TENANT_MASTER_KEY_PARAMETER: !Ref TenantMasterKeyParameter
+          Y_AGENT_WORKSPACE: !Ref AgentWorkspace
       Layers:
         - !Ref StorageLayer
         - !Ref AgentLayer

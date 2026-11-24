@@ -965,6 +965,7 @@ def _build_claude_code_params(chat, chat_id: str, user_id: int, bot_config, vm_n
     api_key = bot_config.api_key if bot_config.api_key else None
     env = {
         **validate_launch_env(getattr(chat, "launch_env", None), strict=False),
+        **_workspace_env(),
         "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
         # Agent shells report local time. Bare `date` is Hangzhou, not UTC.
         "TZ": os.getenv("Y_AGENT_TIMEZONE") or "Asia/Shanghai",
@@ -1054,12 +1055,21 @@ def build_codex_provider_args(bot_config, entry: dict = None) -> list:
     ]
 
 
+def _workspace_env() -> dict:
+    """Forward the deployment workspace. Empty or unset forwards nothing."""
+    value = os.environ.get("Y_AGENT_WORKSPACE")
+    if value is None or not value.strip():
+        return {}
+    return {"Y_AGENT_WORKSPACE": value}
+
+
 def build_codex_env(bot_config, chat_id: str = None, trace_id: str = None,
                     role: str = None, last_message_id: str = None) -> dict:
     """Codex subprocess env. OPENAI_API_KEY is the relay credential, never an argv flag."""
     env = {
         "OPENAI_API_KEY": bot_config.api_key,
         "TZ": os.getenv("Y_AGENT_TIMEZONE") or "Asia/Shanghai",
+        **_workspace_env(),
     }
     if chat_id:
         env["Y_CHAT_ID"] = chat_id
