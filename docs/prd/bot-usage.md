@@ -44,11 +44,11 @@ concrete to trim (todo 3844).
 ## Solution
 
 y-agent persists a provider-generic per-model daily usage time series in its
-own database and renders it on the bot page. A daily sync pulls today's
-per-model token/cost/request totals from the relay across every relay API key
-the user's bots use, sums them into one global per-model aggregate per day, and
-upserts idempotently, so the in-progress day is refreshed in place and history
-accumulates past the relay's retention window. A one-shot admin backfill can
+own database and renders it on the bot page. The sync reads today's token,
+cost, and request totals for the user's single sealed relay credential and
+upserts one daily row per model for that user. Refreshes update today's rows
+in place, and history accumulates past the relay's retention window.
+A one-shot admin backfill can
 recover the relay's remaining dated window when the pipeline starts. A thin
 usage API exposes the raw daily rows filtered by the same time grammar the
 finance views use (specific dates, months, quarters, ranges, ytd/mtd/all), plus
@@ -852,13 +852,11 @@ later delivery.
   same per-key relay stats as Claude and Codex. One pipe, one parser. The
   sequencing rule was: never remove a working ingestion path until the
   replacement is confirmed capturing usage end-to-end.
-- **Key enumeration is data-driven.** The sync derives its targets from the
-  user's bot configs: every distinct relay key (deduplicated by origin plus key
-  secret, since one subscription key is shared by multiple bots) is queried
-  once against the relay's per-key user-model-stats endpoint for today's
-  per-model rows. New keys are picked up with no code change. The completeness
-  boundary is deliberate: keys that exist on the relay but appear in no bot
-  config are not tracked.
+- **One sealed relay credential per user.** The sync reads today's per-model
+  counters using only the caller's credential for the primary relay. Without
+  that credential, usage is unavailable; the sync does not fall back to keys
+  from bot configs. Traffic on legacy shared keys before the rollout is out of
+  scope, so the rollout day's totals can omit usage from before the switch.
 - **Aggregate, not per-key.** Per-key results are summed per model into one
   global aggregate row per model per day. Per-key rows were designed and
   rejected: the product question is "what did each model cost", not "which key
