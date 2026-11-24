@@ -737,9 +737,15 @@ later delivery.
   model's bundled entry is cloned (exact slug, longest prefix, then one
   namespaced suffix) and stamped with the `model_context_window` value as both
   `context_window` and `max_context_window`, 100% effective, and no
-  `auto_compact_token_limit`. A CLI-unknown slug clones the bundled generic
-  `gpt-5.2` entry instead, neutralizes its first-line identity to the Codex
-  fallback prompt, and clears `comp_hash`. The catalog is staged at
+  `auto_compact_token_limit`. A CLI-unknown slug clones the first bundled
+  generic template that exists (`gpt-5.2`, then `gpt-5.5`, otherwise the first
+  bundled entry other than `codex-auto-review`), neutralizes its first-line
+  identity to `You are a coding agent running in the Codex CLI` (the historical
+  CLI prefix, or a `You are Codex, ... based on GPT-N.` sentence, keeping the
+  rest of that line) in both `base_instructions` and `instructions_template`,
+  and clears `comp_hash`. An exact,
+  longest-prefix, or one-segment namespaced match keeps that entry's prompt
+  and `comp_hash`; only the stamped window changes. The catalog is staged at
   `/tmp/cc-<chat_id>.model-catalog.json` after the attempt-log reset and passed
   as `-c model_catalog_json`; the next launch's reset removes it rather than an
   exit trap. The table remains the authority: a missing row, an exam run

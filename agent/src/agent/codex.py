@@ -561,9 +561,18 @@ class CodexStreamConverter:
 # report 258,400 usable tokens and compact early. A per-launch
 # `model_catalog_json` is the only lever that raises both the reported window
 # and the auto-compaction threshold.
-_CODEX_GENERIC_TEMPLATE_SLUG = "gpt-5.2"
+# Prefer the historical generic slug, then gpt-5.5 (present in 0.153 and 0.172).
+# Anything else except the review-only entry is a last resort. Exact, prefix,
+# and namespaced bundled matches never use this list.
+_CODEX_GENERIC_TEMPLATE_SLUGS = ("gpt-5.2", "gpt-5.5")
+_CODEX_TEMPLATE_EXCLUDED_SLUGS = frozenset({"codex-auto-review"})
 _CODEX_NEUTRAL_IDENTITY = "You are a coding agent running in the Codex CLI"
 _CODEX_IDENTITY_RE = re.compile(r"^You are [^\n]*? running in the Codex CLI")
+# 0.172 entries use a sentence, not the historical CLI prefix. The version may
+# contain dots (GPT-5.5); the sentence period is the one after that version.
+_CODEX_MODEL_IDENTITY_RE = re.compile(
+    r"^You are Codex, [^.\n]* based on GPT-\d+(?:\.\d+)*\."
+)
 
 
 def _bundled_model_entries(bundled) -> List[Dict]:
@@ -608,13 +617,37 @@ def _resolve_bundled_entry(model: str, entries: List[Dict]) -> Optional[Dict]:
     return _longest_prefix_entry(suffix, entries) if suffix else None
 
 
+def _generic_template_entry(entries: List[Dict]) -> Optional[Dict]:
+    """Template for a slug Codex does not know. Never replaces a resolved entry."""
+    by_slug = {}
+    for entry in entries:
+        by_slug.setdefault(entry["slug"], entry)
+    for slug in _CODEX_GENERIC_TEMPLATE_SLUGS:
+        found = by_slug.get(slug)
+        if found is not None:
+            return found
+    for entry in entries:
+        if entry["slug"] not in _CODEX_TEMPLATE_EXCLUDED_SLUGS:
+            return entry
+    return None
+
+
 def _neutralize_identity(text) -> str:
-    """Replace a bundled model's first-line identity with the CLI fallback one."""
+    """Replace a bundled model's first-line identity with the CLI fallback one.
+
+    Keeps the remainder of the line. The historical form ends at
+    ``running in the Codex CLI``; a 0.172 ``You are Codex, ... based on GPT-N.``
+    sentence is replaced with the same identity plus its sentence period.
+    """
     if not isinstance(text, str):
         return text
     first, sep, rest = text.partition("\n")
-    first, count = _CODEX_IDENTITY_RE.subn(_CODEX_NEUTRAL_IDENTITY, first, count=1)
-    return first + sep + rest if count else text
+    updated, count = _CODEX_IDENTITY_RE.subn(_CODEX_NEUTRAL_IDENTITY, first, count=1)
+    if not count:
+        updated, count = _CODEX_MODEL_IDENTITY_RE.subn(
+            _CODEX_NEUTRAL_IDENTITY + ".", first, count=1,
+        )
+    return updated + sep + rest if count else text
 
 
 def build_codex_model_catalog(bundled, model, window):
@@ -623,10 +656,12 @@ def build_codex_model_catalog(bundled, model, window):
     ``bundled`` is the parsed `codex debug models --bundled` payload. A bundled
     entry for the model (exact, longest prefix, or one namespaced suffix) is
     cloned, so its tools and prompt stay intact. A CLI-unknown slug clones the
-    generic gpt-5.2 template with its identity neutralized and `comp_hash`
-    cleared. `window` becomes both the report and the hard cap, with 100%
-    effective so the reported window is the real one; Codex still starts
-    auto-compaction at 90%. Returns ``None`` when there is nothing to build.
+    first generic template that exists (`gpt-5.2`, then `gpt-5.5`, otherwise
+    the first bundled entry other than `codex-auto-review`), with its identity
+    neutralized and `comp_hash` cleared. `window` becomes both the report and
+    the hard cap, with 100% effective so the reported window is the real one;
+    Codex still starts auto-compaction at 90%. Returns ``None`` when there is
+    nothing to build.
     """
     if not isinstance(model, str) or not model.strip():
         return None
@@ -640,9 +675,7 @@ def build_codex_model_catalog(bundled, model, window):
     source = _resolve_bundled_entry(model, entries)
     template = source is None
     if template:
-        source = next(
-            (entry for entry in entries if entry["slug"] == _CODEX_GENERIC_TEMPLATE_SLUG), None,
-        )
+        source = _generic_template_entry(entries)
     if source is None:
         return None
 
