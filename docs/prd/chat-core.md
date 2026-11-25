@@ -703,7 +703,10 @@ mode (`-i`) serves a human at a terminal.
     is also accepted at clean EOF with exit 0 and a dead process. An assistant
     error remains an error unless a later successful retry replaces it.
     Startup failures use the shared bounded/redacted stderr diagnostic.
-    Pi usage accounting and reasoning-effort mapping remain out of scope.
+    Pi's final assistant `usage` is normalized at closeout (`pi_request` with
+    `timestamp + durationMs`) so the resume gate can measure a resumed chat;
+    reasoning-effort mapping remains out of scope. Pi persists no context
+    window, so the handoff reminder and context badge stay unavailable.
   - **A Codex launch never resumes another backend's handle** (todo 4326).
     Continuation routing is todo 4328: a stored bot that now resolves to
     another backend fails the launch, and the stored `external_id` stays.
@@ -877,7 +880,8 @@ mode (`-i`) serves a human at a terminal.
   `codex_request`. `codex_request` is observed Codex rollout final-request
   occupancy; `codex_turn` and every other explicit source stay silent. Only
   legacy rows without provenance retain the `used_tokens()` fallback. The
-  separate resume-limit gate is unchanged and remains Claude-only.
+  separate resume-limit gate covers every agentic backend and uses its own
+  threshold.
 - Persisted dispatch shape is `[trace:...]\n[context-handoff-reminder] ...\n\n<task>`.
   Plain sends prepend the same reminder without a trace line. Pending-batch
   deduplication remains; English correction strips both new leading reminders
@@ -889,10 +893,11 @@ mode (`-i`) serves a human at a terminal.
   same-phase reuse share this check. This is a pre-accept snapshot, not a locked
   guarantee about a concurrently changing target.
 - For an idle target, `over` / `under` require a known positive target window,
-  valid `main_request` counters and an aware observation time no older than its
-  last user message. `codex_request` counts for the reminder but not for this
-  reuse state: Codex closeout stores no observation timestamp, so the target
-  stays `unknown`. Missing/invalid/future observation or absent usage/window is
+  valid `main_request` or `codex_request` counters and an aware observation time
+  no older than its last user message. Codex closeout stores the winning rollout
+  line's `timestamp`, so `codex_request` participates here; `pi_request` has no
+  persisted window and stays `unknown`. Missing/invalid/future observation or
+  absent usage/window is
   `unknown`; an older observation is `stale`. A running target has the same
   states prefixed `running_`; running and closeout cannot be distinguished here,
   and a retained `closeout_receipt` is never a state signal. Only `over` and

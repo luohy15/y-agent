@@ -799,12 +799,13 @@ async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: s
     logger.info("Resolved bot config: name={} backend={} model={} tier={}", bot_config.name, bot_config.backend or bot_config.api_type, bot_config.model, resolved_tier)
 
     from storage.service.resume_gate import (
-        decision_clock, effective_limit, limit_bounds, policy_refusal, resolve_measurement,
+        AGENTIC_BACKENDS, decision_clock, effective_limit, limit_bounds, policy_refusal,
+        resolve_measurement,
     )
     measurement = None
     current_limit = None
     pending_limit = None
-    if chat.backend == "claude_code" and chat.external_id:
+    if chat.backend in AGENTIC_BACKENDS and chat.external_id:
         pending_ids = [message.id for message in selected_inputs if getattr(message, "id", None)]
         boundary_reliable = all(getattr(message, "id", None) for message in selected_inputs)
         current_limit, _pending_limit = limit_bounds(user_id, chat)
@@ -1083,9 +1084,34 @@ def build_codex_env(bot_config, chat_id: str = None, trace_id: str = None,
     return env
 
 
+def _recheck_resume_gate(user_id: int, chat, measurement, current_limit, pending_limit):
+    """Refuse a cold over-limit resume with a fresh clock, right before launch.
+
+    Admission may have allowed a warm request that ages out while queued. The
+    worker takes its own clock here, before any provider call; a fresh launch
+    is never gated.
+    """
+    from storage.service.resume_gate import (
+        decision_clock, limit_bounds, policy_refusal, resolve_measurement,
+    )
+
+    if current_limit is None and pending_limit is None and measurement is None:
+        current_limit, pending_limit = limit_bounds(user_id, chat)
+    if measurement is None and (current_limit is not None or pending_limit is not None):
+        measurement = resolve_measurement(
+            user_id, chat, limit_applicable=True, now=decision_clock(),
+        )
+    refusal = policy_refusal(
+        user_id, chat, measurement, current_limit, pending_limit, now=decision_clock(),
+    )
+    if refusal:
+        raise RuntimeError(f"chat_read_only:{refusal.reason}: {refusal}")
+
+
 def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: str = None,
                         work_dir: str = None, trace_id: str = None, role: str = None,
                         continuation_from_id: str = None, handled_input_ids=None,
+                        measurement=None, current_limit=None, pending_limit=None,
                         entry: dict = None) -> dict:
     """Extract prompt, build cmd/env/cwd for codex. Resume only when work_dir still matches."""
     messages = list(chat.messages)
@@ -1101,6 +1127,8 @@ def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: s
 
     thread_id = codex_resume_thread(getattr(chat, "backend", None) or "codex", chat.external_id, chat.work_dir == cwd)
     resume = bool(thread_id)
+    if resume:
+        _recheck_resume_gate(user_id, chat, measurement, current_limit, pending_limit)
     provider_args = build_codex_provider_args(bot_config, entry)
     env = validate_launch_env(getattr(chat, "launch_env", None), strict=False)
     # Exam runs use the sandbox policy in their per-run CODEX_HOME config.
@@ -1184,7 +1212,8 @@ def build_pi_env(bot_config, chat_id=None, trace_id=None, role=None, last_messag
 
 def _build_pi_params(chat, chat_id, user_id, bot_config, vm_name=None,
                      work_dir=None, trace_id=None, role=None,
-                     continuation_from_id=None, handled_input_ids=None, entry=None):
+                     continuation_from_id=None, handled_input_ids=None,
+                     measurement=None, current_limit=None, pending_limit=None, entry=None):
     from agent.chat_target import layout
     from agent.pi_models import build_pi_provider
 
@@ -1195,6 +1224,8 @@ def _build_pi_params(chat, chat_id, user_id, bot_config, vm_name=None,
     node = layout(user_id, getattr(chat, "execution_target", None))
     cwd = work_dir or node.work_dir or os.path.expanduser(os.environ.get("VM_WORK_DIR_CLI") or os.getcwd())
     session_id = pi_resume_session(chat.backend, chat.external_id, chat.work_dir == cwd)
+    if session_id:
+        _recheck_resume_gate(user_id, chat, measurement, current_limit, pending_limit)
     model = _entry_model(entry, bot_config)
     context_window = None
     if model:
@@ -1257,12 +1288,17 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
                                      trace_id=trace_id, role=role,
                                      continuation_from_id=continuation_from_id,
                                      handled_input_ids=handled_input_ids,
+                                     measurement=measurement,
+                                     current_limit=current_limit, pending_limit=pending_limit,
                                      entry=entry)
     elif effective_backend == "pi":
         params = _build_pi_params(chat, chat_id, user_id, bot_config,
                                   vm_name=vm_name, work_dir=work_dir, trace_id=trace_id, role=role,
                                   continuation_from_id=continuation_from_id,
-                                  handled_input_ids=handled_input_ids, entry=entry)
+                                  handled_input_ids=handled_input_ids,
+                                  measurement=measurement,
+                                  current_limit=current_limit, pending_limit=pending_limit,
+                                  entry=entry)
     elif effective_backend == "claude_code":
         params = _build_claude_code_params(chat, chat_id, user_id, bot_config,
                                             vm_name=vm_name, work_dir=work_dir,

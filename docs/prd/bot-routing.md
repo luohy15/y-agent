@@ -53,14 +53,16 @@ inspectable and editable through the bot CLI, never memorized in instructions.
 ## Resume context limit
 
 `bot_config.resume_context_limit` is nullable: NULL inherits the global limit
-(`Y_AGENT_RESUME_CONTEXT_LIMIT`, default 100000) that applies to every Claude
-Code bot; 0 disables the gate for that bot; a positive value overrides the
-global limit. Codex and Pi chats are never gated. This does not change routing
-weights or tiers. The derived read-only state, warning band and continuation
-contract are defined in `pages/feature-y-agent-chat-resume-gate.md`. Admission
-checks the persisted bot first: a requested bot switch cannot unlock an already
-gated chat. Continue via the offered new-chat handoff. Only complete measured
-main request usage can trigger the gate; launch averages remain display-only.
+(`Y_AGENT_RESUME_CONTEXT_LIMIT`, default 100000) that applies to every agentic
+bot (`claude_code`, `codex`, `pi`); 0 disables the gate for that bot; a positive
+value overrides the global limit. This does not change routing weights or
+tiers. The derived read-only state and continuation contract are defined in
+`pages/feature-y-agent-chat-resume-gate.md`. Admission checks the persisted bot
+first: a requested bot switch cannot unlock an already-gated chat. Continue via
+the offered new-chat handoff. Only a complete measured final request can trigger
+the gate: the Claude main request, the Codex rollout's final `last_token_usage`,
+or Pi's assistant usage. Launch averages, the Codex turn delta and cumulative
+spend remain display-only.
 
 ## User Stories
 

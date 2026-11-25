@@ -193,8 +193,9 @@ class Chat:
     cache_creation_input_tokens: Optional[int] = None
     context_window: Optional[int] = None
     context_usage_source: Optional[str] = None
-    # Aware ISO8601 observation time for the same main_request counters.
-    # JSON only: legacy rows omit it and stay valid for size, unknown for age.
+    # Aware ISO8601 observation time for the same final-request counters
+    # (`main_request`, `codex_request` or `pi_request`). JSON only: legacy rows
+    # omit it and stay valid for size, unknown for age.
     context_usage_requested_at: Optional[str] = None
     # Cumulative modelUsage for this session. Its scope follows the CLI:
     # current launch on 2.1.259, prior launches included on 2.1.280. Spend
@@ -326,7 +327,7 @@ class Chat:
         return result
 
     def prompt_tokens(self) -> Optional[int]:
-        if self.context_usage_source not in ("main_request", "codex_request"):
+        if self.context_usage_source not in ("main_request", "codex_request", "pi_request"):
             return None
         counters = (self.input_tokens, self.cache_read_input_tokens, self.cache_creation_input_tokens)
         if any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in counters):

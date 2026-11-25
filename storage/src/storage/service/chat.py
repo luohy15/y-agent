@@ -138,37 +138,26 @@ def build_handoff_reminder(chat: Chat, ratio: float) -> str:
     )
 
 
-def maybe_append_handoff_reminder(chat: Chat, content: str, resume_limit=None, measured=None) -> str:
+def maybe_append_handoff_reminder(chat: Chat, content: str) -> str:
     """Prepend a handoff reminder (after trace metadata) when over threshold.
 
     No-op when: usage is unknown (ratio is None), usage is at/under the
     min(ratio, absolute) threshold, or a trailing user message (since the last
     non-user message) already carries the marker (one reminder per pending
-    batch, see plan-2951 I2).
+    batch, see plan-2951 I2). The resume-gate limit does not change this
+    threshold or wording: they are independent.
     """
-    if resume_limit is not None:
-        if measured is None:
-            measured = chat.prompt_tokens()
-        if measured is None or measured < resume_limit * 0.8:
-            return content
-        reminder = (
-            f"{HANDOFF_REMINDER_MARKER} Latest prompt: {measured:,} tokens. "
-            "A future resume may be refused after the warm window when this measured context "
-            "is at or above the limit; record durable state and continue in a new chat. "
-            "If a parent is awaiting your result, callback with that state instead of self-restarting."
-        )
-    else:
-        used = context_prompt_tokens(chat)
-        if used is None or not chat.context_window or chat.context_window <= 0:
-            return content
-        ratio = used / chat.context_window
-        threshold_tokens = min(
-            chat.context_window * CONTEXT_HANDOFF_RATIO,
-            CONTEXT_HANDOFF_ABSOLUTE_TOKENS,
-        )
-        if used <= threshold_tokens:
-            return content
-        reminder = build_handoff_reminder(chat, ratio)
+    used = context_prompt_tokens(chat)
+    if used is None or not chat.context_window or chat.context_window <= 0:
+        return content
+    ratio = used / chat.context_window
+    threshold_tokens = min(
+        chat.context_window * CONTEXT_HANDOFF_RATIO,
+        CONTEXT_HANDOFF_ABSOLUTE_TOKENS,
+    )
+    if used <= threshold_tokens:
+        return content
+    reminder = build_handoff_reminder(chat, ratio)
 
     for msg in trailing_user_messages(chat.messages):
         msg_content = msg.content if isinstance(msg.content, str) else str(msg.content)
@@ -549,10 +538,7 @@ async def accept_user_message(
     current_limit, pending_limit = resume_gate.limit_bounds(
         user_id, chat, _ignored.get("bot_name"), _ignored.get("bot_tier"),
     )
-    if current_limit is None and pending_limit is None:
-        msg_content = maybe_append_handoff_reminder(chat, content)
-    else:
-        msg_content = content
+    msg_content = maybe_append_handoff_reminder(chat, content)
     msg_dict = {
         "role": "user",
         "content": msg_content,

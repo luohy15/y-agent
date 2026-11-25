@@ -3,6 +3,7 @@
 import asyncio
 import json
 import threading
+from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional, Tuple
 from loguru import logger
 from storage.entity.dto import Message
@@ -61,6 +62,48 @@ def _tool_result_text(result) -> str:
     return _stringify(result)
 
 
+def _pi_observed_at(message) -> Optional[str]:
+    """Aware ISO time of the response end: request start plus its duration."""
+    stamp = message.get("timestamp")
+    if isinstance(stamp, bool) or not isinstance(stamp, (int, float)):
+        return None
+    duration = message.get("durationMs")
+    if isinstance(duration, bool) or not isinstance(duration, (int, float)) or duration < 0:
+        duration = 0
+    try:
+        when = datetime.fromtimestamp((stamp + duration) / 1000, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return None
+    return when.isoformat()
+
+
+def _pi_context_usage(message) -> Optional[Dict]:
+    """Prompt occupancy of one assistant response, in the shared counter names.
+
+    Pi reports `input` (cache-exclusive), `cacheRead`, `cacheWrite` and
+    `output`. Missing or malformed counters stay unknown. Only the latest
+    assistant observation is kept, so the final request of the turn wins.
+    """
+    usage = message.get("usage")
+    if not isinstance(usage, dict):
+        return None
+
+    def counter(name):
+        value = usage.get(name)
+        return value if type(value) is int and value >= 0 else None
+
+    result = {
+        "input_tokens": counter("input"),
+        "output_tokens": counter("output"),
+        "cache_read_tokens": counter("cacheRead"),
+        "cache_creation_tokens": counter("cacheWrite"),
+    }
+    observed = any(value is not None for value in result.values())
+    result["usage_state"] = "observed" if observed else "missing"
+    result["observed_at"] = _pi_observed_at(message) if observed else None
+    return result
+
+
 class PiStreamConverter:
     """Stateful JSONL event converter that maps pi json-mode events to y-agent messages."""
 
@@ -68,6 +111,7 @@ class PiStreamConverter:
         self.last_message_id = last_message_id
         self.session_id: Optional[str] = None
         self.model: Optional[str] = None
+        self.context_usage: Optional[Dict] = None
         self.has_usable_output = False
         self.terminal = False
         self.end_candidate = None
@@ -97,6 +141,9 @@ class PiStreamConverter:
                 return []
             self.error = (message.get("errorMessage") or "pi assistant failed") if message.get("stopReason") in ("error", "aborted") else None
             self.model = message.get("model") or self.model
+            observed_usage = _pi_context_usage(message)
+            if observed_usage is not None:
+                self.context_usage = observed_usage
             content = _assistant_text(message.get("content"))
             if content:
                 msg = Message.from_dict({
@@ -180,6 +227,32 @@ class PiStreamConverter:
         return messages
 
 
+def _pi_pending_state(converter: "PiStreamConverter", data=None) -> dict:
+    """Tentative end state persisted across a Lambda handoff.
+
+    Any carried `context_usage` rides along, so a settled-but-paused view keeps
+    the turn's final-request usage on the next invocation.
+    """
+    payload = dict(data) if isinstance(data, dict) else {
+        "type": "pi_pending", "end_candidate": converter.end_candidate,
+        "error": converter.error,
+    }
+    payload.setdefault("context_usage", converter.context_usage)
+    return payload
+
+
+def _restore_pi_pending(converter: "PiStreamConverter", result_data) -> bool:
+    """Restore such a state, including the carried usage. True when it was one."""
+    if not result_data or result_data.get("type") != "pi_pending":
+        return False
+    converter.end_candidate = result_data.get("end_candidate")
+    converter.error = result_data.get("error")
+    carried = result_data.get("context_usage")
+    if isinstance(carried, dict):
+        converter.context_usage = carried
+    return True
+
+
 def _pi_build_exec(cmd: List[str], chat_id: str, prompt: str, images: Optional[List[str]] = None) -> str:
     """Build `<pi cmd...> <prompt>` (pi takes the prompt as a positional message)."""
     if images:
@@ -243,13 +316,15 @@ async def tail_pi_output(
     converter.session_id = session_id
     ledger = input_ledger if input_ledger is not None else InputLedger(chat_id)
     result_data = pending_result if isinstance(pending_result, dict) else None
+    if isinstance(result_data, dict):
+        carried_usage = result_data.get("context_usage")
+        if isinstance(carried_usage, dict):
+            converter.context_usage = carried_usage
     if result_data and result_data.get("type") == "agent_settled":
         converter.terminal = True
         converter.error = result_data.get("result") if result_data.get("is_error") else None
         _complete_launch_group(ledger, launch_input_uuid)
-    if result_data and result_data.get("type") == "pi_pending":
-        converter.end_candidate = result_data.get("end_candidate")
-        converter.error = result_data.get("error")
+    if _restore_pi_pending(converter, result_data):
         result_data = None
     current_offset = offset
     stream_error = None
@@ -273,10 +348,8 @@ async def tail_pi_output(
             "input_groups": ledger.groups,
             "lifecycle_observed": ledger.lifecycle_observed,
             "has_usable_output": converter.has_usable_output,
-            "pending_result": None if is_done else (data or {
-                "type": "pi_pending", "end_candidate": converter.end_candidate,
-                "error": converter.error,
-            }),
+            "context_usage": converter.context_usage,
+            "pending_result": None if is_done else _pi_pending_state(converter, data),
         }
 
     try:

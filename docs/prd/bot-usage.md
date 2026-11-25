@@ -694,8 +694,9 @@ later delivery.
   `provider_turn_usage_v1`, provider counters, and no composition estimates or
   contributors. P totals describe turn volume, not context occupancy. Cost and
   historical completeness remain unavailable and unknown respectively.
-- The authenticated transcript-upload attribution and the Claude resume gate
-  remain Claude-only.
+- The authenticated transcript-upload attribution applies only to Claude Code.
+  The resume gate covers every agentic backend and measures each one's own
+  final request (below for Codex; `pi_request` for Pi).
 - `codex exec --json` has no context window. Closeout reads the node rollout
   for that thread (`model_context_window` and final-request `last_token_usage`).
   The chat badge numerator is that final-request occupancy when the rollout
@@ -723,7 +724,10 @@ later delivery.
   final-request occupancy is observed (`request_usage.usage_state ==
   "observed"`) sets `context_usage_source` to `codex_request`. That source is
   prompt occupancy (input + cache read + cache creation) and participates in
-  the handoff reminder the same way `main_request` does. Any other successful
+  the handoff reminder the same way `main_request` does. The same turn stores
+  that winning rollout line's top-level `timestamp` as
+  `context_usage_requested_at`, so the resume gate and the reuse check can age
+  it; a winning line without one leaves the age unknown. Any other successful
   turn, including one whose badge is the turn delta, sets `codex_turn`, not
   `main_request` and not NULL. NULL is the legacy fallback that would treat
   the counters as Claude context and prepend the handoff reminder;

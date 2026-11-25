@@ -356,12 +356,14 @@ def _collect_rollout_fields(obj, found: dict) -> None:
 
 
 def parse_codex_rollout_tail(text) -> dict:
-    """Window and final-request usage from a bounded Codex rollout tail.
+    """Window, final-request usage and that request's own time from a bounded tail.
 
     A line that is not complete JSON is ignored, so a `tail -c` cut at the
-    start does not invent a window. Missing keys stay None.
+    start does not invent a window. Missing keys stay None. `usage_at` is the
+    top-level `timestamp` of the line that supplied the winning
+    `last_token_usage`, never the tail read time.
     """
-    found = {"context_window": None, "request_usage": None}
+    found = {"context_window": None, "request_usage": None, "usage_at": None}
     if not isinstance(text, str) or not text:
         return found
     for line in text.splitlines():
@@ -372,7 +374,14 @@ def parse_codex_rollout_tail(text) -> dict:
             obj = json.loads(line)
         except json.JSONDecodeError:
             continue
-        _collect_rollout_fields(obj, found)
+        line_found = {"context_window": None, "request_usage": None}
+        _collect_rollout_fields(obj, line_found)
+        if line_found["context_window"] is not None:
+            found["context_window"] = line_found["context_window"]
+        if line_found["request_usage"] is not None:
+            found["request_usage"] = line_found["request_usage"]
+            stamp = obj.get("timestamp") if isinstance(obj, dict) else None
+            found["usage_at"] = stamp if isinstance(stamp, str) and stamp else None
     return found
 
 

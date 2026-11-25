@@ -60,6 +60,14 @@ class Measurement:
 UNKNOWN = Measurement(None, "unknown")
 _BOUNDARY_UNKNOWN = object()
 _PROMPT_COUNTERS = ("input_tokens", "cache_read_tokens", "cache_creation_tokens")
+# Agentic backends resume a session handle and can be gated. Inline backends
+# and fresh chats never reach the gate.
+AGENTIC_BACKENDS = frozenset({"claude_code", "codex", "pi"})
+# Persisted provenance values whose counters are prompt occupancy of the final
+# request. Every other explicit marker is newer untrusted evidence.
+_PROMPT_SOURCES = ("main_request", "codex_request", "pi_request")
+# The stored-row fallback predates provenance and exists only for this backend.
+_ROW_FALLBACK_BACKEND = "claude_code"
 
 
 def _env_nonnegative_int(env_name, default, cache):
@@ -113,10 +121,11 @@ def age_exceeds_window(requested_at, clock, window=None):
 
 
 def effective_limit(bot_config):
-    """The bot's own limit, else the global default for every Claude Code model.
+    """The bot's own limit, else the global default for every agentic backend.
 
-    Backend eligibility is the caller's: this stays keyed on the bot only, so a
-    Codex or Pi launch never reaches it. `0` disables the gate for that bot.
+    Backend eligibility is the caller's: this stays keyed on the bot only, so
+    the same limit applies to a `claude_code`, `codex` or `pi` launch. `0`
+    disables the gate for that bot.
     """
     if bot_config is None:
         return None
@@ -139,7 +148,7 @@ def limit_bounds(user_id: int, chat: Chat, bot_name=None, bot_tier=None):
     from agent.config import _resolve_named, resolve_pinned_bot_config
     from storage.dto.bot import entry_names
 
-    if chat.backend != "claude_code" or not chat.external_id:
+    if chat.backend not in AGENTIC_BACKENDS or not chat.external_id:
         return None, None
     current = _resolve_named(user_id, chat.bot_name, backend=chat.backend)
     current_limit = effective_limit(current)
@@ -238,19 +247,27 @@ def _row_measurement(rows, floor, now, session_id: str, chat_id: str):
 def resolve_measurement(user_id: int, chat: Chat, *, session=None, pending_input_ids=None,
                         live_steer: bool = False, limit_applicable: bool = True,
                         boundary_reliable: bool = True, now=None):
-    """Trusted prompt evidence for one decision, or unknown. At most one usage read."""
-    if live_steer or not limit_applicable or chat.backend != "claude_code" or not chat.external_id:
+    """Trusted prompt evidence for one decision, or unknown. At most one usage read.
+
+    Each backend reports the occupancy of the final request under its own
+    provenance marker. The stored-row fallback exists only for legacy
+    `claude_code` chats; a Codex or Pi chat with no persisted request source is
+    unknown, and its turn delta is never used as context.
+    """
+    if live_steer or not limit_applicable or chat.backend not in AGENTIC_BACKENDS or not chat.external_id:
         return UNKNOWN
     source = chat.context_usage_source
-    if source == "main_request":
+    if source in _PROMPT_SOURCES:
         tokens = chat.prompt_tokens()
         if tokens is None:
             return UNKNOWN
         stamp = chat.context_usage_requested_at
         if not isinstance(stamp, str) or not stamp:
             stamp = None
-        return Measurement(tokens, "main_request", requested_at=stamp)
+        return Measurement(tokens, source, requested_at=stamp)
     if source is not None:
+        return UNKNOWN
+    if chat.backend != _ROW_FALLBACK_BACKEND:
         return UNKNOWN
     floor = _message_floor(chat, pending_input_ids, boundary_reliable)
     if floor is _BOUNDARY_UNKNOWN:
@@ -289,7 +306,7 @@ def evaluate(user_id: int, chat: Chat, bot_name=None, bot_tier=None, *, bot_conf
     Over-limit size refuses only when the measurement's own timestamp is strictly
     older than the warm window. Unknown or future age does not refuse.
     """
-    if chat.backend != "claude_code" or not chat.external_id:
+    if chat.backend not in AGENTIC_BACKENDS or not chat.external_id:
         return None
     clock = decision_clock(now)
     if measurement is None:

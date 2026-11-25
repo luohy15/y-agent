@@ -646,6 +646,7 @@ def _prepare_codex_turn_usage(user_id: int, chat_id: str, result: dict, proc: di
             "delta": delta,
             "cumulative": counters,
             "request_usage": request_usage,
+            "usage_at": rollout.get("usage_at"),
             "context_window": window,
             "usage_state": _codex_usage_state(delta),
             "session_id": session_id,
@@ -747,6 +748,7 @@ def _apply_completion_metadata(fresh, result: dict, result_data: dict, proc: dic
         session_id = result.get("session_id") or proc.get("session_id")
         if session_id and cwd_matches:
             fresh.external_id = session_id
+        _apply_pi_context_usage(fresh, result)
         return
 
     effective_session_id = result.get("session_id") or proc.get("session_id")
@@ -956,7 +958,7 @@ def _selected_usage_stamp(iterations, observed_usage):
 
 def _apply_codex_completion(fresh, result: dict, result_data: dict, proc: dict, chat_id: str,
                             cwd_matches: bool, codex_turn=None):
-    """Persist a Codex thread id and turn.completed usage. No Claude resume gate."""
+    """Persist a Codex thread id and turn.completed usage, including its time."""
     from agent.codex import CODEX_CONTINUITY_NOTE, clear_refused_thread_id, format_codex_turn_failure
     from storage.entity.dto import Message
     from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
@@ -1029,6 +1031,12 @@ def _apply_codex_completion(fresh, result: dict, result_data: dict, proc: dict, 
         # handoff reminder. Only observed rollout occupancy is prompt context;
         # a turn delta is not and stays silent.
         fresh.context_usage_source = "codex_request" if observed_request else "codex_turn"
+        # Bind the age to the winning rollout line's own time, never to the
+        # turn start or the closeout clock.
+        usage_at = codex_turn.get("usage_at")
+        fresh.context_usage_requested_at = (
+            usage_at if observed_request and isinstance(usage_at, str) and usage_at else None
+        )
         window = codex_turn.get("context_window")
         if type(window) is int and window > 0:
             fresh.context_window = window
@@ -1055,6 +1063,29 @@ def _apply_codex_completion(fresh, result: dict, result_data: dict, proc: dict, 
             timestamp=get_utc_iso8601_timestamp(),
             unix_timestamp=get_unix_timestamp(),
         ))
+
+
+def _apply_pi_context_usage(fresh, result: dict):
+    """Persist pi's final-request occupancy from this turn's last response.
+
+    Only a completed turn with observed usage replaces the stored observation;
+    a failed or unobserved turn leaves the previous one in place. Pi persists
+    no context window, so this feeds the resume gate, not a badge.
+    """
+    if result.get("status") != "completed":
+        return
+    usage = result.get("context_usage")
+    if not isinstance(usage, dict) or usage.get("usage_state") != "observed":
+        return
+    fresh.input_tokens = usage.get("input_tokens")
+    fresh.output_tokens = usage.get("output_tokens")
+    fresh.cache_read_input_tokens = usage.get("cache_read_tokens")
+    fresh.cache_creation_input_tokens = usage.get("cache_creation_tokens")
+    fresh.context_usage_source = "pi_request"
+    observed_at = usage.get("observed_at")
+    fresh.context_usage_requested_at = (
+        observed_at if isinstance(observed_at, str) and observed_at else None
+    )
 
 
 def _apply_claude_usage(fresh, result_data: dict, observed_usage: dict = None):
