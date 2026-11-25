@@ -54,6 +54,28 @@ def create_worktree(
     branch: str,
     todo_id: Optional[str] = None,
 ) -> DevWorktree:
+    # Removal soft-deletes the row, so the name stays reserved by the
+    # (user_id, name) uniqueness constraint. Recreating that name revives the
+    # same row instead of inserting a second one; an active row is a conflict.
+    existing = wt_repo.get_worktree_by_name(user_id, name)
+    if existing is not None:
+        if existing.status == "active":
+            raise DevWorktreeRequestError(409, f"Worktree '{name}' already exists")
+        existing.project_path = project_path
+        existing.worktree_path = worktree_path
+        existing.branch = branch
+        existing.status = "active"
+        existing.todo_id = todo_id
+        existing.server_state = None
+        history = existing.history or []
+        history.append(DevWorktreeHistoryEntry(
+            timestamp=get_utc_iso8601_timestamp(),
+            unix_timestamp=get_unix_timestamp(),
+            action="created",
+            note="recreated after removal",
+        ))
+        existing.history = history
+        return wt_repo.save_worktree(user_id, existing)
     wt = DevWorktree(
         worktree_id=generate_id(),
         name=name,
