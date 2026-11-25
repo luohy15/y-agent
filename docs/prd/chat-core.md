@@ -661,6 +661,15 @@ mode (`-i`) serves a human at a terminal.
   a clear launch error rather than falling through, so a chat still carrying a
   removed backend's session id can never launch `claude -p -r` against an
   unresumable handle.
+- **A dead stdout reader ends the turn instead of hanging** (todo 4451): the
+  Claude Code launch wrapper pipes the CLI through a `grep` that drops
+  thinking-token lines into `/tmp/cc-<chat>.stdout`. If that reader exits while
+  the CLI is still running (for example `/tmp` fills up), the wrapper kills the
+  stdin tail so the CLI sees EOF, exits with the reserved code 200, and the run
+  reaches a terminal error naming the stdout reader instead of idling to the
+  one-hour hard timeout. When the disk is too full to record that exit code,
+  the ending tmux session still terminalizes the run through the existing
+  vanished-session path.
 - **Session continuity**: the backend's native session id lives in the chat's
   `external_id`; a follow-up resumes it only when the chat's stored work dir
   matches the resolved cwd, otherwise a fresh session starts. Work-dir

@@ -486,6 +486,10 @@ def _stream_error_suffix(stream_error: Optional[Exception]) -> str:
 
 
 RESUME_REFUSED_MARKER = "No conversation found with session ID"
+# Wrapper exit code for a turn whose stdout reader (the grep stage in
+# `_claude_build_exec`) died while claude was still running. Mapped to a named
+# error in `_no_result_error_message` instead of the generic startup wording.
+STDOUT_READER_FAILED_EXIT = 200
 # grep BRE for claude's per-delta progress lines, which are dropped at the source.
 THINKING_TOKENS_LINE_RE = '^{"type":"system","subtype":"thinking_tokens"[,}]'
 
@@ -762,6 +766,13 @@ def _no_result_error_message(client, chat_id: str, backend: str, stream_error: O
             f"{backend} exited before producing output: terminated by SIGKILL "
             f"(9) — likely killed by an external reaper/OOM, not a resume failure.{suffix}"
         )
+    if code == STDOUT_READER_FAILED_EXIT:
+        return (
+            f"{backend} exited before producing output: its stdout reader died mid-turn. "
+            f"The `grep` stage writing /tmp/cc-{chat_id}.stdout stopped reading (for "
+            f"example /tmp filled up), so the turn was ended instead of being left to "
+            f"the hard timeout.{suffix}"
+        )
     if code != 0:
         return (
             f"{backend} exited before producing output: process exited with code "
@@ -1000,14 +1011,28 @@ def _claude_build_exec(cmd: List[str], chat_id: str, prompt: str, images: Option
     claude_cmd = " ".join(_shell_quote(c) for c in full_cmd)
     stdin_file = f"/tmp/cc-{chat_id}.stdin"
     ec_file = _shell_quote(f"/tmp/cc-{chat_id}.claude-ec")
+    stdin_tail_pattern = _shell_quote(f"^tail -f -n \\+1 /tmp/cc-{chat_id}\\.stdin$")
     # claude emits one system/thinking_tokens line per thinking delta and nothing
     # reads them (todo 4145). The VM shell is not bash, so claude's own status
     # goes through a file instead of PIPESTATUS; the subshell exits with it.
+    # claude's end is recorded before the pipe closes, so the reader exiting
+    # while that file is absent means it died mid-turn (e.g. ENOSPC on /tmp):
+    # end the turn with a reserved code instead of leaving claude idle for the
+    # hard timeout (todo 4451). `wait` is unusable here because bash waits on
+    # the whole pipeline; `kill -0` on the backgrounded pipeline's last pid
+    # behaves the same in bash and zsh.
     exec_cmd = (
-        f"( ( tail -f -n +1 {_shell_quote(stdin_file)} | {claude_cmd}; echo $? > {ec_file} ) "
-        f"| grep --line-buffered -v {_shell_quote(THINKING_TOKENS_LINE_RE)}; "
-        f"_y_ec=$(cat {ec_file} 2>/dev/null); rm -f {ec_file}; exit ${{_y_ec:-1}} )"
+        f"( rm -f {ec_file}; "
+        f"( tail -f -n +1 {_shell_quote(stdin_file)} | {claude_cmd}; echo $? > {ec_file} ) "
+        f"| grep --line-buffered -v {_shell_quote(THINKING_TOKENS_LINE_RE)} & _y_grep=$!; "
+        "while kill -0 $_y_grep 2>/dev/null; do sleep 0.2; done; "
+        f"_y_n=0; while [ ! -f {ec_file} ] && [ $_y_n -lt 10 ]; do _y_n=$((_y_n + 1)); sleep 0.1; done; "
+        f"_y_ec=$(cat {ec_file} 2>/dev/null); rm -f {ec_file}; "
+        'if [ -n "$_y_ec" ]; then exit "$_y_ec"; fi; '
+        f"pkill -f {stdin_tail_pattern} 2>/dev/null; "
+        f"exit {STDOUT_READER_FAILED_EXIT} )"
     )
+
     resume_session_id = _claude_resume_session_id(cmd)
     if not resume_session_id:
         return exec_cmd
