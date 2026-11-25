@@ -20,9 +20,10 @@ _limit_cache = {"raw": None, "value": _LIMIT_DEFAULT, "seen": False}
 
 
 class ChatReadOnly(Exception):
-    # Retained wire name: clients already match `chat_read_only` / this reason,
-    # so the gate covers every Claude Code model without renaming the signal.
-    reason = "opus_context_limit"
+    # Closed machine reason for the resume gate. It also rides in
+    # `chat_read_only:<reason>` wakeup/waiter errors; clients read `message`
+    # and the presence of `chat_read_only`, not this string.
+    reason = "resume_context_limit"
 
     def __init__(self, measured_tokens: int, limit_tokens: int, handoff=None):
         self.measured_tokens = measured_tokens
