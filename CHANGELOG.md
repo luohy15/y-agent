@@ -26,6 +26,8 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 - **Approval-based homepage admission (4396)**: sign-in now requires a per-verified-email admission record instead of an allowlist of existing user rows. A visitor can request access from the landing page with their Google account; the request is recorded once, queues a private Telegram notice to the maintainer, and failed sends are retried. Only the maintainer can list applications and approve one, and every protected API request and bound Telegram action re-checks admission, so an existing user no longer implies approval. `y access list|approve|inventory` manage the same records and print a clear refusal when the caller is not the maintainer.
 - **Daily model context window sync**: a daily admin job adds missing `model_context_window` rows for enabled bot models from the OpenRouter catalog without changing existing rows, and reports model IDs the catalog cannot resolve.
+- **Resume gate for every agentic backend (4447)**: a resumed `claude_code`, `codex` or `pi` chat is refused only when its trusted final-request measurement is over the limit and strictly older than the warm window. The limit is the bot's own `resume_context_limit`, else `Y_AGENT_RESUME_CONTEXT_LIMIT` (100000, `0` disables); the grace period is `Y_AGENT_RESUME_WARM_WINDOW_SECONDS` (300, `0` disables it). The worker re-checks with its own clock right before launch, so a warm request that ages out while queued is still refused, and unknown or future timestamps never refuse. Codex rollout and Pi turn usage now persist their own occupancy and observation time, and the refusal reason is `resume_context_limit`.
+- **Todo open chat (4448)**: opening a todo lands on a chat that can answer. The stored handle is used only while its chat is running or needs attention, or the todo is awaiting; otherwise it falls back to the newest leader chat, then the newest chat. `y todo audit` adds a read-only stale-handle section that prints the `y todo handle` command to repoint one, and the trace detail shows the resolved open chat.
 
 ### Changed
 
@@ -37,6 +39,8 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 
 - **Access notice race (4396)**: an application approved while its notice send is in flight is marked skipped instead of retried, so approval does not leave a pending notification.
 - **Tenant key flush**: the key model registers its user foreign-key target before the first flush, so a fresh process such as the one-account migration no longer fails to resolve `tenant_key.user_id`.
+- **Worktree name re-add (4450)**: re-adding a worktree name whose row was soft-removed revives that row in place with its original ID and a recreated history entry instead of failing with a 500. An active duplicate still returns 409.
+- **Dead stdout reader (4451)**: when the stdout reader of a detached Claude Code turn dies mid-turn, for example because `/tmp` filled up, the turn ends at once with a named error instead of idling until the hard timeout.
 
 ### Removed
 
