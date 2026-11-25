@@ -243,7 +243,7 @@ live work exists; enablement remains a separate rollout step.
     "put the todo in the inbox" is executable and not a paraphrase.
 39. As Roy, I want the existing `chat.needs_attention` flag reused as the
     explicit user-checkpoint signal, so that the shared idle recheck can put
-    the trace in awaiting with the reply chat pointer, including under a live
+    the trace in awaiting with the chat pointer, including under a live
     machine wait once all live-evidence suppressors are cleared. Todo 4278
     supersedes the earlier decision not to consume this flag; no new column
     or contract bump is required.
@@ -475,7 +475,7 @@ y todo list --status awaiting
   request. The host generic update and bulk reuse the same transition.
 - Host `TraceTodoDetail` adds awaiting to the status select and deletes the
   patch key when the selected value equals the current status, so the host
-  detail never issues the no-op status write that would clear a pointer.
+  detail never issues a redundant same-status write.
   Status badges: awaiting is cyan on the host (`statusBadgeClass`) and on
   the module (table badge, kanban column, context-menu dot), so the two
   slices agree and no longer collide with pending (grey on the host, yellow
@@ -662,9 +662,9 @@ expressed as a branch:
    line on question-style awaits, on the grounds that the chat id is not
    derivable from the todo id.
 2. Todo 3506 S2 (`6ef2766`) scoped that line out of fault notices only
-   (only when a reply pointer was set and the notice had no extra text). A
-   watchdog idle/backstop claim or an undeliverable death stores the
-   newest-chat id as the pointer, that chat is often a dead child, and
+   (only when the then-separate reply pointer was set and the notice had no
+   extra text). A watchdog idle/backstop claim or an undeliverable death stores
+   the newest-chat id as the pointer, that chat is often a dead child, and
    replying there would auto-resume the todo and restart it. A fault notice
    is inspection context (last chat, exit, bounded error text), not a place
    to type the next instruction.
@@ -1085,12 +1085,12 @@ Tests are local-only and untracked per repo convention.
 
 - **Awaiting status transitions** are table-driven over the service layer:
   all 25 explicit pairs; completed/deleted to awaiting as one atomic
-  reopen-to-inbox write; pointer replace vs omitted-chat clear vs identical
+  reopen-to-inbox write; pointer replace vs chat-less keep vs identical
   no-op; invalid owner/trace pointer rejected with no mutation; `--chat` /
   `chat_id` rejected for non-awaiting targets before mutation; generic
-  `status=awaiting` without a pointer; metadata-only edits; pin/completion
-  semantics; bulk completed/deleted-to-awaiting; rejected legacy `awaiting`
-  / `awaiting_until` / `resume_work` requests. Automatic resume still
+  `status=awaiting` leaves the handle in place; metadata-only edits;
+  pin/completion semantics; bulk completed/deleted-to-awaiting; rejected legacy
+  `awaiting` / `awaiting_until` / `resume_work` requests. Automatic resume still
   refuses pending/closed work.
 - **List filtering** at the service and API level: `status=awaiting` is the
   inbox; `status=active` excludes awaiting; open-work queries include
