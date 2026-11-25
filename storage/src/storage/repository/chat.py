@@ -1258,6 +1258,18 @@ def idle_attention_traces(session, user_ids: set, trace_ids: set) -> set:
     return {(row.user_id, row.trace_id) for row in rows}
 
 
+def find_chat_states(user_id: int, chat_ids: list) -> dict:
+    """Return ``{chat_id: (status, needs_attention)}``; missing chats are omitted."""
+    if not chat_ids:
+        return {}
+    with get_db() as session:
+        rows = (session.query(ChatEntity.chat_id, ChatEntity.status, ChatEntity.needs_attention)
+                .filter_by(user_id=user_id)
+                .filter(ChatEntity.chat_id.in_(chat_ids))
+                .all())
+        return {row.chat_id: (row.status or "idle", bool(row.needs_attention)) for row in rows}
+
+
 def get_trace_chat_status(user_id: int, trace_ids: list) -> dict:
     """Return {trace_id: {"has_running": bool, "has_unread": bool}} for given trace_ids."""
     from sqlalchemy import case

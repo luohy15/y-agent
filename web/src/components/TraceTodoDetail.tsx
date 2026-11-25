@@ -32,6 +32,8 @@ export interface TodoInfo {
   progress?: string;
   completed_at?: string;
   handle_chat?: string | null;
+  /** Read-only. Chat to open: the handle while it is live, else newest leader/newest chat. */
+  open_chat?: string | null;
   /** Read-only. Earliest outstanding wakeup, milliseconds. Not part of a save. */
   next_wakeup_at_unix?: number | null;
   /** Read-only. Same-owner pending publication waiter. Not part of a save. */
@@ -178,6 +180,7 @@ export default function TraceTodoDetail({
   const tagsValue: string[] = patch.tags !== undefined ? (patch.tags ?? []) : (todoInfo.tags ?? []);
   const progressValue = patch.progress !== undefined ? (patch.progress ?? "") : (todoInfo.progress ?? "");
   const sharedNotes = (todoInfo.notes ?? []).filter((note) => note.share_id);
+  const talkChat = todoInfo.open_chat ?? todoInfo.handle_chat;
   const wakeupText = editable ? wakeupLabel(todoInfo) : null;
   const releaseText = editable ? releaseSlotLabel(todoInfo) : null;
 
@@ -432,20 +435,20 @@ export default function TraceTodoDetail({
                 )}
               </>
             )}
-            {todoInfo.handle_chat && (
+            {talkChat && (
               <>
                 <span className="text-sol-base01">Talk to</span>
                 {onSelectChat ? (
                   <button
                     type="button"
-                    onClick={() => onSelectChat(todoInfo.handle_chat!)}
+                    onClick={() => onSelectChat(talkChat)}
                     className="font-mono text-sol-blue hover:text-sol-cyan underline underline-offset-2 break-all cursor-pointer"
-                    title={`Open chat ${todoInfo.handle_chat}`}
+                    title={`Open chat ${talkChat}`}
                   >
-                    {todoInfo.handle_chat}
+                    {talkChat}
                   </button>
                 ) : (
-                  <span className="font-mono text-sol-base0 break-all">{todoInfo.handle_chat}</span>
+                  <span className="font-mono text-sol-base0 break-all">{talkChat}</span>
                 )}
               </>
             )}

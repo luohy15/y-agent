@@ -22,7 +22,11 @@ def todo_audit(notify, as_json):
     for key in ('status_counts', 'priority_counts'):
         click.echo(', '.join(f"{k}: {v}" for k, v in audit[key].items()))
     for key, label in (('overdue', 'Overdue: renew or archive'), ('due_today', 'Due today'),
-                       ('oldest', 'Oldest non-pinned'), ('pinned', 'Long-term')):
+                       ('oldest', 'Oldest non-pinned'), ('pinned', 'Long-term'),
+                       ('stale_handles', 'Stale handles: repoint to a live chat')):
         click.echo(f"\n{label} ({len(audit[key])})")
         for todo in audit[key]:
             click.echo(f"  {todo['todo_id']} {todo['name']} | {todo['status']} | {sla_label(todo)}")
+            if key == 'stale_handles':
+                click.echo(f"    handle {todo['handle_chat']} ({todo.get('chat_status') or 'missing'})"
+                           f" | y todo handle {todo['todo_id']} --chat <chat_id>")

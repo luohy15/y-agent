@@ -1,7 +1,7 @@
 """Function-based todo repository using SQLAlchemy sessions."""
 
 from datetime import date, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from sqlalchemy import case, func
 from sqlalchemy.orm import defer
 from storage.entity.todo import TodoEntity
@@ -92,12 +92,13 @@ def _entity_to_dto(entity: TodoEntity, *, include_history: bool = True) -> Todo:
     )
 
 
-def find_handle_chat(user_id: int, todo_id: str) -> Optional[str]:
+def find_handle_state(user_id: int, todo_id: str) -> Tuple[Optional[str], Optional[str]]:
+    """Return ``(handle_chat, status)`` for one todo without loading the row body."""
     with get_db() as session:
-        row = session.query(TodoEntity.handle_chat).filter_by(
+        row = session.query(TodoEntity.handle_chat, TodoEntity.status).filter_by(
             user_id=user_id, todo_id=todo_id,
         ).first()
-        return row[0] if row else None
+        return (row[0], row[1]) if row else (None, None)
 
 
 class TodoList(list):

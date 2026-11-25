@@ -7,6 +7,7 @@ from typing import List, Optional, Tuple
 from loguru import logger
 from storage.entity.dto import Todo, TodoHistoryEntry
 from storage.database.base import get_db
+from storage.repository import chat as chat_repo
 from storage.repository import chat_wakeup as wakeup_repo
 from storage.repository import dev_release as release_repo
 from storage.repository import todo as todo_repo
@@ -433,8 +434,8 @@ def update_todo(user_id: int, todo_id: str, **fields) -> Optional[Todo]:
     return _maybe_notice(user_id, todo_id, todo, entered)
 
 
-def find_handle_chat(user_id: int, todo_id: str) -> Optional[str]:
-    return todo_repo.find_handle_chat(user_id, todo_id)
+def find_handle_state(user_id: int, todo_id: str) -> Tuple[Optional[str], Optional[str]]:
+    return todo_repo.find_handle_state(user_id, todo_id)
 
 
 def set_handle(user_id: int, todo_id: str, chat_id: str) -> Optional[Todo]:
@@ -512,6 +513,28 @@ def renew_todo(user_id: int, todo_id: str, sla: Optional[str] = None) -> Optiona
     return todo_repo.mutate_todo(user_id, todo_id, apply)
 
 
+def _stale_handle_rows(rows: list, states: dict) -> list:
+    """Rows whose handle names a chat that can no longer answer.
+
+    ``states`` maps chat_id to ``(status, needs_attention)`` and omits chats
+    that no longer exist. Awaiting rows are never stale: entering awaiting is
+    itself the pointer write, so that chat owns the conversation by design.
+    """
+    stale = []
+    for row in rows:
+        handle = row.get("handle_chat")
+        if not handle or row["status"] == "awaiting":
+            continue
+        state = states.get(handle)
+        if state is None:
+            stale.append({**row, "chat_status": None})
+            continue
+        status, needs_attention = state
+        if status != "running" and not needs_attention:
+            stale.append({**row, "chat_status": status})
+    return stale
+
+
 def audit_todos(user_id: int) -> dict:
     today = local_today()
     todos = todo_repo.list_open_todos(user_id)
@@ -520,6 +543,7 @@ def audit_todos(user_id: int) -> dict:
     rows.sort(key=lambda t: (t["sla_due_at"] or "9999-12-31",
                             rank.get(t.get("priority"), 3), len(t["todo_id"]), t["todo_id"]))
     overdue = [t for t in rows if is_overdue(t["sla_due_at"], t["pinned"], t["status"], today)]
+    handles = {t["handle_chat"] for t in rows if t["handle_chat"]}
     return {
         "today": today.isoformat(), "total": len(rows),
         "status_counts": {status: sum(t["status"] == status for t in rows) for status in OPEN_STATUSES},
@@ -530,6 +554,7 @@ def audit_todos(user_id: int) -> dict:
         "oldest": sorted((t for t in rows if not t["pinned"]),
                          key=lambda t: (t.get("created_at_unix") or 0, t["todo_id"]))[:10],
         "pinned": [t for t in rows if t["pinned"]],
+        "stale_handles": _stale_handle_rows(rows, chat_repo.find_chat_states(user_id, list(handles))),
     }
 
 

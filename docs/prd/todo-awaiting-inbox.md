@@ -452,6 +452,18 @@ y todo list --status awaiting
   chat-navigation control when the viewer is authenticated; on a public
   share it is inert text. The projection widens no disclosure: a pointer
   can only name a same-owner chat of a trace the share already lists.
+- **Opening a todo lands on a chat that can answer now.** The stored
+  `handle_chat` is adopted only while the named same-trace chat is
+  `running` or needs attention, or the todo is awaiting; entering awaiting
+  is itself the pointer write. Otherwise opening falls back to the newest
+  `leader` chat, then the newest chat. The fallback is navigation only and
+  never rewrites the column, so `y todo get`, `y todo list` and status
+  echoes keep showing the stored handle. The authenticated trace todo
+  projection carries the resolved `open_chat` and the host detail opens
+  that; the public share carries only the raw `handle_chat` as inert text.
+  `y todo audit` lists rows whose handle names a missing chat or one that
+  is neither running nor needs attention, with a repoint hint; it never
+  repairs them.
 - The todo module panel (UI-only, consuming host REST) treats awaiting as a
   status: sidebar shortcut, table filter, kanban column with its own
   status-scoped fetch and drag-drop, context-menu status list, detail sort
@@ -649,9 +661,9 @@ gone (todo 4441). What the notice trim removed is a rendered instruction,
 not the navigation path. `y todo status <id> awaiting --chat` stores the
 handle and echoes it while the resulting status is awaiting. `y todo get`
 prints `Handle:` when it is set, in every status. `y todo list`'s Chat
-column is the handle. The host trace todo detail renders Talk to from that
-handle and has no second reply row (see Schema and Reading above). The
-notice path still does not render it.
+column is the handle. The host trace todo detail renders Talk to from the
+resolved open chat, the handle while it is live, and has no second reply row
+(see Schema and Reading above). The notice path still does not render it.
 
 This wording changed twice and the reasons are kept as history, because the
 fault-notice argument still explains the shape even though it is no longer

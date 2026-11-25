@@ -99,20 +99,33 @@ def preferred_trace_chat(chats):
     return coordinator or chats[0]
 
 
-def resolve_open_chat(chats, handle):
-    """Prefer the handle only when it belongs to the owner-scoped trace chats."""
-    held = next((chat for chat in chats if chat.chat_id == handle), None) if handle else None
-    return held or preferred_trace_chat(chats)
+def resolve_open_chat(chats, handle, todo_status):
+    """Prefer the handle only while it names a live chat on this trace.
+
+    The handle is the source of truth for who owns the conversation, but an
+    idle, non-attention chat cannot answer anymore. Opening such a todo must
+    land on a chat that can, so an ended handle falls back to the newest
+    coordinator chat, then the newest chat. An awaiting todo always opens its
+    handle: entering awaiting is itself the pointer write.
+    """
+    if handle:
+        held = next((chat for chat in chats if chat.chat_id == handle), None)
+        if held is not None and (
+            todo_status == "awaiting" or held.status == "running" or held.needs_attention
+        ):
+            return held
+    return preferred_trace_chat(chats)
 
 
 @router.get("/latest_chat")
 async def get_latest_chat(request: Request, trace_id: str = Query(...)):
     """Open the trace's held chat, falling back to coordinator/newest."""
-    from storage.service.todo import find_handle_chat
+    from storage.service.todo import find_handle_state
 
     user_id = _get_user_id(request)
     chats = find_chats_by_trace_id(user_id, trace_id)
-    chosen = resolve_open_chat(chats, find_handle_chat(user_id, trace_id))
+    handle, status = find_handle_state(user_id, trace_id)
+    chosen = resolve_open_chat(chats, handle, status)
     return {"chat_id": chosen.chat_id if chosen is not None else None}
 
 
@@ -148,6 +161,8 @@ async def get_trace_chats(request: Request, trace_id: str = Query(...)):
         from storage.service.todo import attach_next_wakeup, attach_pending_release_waiter
         attach_next_wakeup(user_id, [todo])
         attach_pending_release_waiter(user_id, [todo])
+        open_chat = resolve_open_chat(
+            find_chats_by_trace_id(user_id, trace_id), todo.handle_chat, todo.status)
         todo_info = {
             "todo_id": todo.todo_id,
             "name": todo.name,
@@ -158,6 +173,7 @@ async def get_trace_chats(request: Request, trace_id: str = Query(...)):
             "due_date": todo.due_date,
             "progress": todo.progress,
             "handle_chat": todo.handle_chat,
+            "open_chat": open_chat.chat_id if open_chat is not None else None,
             "next_wakeup_at_unix": todo.next_wakeup_at_unix,
             "has_pending_release_waiter": todo.has_pending_release_waiter,
             "completed_at": todo.completed_at,
