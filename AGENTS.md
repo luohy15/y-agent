@@ -556,7 +556,7 @@ Grouped by feature area:
   lists, shared detail, visit, public history), `reminder.py`, `calendar_event.py`, `note.py`
   (five host share routes and sharing helpers only), `entity.py`,
   `entity_note_relation.py`, `entity_rss_relation.py`
-- **Chat resume gate** (todo 4092): admission and worker block a resumed over-limit chat only when its trusted measurement is strictly older than `Y_AGENT_OPUS_RESUME_WARM_WINDOW_SECONDS` (default 300; `0` disables the grace period; invalid values use 300). Unknown or future timestamps do not refuse. `bot_config.resume_context_limit` overrides `Y_AGENT_OPUS_RESUME_CONTEXT_LIMIT` (100000, 0 disables the token gate), and the warning stays at 80% of that limit.
+- **Chat resume gate** (todo 4092, todo 4447): admission and worker block a resumed over-limit Claude Code chat only when its trusted measurement is strictly older than `Y_AGENT_RESUME_WARM_WINDOW_SECONDS` (default 300; `0` disables the grace period; invalid values use 300). Unknown or future timestamps do not refuse. The limit applies to every Claude Code model: `bot_config.resume_context_limit` overrides `Y_AGENT_RESUME_CONTEXT_LIMIT` (100000, 0 disables the token gate), and the warning stays at 80% of that limit. Codex and Pi chats are not gated.
 - **Content pipelines**: `link.py`, `link_todo_relation.py`, `rss_feed.py`, `email.py`,
   `english_correction.py`, `english_word.py` (`/english/vocab`),
   `model_usage.py` (spend rows, the latest limit snapshot,

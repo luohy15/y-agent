@@ -52,15 +52,15 @@ inspectable and editable through the bot CLI, never memorized in instructions.
 
 ## Resume context limit
 
-`bot_config.resume_context_limit` is nullable: NULL inherits the Opus global
-limit (`Y_AGENT_OPUS_RESUME_CONTEXT_LIMIT`, default 100000); 0 disables the gate
-for that bot; a positive value opts any model into the limit. Non-Opus bots
-without an explicit limit are unaffected. This does not change routing weights
-or tiers. The derived read-only state, warning band and continuation contract
-are defined in `pages/feature-y-agent-chat-resume-gate.md`. Admission checks the
-persisted bot first: a requested bot switch cannot unlock an already gated
-chat. Continue via the offered new-chat handoff. Only complete measured main
-request usage can trigger the gate; launch averages remain display-only.
+`bot_config.resume_context_limit` is nullable: NULL inherits the global limit
+(`Y_AGENT_RESUME_CONTEXT_LIMIT`, default 100000) that applies to every Claude
+Code bot; 0 disables the gate for that bot; a positive value overrides the
+global limit. Codex and Pi chats are never gated. This does not change routing
+weights or tiers. The derived read-only state, warning band and continuation
+contract are defined in `pages/feature-y-agent-chat-resume-gate.md`. Admission
+checks the persisted bot first: a requested bot switch cannot unlock an already
+gated chat. Continue via the offered new-chat handoff. Only complete measured
+main request usage can trigger the gate; launch averages remain display-only.
 
 ## User Stories
 

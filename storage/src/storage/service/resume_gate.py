@@ -10,13 +10,18 @@ from loguru import logger
 
 from storage.dto.chat import Chat
 
-_WINDOW_ENV = "Y_AGENT_OPUS_RESUME_WARM_WINDOW_SECONDS"
+_WINDOW_ENV = "Y_AGENT_RESUME_WARM_WINDOW_SECONDS"
 _WINDOW_DEFAULT = 300
-_WINDOW_TOKEN = re.compile(r"0|[1-9][0-9]*")
+_LIMIT_ENV = "Y_AGENT_RESUME_CONTEXT_LIMIT"
+_LIMIT_DEFAULT = 100000
+_ENV_TOKEN = re.compile(r"0|[1-9][0-9]*")
 _window_cache = {"raw": None, "value": _WINDOW_DEFAULT, "seen": False}
+_limit_cache = {"raw": None, "value": _LIMIT_DEFAULT, "seen": False}
 
 
 class ChatReadOnly(Exception):
+    # Retained wire name: clients already match `chat_read_only` / this reason,
+    # so the gate covers every Claude Code model without renaming the signal.
     reason = "opus_context_limit"
 
     def __init__(self, measured_tokens: int, limit_tokens: int, handoff=None):
@@ -56,20 +61,30 @@ _BOUNDARY_UNKNOWN = object()
 _PROMPT_COUNTERS = ("input_tokens", "cache_read_tokens", "cache_creation_tokens")
 
 
-def warm_window_seconds():
-    """Grace period in seconds. Unset is 300; only a canonical nonnegative integer overrides it."""
-    raw = os.environ.get(_WINDOW_ENV)
-    if _window_cache["seen"] and _window_cache["raw"] == raw:
-        return _window_cache["value"]
+def _env_nonnegative_int(env_name, default, cache):
+    """Unset uses `default`; only a canonical nonnegative integer overrides it."""
+    raw = os.environ.get(env_name)
+    if cache["seen"] and cache["raw"] == raw:
+        return cache["value"]
     if raw is None:
-        value = _WINDOW_DEFAULT
-    elif _WINDOW_TOKEN.fullmatch(raw):
+        value = default
+    elif _ENV_TOKEN.fullmatch(raw):
         value = int(raw)
     else:
-        logger.warning("invalid Y_AGENT_OPUS_RESUME_WARM_WINDOW_SECONDS; using 300")
-        value = _WINDOW_DEFAULT
-    _window_cache.update(seen=True, raw=raw, value=value)
+        logger.warning("invalid {}; using {}", env_name, default)
+        value = default
+    cache.update(seen=True, raw=raw, value=value)
     return value
+
+
+def warm_window_seconds():
+    """Grace period in seconds. Unset is 300; `0` disables only the grace period."""
+    return _env_nonnegative_int(_WINDOW_ENV, _WINDOW_DEFAULT, _window_cache)
+
+
+def context_limit():
+    """Global resume limit in prompt tokens. Unset is 100000; `0` disables the gate."""
+    return _env_nonnegative_int(_LIMIT_ENV, _LIMIT_DEFAULT, _limit_cache)
 
 
 def decision_clock(now=None):
@@ -97,13 +112,16 @@ def age_exceeds_window(requested_at, clock, window=None):
 
 
 def effective_limit(bot_config):
+    """The bot's own limit, else the global default for every Claude Code model.
+
+    Backend eligibility is the caller's: this stays keyed on the bot only, so a
+    Codex or Pi launch never reaches it. `0` disables the gate for that bot.
+    """
     if bot_config is None:
         return None
     limit = bot_config.resume_context_limit
     if limit is None:
-        if "opus" not in (bot_config.model or "").lower():
-            return None
-        limit = int(os.getenv("Y_AGENT_OPUS_RESUME_CONTEXT_LIMIT", "100000"))
+        limit = context_limit()
     return limit if limit > 0 else None
 
 
