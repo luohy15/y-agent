@@ -9,11 +9,11 @@ from loguru import logger
 from storage.entity.dto import Message
 from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
 from agent.claude_code import (
-    parse_stream_line, _shell_quote, _tmux_session_alive,
+    parse_stream_line, _shell_quote, _ssh_exec, _tmux_session_alive,
     _kill_session_marking_self_killed, _consume_self_kill_sentinel,
     _pkill_tail_cmd, _build_tail_cmd,
 )
-from agent.input_ledger import InputLedger
+from agent.input_ledger import ACKNOWLEDGED, SUBMITTED, InputLedger, native_input_uuid
 from agent.poll_loop import PollLoop
 from agent.startup_diagnostic import read_attempt_diagnostic
 
@@ -21,6 +21,18 @@ from agent.startup_diagnostic import read_attempt_diagnostic
 def _complete_launch_group(ledger, launch_input_uuid):
     if launch_input_uuid and launch_input_uuid in ledger.groups:
         ledger.observe_lifecycle({"state": "completed", "command_uuid": launch_input_uuid})
+
+
+def _complete_open_groups(ledger):
+    """Retire every input this run wrote and has not resolved.
+
+    `agent_settled` is pi's own declaration that no retry, compaction or queued
+    message remains, so a settle drains the steering queue. Any group still
+    open at that point was queued before the settle and is therefore answered.
+    """
+    for command_uuid, message_ids in ledger.groups.items():
+        if any(ledger.state_of(mid) in (SUBMITTED, ACKNOWLEDGED) for mid in message_ids):
+            ledger.observe_lifecycle({"state": "completed", "command_uuid": command_uuid})
 
 
 def _stringify(value) -> str:
@@ -114,6 +126,7 @@ class PiStreamConverter:
         self.context_usage: Optional[Dict] = None
         self.has_usable_output = False
         self.terminal = False
+        self.settled = False
         self.end_candidate = None
         self.error = None
         self._pending_tools: Dict[str, Dict] = {}
@@ -215,9 +228,15 @@ class PiStreamConverter:
             self.terminal = True
             self.error = obj.get("result") or "pi launch failed"
         elif event_type == "agent_settled":
+            # No retry, compaction or queued message remains: the turn is over.
             self.terminal = True
+            self.settled = True
             if obj.get("aborted"):
                 self.error = self.error or "pi run aborted"
+        elif event_type == "response":
+            # Command responses are correlated in the tail, which owns the
+            # input ledger; the converter only maps session events.
+            pass
         elif event_type in ("agent_start", "auto_retry_start", "auto_compaction_start", "compaction_start"):
             self.end_candidate = None
             self.terminal = False
@@ -253,31 +272,95 @@ def _restore_pi_pending(converter: "PiStreamConverter", result_data) -> bool:
     return True
 
 
-def _pi_build_exec(cmd: List[str], chat_id: str, prompt: str, images: Optional[List[str]] = None) -> str:
-    """Build `<pi cmd...> <prompt>` (pi takes the prompt as a positional message)."""
+def _pi_prompt_text(prompt: str, images: Optional[List[str]] = None) -> str:
+    """Fold attached image paths into the prompt text (no native image blocks)."""
     if images:
         image_lines = "\n".join(f"- {image_path}" for image_path in images)
         suffix = f"Attached image file path(s):\n{image_lines}"
-        prompt = f"{prompt.rstrip()}\n\n{suffix}" if prompt.strip() else suffix
-    full_cmd = list(cmd) + ["--", prompt]
-    return " ".join(_shell_quote(c) for c in full_cmd) + " < /dev/null"
+        return f"{prompt.rstrip()}\n\n{suffix}" if prompt.strip() else suffix
+    return prompt
+
+
+def _pi_launch_payload(chat_id: str, prompt: str, images: Optional[List[str]] = None,
+                       input_uuid: Optional[str] = None) -> str:
+    """The three JSONL commands written to the stdin file before launch.
+
+    `get_state` supplies the session id (RPC mode emits no session header),
+    `set_steering_mode all` matches Claude Code's batched steer delivery, and
+    `prompt` carries the folded launch input. Each command has a stable id so
+    its response can be correlated across a Lambda handoff.
+    """
+    launch_uuid = input_uuid or native_input_uuid(chat_id, "launch")
+    commands = [
+        {"id": native_input_uuid(chat_id, "get_state"), "type": "get_state"},
+        {"id": native_input_uuid(chat_id, "set_steering_mode"),
+         "type": "set_steering_mode", "mode": "all"},
+        {"id": launch_uuid, "type": "prompt", "message": _pi_prompt_text(prompt, images)},
+    ]
+    return "".join(json.dumps(command) + "\n" for command in commands)
+
+
+def _pi_steer_payload(chat_id: str, msg_id: str, text: str,
+                      images: Optional[List[str]] = None) -> str:
+    """One `steer` command line; the id is the input's native identity."""
+    return json.dumps({
+        "id": native_input_uuid(chat_id, msg_id),
+        "type": "steer",
+        "message": _pi_prompt_text(text, images),
+    }) + "\n"
+
+
+def _pi_write_stdin(client, chat_id: str, prompt: str, images: Optional[List[str]] = None,
+                    input_uuid: Optional[str] = None) -> None:
+    """Write the launch commands to /tmp/cc-<chat_id>.stdin via SFTP."""
+    payload = _pi_launch_payload(chat_id, prompt, images, input_uuid)
+    sftp = client.open_sftp()
+    try:
+        with sftp.open(f"/tmp/cc-{chat_id}.stdin", "w") as f:
+            f.write(payload)
+    finally:
+        sftp.close()
+
+
+def _pi_build_exec(cmd: List[str], chat_id: str, prompt: str, images: Optional[List[str]] = None) -> str:
+    """Build `tail -f <stdin> | pi --mode rpc ...` with tail cleanup.
+
+    The prompt and its image paths are written to the stdin file by setup, so
+    the command carries no positional prompt. The pipeline is backgrounded so
+    the wrapper can stop the tail once pi exits; the wrapper's exit status is
+    pi's, which the shared launcher records in the exit file.
+    """
+    pi_cmd = " ".join(_shell_quote(c) for c in cmd)
+    stdin_file = f"/tmp/cc-{chat_id}.stdin"
+    stdin_tail_pattern = _shell_quote(f"^tail -f -n \\+1 /tmp/cc-{chat_id}\\.stdin$")
+    return (
+        f"( tail -f -n +1 {_shell_quote(stdin_file)} | {pi_cmd} & _y_pi=$!; "
+        "while kill -0 $_y_pi 2>/dev/null; do sleep 0.2; done; "
+        f"pkill -f {stdin_tail_pattern} 2>/dev/null; "
+        "wait $_y_pi )"
+    )
 
 
 def _pi_parse_initial(obj: Dict) -> Optional[str]:
     if obj.get("type") == "session":
         return obj.get("id")
+    if obj.get("type") == "response" and obj.get("command") == "get_state":
+        data = obj.get("data")
+        session_id = data.get("sessionId") if isinstance(data, dict) else None
+        return session_id if isinstance(session_id, str) and session_id else None
     return None
 
 
 async def start_detached_pi_ssh(cmd, prompt, cwd, chat_id, node, env=None,
                                 images=None, ssh_client=None, unset_env=None,
-                                provider=None):
-    """Stage only this bot's provider before launching on the selected node."""
+                                provider=None, input_uuid=None):
+    """Stage this bot's provider and the RPC launch commands before launching."""
     from agent.detach import DetachBackendSpec, _start_detached_tmux
     from agent.pi_models import stage_pi_provider
 
     def setup(client, chat_id, prompt, images):
         stage_pi_provider(client, provider, (env or {}).get("PI_CODING_AGENT_DIR"))
+        _pi_write_stdin(client, chat_id, prompt, images, input_uuid=input_uuid)
 
     return await _start_detached_tmux(
         cmd=cmd, prompt=prompt, cwd=cwd, chat_id=chat_id, node=node,
@@ -301,7 +384,7 @@ async def tail_pi_output(
     pending_result: Optional[dict] = None,
     session_id: Optional[str] = None,
 ) -> dict:
-    """Tail pi, settling only after retries; steer kills and closes the launch group."""
+    """Tail pi's RPC session; steer is queued in place and `agent_settled` ends it."""
     owns_client = ssh_client is None
     if owns_client:
         from agent.chat_target import open_owned_client
@@ -309,6 +392,7 @@ async def tail_pi_output(
         ssh_client = open_owned_client(node)
 
     client = ssh_client
+    stdin_file = f"/tmp/cc-{chat_id}.stdin"
     stdout_file = f"/tmp/cc-{chat_id}.stdout"
     exit_file = f"/tmp/cc-{chat_id}.exit"
 
@@ -323,17 +407,17 @@ async def tail_pi_output(
     if result_data and result_data.get("type") == "agent_settled":
         converter.terminal = True
         converter.error = result_data.get("result") if result_data.get("is_error") else None
-        _complete_launch_group(ledger, launch_input_uuid)
+        _complete_open_groups(ledger)
     if _restore_pi_pending(converter, result_data):
         result_data = None
     current_offset = offset
     stream_error = None
     poll = None
-    # Guards the steer/interrupt teardown against the reader's own ledger
-    # update: both the poll thread and the reader may retire the launch group.
+    # Guards the steer write and the settle teardown: a steer must never be
+    # appended after the session was torn down, and a settle must not retire an
+    # input the poll thread is still writing.
     steer_lock = threading.RLock()
     torn_down = False
-    steered = threading.Event()
 
     def _view(is_done: bool, status: str, data=None) -> dict:
         session_id = converter.session_id
@@ -367,34 +451,67 @@ async def tail_pi_output(
                 except Exception:
                     pass
 
-        def _on_steer(text, msg_id, images=None) -> bool:
-            """End the turn so the closeout continuation answers this message.
+        def _teardown_session():
+            """Kill the long-lived RPC session after a settle.
 
-            A True return claims the message for this run. The message itself
-            stays in the chat, so closeout selects it as pending input and the
-            next turn resumes the same thread with it. A False return releases
-            the claim: no thread to resume yet, or the session could not be
-            confirmed dead.
+            A settle is a clean end, not a death, so no self-kill sentinel is
+            written. The kill is synchronous: the process is gone before
+            closeout can launch a continuation beside it.
             """
-            nonlocal torn_down
+            try:
+                from agent.detach import _tmux_kill_cmd
+                _ssh_exec(client, _tmux_kill_cmd(chat_id, node=node))
+            except Exception as exc:
+                logger.warning("pi settle teardown failed chat_id={}: {}", chat_id, exc)
+            try:
+                stdout_ch.channel.close()
+            except Exception:
+                pass
+
+        def _on_steer(text, msg_id, images=None) -> bool:
+            """Append a steer command to the live RPC stdin pipe.
+
+            The turn is not ended: pi delivers the message after the current
+            assistant turn finishes its tool calls, before the next LLM call.
+            A zero write status only proves the bytes reached the file; the
+            command's `response` promotes it to acknowledged, and
+            `agent_settled` retires it. A False return releases the poll
+            checker's claim so closeout re-delivers the message.
+            """
             with steer_lock:
-                if torn_down:
+                if torn_down or converter.settled:
                     return False
-                if not converter.session_id:
+                payload = _pi_steer_payload(chat_id, msg_id, text, images)
+                _, write_stdout, _ = client.exec_command(
+                    f"printf '%s\\n' {_shell_quote(payload)} >> {_shell_quote(stdin_file)}"
+                )
+                if write_stdout.channel.recv_exit_status() != 0:
                     return False
-                if not _kill_session_marking_self_killed(client, chat_id, node=node):
-                    return False
-                torn_down = True
-                # The launch prompt was consumed by the turn being ended, so
-                # closeout must not treat it as an owed input.
-                _complete_launch_group(ledger, launch_input_uuid)
-                steered.set()
-                try:
-                    stdout_ch.channel.close()
-                except Exception:
-                    pass
-            logger.info("pi steer: ended turn chat_id={} for message={}", chat_id, msg_id)
+                converter.last_message_id = msg_id
+                ledger.mark_submitted(native_input_uuid(chat_id, msg_id), [msg_id])
+            logger.info("pi steer: queued chat_id={} for message={}", chat_id, msg_id)
             return True
+
+        def _handle_response(obj) -> Optional[str]:
+            """Correlate a command response with the ledger; return a prompt refusal."""
+            command = obj.get("command")
+            command_id = obj.get("id")
+            success = obj.get("success") is True
+            if command == "get_state":
+                data = obj.get("data")
+                session_id = data.get("sessionId") if isinstance(data, dict) else None
+                if isinstance(session_id, str) and session_id:
+                    converter.session_id = session_id
+                return None
+            if command in ("prompt", "steer") and command_id and command_id in ledger.groups:
+                with steer_lock:
+                    ledger.observe_lifecycle({
+                        "state": "queued" if success else "refused",
+                        "command_uuid": command_id,
+                    })
+                if command == "prompt" and not success:
+                    return obj.get("error") or "pi rejected the prompt"
+            return None
 
         poll = PollLoop(
             check_interrupted_fn=check_interrupted_fn,
@@ -429,9 +546,33 @@ async def tail_pi_output(
                     if not obj:
                         continue
 
+                    prompt_error = (_handle_response(obj)
+                                    if obj.get("type") == "response" else None)
                     for msg in converter.process_line(line):
                         if message_callback:
                             message_callback(msg)
+
+                    if prompt_error is not None:
+                        # pi refused the launch prompt before starting a run, so
+                        # no agent_settled will follow; end the turn here.
+                        result_data = {"type": "agent_settled", "is_error": True,
+                                       "result": prompt_error}
+                        with steer_lock:
+                            torn_down = True
+                            _teardown_session()
+                        return None
+
+                    if converter.settled:
+                        # No retry, compaction or queued message remains: the
+                        # turn is over and the long-lived session can go.
+                        result_data = {"type": "agent_settled", "is_error": bool(converter.error),
+                                       "result": converter.error or ""}
+                        with steer_lock:
+                            torn_down = True
+                            _complete_open_groups(ledger)
+                            _teardown_session()
+                        return None
+
                     # Persist tentative end state across Lambda handoffs, but do
                     # not retire inputs or report success until settled/clean EOF.
                     if converter.terminal:
@@ -472,20 +613,8 @@ async def tail_pi_output(
                 close_owned_client(client)
             return cancelled_result
 
-        if steered.is_set() and exit_reason != "interrupted" and result_data is None:
-            # Our own steer kill ended the turn before it completed. This is
-            # not a death: consume the sentinel so no later check misreads it,
-            # and report a completed turn so the closeout continuation
-            # relaunches the same thread with the pending message.
-            _consume_self_kill_sentinel(client, chat_id)
-            if owns_client:
-                from agent.chat_target import close_owned_client
-                close_owned_client(client)
-            logger.info("tail_pi_output: chat_id={} turn ended by steer at offset={}", chat_id, current_offset)
-            return _view(True, "completed", None)
-
         if (exit_reason is None and result_data is None and converter.end_candidate
-                and stream_error is None and not steered.is_set()
+                and stream_error is None
                 and not _tmux_session_alive(client, chat_id, node=node)):
             attempt = read_attempt_diagnostic(client, chat_id, backend="pi")
             if attempt["exit_code"] == 0:

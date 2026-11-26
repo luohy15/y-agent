@@ -458,10 +458,14 @@ The repo no longer contains an in-process agent loop — the worker shells out.
   while `codex exec` is running ends that turn, and the continuation resumes the thread
   with it. `pi` (`agent/src/agent/pi_cli.py`, pi.dev 1.5.2) uses
   `anthropic-messages`, a per-launch merged `y-<bot>` models.json provider, and
-  `Y_PI_API_KEY` in the environment. Its session id is `chat.external_id`;
-  only matching work dirs resume. `agent_settled` completes the turn after
-  retries; `agent_end` is accepted only at clean exit without a retry. Pi steer
-  ends the turn and the continuation resumes its session. Pi usage and effort
+  `Y_PI_API_KEY` in the environment. It runs `pi --mode rpc` behind a
+  `tail -f` stdin pipe: setup writes `get_state`, `set_steering_mode all` and the
+  launch `prompt` as JSONL commands, and a steer appends one `steer` command
+  instead of ending the turn. Its session id is `chat.external_id`, read from the
+  `get_state` response (RPC mode has no session header); only matching work dirs
+  resume. `agent_settled` means no retry, compaction or queued message remains:
+  the tail retires the run's inputs and tears the long-lived session down.
+  `agent_end` is accepted only at clean exit without a retry. Pi usage and effort
   mapping are not implemented. `agy` (`agent/src/agent/agy.py`, Antigravity CLI
   1.5.17) runs `agy -p --output-format stream-json` on the node's own Google
   login: no relay, no API key. Its model id is the plain slug (`gemini-4-neon`)
@@ -499,14 +503,14 @@ The repo no longer contains an in-process agent loop — the worker shells out.
   both sockets) before `tmux kill-session`, then TERMs the groups, escalates to
   KILL, and reports `gone` only when none survives, so a SIGHUP-ignoring backend
   (`agy`) cannot outlive its turn while the next turn starts beside it (todo 4472).
-  The orphan reaper matches both claude_code's stdin-pipe wrapper and the direct
-  `stdout`/`stderr` redirect wrappers used by `codex` / `pi` / `agy`.
+  The orphan reaper matches the stdin-pipe wrappers of `claude_code` and `pi` and
+  the direct `stdout`/`stderr` redirect wrappers used by `codex` / `agy`.
 - **Lambda hand-off** — since Lambda caps at ~15 min, the worker releases its lease
   before the deadline and re-enqueues itself via SQS; the next invocation picks up the
   existing tail offset. `poll_loop.py` unifies the steer / interrupt polling cadence.
 - **Steer** — mid-conversation user messages are delivered to a running Claude Code
-  session through a `tail -f` stdin pipe. `codex exec` and `agy -p` have no input
-  channel, so a Codex or agy steer ends the running turn and the closeout
+  or pi session through a `tail -f` stdin pipe. `codex exec` and `agy -p` have no
+  input channel, so a Codex or agy steer ends the running turn and the closeout
   continuation resumes the same thread / `--conversation` with the message as the
   next prompt. `y chat stop` is the
   explicit interrupt path; an interrupt watchdog thread also fires during LLM waits.

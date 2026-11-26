@@ -1202,7 +1202,9 @@ def pi_resume_session(stored_backend, external_id, work_dir_matches):
 
 def build_pi_cmd(provider, session_id=None):
     name, definition = provider
-    cmd = ["pi", "-p", "--mode", "json", "--approve",
+    # RPC mode keeps one long-lived process that accepts `steer` commands on
+    # stdin; print mode (`-p --mode json`) has no mid-turn input channel.
+    cmd = ["pi", "--mode", "rpc", "--approve",
            "--model", f"{name}/{definition['models'][0]['id']}"]
     if session_id:
         cmd.extend(["--session", session_id])
@@ -1441,6 +1443,7 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
             cmd=params["cmd"], prompt=params["prompt"], cwd=cwd, chat_id=chat_id,
             node=node, env=params["env"], images=params.get("images"),
             unset_env=params.get("unset_env"), provider=params["provider"],
+            input_uuid=launch_uuid,
         )
     elif effective_backend == "agy":
         from agent.agy import start_detached_agy_ssh

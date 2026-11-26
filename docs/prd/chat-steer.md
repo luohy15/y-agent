@@ -24,9 +24,10 @@ Sending a message to a running chat requires no special UI or command: the
 message is appended to the chat like any other, but no new worker task is
 enqueued. The already-running worker polls the chat for new user messages every
 couple of seconds and delivers each one into the live agent session. Claude
-Code print mode accepts mid-run input through its stdin pipe. `codex exec`, pi print mode, and
-`agy -p` have no input channel, so their steer ends the running turn and the
-same native session resumes with the pending message as the next prompt. An accepted message is
+Code print mode accepts mid-run input through its stdin pipe, and pi's RPC mode
+accepts a `steer` command on the same pipe. `codex exec` and `agy -p` have no
+input channel, so their steer ends the running turn and the same native session
+resumes with the pending message as the next prompt. An accepted message is
 either completed by that session or assigned to one serialized continuation. A
 successful stdin-file write is not evidence of consumption.
 Native per-input lifecycle events, persisted delivery state, and a locked
@@ -79,12 +80,20 @@ worker/VM crashes.
   the message by polling the database. Only an idle chat gets a new worker
   task. All ingestion surfaces (web/API send, cross-skill notify, Telegram)
   share this append-or-steer rule.
-- **Pi steer uses the same end-turn contract** (todo 4357). Kill the detached
-  process with the self-kill sentinel, complete the launch input group, and
-  leave the new message pending for the serialized continuation. Resume via
-  `pi --session <id>` in the same work dir. `agent_end` during retry is not a
-  terminal signal; only `agent_settled` or a clean non-retrying EOF settles
-  ordinary completion. Interrupt takes priority over steer.
+- **Pi steer is a live RPC command (todo 4476).** Pi runs `pi --mode rpc`
+  behind a `tail -f` stdin pipe. Setup writes `get_state`,
+  `set_steering_mode all` (parity with Claude Code's batched delivery) and the
+  launch `prompt` as JSONL commands; a steer appends one
+  `{"type":"steer","message":...}` command and never ends the turn. Pi delivers
+  it after the current assistant turn finishes its tool calls, before the next
+  LLM call. A `success:true` response acknowledges the command; `success:false`
+  is a refusal and leaves the message for closeout. `agent_settled` means no
+  retry, compaction or queued message remains, so it retires the run's open
+  inputs and tears the long-lived session down (no self-kill sentinel). The
+  session id comes from the `get_state` response because RPC mode emits no
+  session header; resume stays `--session <id>` in the same work dir. A steer
+  that arrives after the settle is refused and answered by the continuation.
+  Interrupt takes priority over steer.
 - **Codex steer ends the turn instead of writing stdin.** `codex exec` has no
   mid-run input channel, so the Codex tail's poll loop stops the session when a
   steer is accepted, retires the run's launch input, and reports a completed
@@ -121,8 +130,10 @@ worker/VM crashes.
   map one UUID to one ID. Claude Code 2.1.259's `command_lifecycle` schema echoes
   it as `command_uuid`: `queued` / `started` acknowledge native admission;
   `completed` marks the consuming turn ended; `cancelled`, `discarded`, and
-  `refused` do not prove an answer. Native bookkeeping is not another user
-  bubble. Missing events never fall back to write-confirmation.
+  `refused` do not prove an answer. Pi echoes the same UUID as the `id` of the
+  command `response`: `success:true` acknowledges, `success:false` is a
+  refusal, and `agent_settled` retires what is still open. Native bookkeeping is
+  not another user bubble. Missing events never fall back to write-confirmation.
 - **Result and input completion are distinct.** Standalone command completion
   follows its result; a folded command may complete before its result. A new
   `started` invalidates an older cached result. The tailer requires a result

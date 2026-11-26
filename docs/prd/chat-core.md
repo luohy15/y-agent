@@ -702,13 +702,18 @@ mode (`-i`) serves a human at a terminal.
   - **Pi session and completion contract** (todo 4357). A pi launch never
     resumes a foreign backend's handle; a work-dir mismatch starts fresh.
     Missing/refused pi sessions fail without automatic fresh-session retry.
-    Pi 1.5.2 runs `-p --mode json --approve`, inheriting node settings/extensions.
+    Pi 1.5.2 runs `--mode rpc --approve` behind a `tail -f` stdin pipe
+    (todo 4476), inheriting node settings/extensions. Setup writes `get_state`,
+    `set_steering_mode all` and the launch `prompt`; a steer appends a `steer`
+    command instead of ending the turn. The session id comes from the
+    `get_state` response (RPC mode has no session header).
     A provider requires base URL, model, and key; the per-launch atomic
     models.json merge changes only `y-<bot>`, uses `anthropic-messages` with
     `authHeader: true`, and references `$Y_PI_API_KEY` (never a key on argv).
     Known model context windows are included; otherwise pi's default applies.
     `agent_end` may precede automatic retries/compaction and never completes a
-    live run. `agent_settled` is terminal; an `agent_end` with `willRetry: false`
+    live run. `agent_settled` is terminal: it retires the run's open inputs and
+    tears down the long-lived RPC session. An `agent_end` with `willRetry: false`
     is also accepted at clean EOF with exit 0 and a dead process. An assistant
     error remains an error unless a later successful retry replaces it.
     Startup failures use the shared bounded/redacted stderr diagnostic.
