@@ -43,8 +43,10 @@ class Client:
         return data
 
     def send(self, row):
-        self.post("sendmessage", {"msg": {
+        data = self.post("sendmessage", {"msg": {
             "from_user_id": "", "to_user_id": row["peer"], "client_id": row["outbox_id"],
             "message_type": 2, "message_state": 2, "context_token": row["context_token"],
             "item_list": [{"type": 1, "text_item": {"text": row["text"]}}],
         }})
+        message_id = data.get("message_id")
+        return None if message_id is None else str(message_id)

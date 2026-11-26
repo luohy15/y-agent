@@ -61,9 +61,14 @@ latest trace chat, and never creates a chat. A missing, foreign, closed, or
 shared-read-only todo gets one short reply and opens no turn. A reply or
 quote is still attached only after the prefix is taken off.
 A private reply or selected quote is prepended to the user's own text as a
-Markdown blockquote (selected `quote.text`, else the direct reply target's
-`text`, else its `caption`; a non-text target leaves the message unchanged)
-before it is stored and handed to the model.
+shared Markdown blockquote (`storage.service.inbound_quote`, selected
+`quote.text`, else the direct reply target's `text`, else its `caption`)
+before it is stored and handed to the model. The quote carries a sender header
+(`[Quoted assistant]` for the bot, `[Quoted you]` for the user), is capped at
+500 characters with `… [truncated]`, and a non-text target shows a placeholder
+(`[image]`, `[file: <name>]`, `[voice]`, `[video]`, `[attachment]`) so a reply
+is never silently dropped. A blank line separates the quote from the typed
+text. WeChat uses the same formatter.
 
 A private-chat document (one file per update; albums arrive as separate
 updates) is downloaded and stored under
@@ -113,8 +118,9 @@ best-effort drop.
    trace/topic lookup keep working exactly as before.
 7. As a user, I want a Telegram reply or a selected quote to arrive as a `> `
    blockquote ahead of my own message, so that the assistant sees which earlier
-   message I am referring to. A reply target with no text or caption stays a
-   plain message.
+   message I am referring to and whether it was mine or the bot's. A reply
+   target with no text or caption becomes a media placeholder instead of a
+   silent drop.
 8. As a user, I want a non-image file I send in a private chat to be saved and
    named in the agent's prompt (filename, type, stored path), and I want an
    oversize, blocked, failed, or jump-node file to get a clear reply instead of

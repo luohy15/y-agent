@@ -57,7 +57,11 @@ later inbound message routes that reply back to the chat. Telegram and WeChat
 share one inbound parser for `/<chat_id>` and `/<todo_id>`
 (`storage.service.reply_route` plus `storage.service.inbound_route`); a todo
 prefix resolves to that todo's existing trace chat, never creates a chat, and
-leaves the resulting turn's delivery unchanged. `y gateway send
+leaves the resulting turn's delivery unchanged. The two channels also share one
+inbound quote formatter (`storage.service.inbound_quote`): a reply or selected
+quote becomes a sender-headed blockquote (`[Quoted assistant]` /
+`[Quoted you]`) capped at 500 characters, with media and unavailable-content
+placeholders, before the turn is created. `y gateway send
 --reply-chat <id>` passes it. `config` and `status` are unchanged.
 
 For manager turns, the worker mirrors user text from web or CLI through the

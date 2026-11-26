@@ -76,6 +76,13 @@ class WechatOutboxEntity(Base, BaseEntity):
     available = Column(BigInteger, nullable=False, default=0)
     lease = Column(String)
     enc_version = Column(SmallInteger, nullable=False, server_default="0")
+    provider_message_id = Column(String)
+
+
+# Defined outside the class body: `text` there resolves to the class's own column.
+Index("ix_wechat_outbox_provider_msg", WechatOutboxEntity.__table__.c.account,
+      WechatOutboxEntity.__table__.c.peer, WechatOutboxEntity.__table__.c.provider_message_id,
+      postgresql_where=text("provider_message_id IS NOT NULL"))
 
 
 class WechatInboundEntity(Base, BaseEntity):
@@ -86,3 +93,7 @@ class WechatInboundEntity(Base, BaseEntity):
     enqueue_chat = Column(String)
     enqueue_seq = Column(Integer)
     peer = Column(String, nullable=False, index=True)
+    quote_text = Column(Text)
+    media_kind = Column(String)
+    media_name = Column(String)
+    enc_version = Column(SmallInteger, nullable=False, server_default="0")

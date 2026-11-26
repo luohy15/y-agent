@@ -444,16 +444,65 @@ def _remember_context(db, account, peer, owner, context_token):
         row.status = "pending"
 
 
-async def inbound(db, account, message_id, peer, text, context_token, media):
+def _quote_context(db, account, owner, peer, quote):
+    """Resolve one inbound `quote` payload into shared `QuoteContext`.
+
+    Stored rows are only read through `(account, peer, user_id)`, so a quote id
+    from another peer or another user resolves to nothing. Inline content the
+    bridge forwarded wins as a fallback when the row is gone; a quote that
+    cannot be resolved at all becomes the explicit unresolved placeholder.
+    """
+    from storage.service.inbound_quote import QuoteContext, resolve_partial_quote
+
+    if not quote:
+        return None
+    text = (quote.get("text") or "").strip()
+    title = (quote.get("title") or "").strip()
+    media_kind = quote.get("media_kind")
+    media_name = quote.get("media_name")
+    partial = quote.get("partial_text")
+    svr_id = quote.get("svr_id")
+    svr_id = str(svr_id).strip() if svr_id is not None else ""
+    sender, full = None, ""
+    if svr_id:
+        sent = db.scalar(select(Outbox).filter_by(
+            account=account.account, peer=peer, provider_message_id=svr_id, user_id=owner))
+        if sent is not None:
+            sender, full = "assistant", sent.text or ""
+        else:
+            received = db.scalar(select(Inbound).filter_by(
+                account=account.account, message_id=svr_id, peer=peer, user_id=owner))
+            if received is not None:
+                sender, full = "you", received.quote_text or ""
+                media_kind = media_kind or received.media_kind
+                media_name = media_name or received.media_name
+    if not full:
+        if text and title and title != text:
+            full = f"{title} | {text}"
+        else:
+            full = text or title
+    if partial and full:
+        resolved = resolve_partial_quote(full, partial)
+        if resolved:
+            full = resolved
+    if not full and not media_kind:
+        return QuoteContext(unresolved=True) if svr_id else None
+    return QuoteContext(text=full, sender=sender, media_kind=media_kind, media_name=media_name)
+
+
+async def inbound(db, account, message_id, peer, text, context_token, media,
+                  media_kind=None, media_name=None, quote=None):
     from storage.dto.chat import Chat
     from storage.repository import chat as chat_repo
     from storage.service import chat as chats
+    from storage.service.inbound_quote import format_quoted_message
     from storage.service.inbound_route import resolve_todo_route, usage_notice
     from storage.service.reply_route import split_inbound_route
     from storage.util import get_utc_iso8601_timestamp
 
     lock_channel(db)
-    if db.get(Inbound, (account.account, message_id)):
+    if db.scalar(select(Inbound.message_id).filter_by(
+            account=account.account, message_id=message_id)) is not None:
         return {"result": "duplicate"}
     now = int(time.time())
     recent = db.scalar(select(func.count()).select_from(Inbound).where(
@@ -481,10 +530,16 @@ async def inbound(db, account, message_id, peer, text, context_token, media):
         return {"result": "notice"}
     if not admitted(active.user_id):
         return {"result": "not_admitted"}
+    # Only an active, admitted peer's own text is stored for future quotes: a
+    # binding PIN, a stranger's message, or a not-admitted row never lands here.
+    receipt.quote_text = (text or "") or None
+    receipt.media_kind = media_kind
+    receipt.media_name = media_name
     event = digest(f"{active.generation}:{message_id}")
     if media or not (text or "").strip():
         enqueue(db, account, peer, "Text messages only for now.", event, active.user_id)
         return {"result": "notice"}
+    quote_context = _quote_context(db, account, active.user_id, peer, quote)
     route = split_inbound_route(text, skip_leading_quotes=True)
     if route.kind:
         if not route.body.strip():
@@ -497,7 +552,8 @@ async def inbound(db, account, message_id, peer, text, context_token, media):
         if target is not None:
             try:
                 accepted = await chats.accept_user_message(
-                    active.user_id, target, route.body, source="wechat", human_reply=True, session=db,
+                    active.user_id, target, format_quoted_message(route.body, quote_context),
+                    source="wechat", human_reply=True, session=db,
                     event_id=f"wc_{active.generation}_{event}")
                 if not accepted.already_running:
                     receipt.enqueue_chat = accepted.chat.id
@@ -517,8 +573,9 @@ async def inbound(db, account, message_id, peer, text, context_token, media):
         chat_repo.release_role(active.user_id, "manager", except_chat_id=chat.id, session=db)
     try:
         accepted = await chats.accept_user_message(
-            active.user_id, chat, "load manager skill" if reset else text, role="manager",
-            source=None if reset else "wechat", human_reply=True, session=db,
+            active.user_id, chat,
+            "load manager skill" if reset else format_quoted_message(text, quote_context),
+            role="manager", source=None if reset else "wechat", human_reply=True, session=db,
             event_id=f"wc_{active.generation}_{event}")
         if not accepted.already_running:
             receipt.enqueue_chat = accepted.chat.id
@@ -824,10 +881,13 @@ def finish(row, ok, now):
     row.available = now + 2 ** row.attempts if row.status == "pending" else 0
 
 
-def ack(db, account, outbox_id, lease, ok):
+def ack(db, account, outbox_id, lease, ok, provider_message_id=None):
     row = db.scalar(select(Outbox).filter_by(account=account.account, outbox_id=outbox_id))
     if not row or row.status != "leased" or not secrets.compare_digest(row.lease or "", lease):
         raise ChannelError(409, "Stale lease")
+    pid = str(provider_message_id).strip() if provider_message_id is not None else ""
+    if ok and pid:
+        row.provider_message_id = pid
     now = int(time.time())
     finish(row, ok, now)
     if not ok:

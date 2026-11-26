@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from storage.repository.user import get_user_by_telegram_id, bind_telegram_id, unbind_telegram_id
 from storage.repository.chat import find_latest_chat_by_role
+from storage.service.inbound_quote import QuoteContext, format_quoted_message
 from storage.service.inbound_route import resolve_todo_route, usage_notice
 from storage.service.reply_route import split_inbound_route
 from storage.service.telegram import resolve_target
@@ -40,42 +41,64 @@ async def _refuse_unapproved(telegram_chat_id, user) -> bool:
     await _send_message(telegram_chat_id, _ACCESS_REFUSAL)
     return True
 
-def _reply_context(message: dict) -> Optional[str]:
-    """Quoted context from an inbound Telegram message, or None.
+def _reply_target_sender(reply: dict) -> Optional[str]:
+    sender = reply.get("from")
+    if not isinstance(sender, dict):
+        return None
+    return "assistant" if sender.get("is_bot") else "you"
+
+
+def _reply_target_media(reply: dict) -> tuple[Optional[str], Optional[str]]:
+    """`(media_kind, media_name)` for a reply target, used when it has no text."""
+    if reply.get("photo") is not None:
+        return "image", None
+    document = reply.get("document")
+    if isinstance(document, dict):
+        name = document.get("file_name")
+        return "file", name if isinstance(name, str) and name else None
+    if reply.get("voice") is not None or reply.get("audio") is not None:
+        return "voice", None
+    if reply.get("video") is not None or reply.get("video_note") is not None:
+        return "video", None
+    if reply.get("animation") is not None or reply.get("sticker") is not None:
+        return "attachment", None
+    return None, None
+
+
+def _reply_context(message: dict) -> Optional[QuoteContext]:
+    """Quote context from an inbound Telegram message, or None.
 
     Precedence is the explicitly selected quote (`message.quote.text`), then the
     direct reply target's `text`, then that target's `caption`. Only the direct
     `reply_to_message` is read: nested replies, `external_reply`, and
-    `reply_to_story` are ignored. Empty or whitespace-only text is None, so a
-    non-text target (sticker, photo without caption, voice) leaves the message
-    unchanged. Never invents placeholder text.
+    `reply_to_story` are ignored. Sender attribution comes from that reply
+    target even for a selected quote. A reply target with no text or caption
+    keeps its media placeholder (`[image]`, `[file: <name>]`, `[voice]`,
+    `[video]`, `[attachment]`) so a quote is never silently dropped.
     """
+    reply = message.get("reply_to_message")
+    reply = reply if isinstance(reply, dict) else None
+    sender = _reply_target_sender(reply) if reply is not None else None
     quote = message.get("quote")
     if isinstance(quote, dict):
         text = (quote.get("text") or "").strip()
         if text:
-            return text
-    reply = message.get("reply_to_message")
-    if isinstance(reply, dict):
+            return QuoteContext(text=text, sender=sender)
+    if reply is not None:
         text = (reply.get("text") or "").strip()
-        if text:
-            return text
-        caption = (reply.get("caption") or "").strip()
-        if caption:
-            return caption
+        if not text:
+            text = (reply.get("caption") or "").strip()
+        media_kind, media_name = _reply_target_media(reply)
+        if text or media_kind:
+            return QuoteContext(
+                text=text, sender=sender, media_kind=media_kind, media_name=media_name,
+            )
     return None
 
 
-def _with_reply_context(body: str, context: Optional[str]) -> str:
-    """Prepend `context` as a Markdown blockquote, or return `body` unchanged.
-
-    A blank line separates the quote from the body so CommonMark does not treat
-    the next line as a lazy continuation of the blockquote.
-    """
-    if context is None:
-        return body
-    quoted = "\n".join("> " + line for line in context.splitlines())
-    return quoted + "\n\n" + body
+def _with_reply_context(body: str, context: Optional[QuoteContext]) -> str:
+    """Prepend `context` as a shared Markdown blockquote, or return `body`."""
+    return format_quoted_message(body, context)
 
 
 TELEGRAM_BOT_TOKEN = get_telegram_bot_token()

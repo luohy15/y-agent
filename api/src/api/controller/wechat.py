@@ -1,6 +1,6 @@
 import asyncio
 import time
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, ValidationError
@@ -39,6 +39,25 @@ class Revoke(BaseModel):
     peer: Identifier
 
 
+class PartialText(BaseModel):
+    model_config = {"extra": "ignore"}
+    start: Annotated[str, Field(max_length=64000)] | None = None
+    end: Annotated[str, Field(max_length=64000)] | None = None
+    startindex: Any = None
+    endindex: Any = None
+    quotemd5: Annotated[str, Field(max_length=64)] | None = None
+
+
+class Quote(BaseModel):
+    model_config = {"extra": "forbid"}
+    svr_id: Identifier | None = None
+    text: Annotated[str, Field(max_length=64000)] | None = None
+    title: Annotated[str, Field(max_length=64000)] | None = None
+    media_kind: Identifier | None = None
+    media_name: Annotated[str, Field(max_length=1024)] | None = None
+    partial_text: PartialText | None = None
+
+
 class Inbound(BaseModel):
     model_config = {"extra": "forbid"}
     message_id: Identifier
@@ -46,6 +65,9 @@ class Inbound(BaseModel):
     text: Annotated[str, Field(max_length=64000)] = ""
     context_token: Token | None = None
     media: bool = False
+    media_kind: Identifier | None = None
+    media_name: Annotated[str, Field(max_length=1024)] | None = None
+    quote: Quote | None = None
 
 
 class Ack(BaseModel):
@@ -53,6 +75,7 @@ class Ack(BaseModel):
     outbox_id: Identifier
     lease: Identifier
     ok: bool
+    provider_message_id: Annotated[str, Field(max_length=256)] | None = None
 
 
 class Heartbeat(BaseModel):

@@ -267,15 +267,24 @@ entity + controller + service + CLI slices, and most have a web panel.
   that user's node. One iLink bridge on `claude-relay`
   (`y-agent-wechat-bridge.service`) polls every peer. Bridge routes authenticate
   the bot's opaque token. Inbound resolves the sender's peer. A `/<chat_id> `
-  prefix, after leading `> ` quotes, routes to that owner's chat and resumes
-  its role, skill, trace and work dir; a miss notices `chat /<id> not found`.
+  prefix, after any leading `> ` quote lines, routes to that owner's chat and
+  resumes its role, skill, trace and work dir; a miss notices
+  `chat /<id> not found`.
+  A reply or selected quote is composed by the shared
+  `storage.service.inbound_quote` formatter (`[Quoted assistant]` /
+  `[Quoted you]`, 500-char truncation, media and unavailable placeholders) and
+  reaches `Message.content` the same way as Telegram. An ID-only `svr_id`
+  resolves through `wechat_outbox.provider_message_id` (the bridge acks the
+  provider message id) or `wechat_inbound.message_id`, filtered strictly by
+  `(account, peer, user_id)`; nothing crosses peers or users.
   Other text reserves that owner's manager turn. WeChat-triggered manager
   turns reply only through `enqueue_reply` in that peer's outbox, regardless of
   channel preference. Gateway sends that select WeChat enqueue text through
   `notify_user` for the peer owner, with no maintainer gate. A non-maintainer
   never receives the bot token.
-  Apply `migration/4400_wechat_channel.sql` and `migration/4404_wechat_multipeer.sql`
-  before enabling the multi-peer routes.
+  Apply `migration/4400_wechat_channel.sql`, `migration/4404_wechat_multipeer.sql`
+  and `migration/4477_wechat_quote_index.sql` before enabling the multi-peer
+  routes and quote resolution.
   See `docs/prd/wechat-channel.md`.
 - **Artifacts** — assistant markdown fences tagged `mermaid`, `vega-lite`, or
   `artifact-svg` render inline via lazy Mermaid / Vega-Lite / sanitized SVG rendering.

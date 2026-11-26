@@ -30,6 +30,8 @@ class TableSpec:
             return f"{obj.chat_id}:{obj.request_id}"
         if self.table == "chat_context_contributor":
             return f"{obj.chat_id}:{obj.session_id}:{obj.occurrence_id}"
+        if self.table == "wechat_inbound":
+            return f"{obj.account}:{obj.message_id}"
         value = getattr(obj, self.public_attr)
         if value is None or value == "":
             raise RuntimeError("missing public id")
@@ -44,6 +46,7 @@ SPECS = {
     "WechatAccountEntity": _spec("wechat_account", "account", ("bot_token",)),
     "WechatContextEntity": _spec("wechat_context", "key", ("context_token",)),
     "WechatOutboxEntity": _spec("wechat_outbox", "outbox_id", ("text",)),
+    "WechatInboundEntity": _spec("wechat_inbound", "message_id", ("quote_text", "media_name")),
     "ChatEntity": _spec("chat", "chat_id", ("title", "json_content"), clear=("search_text",)),
     "ChatWakeupEntity": _spec("chat_wakeup", "wakeup_id", ("message",)),
     "TodoEntity": _spec("todo", "todo_id", ("name", "desc", "progress", "tags", "history")),

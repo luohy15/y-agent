@@ -302,7 +302,9 @@ already provisioned non-maintainer account; Wu is not contacted.
 Inbound:
 
 1. The bridge posts each non-bot `WeixinMessage` to the API with account id,
-   provider message id, sender id, text and the message's `context_token`.
+   provider message id, sender id, text, the message's own media hint,
+   `context_token`, and its structured `quote` when the message carries a
+   `ref_msg`.
 2. The API rejects unknown, revoked or paused accounts, deduplicates by provider
    message id before touching chat, and applies a per-peer inbound rate cap.
 3. The API resolves the sender's peer row:
@@ -311,11 +313,23 @@ Inbound:
      count, then activate or revoke, no turn;
    - active peer: re-check the peer owner's admission and continue.
 4. Non-text items receive one fixed "text only for now" notice and create no
-   turn. Quoted text is prepended as a blockquote in the same shape Telegram
-   uses.
-4. Text that starts with `/<chat_id> ` or `/<todo_id> ` (after any leading
-   `> ` quote lines the bridge prepended) goes to that peer owner's chat
-   through `accept_user_message` with `source="wechat"` and
+   turn. Their text, media kind and media name are still stored on the inbound
+   receipt so a later quote of that message can show a media placeholder.
+5. A reply or selected quote goes through the shared
+   `storage.service.inbound_quote` formatter: `> [Quoted assistant]: …` for a
+   bot message, `> [Quoted you]: …` for a user message, truncated at 500
+   characters, separated from the typed text by a blank line. An inline
+   `ref_msg` text (including a `voice_item.text` transcript), title or media
+   hint is used directly; an ID-only quote
+   resolves `svr_id` against `wechat_outbox.provider_message_id` (bot messages)
+   or `wechat_inbound.message_id` (user messages), filtered strictly by
+   `(account, peer, user_id)`. A selected substring (`partial_text`) is
+   resolved against the stored body with the client's `quotemd5`; a miss falls
+   back to the full body. A quote whose content is gone, foreign, or from
+   another peer becomes `[Quoted earlier message: content unavailable]`, never a
+   silent drop and never another peer's text.
+6. Text that starts with `/<chat_id> ` or `/<todo_id> ` goes to that peer
+   owner's chat through `accept_user_message` with `source="wechat"` and
    `human_reply=True`. A todo prefix resolves through the shared
    `storage.service.inbound_route` resolver to the todo's handle chat,
    otherwise its latest trace chat, and never creates a chat. Neither prefix
@@ -324,14 +338,18 @@ Inbound:
    shared-read-only todo gets one outbox notice (`todo /<id> not found`,
    `todo /<id> is closed`, `todo /<id> is shared read-only`). Neither opens a
    turn. The receipt resumes the target chat with its own role, skill, trace
-   and work dir.
-5. Other text reaches the peer owner's manager chat through the existing
+   and work dir. Legacy bridges that still pre-flatten a quote as leading
+   `> ` lines keep working, and the identical quote is not duplicated.
+7. Other text reaches the peer owner's manager chat through the existing
    append-or-steer path with `source="wechat"` and `human_reply=True`; a new
    manager chat is created when none exists. `/new` and `/clear` restart that
-   manager session, mirroring Telegram.
-6. The inbound receipt records the resolved owner and the queued run, so a
+   manager session, mirroring Telegram, and a quote attached to `/clear` does
+   not survive the reset.
+8. The inbound receipt records the resolved owner and the queued run, so a
    replay delivers to the same user or fails closed if the peer is no longer
-   active.
+   active. It also stores the message text, media kind and media name for
+   future quote resolution under the tenant-encryption fields of
+   `wechat_inbound` (`quote_text`, `media_name`).
 
 Outbound:
 
