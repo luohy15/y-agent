@@ -78,12 +78,12 @@ def _process_snapshot():
 
 def _fault_detail(reason, chat_id, outcome, error_text) -> str:
     detail = {
-        "idle": "No running session.",
-        "backstop": f"Active for over {ZERO_CHAT_BACKSTOP_SECONDS // 3600} hours with no chat on the todo.",
-        "session_end": "Session ended; nothing else is running on the todo.",
+        "idle": "没有正在运行的会话。",
+        "backstop": f"已活跃超过 {ZERO_CHAT_BACKSTOP_SECONDS // 3600} 小时，但该 todo 没有任何会话。",
+        "session_end": "会话已结束，该 todo 上没有其他任务在运行。",
     }[reason]
     if chat_id:
-        detail += f" Last chat {chat_id}: exit {outcome}."
+        detail += f" 最近的会话 {chat_id}：退出状态 {outcome}。"
         excerpt = todo_service.notice_excerpt(error_text)
         if excerpt:
             detail += f" {excerpt[:ERROR_TEXT_LIMIT]}"
@@ -167,7 +167,7 @@ def claim_idle_trace(user_id: int, todo, reason: str, observed_after_ms: int) ->
         attention = next((c for c in chats if c.status == "idle" and c.needs_attention), None)
         if attention:
             seen["chat_id"] = attention.chat_id
-            return f"Chat {attention.chat_id} is waiting for your reply.", attention.chat_id, True
+            return f"会话 {attention.chat_id} 正在等待你的回复。", attention.chat_id, True
         chat_id = chats[0].chat_id if chats else None
         outcome = (newest_record or {}).get("status") or "unknown"
         error_text = None

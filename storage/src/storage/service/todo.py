@@ -328,7 +328,6 @@ def _transition_locked(session, row, fields, *, action="updated", extra_note=Non
     return True
 
 
-_NOTICE_NAME_LIMIT = 120
 NOTICE_LIMIT = 200
 FAULT_TEXT_LIMIT = 1000
 _CREDENTIAL_RES = (
@@ -405,12 +404,13 @@ def notice_excerpt(text: Optional[str]) -> Optional[str]:
 def awaiting_notice_text(todo: Todo, extra: Optional[str] = None) -> str:
     """Plain-text owner DM for a new awaiting inbox entry.
 
-    `extra` is bounded context from the triggering event: watchdog/death
-    evidence, or a writer-supplied awaiting summary. It is never read back
-    from a persisted reason field.
+    The heading carries only the todo id; the stored English name is not
+    rendered. `extra` is bounded context from the triggering event: a
+    writer-supplied Chinese summary, or a watchdog/death claim's Chinese
+    sentence plus an optional raw error tail. It is never read back from a
+    persisted reason field.
     """
-    name = (todo.name or "")[:_NOTICE_NAME_LIMIT]
-    lines = [f"【progress】{todo.todo_id} {name}"]
+    lines = [f"【progress】{todo.todo_id}"]
     if extra:
         lines.append(extra[:FAULT_TEXT_LIMIT])
     return "\n".join(lines)
@@ -657,7 +657,7 @@ def claim_fault(user_id: int, todo_id: str, *, expected_updated_at_unix: int, re
             return False
         if wait and not user_blocked:
             lapsed = datetime.fromtimestamp(wait["until"] / 1000, tz=timezone.utc).isoformat()
-            detail = f'Declared machine wait "{wait["on"]}" lapsed at {lapsed} with no callback.'
+            detail = f'声明的机器等待 "{wait["on"]}" 已于 {lapsed} 到期，没有收到回调。'
         claimed["detail"] = detail
         return _await_locked(session, row, pointer_chat_id, extra_note=detail)
 

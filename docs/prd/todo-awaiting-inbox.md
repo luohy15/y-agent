@@ -423,7 +423,7 @@ y todo list --status awaiting
   progress/note and runs `y chat attention` before stopping. The shared idle
   recheck selects the newest idle same-owner, same-trace attention chat (by
   updated time, then chat id), sets `handle_chat` to it and reports
-  `Chat <id> is waiting for your reply.` This also overrides a live declared
+  `会话 <id> 正在等待你的回复。` This also overrides a live declared
   machine wait, but never running chats/processes/tmux, unknown or stale
   runtime, pending release waiters or registered wakeups. Human replies clear
   attention through the existing acceptance path and resume awaiting work.
@@ -539,7 +539,7 @@ unlocked hint without rechecking. The death-delivery fallback returns
 
 A successful user-blocked claim clears the wait and keeps the reply notice,
 even if the declaration has expired. Other successful fault claims after expiry
-report `Declared machine wait "<on>" lapsed at <iso> with no callback.` Unknown
+report `声明的机器等待 "<on>" 已于 <iso> 到期，没有收到回调。` Unknown
 snapshot or other live evidence still suppresses. A child that omits attention
 under a live hold remains suppressed until expiry; checkpoint rules are the
 mitigation, not prose inference. No timer is created and no automatic
@@ -613,28 +613,31 @@ no polling, and no worker change. Status stays active. The watchdog is unchanged
 
 ### Agent notice and fault-notice wording
 
-Agent notice is compact: a fixed one-line heading plus optional bounded
-context from the triggering event. The heading is literal lowercase
-`【progress】`, then the todo id and name separated by one space. There is still
-no literal `todo`, invented review/question/stalled label, "needs you", or
-reply instruction. Missing context is valid: the notice is just the one-line
-heading.
+Agent notice is compact: one fixed heading line plus optional bounded context
+from the triggering event, written in Chinese. The heading is the literal
+label `【progress】` followed by the todo id, with no name and no space after
+the id. The notice text is a Chinese summary; stored `name` / `desc` /
+`--progress` stay English, so `y todo get` / `y todo list` and cross-session
+handoff reads are unaffected. There is still no literal `todo`, invented
+review/question/stalled label, "needs you", or reply instruction. Missing
+context is valid: the notice is just the heading line.
 
 ```text
-【progress】<id> <name>
-[<one-line context>]
+【progress】<id>
+[<中文摘要>]
 ```
 
-The optional second line is evidence, not a reason enum. It is supplied by the
-writer (`y todo status <id> awaiting --note "<sentence>"` /
-`POST /api/todo/status` `notice`) or by a watchdog/death claim's
-structural sentence plus optional error tail. The renderer
-(`awaiting_notice_text`) still just prints `extra` when present; it does
-not invent urgency, completion, or a decision.
+The optional second line is evidence, not a reason enum. A reporting session
+supplies it directly in concise Chinese through `y todo status <id> awaiting
+--note "<中文摘要>"` / `POST /api/todo/status` `notice`. A watchdog or death
+claim supplies a localized structural sentence plus an optional raw error
+tail; the error excerpt is kept verbatim, not translated. The renderer
+(`awaiting_notice_text`) just prints `extra` when present; it does not
+translate, invent urgency, completion, or a decision.
 
 Writer-supplied text is never silently altered. Validation runs before
 any mutation and raises (API 400, clean CLI `Error:` line) when the
-whitespace-collapsed summary exceeds 200 characters, is empty, or
+whitespace-collapsed summary exceeds 200 Unicode characters, is empty, or
 matches a credential shape (`sk-`, `ghp_`, `gho_`, `github_pat_`,
 `AKIA`, `xoxb-`, `Bearer `, `Authorization:`, `://user:pass@`, and
 unbroken 40+ character mixed tokens that contain both a letter and a
@@ -649,12 +652,21 @@ sentence survives, because a watchdog or death claim cannot retry. The
 accepted summary is folded into the same history entry as the status
 change, labelled `notice:` (fault claims keep `fault:`).
 
+The localized fault sentences are: idle `没有正在运行的会话。`; the
+24-hour zero-chat backstop `已活跃超过 24 小时，但该 todo 没有任何会话。`;
+session end `会话已结束，该 todo 上没有其他任务在运行。`; the newest-chat
+suffix ` 最近的会话 <chat_id>：退出状态 <outcome>。`; the idle attention
+checkpoint `会话 <chat_id> 正在等待你的回复。`; a lapsed declared wait
+`声明的机器等待 "<on>" 已于 <iso> 到期，没有收到回调。`; and the death
+inbox prefix `Todo <id> 的会话 <chat_id> 异常结束（<outcome>）。` The
+parent-chat death dispatch and its manager text remain English.
+
 **No awaiting notice carries a reply instruction.** The notice names the
 todo; it never tells Roy where to type the answer, and it makes no
 distinction between a human-declared await and a fault claim. Shipped in
-`awaiting_notice_text`: the one-line `【progress】<id> <bounded name>`
-heading, then `extra` when present, and nothing else. The chat pointer is not
-rendered by any writer.
+`awaiting_notice_text`: the one-line `【progress】<id>` heading, then `extra`
+when present, and nothing else. The chat pointer is not rendered by any
+writer.
 
 **`handle_chat` is the only chat pointer.** The separate reply column is
 gone (todo 4441). What the notice trim removed is a rendered instruction,
@@ -665,9 +677,9 @@ column is the handle. The host trace todo detail renders Talk to from the
 resolved open chat, the handle while it is live, and has no second reply row
 (see Schema and Reading above). The notice path still does not render it.
 
-This wording changed twice and the reasons are kept as history, because the
-fault-notice argument still explains the shape even though it is no longer
-expressed as a branch:
+This wording changed over several iterations and the reasons are kept as
+history, because the fault-notice argument still explains the shape even
+though it is no longer expressed as a branch:
 
 1. Todo 3495 iteration 2 trimmed the DM to its essential lines but kept an
    `Answer in chat <chat_id>: reply here with "/<chat_id> <your answer>"`
@@ -697,6 +709,13 @@ expressed as a branch:
    `【progress】<id> <name>`. The literal `todo` and the newline between id and
    name are removed; optional context follows on the second line. All other
    notice semantics remain unchanged.
+7. Todo 4481 (iteration 7) drops the name from the heading and writes the
+   notice in Chinese: `【progress】<id>` plus an optional Chinese summary.
+   Stored `name` / `desc` / `--progress` and leaf-to-parent `y chat` callbacks
+   stay English. The `claim_fault` lapsed-wait text, the watchdog/session-end
+   templates and the death inbox prefix are localized; raw error excerpts and
+   the parent-chat death dispatch stay English. `--note` on an already-awaiting
+   row still sends no second DM.
 
 ### Runtime death delivery
 
@@ -793,8 +812,8 @@ expressed as a branch:
   (`session`, `child`, `tmux`, `process`, pending `waiter`/`wakeup`,
   `unknown`) applies unchanged. It only claims a todo that is still
   `active` at its own read, so a session's explicit awaiting wins and no
-  duplicate notice is sent. On a claim the detail is `Session ended;
-  nothing else is running on the trace. Last chat <id>: exit completed.`
+  duplicate notice is sent. On a claim the detail is
+  `会话已结束，该 todo 上没有其他任务在运行。 最近的会话 <id>：退出状态 completed。`
   and the notice comes from the same shared post-commit hook. The reconcile
   is best-effort, and any failure is logged without affecting the closeout.
   The five-minute pass stays the abnormal-recovery fallback.

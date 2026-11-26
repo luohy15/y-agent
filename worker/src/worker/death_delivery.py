@@ -85,6 +85,7 @@ async def deliver_death(chat_id, proc, outcome, error):
         return "obsolete"
     chat_service.mark_chat_completion_unread(user_id, chat_id)
     prefix = f"Todo {chat.trace_id or 'unknown'}, chat {chat_id}: observed {outcome}."
+    inbox_prefix = f"Todo {chat.trace_id or 'unknown'} 的会话 {chat_id} 异常结束（{outcome}）。"
     error_text = str(error or "No error detail available.")[:1800]
     text = f"{prefix} {error_text}"
     if chat.role == "manager":
@@ -131,7 +132,7 @@ async def deliver_death(chat_id, proc, outcome, error):
                 return None
         if any(r.chat_id != chat_id and (r.updated_at_unix or 0) >= proc["started_at"] * 1000 for r in rows):
             return None
-        return inbox_fault_detail(prefix, error_text), chat_id, False
+        return inbox_fault_detail(inbox_prefix, error_text), chat_id, False
 
     try:
         _todo, changed = todo_service.claim_fault(
