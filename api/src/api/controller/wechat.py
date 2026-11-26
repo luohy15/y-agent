@@ -75,6 +75,7 @@ class MediaItem(BaseModel):
 
 class Inbound(BaseModel):
     model_config = {"extra": "forbid"}
+    account: Identifier
     message_id: Identifier
     peer: Identifier
     text: Annotated[str, Field(max_length=64000)] = ""
@@ -88,14 +89,21 @@ class Inbound(BaseModel):
 
 class Ack(BaseModel):
     model_config = {"extra": "forbid"}
+    account: Identifier
     outbox_id: Identifier
     lease: Identifier
     ok: bool
     provider_message_id: Annotated[str, Field(max_length=256)] | None = None
 
 
+class Claim(BaseModel):
+    model_config = {"extra": "forbid"}
+    account: Identifier
+
+
 class Heartbeat(BaseModel):
     model_config = {"extra": "forbid"}
+    account: Identifier
     polled: bool = False
 
 
@@ -193,18 +201,24 @@ async def bridge(action: str, request: Request):
 
 def bridge_action(action, token, data):
     try:
+        if action not in ("heartbeat", "inbound", "claim", "ack", "accounts"):
+            raise HTTPException(404)
+        wechat.authenticate(token)
         if action == "heartbeat":
             body = parse_body(data or b"{}", Heartbeat)
         elif action == "inbound":
             body = parse_body(data, Inbound)
         elif action == "claim":
-            body = parse_optional(data, Empty)
+            body = parse_body(data, Claim)
         elif action == "ack":
             body = parse_body(data, Ack)
         else:
-            raise HTTPException(404)
+            body = parse_optional(data, Empty)
         with get_db() as db:
-            account = wechat.authenticate(db, token)
+            if action == "accounts":
+                return wechat.active_accounts(db)
+            account = wechat.account_by_id(
+                db, body.account, for_update=action in ("heartbeat", "claim", "ack"))
             if action == "heartbeat":
                 account.heartbeat = int(time.time())
                 if body.polled:
@@ -212,13 +226,15 @@ def bridge_action(action, token, data):
                 return {"ok": True}
             if action == "inbound":
                 result = asyncio.run(wechat.inbound(
-                    db, account, media_handler=wechat_media.handle_media, **body.model_dump()))
+                    db, account, media_handler=wechat_media.handle_media,
+                    **body.model_dump(exclude={"account"})))
             elif action == "claim":
                 return wechat.claim(db, account)
             else:
-                return wechat.ack(db, account, **body.model_dump())
+                return wechat.ack(db, account, outbox_id=body.outbox_id, lease=body.lease,
+                                  ok=body.ok, provider_message_id=body.provider_message_id)
         if action == "inbound":
-            asyncio.run(wechat.deliver_receipt(token, body.message_id))
+            asyncio.run(wechat.deliver_receipt(body.account, body.message_id))
         return result
     except wechat.ChannelError as exc:
         raise HTTPException(exc.status, exc.detail) from None

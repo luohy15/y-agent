@@ -40,6 +40,12 @@ Parameters:
       backend dispatch fail closed (403) when this is unset
     Default: 4e3938bd4da22878a12f094f18ffa543_luohycs_at_gmail_dot_com
 
+  WechatBridgeKey:
+    Type: String
+    Description: Deployment key the WeChat relay bridge presents. Empty disables every bridge route.
+    NoEcho: true
+    Default: ""
+
   McpGatewayUrl:
     Type: String
     Default: https://yovy.app/api/mcp/runtime
@@ -485,6 +491,7 @@ Resources:
           DEEPSEEK_API_KEY: !Ref DeepSeekApiKey
           Y_AGENT_RELAY_CREDENTIAL_MODE: !Ref RelayCredentialMode
           Y_AGENT_RELAY_ORIGINS: !Ref RelayOrigins
+          Y_AGENT_WECHAT_BRIDGE_KEY: !Ref WechatBridgeKey
           Y_AGENT_TENANT_MASTER_KEY_PARAMETER: !Ref TenantMasterKeyParameter
           # Temporary /api/todo/list stage timing (todo 3788 R1); remove after B3.
           Y_AGENT_TODO_LIST_TIMING: "1"

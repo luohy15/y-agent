@@ -4,6 +4,7 @@ import os
 import re
 import sys
 import tempfile
+import threading
 import time
 from contextlib import contextmanager, suppress
 from pathlib import Path
@@ -363,80 +364,171 @@ def inbound(msg, account):
     return payload
 
 
-def run(path):
-    with exclusive(path), httpx.Client(follow_redirects=False) as http:
+REFRESH_SECONDS = 30
+
+
+class AccountUnavailable(Exception):
+    """The API no longer serves this account; stop its poller."""
+
+
+def env_config():
+    api = os.environ.get("Y_AGENT_WECHAT_BRIDGE_API", "").strip().rstrip("/")
+    key = os.environ.get("Y_AGENT_WECHAT_BRIDGE_KEY", "").strip()
+    if urlsplit(api).scheme != "https" or not key:
+        raise ValueError("Bridge requires an HTTPS API and a bridge key")
+    return api, key
+
+
+def account_entry(value):
+    """One account's durable cursor, tolerating a pre-migration shape."""
+    value = value if isinstance(value, dict) else {}
+    receipts = value.get("sent_unacked")
+    if not isinstance(receipts, dict):
+        receipts = {str(key): None for key in receipts or []}
+    return {"get_updates_buf": value.get("get_updates_buf") or "",
+            "sent_unacked": receipts,
+            "paused_until": value.get("paused_until") or 0}
+
+
+def load_state(path):
+    """Read the state, migrating the legacy single-account file in place."""
+    try:
         state = json.loads(path.read_bytes())
-        if path.stat().st_mode & 0o077 or urlsplit(state["api"]).scheme != "https":
-            raise ValueError("Bridge requires private state and HTTPS API")
-        client = Client(http, state["baseurl"], state["bot_token"])
+    except FileNotFoundError:
+        return {"accounts": {}}
+    accounts = state.get("accounts")
+    if not isinstance(accounts, dict):
+        account = state.get("ilink_bot_id")
+        accounts = {account: account_entry(state)} if isinstance(account, str) and account else {}
+    return {"accounts": {str(name): account_entry(value) for name, value in accounts.items()}}
 
-        def api(action, body=None, timeout=40):
-            response = http.post(state["api"] + "/api/wechat/bridge/" + action, json=body or {},
-                                 headers={"Authorization": "Bearer " + state["bridge_token"]},
-                                 timeout=timeout)
-            if response.status_code in (401, 403):
-                raise ValueError("Bridge revoked or access denied")
-            response.raise_for_status()
-            return response.json()
 
-        timeout = 35
-        started = False
+def api_call(http, api, key, action, body=None, timeout=40):
+    response = http.post(api + "/api/wechat/bridge/" + action, json=body or {},
+                         headers={"Authorization": "Bearer " + key}, timeout=timeout)
+    if response.status_code in (401, 403):
+        raise ValueError("Bridge revoked or access denied")
+    if response.status_code == 404:
+        raise AccountUnavailable()
+    response.raise_for_status()
+    return response.json()
+
+
+def drain(client, http, api, key, account, entry, path, state, lock):
+    for _ in range(100):
+        row = api_call(http, api, key, "claim", {"account": account})["item"]
+        if not row:
+            return
+        receipts = entry["sent_unacked"]
+        ok = row["outbox_id"] in receipts
+        if not ok:
+            try:
+                provider_message_id = client.send(row)
+            except ProviderError as exc:
+                if exc.code == -14:
+                    raise
+            else:
+                ok = True
+                with lock:
+                    receipts[row["outbox_id"]] = provider_message_id
+                    save(path, state)
+        ack = {"account": account, "outbox_id": row["outbox_id"], "lease": row["lease"], "ok": ok}
+        if receipts.get(row["outbox_id"]):
+            ack["provider_message_id"] = receipts[row["outbox_id"]]
+        api_call(http, api, key, "ack", ack)
+        if ok:
+            with lock:
+                receipts.pop(row["outbox_id"], None)
+                save(path, state)
+
+
+def account_loop(account, target, entry, path, state, lock, api, key, stop):
+    started = False
+    timeout = 35
+    with httpx.Client(follow_redirects=False) as http:
+        client = Client(http, target["base_url"], target["bot_token"])
         try:
-            while True:
+            while not stop.is_set():
                 try:
-                    api("heartbeat")
-                    if time.time() < state.get("paused_until", 0):
-                        time.sleep(30)
+                    api_call(http, api, key, "heartbeat", {"account": account})
+                    if time.time() < entry["paused_until"]:
+                        stop.wait(REFRESH_SECONDS)
                         continue
                     if not started:
                         client.post("msg/notifystart", {})
                         started = True
-                    for _ in range(100):
-                        row = api("claim")["item"]
-                        if not row:
-                            break
-                        receipts = state.setdefault("sent_unacked", {})
-                        if not isinstance(receipts, dict):
-                            receipts = {str(key): None for key in receipts}
-                            state["sent_unacked"] = receipts
-                        ok = row["outbox_id"] in receipts
-                        if not ok:
-                            try:
-                                provider_message_id = client.send(row)
-                            except ProviderError as exc:
-                                if exc.code == -14:
-                                    raise
-                            else:
-                                ok = True
-                                receipts[row["outbox_id"]] = provider_message_id
-                                save(path, state)
-                        ack = {"outbox_id": row["outbox_id"], "lease": row["lease"], "ok": ok}
-                        if receipts.get(row["outbox_id"]):
-                            ack["provider_message_id"] = receipts[row["outbox_id"]]
-                        api("ack", ack)
-                        if ok:
-                            receipts.pop(row["outbox_id"], None)
-                            save(path, state)
-                    batch = client.post("getupdates", {"get_updates_buf": state["get_updates_buf"]}, timeout+5)
+                    drain(client, http, api, key, account, entry, path, state, lock)
+                    batch = client.post("getupdates",
+                                        {"get_updates_buf": entry["get_updates_buf"]}, timeout + 5)
                     for msg in batch.get("msgs") or []:
-                        payload = inbound(msg, state["ilink_bot_id"])
+                        payload = inbound(msg, account)
                         if payload:
+                            payload["account"] = account
                             # The API fetches and decrypts media inside this
                             # request; give it more than the default budget.
-                            api("inbound", payload, timeout=120)
+                            api_call(http, api, key, "inbound", payload, timeout=120)
                     if batch.get("get_updates_buf"):
-                        state["get_updates_buf"] = batch["get_updates_buf"]
-                        save(path, state)
-                    api("heartbeat", {"polled": True})
-                    timeout = min(120, max(1, (batch.get("longpolling_timeout_ms") or 35000)/1000))
+                        with lock:
+                            entry["get_updates_buf"] = batch["get_updates_buf"]
+                            save(path, state)
+                    api_call(http, api, key, "heartbeat", {"account": account, "polled": True})
+                    timeout = min(120, max(1, (batch.get("longpolling_timeout_ms") or 35000) / 1000))
                 except ProviderError as exc:
                     if exc.code == -14:
-                        state["paused_until"] = time.time() + 3600
-                        save(path, state)
-                    time.sleep(3)
+                        with lock:
+                            entry["paused_until"] = time.time() + 3600
+                            save(path, state)
+                    stop.wait(3)
                 except httpx.HTTPError:
-                    time.sleep(3)
+                    stop.wait(3)
+                except AccountUnavailable:
+                    return
         finally:
             if started:
                 with suppress(httpx.HTTPError, ProviderError):
                     client.post("msg/notifystop", {})
+
+
+def run(path):
+    api, key = env_config()
+    with exclusive(path), httpx.Client(follow_redirects=False) as http:
+        if path.exists() and path.stat().st_mode & 0o077:
+            raise ValueError("Bridge requires private state and an HTTPS API")
+        state = load_state(path)
+        save(path, state)
+        lock = threading.Lock()
+        workers = {}
+        try:
+            while True:
+                try:
+                    listing = api_call(http, api, key, "accounts")["accounts"]
+                except httpx.HTTPError:
+                    time.sleep(REFRESH_SECONDS)
+                    continue
+                targets = {row["account"]: row for row in listing
+                           if isinstance(row, dict) and row.get("account")}
+                for account, worker in list(workers.items()):
+                    target = targets.get(account)
+                    if target is None or target != worker["target"] or not worker["thread"].is_alive():
+                        worker["stop"].set()
+                        del workers[account]
+                for account, target in targets.items():
+                    if account in workers:
+                        continue
+                    with lock:
+                        entry = state["accounts"].setdefault(account, account_entry({}))
+                        save(path, state)
+                    stop = threading.Event()
+                    thread = threading.Thread(
+                        target=account_loop,
+                        args=(account, target, entry, path, state, lock, api, key, stop),
+                        daemon=True,
+                    )
+                    thread.start()
+                    workers[account] = {"stop": stop, "thread": thread, "target": target}
+                time.sleep(REFRESH_SECONDS)
+        finally:
+            for worker in workers.values():
+                worker["stop"].set()
+            for worker in workers.values():
+                worker["thread"].join(timeout=10)

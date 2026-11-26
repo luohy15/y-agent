@@ -275,14 +275,18 @@ entity + controller + service + CLI slices, and most have a web panel.
 - **Channel gateway** — the authenticated `gateway` module supplies the panel
   and its API. The built-in `y gateway channels status|bind|unbind` inspects
   Telegram and WeChat bindings, guides binding, and confirms unbinding.
-  The host keeps credentials. WeChat unbind removes only the caller's peer;
-  maintainer revoke is separate.
+  The host keeps credentials. WeChat unbind and revoke affect only the caller's
+  own peer and account; there is no cross-user revoke.
   See [`docs/prd/channel-gateway.md`](docs/prd/channel-gateway.md).
-- **WeChat** — one ClawBot serves several peers. Each admitted user binds their
-  own WeChat from their own `y login`; DMs run in that user's manager chat on
-  that user's node. One iLink bridge on `claude-relay`
-  (`y-agent-wechat-bridge.service`) polls every peer. Bridge routes authenticate
-  the bot's opaque token. Inbound resolves the sender's peer. A `/<chat_id> `
+- **WeChat** — one iLink bot account per admitted user. Each user binds their
+  own bot from their own `y login` (every QR scan mints a new bot); DMs run in
+  that user's manager chat on that user's node. One relay bridge on
+  `claude-relay` (`y-agent-wechat-bridge.service`) polls every active account in
+  one process, with one thread and cursor per account. Bridge routes
+  authenticate with the deployment key `Y_AGENT_WECHAT_BRIDGE_KEY` (empty fails
+  closed) and carry an `account`; `POST /api/wechat/bridge/accounts` returns the
+  active inventory with per-owner decrypted tokens. Per-account `bridge_hash`
+  tokens are retired. Inbound resolves the sender's peer. A `/<chat_id> `
   prefix, after any leading `> ` quote lines, routes to that owner's chat and
   resumes its role, skill, trace and work dir; a miss notices
   `chat /<id> not found`.
@@ -300,10 +304,11 @@ entity + controller + service + CLI slices, and most have a web panel.
   Other text reserves that owner's manager turn. WeChat-triggered manager
   turns reply only through `enqueue_reply` in that peer's outbox, regardless of
   channel preference. Gateway sends that select WeChat enqueue text through
-  `notify_user` for the peer owner, with no maintainer gate. A non-maintainer
-  never receives the bot token.
-  Apply `migration/4400_wechat_channel.sql`, `migration/4404_wechat_multipeer.sql`
-  and `migration/4477_wechat_quote_index.sql` before enabling the multi-peer
+  `notify_user` for the peer owner, with no maintainer gate. A user never
+  receives their bot token; only the API and the bridge-key holder do.
+  Apply `migration/4400_wechat_channel.sql`, `migration/4404_wechat_multipeer.sql`,
+  `migration/4477_wechat_quote_index.sql` and
+  `migration/4496_wechat_per_user_account.sql` before enabling the multi-account
   routes and quote resolution.
   See `docs/prd/wechat-channel.md`.
 - **Artifacts** — assistant markdown fences tagged `mermaid`, `vega-lite`, or

@@ -1,12 +1,13 @@
-from sqlalchemy import BigInteger, CheckConstraint, Column, ForeignKey, Index, Integer, SmallInteger, String, Text, UniqueConstraint, text
+from sqlalchemy import BigInteger, Column, ForeignKey, Index, Integer, SmallInteger, String, Text, UniqueConstraint, text
 
 from storage.entity.base import Base, BaseEntity
 
 
 class WechatAccountEntity(Base, BaseEntity):
     __tablename__ = "wechat_account"
-    slot = Column(Integer, primary_key=True, autoincrement=False)
-    account = Column(String, nullable=False, unique=True)
+    account = Column(String, primary_key=True)
+    # Retained from the singleton-slot design; unused and nullable.
+    slot = Column(Integer)
     user_id = Column(Integer, ForeignKey("user.id"), nullable=False)
     bot_token = Column(Text)
     bridge_hash = Column(String)
@@ -16,7 +17,6 @@ class WechatAccountEntity(Base, BaseEntity):
     last_poll = Column(BigInteger)
     last_error = Column(String)
     enc_version = Column(SmallInteger, nullable=False, server_default="0")
-    __table_args__ = (CheckConstraint("slot = 1"),)
 
 
 class WechatPeerEntity(Base, BaseEntity):

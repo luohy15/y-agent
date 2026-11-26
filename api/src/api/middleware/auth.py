@@ -34,6 +34,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if request.method == "POST" and path in {
             "/api/wechat/bridge/inbound", "/api/wechat/bridge/claim",
             "/api/wechat/bridge/ack", "/api/wechat/bridge/heartbeat",
+            "/api/wechat/bridge/accounts",
         }:
             return await call_next(request)
 

@@ -1,5 +1,6 @@
 import json
 import time
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import click
@@ -12,7 +13,7 @@ from yagent.wechat import bridge
 
 @click.group("wechat")
 def wechat_group():
-    """Bind a WeChat peer, or operate the shared bridge."""
+    """Bind your own WeChat bot, or operate the relay bridge."""
 
 
 def write_qr(value, path):
@@ -47,44 +48,38 @@ def _call(api, token, method, path, **kwargs):
         raise click.ClickException(str(exc)) from None
 
 
-def bind_session(save_bridge, bot):
+def bind_session():
     api, token = saved_login()
-    path = bridge.state_path(bot)
+    image = Path.home() / ".y-agent" / "wechat" / "bind.png"
     session_id = None
     done = False
-    image = path.with_suffix(".png")
     try:
-        with bridge.exclusive(path):
-            started = _call(api, token, "POST", "/api/wechat/bind/start", json={}).json()
-            session_id = started["session_id"]
-            write_qr(started["qrcode"], image)
-            deadline = time.monotonic() + 480
-            pin = None
-            while time.monotonic() < deadline:
-                body = {"session_id": session_id}
-                if pin:
-                    body["pin"] = pin
-                    pin = None
-                result = _call(api, token, "POST", "/api/wechat/bind/poll", json=body).json()
-                status = result.get("status")
-                if status == "need_verifycode":
-                    pin = click.prompt("WeChat PIN", hide_input=True)
-                    continue
-                if status == "confirmed":
-                    if save_bridge:
-                        bridge.save(path, {"api": api, "bridge_token": result["bridge_token"],
-                                           "ilink_bot_id": result["account"], "baseurl": result["baseurl"],
-                                           "bot_token": result["bot_token"], "get_updates_buf": ""})
-                    elif any(key in result for key in ("bot_token", "bridge_token")):
-                        raise click.ClickException("Binding response included a bot credential")
-                    click.echo(f"DM this code within 10 minutes: {result['code']}")
-                    done = True
-                    return
-                if status in {"wait", "scaned"}:
-                    time.sleep(1)
-                    continue
-                raise click.ClickException(result.get("detail") or "Binding stopped")
-            raise click.ClickException("QR login expired; start again")
+        started = _call(api, token, "POST", "/api/wechat/bind/start", json={}).json()
+        session_id = started["session_id"]
+        write_qr(started["qrcode"], image)
+        deadline = time.monotonic() + 480
+        pin = None
+        while time.monotonic() < deadline:
+            body = {"session_id": session_id}
+            if pin:
+                body["pin"] = pin
+                pin = None
+            result = _call(api, token, "POST", "/api/wechat/bind/poll", json=body).json()
+            status = result.get("status")
+            if status == "need_verifycode":
+                pin = click.prompt("WeChat PIN", hide_input=True)
+                continue
+            if status == "confirmed":
+                if any(key in result for key in ("bot_token", "bridge_token")):
+                    raise click.ClickException("Binding response included a bot credential")
+                click.echo(f"DM this code within 10 minutes: {result['code']}")
+                done = True
+                return
+            if status in {"wait", "scaned"}:
+                time.sleep(1)
+                continue
+            raise click.ClickException(result.get("detail") or "Binding stopped")
+        raise click.ClickException("QR login expired; start again")
     except ValueError as exc:
         raise click.ClickException(str(exc) or "Binding stopped") from None
     except (httpx.HTTPError, OSError, KeyError):
@@ -99,23 +94,21 @@ def bind_session(save_bridge, bot):
 
 
 @wechat_group.command()
-@click.option("--bot", default="default", show_default=True)
-def login(bot):
-    """Bind or refresh the ClawBot as the maintainer and write bridge state."""
-    bind_session(True, bot)
-    click.echo(f"Start y wechat bridge --bot {bot}")
+def login():
+    """Bind this login's own WeChat (alias of bind)."""
+    bind_session()
 
 
 @wechat_group.command()
-@click.option("--bot", default="default", show_default=True)
-def bind(bot):
-    """Bind this login's own WeChat. The bot token stays on the maintainer side."""
-    bind_session(False, bot)
+def bind():
+    """Bind this login's own WeChat bot. The bot token stays on the API side."""
+    bind_session()
 
 
 @wechat_group.command("bridge")
 @click.option("--bot", default="default", show_default=True)
 def run_bridge(bot):
+    """Run the relay poller for every active account (reads bridge env config)."""
     try:
         bridge.run(bridge.state_path(bot))
     except (OSError, ValueError, KeyError):
@@ -129,7 +122,7 @@ def status():
 
 @wechat_group.command()
 def peers():
-    """List every peer. Maintainer only; no message bodies."""
+    """List the peers on your own bot. No message bodies."""
     click.echo(json.dumps(api_request("GET", "/api/wechat/peers").json()))
 
 
@@ -141,7 +134,7 @@ def unbind():
 @wechat_group.command()
 @click.argument("peer")
 def revoke(peer):
-    """Revoke one peer. Maintainer only."""
+    """Revoke one of your own peers."""
     click.echo(json.dumps(api_request("POST", "/api/wechat/revoke", json={"peer": peer}).json()))
 
 
