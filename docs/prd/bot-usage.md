@@ -65,9 +65,10 @@ read **directly from each provider** rather than through any relay. Claude
 subscription limits are not read or shown. Codex still reports rolling
 windows, `five_hour` / `one_week`, in the fetched payload; the Live limits row
 draws the weekly window. Grok reports its current billing period, and Gemini
-(agy) reports weekly and 5-hour windows, of which the row draws the weekly
-one. Each drawn window shows percent used, percent remaining, reset time,
-freshness, and explicit unavailable / stale / re-auth states. The three reads
+(agy) reports weekly and 5-hour windows, both of which the agy cell draws, the
+5-hour window first. Each drawn window shows percent used, percent remaining,
+and an absolute reset time in the configured timezone; freshness and explicit
+unavailable / stale / re-auth states stay at the cell level. The three reads
 run in the `y` CLI **on the user's VM** (stable source IP, already known to
 these vendors), behind one `y usage limits --json`
 envelope. A 30-minute worker
@@ -191,16 +192,19 @@ later delivery.
     so that limit status does not depend on a relay service staying deployed,
     configured, and in sync, and so that a provider the relay has no usage
     concept for can still be shown.
-18. As a web user, I want the Live limits row to show the weekly window for GPT
-    (Codex) and Gemini (agy) and the current billing period for Grok. Codex's
-    and agy's 5-hour windows stay in the fetched payload and are not drawn. A
-    provider is not given an empty row for a window it does not have.
+18. As a web user, I want the Live limits cell to show the weekly window for
+    GPT (Codex), the current billing period for Grok, and both the 5-hour and
+    weekly windows for Gemini (agy), the 5-hour one first, so that a near-term
+    Gemini exhaustion is visible beside its weekly headroom. Codex's 5-hour
+    window stays in the fetched payload and is not drawn. A provider is not
+    given an empty row for a window it does not have.
 19. As a web user, I want each window to show percent used, percent remaining,
     and the reset time, so that I can judge both current headroom and how long I
     need to wait for recovery.
-20. As a web user, I want reset times rendered in my configured timezone with
-    a concise relative-time companion, so that provider timestamps are
-    immediately actionable without manual conversion.
+20. As a web user, I want reset times rendered as an absolute date and time in
+    my configured timezone, so that provider timestamps are immediately
+    actionable without manual conversion and without a ticking countdown that
+    goes stale between polls.
 21. As a web user, I want the status to show when it was observed and whether
     it is fresh or stale, so that an old successful probe is never mistaken for
     current capacity.
@@ -1139,9 +1143,11 @@ later delivery.
   `billing_period` usage row with the period end as its reset; agy reports a
   `five_hour` and a `one_week` bucket. A row is usable when **any** window
   carries a real percentage. Demanding the 5-hour/1-week pair would leave Grok
-  permanently unavailable. The Live limits row draws Codex's and agy's weekly
-  window and Grok's billing-period window; the 5-hour windows stay in the
-  payload.
+  permanently unavailable. The Live limits cell draws Codex's weekly window,
+  agy's 5-hour and weekly windows (5-hour first), and Grok's
+  billing-period window; Codex's 5-hour window stays in the payload undrawn.
+  A window kind the provider declares but whose bucket is missing renders
+  `not reported` with `reset unavailable`, never 0%.
   Model-specific extra windows are not collected or served. A provider-specific
   `extra` map (xAI's `used`/`monthlyLimit`, prepaid balance,
   on-demand cap/used, unified-billing flag) may still ride on the window.
@@ -1664,14 +1670,26 @@ later delivery.
   same form as Account balances: GPT (Codex), Grok, and Gemini (agy) are equal
   cells on one line at a 640px section width and above, separated by vertical
   hairline dividers, and stack as hairline rows below it. Each cell keeps, in
-  order, the provider name with its freshness dot and the right-aligned
-  percent used, a 4px track, and a meta line with the muted `1 week` or
-  `Billing period` window label on the left and the full, untruncated reset
-  text on the right. The dot is green when fresh, yellow when stale or
-  awaiting re-login, and red when unavailable. Provider letter chips are
-  removed. The fill is `base0` below 60%, yellow at 60%, orange at 80%;
-  `limit reached` and `not reported` states remain. The row does not draw
-  Codex's or agy's 5-hour window. There is no Claude subscription row.
+  order, the provider name with its freshness dot and a right-aligned summary,
+  then one block per drawn window: a muted `5 hours`, `1 week`, or
+  `Billing period` label on the left with the right-aligned percent used, a
+  4px track, and a reset line. The summary is `limit reached` when any window
+  is exhausted with its reset still ahead, else `reset due` when a reset time
+  has already passed, else the highest drawn percent used, else `not
+  reported`. The reset line reads `reset MM-DD HH:mm` in the response
+  `timezone` (the configured deployment timezone, Asia/Shanghai here) or
+  `reset unavailable` when it is null or unparseable, and its title keeps the
+  ISO timestamp; there is no relative countdown. Codex and Grok each draw one
+  window; Gemini (agy) draws `5 hours` then `1 week`. The dot is green when
+  fresh, yellow when stale or awaiting re-login, and red when unavailable.
+  Provider letter chips are removed. The fill is `base0` below 60%, yellow at
+  60%, orange at 80%. `limit reached` appears only while the observation
+  still predates the reset; once the reset time is in the past the same window
+  reads `reset due` with an `awaiting refresh` hint instead, because the
+  stored snapshot is older than the window it describes. The panel polls the
+  persisted snapshot every 60 seconds, while the underlying read refreshes on
+  the 30-minute sweep or a manual retry, so a `reset due` cell clears only
+  after one of those reads. There is no Claude subscription row.
   A provider that reports no drawn window uses a dedicated "no windows reported"
   state rather than empty rows. A `reauth_required` provider stays the same
   cell with a muted `not reported` percent, no track and no reset, and a plain
