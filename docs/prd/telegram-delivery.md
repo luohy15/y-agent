@@ -54,9 +54,12 @@ any photo download, command, or chat write. Private `/bind`, `/unbind`,
 `/start`, `/clear` (which now unconditionally restarts the manager session —
 there is no non-manager forum branch left), explicit `/<chat_id>` and
 `/<todo_id>` routing, images, and append-or-steer delivery are all preserved.
-The `/<chat_id>` match is the shared gateway parser
-(`storage.service.reply_route`); `/<todo_id>` stays local to this webhook, and
-a reply or quote is still attached only after the prefix is taken off.
+The `/<chat_id>` and `/<todo_id>` matches are the shared gateway inbound
+parser (`storage.service.reply_route`); `/<todo_id>` resolves through
+`storage.service.inbound_route` to the todo's handle chat, otherwise its
+latest trace chat, and never creates a chat. A missing, foreign, closed, or
+shared-read-only todo gets one short reply and opens no turn. A reply or
+quote is still attached only after the prefix is taken off.
 A private reply or selected quote is prepended to the user's own text as a
 Markdown blockquote (selected `quote.text`, else the direct reply target's
 `text`, else its `caption`; a non-text target leaves the message unchanged)

@@ -44,6 +44,18 @@ def get_pair(
         return _grant(row) if row else None
 
 
+def find_live_incoming(recipient_id: int, todo_id: str) -> Optional[Dict]:
+    """Return the live grant a user received for a todo, or None."""
+    with get_db() as session:
+        row = (
+            session.query(TodoShareEntity)
+            .filter_by(recipient_user_id=recipient_id, todo_id=todo_id)
+            .filter(TodoShareEntity.revoked_at.is_(None))
+            .first()
+        )
+        return _grant(row) if row else None
+
+
 def list_items(share_id: str) -> List[Dict]:
     grouped = list_items_for([share_id])
     return grouped.get(share_id, [])

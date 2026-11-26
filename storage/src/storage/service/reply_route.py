@@ -1,9 +1,19 @@
-"""Shared `/<chat_id>` reply route for gateway sends and inbound channels."""
+"""Shared `/<chat_id>` and `/<todo_id>` routes for gateway inbound channels."""
 
 import re
+from typing import NamedTuple, Optional
 
 _CHAT_ID_RE = re.compile(r"[0-9a-f]{6}")
 _CHAT_ROUTE_RE = re.compile(r"^/([0-9a-f]{6})\s+")
+_TODO_ROUTE_RE = re.compile(r"^/(\d+)\s+")
+
+
+class InboundRoute(NamedTuple):
+    """One parsed inbound slash prefix: `kind` is `chat`, `todo`, or None."""
+
+    kind: Optional[str]
+    ref: Optional[str]
+    body: str
 
 
 def _leading_quote_end(text: str) -> int:
@@ -48,6 +58,29 @@ def split_chat_route(text, skip_leading_quotes=False):
     if start:
         body = text[:start] + body
     return match.group(1), body
+
+
+def split_inbound_route(text, skip_leading_quotes=False):
+    """Parse `/<chat_id>` or `/<todo_id>` from the start of `text`.
+
+    A 6-hex chat id wins over an all-decimal todo id, matching the historical
+    precedence. Both prefixes require trailing whitespace. With
+    `skip_leading_quotes`, leading `>` lines are skipped while looking for the
+    prefix and kept ahead of the body. A miss returns `(None, None, text)`.
+    """
+    if not isinstance(text, str):
+        return InboundRoute(None, None, text)
+    start = _leading_quote_end(text) if skip_leading_quotes else 0
+    head = text[start:]
+    for kind, pattern in (("chat", _CHAT_ROUTE_RE), ("todo", _TODO_ROUTE_RE)):
+        match = pattern.match(head)
+        if not match:
+            continue
+        body = head[match.end():]
+        if start:
+            body = text[:start] + body
+        return InboundRoute(kind, match.group(1), body)
+    return InboundRoute(None, None, text)
 
 
 def format_chat_route(chat_id, text):

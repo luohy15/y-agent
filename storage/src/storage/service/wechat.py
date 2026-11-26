@@ -448,7 +448,8 @@ async def inbound(db, account, message_id, peer, text, context_token, media):
     from storage.dto.chat import Chat
     from storage.repository import chat as chat_repo
     from storage.service import chat as chats
-    from storage.service.reply_route import split_chat_route
+    from storage.service.inbound_route import resolve_todo_route, usage_notice
+    from storage.service.reply_route import split_inbound_route
     from storage.util import get_utc_iso8601_timestamp
 
     lock_channel(db)
@@ -484,15 +485,19 @@ async def inbound(db, account, message_id, peer, text, context_token, media):
     if media or not (text or "").strip():
         enqueue(db, account, peer, "Text messages only for now.", event, active.user_id)
         return {"result": "notice"}
-    routed_id, routed_body = split_chat_route(text, skip_leading_quotes=True)
-    if routed_id:
-        target = await chat_repo.get_chat(active.user_id, routed_id)
-        if not target:
-            notice = f"chat /{routed_id} not found"
+    route = split_inbound_route(text, skip_leading_quotes=True)
+    if route.kind:
+        if not route.body.strip():
+            target, notice = None, usage_notice(route.ref)
+        elif route.kind == "chat":
+            target = await chat_repo.get_chat(active.user_id, route.ref)
+            notice = None if target else f"chat /{route.ref} not found"
         else:
+            target, notice = await resolve_todo_route(active.user_id, route.ref)
+        if target is not None:
             try:
                 accepted = await chats.accept_user_message(
-                    active.user_id, target, routed_body, source="wechat", human_reply=True, session=db,
+                    active.user_id, target, route.body, source="wechat", human_reply=True, session=db,
                     event_id=f"wc_{active.generation}_{event}")
                 if not accepted.already_running:
                     receipt.enqueue_chat = accepted.chat.id

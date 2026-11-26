@@ -313,12 +313,18 @@ Inbound:
 4. Non-text items receive one fixed "text only for now" notice and create no
    turn. Quoted text is prepended as a blockquote in the same shape Telegram
    uses.
-4. Text that starts with `/<chat_id> ` (after any leading `> ` quote lines the
-   bridge prepended) goes to that peer owner's chat through
-   `accept_user_message` with `source="wechat"` and `human_reply=True`. It does
-   not reset the manager session. A missing or foreign chat gets one outbox
-   notice, `chat /<id> not found`, and no turn. The receipt resumes the target
-   chat with its own role, skill, trace and work dir.
+4. Text that starts with `/<chat_id> ` or `/<todo_id> ` (after any leading
+   `> ` quote lines the bridge prepended) goes to that peer owner's chat
+   through `accept_user_message` with `source="wechat"` and
+   `human_reply=True`. A todo prefix resolves through the shared
+   `storage.service.inbound_route` resolver to the todo's handle chat,
+   otherwise its latest trace chat, and never creates a chat. Neither prefix
+   resets the manager session. A missing or foreign chat gets one outbox
+   notice, `chat /<id> not found`; a missing, foreign, closed, or
+   shared-read-only todo gets one outbox notice (`todo /<id> not found`,
+   `todo /<id> is closed`, `todo /<id> is shared read-only`). Neither opens a
+   turn. The receipt resumes the target chat with its own role, skill, trace
+   and work dir.
 5. Other text reaches the peer owner's manager chat through the existing
    append-or-steer path with `source="wechat"` and `human_reply=True`; a new
    manager chat is created when none exists. `/new` and `/clear` restart that

@@ -211,7 +211,11 @@ entity + controller + service + CLI slices, and most have a web panel.
 - **Telegram** — private-chat-only webhook (secret verified, non-private chat
   types ignored before any command/chat write; the former forum group and its
   `tg_topic` binding table are retired). Inbound reply / selected-quote context
-  is prepended as a `> ` blockquote. Automatic DM delivery is manager-only.
+  is prepended as a `> ` blockquote. `/<chat_id>` and `/<todo_id>` prefixes are
+  the shared inbound route (`storage.service.reply_route` plus
+  `storage.service.inbound_route`), the same as WeChat; a todo prefix resolves
+  to the todo's existing trace chat and never creates one. Automatic DM
+  delivery is manager-only.
   Image attachments remain Telegram-only and require a binding; non-manager
   sessions have no Telegram reply path. Their detail surface is web. Markdown → HTML
   conversion, root-role callbacks short-circuited at the API layer. Web-only

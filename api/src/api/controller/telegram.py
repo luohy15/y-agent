@@ -9,8 +9,9 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from storage.repository.user import get_user_by_telegram_id, bind_telegram_id, unbind_telegram_id
-from storage.repository.chat import find_latest_chat_by_role, find_latest_chat_by_trace_id
-from storage.service.reply_route import split_chat_route
+from storage.repository.chat import find_latest_chat_by_role
+from storage.service.inbound_route import resolve_todo_route, usage_notice
+from storage.service.reply_route import split_inbound_route
 from storage.service.telegram import resolve_target
 from storage.entity.dto import Message
 from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp, get_telegram_bot_token, send_telegram_message, send_telegram_photo_bytes
@@ -20,10 +21,6 @@ from api.util.images import decode_send_image_upload, resolve_send_image_path, s
 
 router = APIRouter(prefix="/telegram")
 
-# Matches a `/{todo_id}<whitespace>` prefix where todo_id is all digits. Tried
-# after the chat_id regex so 6-digit hex (which can be all-digits) still routes
-# as chat_id when applicable.
-_TG_ROUTE_TODO_PREFIX_RE = re.compile(r"^/(\d+)\s+")
 _ACCESS_REFUSAL = "This account is not approved."
 
 
@@ -285,33 +282,32 @@ async def telegram_webhook(request: Request):
         )
         return {"ok": True}
 
-    # Explicit chat routing: `/{chat_id} <message>` targets a specific chat
-    # instead of the default role. Matched before the default route so the
-    # prefix wins over the manager-DM fallback.
-    routed_chat_id, routed_body = split_chat_route(text)
-    if routed_chat_id:
-        body = _with_reply_context(routed_body, reply_context)
+    # Explicit chat or todo routing: `/{chat_id} <message>` or
+    # `/{todo_id} <message>` targets a specific chat instead of the default
+    # role. The shared parser matches the 6-hex chat id first so all-digit
+    # 6-hex strings keep routing as chat_id.
+    route = split_inbound_route(text)
+    if route.kind == "chat":
+        body = _with_reply_context(route.body, reply_context)
         return await _handle_routed_message(
-            telegram_chat_id, telegram_user_id, routed_chat_id, body,
+            telegram_chat_id, telegram_user_id, route.ref, body,
             images=images, files=files,
         )
 
-    # Explicit todo routing: `/{todo_id} <message>` resolves to the most
-    # recently updated chat in that todo's trace. chat_id (6-hex) is matched
-    # first above so all-digit 6-hex strings keep routing as chat_id.
-    todo_match = _TG_ROUTE_TODO_PREFIX_RE.match(text)
-    if todo_match:
-        todo_id = todo_match.group(1)
-        body = _with_reply_context(text[todo_match.end():], reply_context)
+    if route.kind == "todo":
         user = get_user_by_telegram_id(telegram_user_id)
         if not user:
             await _send_message(telegram_chat_id, "Please /bind your account first.")
             return {"ok": True}
         if await _refuse_unapproved(telegram_chat_id, user):
             return {"ok": True}
-        target_chat = find_latest_chat_by_trace_id(user.id, todo_id)
-        if not target_chat:
-            await _send_message(telegram_chat_id, f"no chat for todo /{todo_id}")
+        if not route.body.strip():
+            await _send_message(telegram_chat_id, usage_notice(route.ref))
+            return {"ok": True}
+        body = _with_reply_context(route.body, reply_context)
+        target_chat, notice = await resolve_todo_route(user.id, route.ref)
+        if target_chat is None:
+            await _send_message(telegram_chat_id, notice)
             return {"ok": True}
         return await _handle_routed_message(
             telegram_chat_id, telegram_user_id, target_chat.id, body,
@@ -357,20 +353,19 @@ async def _document_node_block(user, text: str) -> tuple[str, Optional[str]]:
     exist: nothing is stored, and the normal command or not-found reply still
     runs. A brand-new manager chat stores, because it runs on the default node.
     """
-    routed_chat_id, routed_body = split_chat_route(text)
-    todo_match = None if routed_chat_id else _TG_ROUTE_TODO_PREFIX_RE.match(text)
+    route = split_inbound_route(text)
     target = None
-    if routed_chat_id:
-        if not routed_body.strip():
+    if route.kind == "chat":
+        if not route.body.strip():
             return "skip", None
         from storage.repository import chat as chat_repo
-        target = await chat_repo.get_chat(user.id, routed_chat_id)
+        target = await chat_repo.get_chat(user.id, route.ref)
         if not target:
             return "skip", None
-    elif todo_match:
-        if not text[todo_match.end():].strip():
+    elif route.kind == "todo":
+        if not route.body.strip():
             return "skip", None
-        target = find_latest_chat_by_trace_id(user.id, todo_match.group(1))
+        target, _notice = await resolve_todo_route(user.id, route.ref)
         if not target:
             return "skip", None
     elif text.startswith("/bind") or text in {"/unbind", "/clear", "/start"}:

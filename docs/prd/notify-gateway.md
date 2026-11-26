@@ -53,7 +53,11 @@ and diagnostics.
 owner; a missing or foreign id returns `chat_not_found` and sends nothing
 (HTTP 404). A hit prefixes the delivered text once with `/<chat_id> `, on
 whichever channel actually sends, including a fallback. The same prefix on a
-later inbound message routes that reply back to the chat. `y gateway send
+later inbound message routes that reply back to the chat. Telegram and WeChat
+share one inbound parser for `/<chat_id>` and `/<todo_id>`
+(`storage.service.reply_route` plus `storage.service.inbound_route`); a todo
+prefix resolves to that todo's existing trace chat, never creates a chat, and
+leaves the resulting turn's delivery unchanged. `y gateway send
 --reply-chat <id>` passes it. `config` and `status` are unchanged.
 
 For manager turns, the worker mirrors user text from web or CLI through the
