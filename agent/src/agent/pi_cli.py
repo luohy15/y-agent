@@ -4,7 +4,6 @@ import asyncio
 import json
 import threading
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 from loguru import logger
 from storage.entity.dto import Message
@@ -336,41 +335,10 @@ def _pi_write_stdin(client, chat_id: str, prompt: str, images: Optional[List[str
 
 def _pi_upload_steer_images(client, chat_id: str, msg_id: str,
                             images: Optional[List[str]]) -> List[str]:
-    """Stage a steer's images on the node under a per-message subdirectory.
+    """Stage a steer's images under a per-message subdirectory (shared helper)."""
+    from agent.detach import upload_steer_images
 
-    The launch uploads to `/tmp/cc-<chat_id>-images/<index>-<name>`; a steer
-    uses `/tmp/cc-<chat_id>-images/<msg_id>/<index>-<name>` so filenames cannot
-    collide. The next launch removes the whole image directory.
-    """
-    if not images:
-        return []
-    from agent.detach import _download_s3_to_tmp, _is_s3_uri
-
-    remote_dir = f"/tmp/cc-{chat_id}-images/{msg_id}"
-    _ssh_exec(client, f"mkdir -p {_shell_quote(remote_dir)}")
-    sftp = client.open_sftp()
-    staged_files: List[Path] = []
-    try:
-        remote_paths = []
-        for index, image_path in enumerate(images):
-            source = (_download_s3_to_tmp(image_path, chat_id)
-                      if _is_s3_uri(image_path) else Path(image_path).expanduser())
-            if _is_s3_uri(image_path):
-                staged_files.append(source)
-            if not source.exists():
-                remote_paths.append(image_path)
-                continue
-            remote_path = f"{remote_dir}/{index}-{source.name}"
-            sftp.put(str(source), remote_path)
-            remote_paths.append(remote_path)
-        return remote_paths
-    finally:
-        sftp.close()
-        for staged_file in staged_files:
-            try:
-                staged_file.unlink()
-            except FileNotFoundError:
-                pass
+    return upload_steer_images(client, chat_id, msg_id, images)
 
 
 def _pi_build_exec(cmd: List[str], chat_id: str, prompt: str, images: Optional[List[str]] = None) -> str:

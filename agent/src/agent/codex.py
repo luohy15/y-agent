@@ -1,7 +1,8 @@
-"""Convert OpenAI Codex CLI JSONL events to y-agent Message DTOs,
+"""Convert OpenAI Codex CLI events to y-agent Message DTOs,
 and provide SSH helpers for detached tmux-based execution.
 
-Codex `codex exec --json` emits JSONL events:
+Two Codex harnesses share one transcript path. `codex exec --json` (the default)
+emits JSONL events:
   - thread.started  : thread_id
   - turn.started    : new turn begins
   - item.started    : tool/message item begins
@@ -14,6 +15,12 @@ Codex `codex exec --json` emits JSONL events:
 not a failed turn. `codex exec` has no live input channel: a mid-run message
 ends the current turn (the tmux session is killed) and the locked closeout
 relaunches the same thread with that message as the next prompt.
+
+`Y_CODEX_HARNESS=app-server` instead runs one `codex app-server --listen
+stdio://` per turn behind the same stdin pipe. Its v2 JSON-RPC notifications
+are folded into the exec event shapes above, so the converter, usage rows and
+rollout closeout stay unchanged, and `turn/steer` delivers a mid-turn message
+without ending the turn (todo 4476).
 """
 
 import asyncio
@@ -41,7 +48,7 @@ from agent.claude_code import (
     _pkill_tail_cmd,
     _build_tail_cmd,
 )
-from agent.input_ledger import InputLedger
+from agent.input_ledger import InputLedger, native_input_uuid
 from agent.poll_loop import PollLoop
 
 from agent.startup_diagnostic import (
@@ -434,7 +441,14 @@ class CodexStreamConverter:
         obj = parse_stream_line(line)
         if not obj:
             return []
+        return self.process_event(obj)
 
+    def process_event(self, obj: Dict) -> List[Message]:
+        """Map one parsed exec-shaped event to messages.
+
+        The app-server harness folds its v2 notifications into these shapes, so
+        both harnesses share this mapping.
+        """
         event_type = obj.get("type")
         messages: List[Message] = []
 
@@ -758,6 +772,25 @@ def _stage_model_catalog(client, cmd: List[str], chat_id: str, catalog_text: str
     cmd.extend(["-c", f'model_catalog_json="{path}"'])
 
 
+def _codex_restore_archive_cmd(thread_id: str) -> str:
+    """Best-effort restore of a resumed thread's rollout from the node backup.
+
+    The default node's backup preserves the rollout's YYYY/MM/DD path. Nodes
+    without that archive no-op; isolated launches retain their CODEX_HOME.
+    """
+    return (
+        f"_y_archive={_shell_quote(CODEX_ARCHIVE_ROOT)}; "
+        f"_y_src=$(find \"$_y_archive\" -type f -name {_shell_quote('*-' + thread_id + '.jsonl')} "
+        "-print -quit 2>/dev/null); "
+        "if [ -s \"$_y_src\" ]; then "
+        "_y_rel=${_y_src#\"$_y_archive\"/}; "
+        "_y_dst=\"${CODEX_HOME:-$HOME/.codex}/sessions/$_y_rel\"; "
+        "if [ ! -f \"$_y_dst\" ]; then "
+        "mkdir -p \"$(dirname \"$_y_dst\")\" && cp -p \"$_y_src\" \"$_y_dst\"; "
+        "fi; fi"
+    )
+
+
 def _codex_build_exec(cmd: List[str], chat_id: str, prompt: str, images: Optional[List[str]] = None) -> str:
     """Build `codex ... -- <prompt> < /dev/null`.
 
@@ -774,21 +807,8 @@ def _codex_build_exec(cmd: List[str], chat_id: str, prompt: str, images: Optiona
     if len(cmd) < 4 or cmd[1:3] != ["exec", "resume"] or not _THREAD_ID_RE.fullmatch(cmd[3]):
         return exec_cmd
 
-    # The default node's backup preserves the rollout's YYYY/MM/DD path.
-    # Nodes without that archive no-op; isolated launches retain their CODEX_HOME.
-    restore_snippet = (
-        f"_y_archive={_shell_quote(CODEX_ARCHIVE_ROOT)}; "
-        f"_y_src=$(find \"$_y_archive\" -type f -name {_shell_quote('*-' + cmd[3] + '.jsonl')} "
-        "-print -quit 2>/dev/null); "
-        "if [ -s \"$_y_src\" ]; then "
-        "_y_rel=${_y_src#\"$_y_archive\"/}; "
-        "_y_dst=\"${CODEX_HOME:-$HOME/.codex}/sessions/$_y_rel\"; "
-        "if [ ! -f \"$_y_dst\" ]; then "
-        "mkdir -p \"$(dirname \"$_y_dst\")\" && cp -p \"$_y_src\" \"$_y_dst\"; "
-        "fi; fi; "
-    )
     # Keep restore and launch together behind the outer `cd <cwd> &&` guard.
-    return "( " + restore_snippet + exec_cmd + " )"
+    return "( " + _codex_restore_archive_cmd(cmd[3]) + "; " + exec_cmd + " )"
 
 
 def _codex_parse_initial(obj: Dict) -> Optional[str]:
@@ -817,6 +837,244 @@ def _codex_spec(model_catalog: Optional[Tuple[List[str], str]] = None) -> "Detac
     )
 
 
+# ---------------------------------------------------------------------------
+# App-server harness (todo 4476): `Y_CODEX_HARNESS=app-server`
+# ---------------------------------------------------------------------------
+
+CODEX_APP_SERVER_HARNESS = "app-server"
+APP_SERVER_HOME_SUFFIX = ".codex-home"
+APP_SERVER_PENDING_TYPE = "codex_app_server_pending"
+
+# Per-process JSON-RPC ids. A steer's id is the input's native uuid, which is
+# also the input ledger's group key, so its response correlates directly.
+APP_INIT_ID = "y-agent-initialize"
+APP_THREAD_ID = "y-agent-thread"
+APP_TURN_ID = "y-agent-turn"
+APP_TURNS_LIST_ID = "y-agent-turns-list"
+
+# Streamed deltas are rebuilt from item/completed, so the connection opts out
+# of the per-token streams.
+APP_SERVER_OPT_OUT_METHODS = (
+    "item/agentMessage/delta",
+    "item/reasoning/summaryPartAdded",
+    "item/reasoning/summaryTextDelta",
+    "item/reasoning/textDelta",
+    "item/plan/delta",
+    "item/commandExecution/outputDelta",
+    "item/commandExecution/terminalInteraction",
+    "item/fileChange/outputDelta",
+    "item/fileChange/patchUpdated",
+    "item/mcpToolCall/progress",
+    "turn/diff/updated",
+    "turn/plan/updated",
+)
+
+_APP_SERVER_CONFIG_TOML = """\
+# Staged by y-agent for this launch. app-server has no --ignore-user-config,
+# so a private CODEX_HOME is how the user's own config/hooks/MCP stay out.
+# Same policy as `codex exec --dangerously-bypass-approvals-and-sandbox`.
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+"""
+
+_MISSING_ROLLOUT_MESSAGE_RE = re.compile(
+    r"no rollout found for thread id\s+([0-9a-fA-F-]{36})"
+)
+
+
+def codex_app_server_config_text() -> str:
+    return _APP_SERVER_CONFIG_TOML
+
+
+def codex_app_server_home(chat_id: str) -> str:
+    return f"/tmp/cc-{chat_id}{APP_SERVER_HOME_SUFFIX}"
+
+
+def _stage_app_server_home(client, chat_id: str) -> str:
+    """Create this launch's CODEX_HOME: generated config + real sessions link.
+
+    The sessions symlink keeps the rollout in `$HOME/.codex/sessions`, where
+    `read_codex_rollout` and the archive backup already expect it. No auth.json
+    is staged: the relay credential comes from the provider's `env_key`.
+    """
+    home = codex_app_server_home(chat_id)
+    _ssh_exec(
+        client,
+        f"rm -rf {_shell_quote(home)} && mkdir -p {_shell_quote(home)} && "
+        "mkdir -p \"$HOME/.codex/sessions\" && "
+        f"ln -sfn \"$HOME/.codex/sessions\" {_shell_quote(home + '/sessions')}",
+    )
+    sftp = client.open_sftp()
+    try:
+        with sftp.open(f"{home}/config.toml", "w") as handle:
+            handle.write(_APP_SERVER_CONFIG_TOML)
+    finally:
+        sftp.close()
+    return home
+
+
+def build_codex_app_server_launch(thread_id: Optional[str] = None, cwd: Optional[str] = None,
+                                  model: Optional[str] = None) -> List[Dict]:
+    """The JSONL commands written before launch: initialize + thread open.
+
+    Two-phase: `turn/start` is appended only after the thread id is known
+    (`DetachBackendSpec.after_initial`). `excludeTurns` keeps a resumed thread
+    from loading and replaying its history.
+    """
+    params: Dict = {}
+    if thread_id:
+        params["threadId"] = thread_id
+        params["excludeTurns"] = True
+    if cwd:
+        params["cwd"] = cwd
+    if model:
+        params["model"] = model
+    method = "thread/resume" if thread_id else "thread/start"
+    return [
+        {
+            "jsonrpc": "2.0", "id": APP_INIT_ID, "method": "initialize",
+            "params": {
+                "clientInfo": {"name": "y-agent", "version": "1"},
+                "capabilities": {"optOutNotificationMethods": list(APP_SERVER_OPT_OUT_METHODS)},
+            },
+        },
+        {"jsonrpc": "2.0", "method": "initialized"},
+        {"jsonrpc": "2.0", "id": APP_THREAD_ID, "method": method, "params": params},
+    ]
+
+
+def build_codex_app_server_turn(thread_id: str, prompt: str,
+                                images: Optional[List[str]] = None,
+                                input_uuid: Optional[str] = None) -> Dict:
+    """`turn/start` for the launch input; images travel as localImage parts."""
+    inputs: List[Dict] = [{"type": "text", "text": prompt}]
+    for path in images or []:
+        inputs.append({"type": "localImage", "path": path})
+    params: Dict = {"threadId": thread_id, "input": inputs}
+    if input_uuid:
+        params["clientUserMessageId"] = input_uuid
+    return {"jsonrpc": "2.0", "id": APP_TURN_ID, "method": "turn/start", "params": params}
+
+
+def build_codex_app_server_steer(chat_id: str, thread_id: str, turn_id: str, msg_id: str,
+                                 text: str, images: Optional[List[str]] = None) -> Dict:
+    """One mid-turn `turn/steer` request for the message.
+
+    `expectedTurnId` is the precondition app-server enforces, and the request id
+    is the input's native uuid, so the response correlates with the ledger.
+    """
+    native = native_input_uuid(chat_id, msg_id)
+    inputs: List[Dict] = [{"type": "text", "text": text}]
+    for path in images or []:
+        inputs.append({"type": "localImage", "path": path})
+    return {
+        "jsonrpc": "2.0", "id": native, "method": "turn/steer",
+        "params": {
+            "threadId": thread_id,
+            "expectedTurnId": turn_id,
+            "input": inputs,
+            "clientUserMessageId": native,
+        },
+    }
+
+
+def _app_server_append_stdin(client, chat_id: str, payload: str) -> None:
+    _ssh_exec(
+        client,
+        f"printf '%s\\n' {_shell_quote(payload)} >> {_shell_quote(f'/tmp/cc-{chat_id}.stdin')}",
+    )
+
+
+def _app_server_write_stdin(client, chat_id: str, commands: List[Dict]) -> None:
+    payload = "".join(json.dumps(command) + "\n" for command in commands)
+    sftp = client.open_sftp()
+    try:
+        with sftp.open(f"/tmp/cc-{chat_id}.stdin", "w") as handle:
+            handle.write(payload)
+    finally:
+        sftp.close()
+
+
+def _app_server_parse_initial(obj: Dict) -> Optional[str]:
+    thread = None
+    if obj.get("id") == APP_THREAD_ID and isinstance(obj.get("result"), dict):
+        thread = obj["result"].get("thread")
+    elif obj.get("method") == "thread/started":
+        params = obj.get("params") if isinstance(obj.get("params"), dict) else {}
+        thread = params.get("thread")
+    thread_id = thread.get("id") if isinstance(thread, dict) else None
+    if isinstance(thread_id, str) and _THREAD_ID_RE.fullmatch(thread_id):
+        return thread_id
+    return None
+
+
+def _app_server_build_exec(cmd: List[str], chat_id: str, prompt: str,
+                           images: Optional[List[str]] = None) -> str:
+    """Build `tail -f <stdin> | codex app-server ...` with tail cleanup.
+
+    The launch commands and steers are appended to the stdin file, so the tail
+    is the long-lived input channel. The pipeline is backgrounded so the wrapper
+    stops the tail once app-server exits; the wrapper's status is app-server's.
+    """
+    app_cmd = " ".join(_shell_quote(part) for part in cmd)
+    stdin_file = f"/tmp/cc-{chat_id}.stdin"
+    tail_pattern = _shell_quote(f"^tail -f -n \\+1 /tmp/cc-{chat_id}\\.stdin$")
+    return (
+        f"( tail -f -n +1 {_shell_quote(stdin_file)} | {app_cmd} & _y_app=$!; "
+        "while kill -0 $_y_app 2>/dev/null; do sleep 0.2; done; "
+        f"pkill -f {tail_pattern} 2>/dev/null; "
+        "wait $_y_app )"
+    )
+
+
+def _codex_app_server_spec(*, thread_id: Optional[str], cwd: Optional[str],
+                           model: Optional[str], input_uuid: Optional[str],
+                           stage_home: bool = True,
+                           model_catalog: Optional[Tuple[List[str], str]] = None) -> "DetachBackendSpec":
+    """Launch hooks for one app-server turn (fresh or resumed)."""
+    from agent.detach import DetachBackendSpec
+
+    catalog = model_catalog or (None, None)
+    home: Dict[str, str] = {}
+
+    def setup(client, chat_id, prompt, images):
+        if catalog[0] is not None:
+            _stage_model_catalog(client, catalog[0], chat_id, catalog[1])
+        if stage_home:
+            home["path"] = _stage_app_server_home(client, chat_id)
+        if thread_id:
+            _ssh_exec(client, _codex_restore_archive_cmd(thread_id))
+        _app_server_write_stdin(
+            client, chat_id,
+            build_codex_app_server_launch(thread_id, cwd, model),
+        )
+
+    def after_initial(client, chat_id, prompt, images, initial_id):
+        if not initial_id:
+            logger.warning(
+                "codex app-server thread id not observed chat_id={}; turn not started", chat_id,
+            )
+            return
+        _app_server_append_stdin(
+            client, chat_id,
+            json.dumps(build_codex_app_server_turn(initial_id, prompt, images, input_uuid)),
+        )
+
+    def cleanup():
+        path = home.get("path")
+        return f"rm -rf {_shell_quote(path)}" if path else "true"
+
+    return DetachBackendSpec(
+        build_exec=_app_server_build_exec,
+        parse_initial=_app_server_parse_initial,
+        setup=setup,
+        after_initial=after_initial,
+        cleanup=cleanup,
+        initial_stdout_lines=60,
+        initial_wait_seconds=10.0,
+    )
+
+
 async def start_detached_codex_ssh(
     cmd: List[str],
     prompt: str,
@@ -829,25 +1087,43 @@ async def start_detached_codex_ssh(
     unset_env: Optional[List[str]] = None,
     model: Optional[str] = None,
     context_window: Optional[int] = None,
+    harness: Optional[str] = None,
+    resume_thread_id: Optional[str] = None,
+    input_uuid: Optional[str] = None,
+    exam_isolation: bool = False,
 ) -> Optional[str]:
-    """Start `codex exec` in a detached tmux session on the chat's node.
+    """Start one detached Codex turn in a tmux session on the chat's node.
 
-    Codex takes the prompt as a positional argument and does not read
-    stream-json stdin. stdout / stderr / exit files use `/tmp/cc-<chat_id>.*`.
+    `codex exec` (the default) takes the prompt as a positional argument and
+    does not read stdin; a steer ends the turn. `harness="app-server"` runs
+    `codex app-server --listen stdio://` behind a stdin pipe; the launch
+    commands open the thread and `after_initial` appends `turn/start` once the
+    thread id is known. stdout / stderr / exit files use `/tmp/cc-<chat_id>.*`.
     When the model has a known context window, the node's bundled catalog is
     cloned into a per-launch catalog so Codex reports and uses that window.
 
-    Returns the thread_id from the initial `thread.started` event, else None.
+    Returns the thread id from the initial events, else None.
     """
     from agent.detach import _start_detached_tmux, _with_ssh_client
 
-    spec = _codex_spec()
+    app_server = (harness or "").strip().lower() == CODEX_APP_SERVER_HARNESS
     build_catalog = bool(model) and bool(context_window)
+
+    def spec_for(catalog=None):
+        if app_server:
+            return _codex_app_server_spec(
+                thread_id=resume_thread_id, cwd=cwd, model=model,
+                input_uuid=input_uuid, stage_home=not exam_isolation,
+                model_catalog=catalog,
+            )
+        return _codex_spec(catalog)
+
+    spec = spec_for()
     if build_catalog:
         with _with_ssh_client(node, ssh_client) as client:
             catalog = _catalog_from_node(client, cmd, node, model, context_window)
             if catalog is not None:
-                spec = _codex_spec((cmd, json.dumps(catalog)))
+                spec = spec_for((cmd, json.dumps(catalog)))
             return await _start_detached_tmux(
                 cmd=cmd,
                 prompt=prompt,
@@ -1166,6 +1442,637 @@ async def tail_codex_output(
 
     except Exception as exc:
         logger.error("tail_codex_output error: {} {}", type(exc).__name__, exc)
+        if poll is not None:
+            poll.stop()
+        if owns_client:
+            try:
+                from agent.chat_target import close_owned_client
+                close_owned_client(client)
+            except Exception:
+                pass
+        return _view(False, "error", None)
+
+
+def app_server_usage(total) -> Optional[Dict]:
+    """Exec-shaped counters from a v2 `TokenUsageBreakdown` (a thread total)."""
+    if not isinstance(total, dict):
+        return None
+    usage = {
+        "input_tokens": total.get("inputTokens"),
+        "cached_input_tokens": total.get("cachedInputTokens"),
+        "output_tokens": total.get("outputTokens"),
+        "cache_write_input_tokens": total.get("cacheWriteInputTokens"),
+    }
+    if not any(value is not None for value in usage.values()):
+        return None
+    return usage
+
+
+def app_server_item_event(method: str, item: Dict) -> Optional[Dict]:
+    """Fold one v2 `ThreadItem` into the exec item event shape the converter maps.
+
+    Only the item kinds the exec converter renders are produced: assistant text,
+    command executions and file changes. Reasoning, plans, MCP calls and other
+    item kinds stay out of the transcript, exactly as on the exec harness.
+    """
+    if not isinstance(item, dict):
+        return None
+    item_type = item.get("type")
+    item_id = item.get("id") or generate_message_id()
+
+    if item_type == "agentMessage":
+        if method != "item/completed":
+            return None
+        text = item.get("text")
+        if not isinstance(text, str) or not text:
+            return None
+        return {
+            "type": "item.completed",
+            "item": {"id": item_id, "type": "agent_message", "text": text},
+        }
+
+    if item_type == "commandExecution":
+        payload = {
+            "id": item_id,
+            "type": "command_execution",
+            "command": item.get("command") or "",
+        }
+        if method == "item/started":
+            payload["status"] = "in_progress"
+            return {"type": "item.started", "item": payload}
+        if method != "item/completed":
+            return None
+        payload["aggregated_output"] = item.get("aggregatedOutput")
+        payload["exit_code"] = item.get("exitCode")
+        payload["status"] = item.get("status")
+        return {"type": "item.completed", "item": payload}
+
+    if item_type == "fileChange":
+        changes = item.get("changes") if isinstance(item.get("changes"), list) else []
+        payload: Dict = {"id": item_id, "type": "file_change", "changes": changes}
+        if method == "item/started":
+            payload["status"] = "in_progress"
+            return {"type": "item.started", "item": payload}
+        if method != "item/completed":
+            return None
+        payload["status"] = item.get("status")
+        diffs = [
+            change.get("diff") for change in changes
+            if isinstance(change, dict) and isinstance(change.get("diff"), str) and change.get("diff")
+        ]
+        if diffs:
+            payload["diff"] = "\n".join(diffs)
+        return {"type": "item.completed", "item": payload}
+
+    return None
+
+
+def app_server_turn_event(turn: Dict, usage: Optional[Dict]) -> Optional[Dict]:
+    """The exec terminal event for a finished v2 turn, or None while running."""
+    if not isinstance(turn, dict):
+        return None
+    status = turn.get("status")
+    if status == "completed":
+        event: Dict = {"type": "turn.completed"}
+        if usage:
+            event["usage"] = usage
+        return event
+    if status == "failed":
+        error = turn.get("error") if isinstance(turn.get("error"), dict) else {}
+        message = error.get("message") or "Turn failed"
+        return {"type": "turn.failed", "error": {"message": message}}
+    return None
+
+
+def app_server_missing_rollout(error, attempted_id: Optional[str]) -> bool:
+    """True only for the native missing-rollout refusal of the attempted id."""
+    if not isinstance(error, dict) or not isinstance(attempted_id, str) or not attempted_id:
+        return False
+    if error.get("code") != -32600:
+        return False
+    message = error.get("message")
+    if not isinstance(message, str):
+        return False
+    match = _MISSING_ROLLOUT_MESSAGE_RE.search(message)
+    return bool(match and match.group(1) == attempted_id)
+
+
+def _missing_rollout_stderr_line(thread_id: str) -> str:
+    """The existing stderr diagnostic shape for the shared recovery decision."""
+    return (
+        "Error: thread/resume: thread/resume failed: no rollout found for thread id "
+        f"{thread_id} (code -32600)"
+    )
+
+
+def _app_server_pending(state: Dict) -> dict:
+    """Handoff state: the ids and thread total a re-attached tail must keep."""
+    return {
+        "type": APP_SERVER_PENDING_TYPE,
+        "thread_id": state.get("thread_id"),
+        "turn_id": state.get("turn_id"),
+        "usage": state.get("usage"),
+    }
+
+
+async def tail_codex_app_server_output(
+    chat_id: str,
+    node,
+    offset: int = 0,
+    last_message_id: Optional[str] = None,
+    message_callback: Optional[Callable[[Message], None]] = None,
+    check_interrupted_fn: Optional[Callable[[], bool]] = None,
+    check_deadline_fn: Optional[Callable[[], bool]] = None,
+    check_steer_fn: Optional[Callable[[], List[Tuple[str, str, list]]]] = None,
+    ssh_client=None,
+    input_ledger: Optional[InputLedger] = None,
+    launch_input_uuid: Optional[str] = None,
+    pending_result: Optional[dict] = None,
+    resume_thread_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    model: Optional[str] = None,
+) -> dict:
+    """Tail a detached `codex app-server` turn; steer through its stdin pipe.
+
+    `check_steer_fn` supplies messages accepted mid-run. A steer appends one
+    `turn/steer` request carrying `expectedTurnId` and the input's native uuid;
+    it never ends the turn. The response's `{turnId}` acknowledges it, a
+    `-32600` (no active turn / wrong id) drops it for the closeout continuation,
+    and the `userMessage` item with that `clientId` completes it. A steer still
+    open at `turn/completed` stays open.
+
+    `turn/completed` (completed / failed / interrupted) ends the turn: the
+    reader stops and the long-lived app-server is torn down, with no self-kill
+    sentinel because the terminal event is the evidence. A resumed refusal
+    (`-32600 no rollout found`) feeds the same recovery inputs as the exec
+    path's stderr refusal. A Lambda handoff carries thread id, turn id and the
+    thread usage total; a re-attached tail without a turn id asks
+    `thread/turns/list` for the in-progress turn.
+    """
+    owns_client = ssh_client is None
+    if owns_client:
+        from agent.chat_target import open_owned_client
+
+        ssh_client = open_owned_client(node)
+
+    client = ssh_client
+    stdin_file = f"/tmp/cc-{chat_id}.stdin"
+    stdout_file = f"/tmp/cc-{chat_id}.stdout"
+    exit_file = f"/tmp/cc-{chat_id}.exit"
+
+    converter = CodexStreamConverter(last_message_id=last_message_id, model=model)
+    ledger = input_ledger if input_ledger is not None else InputLedger(chat_id)
+    state: Dict = {"thread_id": None, "turn_id": None, "usage": None}
+    if isinstance(session_id, str) and session_id:
+        state["thread_id"] = session_id
+    carried = pending_result if isinstance(pending_result, dict) else None
+    if carried and carried.get("type") == APP_SERVER_PENDING_TYPE:
+        for key in ("thread_id", "turn_id", "usage"):
+            value = carried.get(key)
+            if value is not None:
+                state[key] = value
+        carried = None
+    if state["thread_id"]:
+        converter.thread_id = state["thread_id"]
+
+    result_data = carried
+    current_offset = offset
+    stream_error = None
+    poll = None
+    terminal_status: Optional[str] = None
+    extra_view: Dict = {}
+    # Guards the steer write and the terminal teardown: a steer must never be
+    # appended after the session was torn down.
+    steer_lock = threading.RLock()
+    torn_down = False
+    reader_stop = threading.Event()
+
+    def _view(is_done: bool, status: str, data=None) -> dict:
+        view = {
+            "offset": current_offset,
+            "last_message_id": converter.last_message_id,
+            "thread_id": state["thread_id"],
+            "session_id": state["thread_id"],
+            "is_done": is_done,
+            "result_data": data,
+            "usage": converter.usage,
+            "status": status,
+            "delivery_states": ledger.states,
+            "input_groups": ledger.groups,
+            "lifecycle_observed": ledger.lifecycle_observed,
+            "has_usable_output": converter.has_usable_output,
+            "pending_result": None if is_done else _app_server_pending(state),
+        }
+        view.update(extra_view)
+        return view
+
+    def _emit(event: Dict) -> None:
+        for msg in converter.process_event(event):
+            if message_callback:
+                message_callback(msg)
+
+    def _handle_turns_list(result) -> None:
+        if state["turn_id"] or not isinstance(result, dict):
+            return
+        turns = result.get("data")
+        for turn in turns if isinstance(turns, list) else []:
+            if isinstance(turn, dict) and turn.get("status") == "inProgress":
+                turn_id = turn.get("id")
+                if isinstance(turn_id, str) and turn_id:
+                    state["turn_id"] = turn_id
+                return
+
+    def _end_error(message: Optional[str]) -> str:
+        nonlocal result_data, terminal_status
+        text = message if isinstance(message, str) and message else "app-server request failed"
+        logger.error("codex app-server error: chat_id={} message={}", chat_id, text)
+        result_data = {"is_error": True, "result": format_codex_turn_failure(text)}
+        terminal_status = "failed"
+        return "done"
+
+    def _end_thread_error(error) -> str:
+        nonlocal result_data, terminal_status
+        error = error if isinstance(error, dict) else {}
+        message = error.get("message") if isinstance(error.get("message"), str) else None
+        if app_server_missing_rollout(error, resume_thread_id):
+            # Same recovery inputs the exec path derives from its stderr line.
+            extra_view["exit_code"] = 1
+            extra_view["attempt_stderr"] = _missing_rollout_stderr_line(resume_thread_id)
+            extra_view["startup_diagnostic"] = message
+            extra_view["resume_refused"] = True
+            extra_view["refused_thread_id"] = resume_thread_id
+        return _end_error(message)
+
+    def _complete_steer_item(method: str, item: Dict) -> None:
+        if item.get("type") != "userMessage":
+            return
+        client_id = item.get("clientId")
+        if not isinstance(client_id, str) or client_id not in ledger.groups:
+            return
+        if client_id == launch_input_uuid:
+            # The folded launch prompt retires on turn/completed.
+            return
+        with steer_lock:
+            ledger.observe_lifecycle({"state": "completed", "command_uuid": client_id})
+
+    def _handle_response(request_id: str, result, error) -> Optional[str]:
+        if request_id == APP_INIT_ID:
+            if error is not None:
+                return _end_error((error or {}).get("message") if isinstance(error, dict) else None)
+            return None
+        if request_id == APP_THREAD_ID:
+            if error is not None:
+                return _end_thread_error(error)
+            thread = result.get("thread") if isinstance(result, dict) else None
+            thread_id = thread.get("id") if isinstance(thread, dict) else None
+            if isinstance(thread_id, str) and thread_id:
+                state["thread_id"] = thread_id
+                converter.thread_id = thread_id
+            return None
+        if request_id == APP_TURN_ID:
+            if error is not None:
+                return _end_error((error or {}).get("message") if isinstance(error, dict) else None)
+            turn = result.get("turn") if isinstance(result, dict) else None
+            turn_id = turn.get("id") if isinstance(turn, dict) else None
+            if isinstance(turn_id, str) and turn_id and not state["turn_id"]:
+                state["turn_id"] = turn_id
+            return None
+        if request_id == APP_TURNS_LIST_ID:
+            _handle_turns_list(result)
+            return None
+        if request_id in ledger.groups:
+            state_name = "queued" if error is None else "refused"
+            with steer_lock:
+                ledger.observe_lifecycle({"state": state_name, "command_uuid": request_id})
+            return None
+        return None
+
+    def _handle_notification(method: str, params: Dict) -> Optional[str]:
+        nonlocal result_data, terminal_status
+        if method == "thread/started":
+            thread = params.get("thread") if isinstance(params.get("thread"), dict) else {}
+            thread_id = thread.get("id")
+            if isinstance(thread_id, str) and thread_id:
+                state["thread_id"] = thread_id
+                converter.thread_id = thread_id
+            return None
+        if method == "turn/started":
+            turn = params.get("turn") if isinstance(params.get("turn"), dict) else {}
+            turn_id = turn.get("id")
+            if isinstance(turn_id, str) and turn_id and not state["turn_id"]:
+                state["turn_id"] = turn_id
+            return None
+        if method == "thread/tokenUsage/updated":
+            # A resume replays the previous turn's notification; only the
+            # current turn's total may feed this turn's usage.
+            if state["turn_id"] and params.get("turnId") != state["turn_id"]:
+                return None
+            token_usage = params.get("tokenUsage") if isinstance(params.get("tokenUsage"), dict) else {}
+            usage = app_server_usage(token_usage.get("total"))
+            if usage is not None:
+                state["usage"] = usage
+            return None
+        if method in ("item/started", "item/completed"):
+            item = params.get("item") if isinstance(params.get("item"), dict) else {}
+            _complete_steer_item(method, item)
+            event = app_server_item_event(method, item)
+            if event is not None:
+                _emit(event)
+            return None
+        if method == "error":
+            error = params.get("error") if isinstance(params.get("error"), dict) else {}
+            message = error.get("message") if isinstance(error.get("message"), str) else "Unknown error"
+            _emit({"type": "error", "message": message})
+            return None
+        if method == "turn/completed":
+            turn = params.get("turn") if isinstance(params.get("turn"), dict) else {}
+            turn_id = turn.get("id")
+            if isinstance(turn_id, str) and turn_id and not state["turn_id"]:
+                state["turn_id"] = turn_id
+            status = turn.get("status")
+            if status == "completed":
+                event = app_server_turn_event(turn, state["usage"]) or {"type": "turn.completed"}
+                if event.get("usage"):
+                    converter.usage = normalize_usage(event["usage"])
+                with steer_lock:
+                    _complete_launch_group(ledger, launch_input_uuid)
+                result_data = event
+                terminal_status = "completed"
+                return "done"
+            if status == "failed":
+                event = app_server_turn_event(turn, None) or {
+                    "type": "turn.failed", "error": {"message": "Turn failed"},
+                }
+                _emit(event)
+                # The exec path reports the same bounded diagnostic shape so
+                # closeout stores the real failure text, not a generic one.
+                result_data = _codex_failure_data(event["error"].get("message"))
+                terminal_status = "failed"
+                return "done"
+            if status == "interrupted":
+                result_data = None
+                terminal_status = "interrupted"
+                return "done"
+            return None
+        return None
+
+    def _handle_message(obj: Dict) -> Optional[str]:
+        request_id = obj.get("id")
+        if isinstance(request_id, str) and isinstance(obj.get("method"), str):
+            # A server-to-client request (approval / elicitation / auth). None
+            # are expected under the staged policy; refuse rather than stall.
+            logger.warning(
+                "codex app-server client request refused chat_id={} method={}",
+                chat_id, obj.get("method"),
+            )
+            try:
+                _app_server_append_stdin(client, chat_id, json.dumps({
+                    "jsonrpc": "2.0", "id": request_id,
+                    "error": {"code": -32601, "message": "y-agent does not support client requests"},
+                }))
+            except Exception as exc:
+                logger.warning("codex app-server client-request refusal failed: {}", exc)
+            return None
+        if isinstance(request_id, str) and ("result" in obj or obj.get("error") is not None):
+            return _handle_response(request_id, obj.get("result"), obj.get("error"))
+        method = obj.get("method")
+        if isinstance(method, str):
+            params = obj.get("params") if isinstance(obj.get("params"), dict) else {}
+            return _handle_notification(method, params)
+        return None
+
+    try:
+        tail_cmd = _build_tail_cmd(stdout_file, exit_file, offset, node=node)
+        stdin_ch, stdout_ch, stderr_ch = client.exec_command(tail_cmd)
+
+        if not state["turn_id"] and state["thread_id"] and offset > 0:
+            # Re-attached tail: recover the live turn id from the server.
+            try:
+                _app_server_append_stdin(client, chat_id, json.dumps({
+                    "jsonrpc": "2.0", "id": APP_TURNS_LIST_ID, "method": "thread/turns/list",
+                    "params": {"threadId": state["thread_id"], "limit": 5},
+                }))
+            except Exception as exc:
+                logger.warning(
+                    "codex app-server turns/list recovery failed chat_id={}: {}", chat_id, exc,
+                )
+
+        def _kill_detached():
+            nonlocal torn_down
+            logger.info("interrupt watchdog (codex app-server): killing tmux session cc-{}", chat_id)
+            with steer_lock:
+                torn_down = True
+                _kill_session_marking_self_killed(client, chat_id, node=node)
+                try:
+                    stdout_ch.channel.close()
+                except Exception:
+                    pass
+
+        def _teardown_session():
+            """Close the long-lived app-server after a terminal turn event.
+
+            A terminal event is a clean end, not a death, so no self-kill
+            sentinel is written. The kill is synchronous: the process is gone
+            before closeout can launch a continuation beside it. Killing the
+            wrapper also stops the `tail -f` stdin producer, which is the only
+            way app-server's stdin ever closes.
+            """
+            try:
+                from agent.detach import _tmux_kill_cmd
+
+                _ssh_exec(client, _tmux_kill_cmd(chat_id, node=node))
+            except Exception as exc:
+                logger.warning("codex app-server teardown failed chat_id={}: {}", chat_id, exc)
+            try:
+                stdout_ch.channel.close()
+            except Exception:
+                pass
+
+        def _on_steer(text, msg_id, images=None) -> bool:
+            """Append a `turn/steer` request to the live stdin pipe.
+
+            The turn is not ended: app-server admits the message into the
+            current turn. A zero write status only proves the bytes reached the
+            file; the request's response acknowledges or drops it, and the
+            `userMessage` item with its clientId completes it. A False return
+            releases the poll checker's claim so closeout re-delivers it.
+            """
+            with steer_lock:
+                if torn_down or reader_stop.is_set() or terminal_status:
+                    return False
+                thread_id = state["thread_id"]
+                turn_id = state["turn_id"]
+                if not thread_id or not turn_id:
+                    return False
+                try:
+                    from agent.detach import upload_steer_images
+
+                    remote_images = upload_steer_images(client, chat_id, msg_id, images)
+                except Exception as exc:
+                    logger.warning(
+                        "codex app-server steer image staging failed chat_id={} message={}: {}",
+                        chat_id, msg_id, exc,
+                    )
+                    return False
+                payload = json.dumps(build_codex_app_server_steer(
+                    chat_id, thread_id, turn_id, msg_id, text, remote_images,
+                ))
+                _, write_stdout, _ = client.exec_command(
+                    f"printf '%s\\n' {_shell_quote(payload)} >> {_shell_quote(stdin_file)}"
+                )
+                if write_stdout.channel.recv_exit_status() != 0:
+                    return False
+                converter.last_message_id = msg_id
+                ledger.mark_submitted(native_input_uuid(chat_id, msg_id), [msg_id])
+            logger.info("codex app-server steer: queued chat_id={} for message={}", chat_id, msg_id)
+            return True
+
+        poll = PollLoop(
+            check_interrupted_fn=check_interrupted_fn,
+            on_interrupt=_kill_detached,
+            check_steer_fn=check_steer_fn,
+            on_steer=_on_steer,
+        )
+        poll.start()
+
+        def _read_lines():
+            nonlocal current_offset, stream_error, torn_down
+            try:
+                for raw_line in stdout_ch:
+                    if reader_stop.is_set():
+                        return "deadline"
+                    line = (raw_line.strip() if isinstance(raw_line, str)
+                            else raw_line.decode("utf-8", errors="replace").strip())
+                    if not line:
+                        continue
+
+                    if check_interrupted_fn and check_interrupted_fn():
+                        with steer_lock:
+                            torn_down = True
+                            _kill_session_marking_self_killed(client, chat_id, node=node)
+                            stdout_ch.channel.close()
+                        return "interrupted"
+
+                    if check_deadline_fn and check_deadline_fn():
+                        try:
+                            client.exec_command(_pkill_tail_cmd(chat_id))
+                        except Exception:
+                            pass
+                        stdout_ch.channel.close()
+                        return "deadline"
+
+                    current_offset += 1
+
+                    obj = parse_stream_line(line)
+                    if not obj:
+                        continue
+
+                    outcome = _handle_message(obj)
+                    if outcome == "done":
+                        with steer_lock:
+                            if reader_stop.is_set():
+                                return "deadline"
+                            torn_down = True
+                            _teardown_session()
+                        return None
+            except (OSError, EOFError, Exception) as exc:
+                if check_interrupted_fn and check_interrupted_fn():
+                    return "interrupted"
+                if not isinstance(exc, (OSError, EOFError)):
+                    raise
+                stream_error = exc
+
+            if check_interrupted_fn and check_interrupted_fn():
+                return "interrupted"
+            return None
+
+        loop = asyncio.get_event_loop()
+        reader = loop.run_in_executor(None, _read_lines)
+        cancelled = False
+        try:
+            exit_reason = await asyncio.shield(reader)
+        except asyncio.CancelledError:
+            logger.info(
+                "tail_codex_app_server_output cancelled: chat_id={} offset={}", chat_id, current_offset,
+            )
+            reader_stop.set()
+            try:
+                stdout_ch.channel.close()
+            except Exception:
+                pass
+            cancelled = True
+            # Closing a channel does not stop a buffered-line callback. Join
+            # the shielded reader before checkpointing its offset and ledger.
+            while not reader.done():
+                try:
+                    await asyncio.shield(reader)
+                except asyncio.CancelledError:
+                    continue
+            reader.result()
+
+        poll.stop(timeout=None)
+        with steer_lock:
+            # Prevent a poll callback waiting behind an in-flight write from
+            # submitting after the handoff snapshot is taken.
+            torn_down = True
+
+        if cancelled:
+            if owns_client:
+                from agent.chat_target import close_owned_client
+                close_owned_client(client)
+            return _view(False, "monitoring", result_data)
+
+        if exit_reason == "interrupted":
+            if owns_client:
+                from agent.chat_target import close_owned_client
+                close_owned_client(client)
+            return _view(True, "interrupted", None)
+
+        if exit_reason == "deadline":
+            if owns_client:
+                from agent.chat_target import close_owned_client
+                close_owned_client(client)
+            return _view(False, "monitoring", result_data)
+
+        status = None
+        data = result_data
+        if terminal_status == "completed":
+            status = "completed"
+        elif terminal_status == "failed":
+            status = "error"
+        elif terminal_status == "interrupted":
+            status, data = "interrupted", None
+
+        if status is None:
+            status = "monitoring"
+            if _consume_self_kill_sentinel(client, chat_id):
+                status, data = "interrupted", None
+            elif _tmux_session_alive(client, chat_id, node=node):
+                pass
+            else:
+                attempt = read_codex_attempt_diagnostic(client, chat_id, stream_error)
+                extra_view.update(
+                    startup_diagnostic=attempt["text"],
+                    exit_code=attempt["exit_code"],
+                    attempt_stderr=attempt["stderr"],
+                )
+                status = "error"
+                data = {"is_error": True, "result": attempt["text"]}
+
+        if owns_client:
+            from agent.chat_target import close_owned_client
+            close_owned_client(client)
+
+        if status == "monitoring":
+            logger.warning(
+                "tail_codex_app_server_output: chat_id={} no terminal turn event but session still in play (offset={}); resuming monitoring",
+                chat_id, current_offset,
+            )
+            return _view(False, "monitoring", None)
+        return _view(True, status, data)
+
+    except Exception as exc:
+        logger.error("tail_codex_app_server_output error: {} {}", type(exc).__name__, exc)
         if poll is not None:
             poll.stop()
         if owns_client:

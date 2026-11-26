@@ -463,9 +463,15 @@ The repo no longer contains an in-process agent loop — the worker shells out.
   lives in `agent/src/agent/claude_code.py`; Codex lives in `agent/src/agent/codex.py`
   (restored in todo 4304 on Codex CLI `exec --json`).
   A codex bot must set `base_url` and `api_key`; the key is `OPENAI_API_KEY`, not an argv
-  flag. The thread id is `chat.external_id` and later turns resume it. A message sent
-  while `codex exec` is running ends that turn, and the continuation resumes the thread
-  with it. `pi` (`agent/src/agent/pi_cli.py`, pi.dev 1.5.2) uses
+  flag. The thread id is `chat.external_id` and later turns resume it. On the default
+  `exec` harness a message sent while the turn runs ends it, and the continuation
+  resumes the thread with that message; `Y_CODEX_HARNESS=app-server` instead runs one
+  `codex app-server --listen stdio://` per turn behind the stdin pipe, where a steer is
+  a `turn/steer` request and the turn keeps running (todo 4476). The app-server launch
+  writes `initialize` + `thread/start|resume` and appends `turn/start` once the thread
+  id is observed; its staged private `CODEX_HOME` reproduces `exec --ignore-user-config`
+  and keeps the rollout in `$HOME/.codex/sessions` through a symlink. `pi`
+  (`agent/src/agent/pi_cli.py`, pi.dev 1.5.2) uses
   `anthropic-messages`, a per-launch merged `y-<bot>` models.json provider, and
   `Y_PI_API_KEY` in the environment. It runs `pi --mode rpc` behind a
   `tail -f` stdin pipe: setup writes `get_state`, `set_steering_mode all` and the
@@ -512,16 +518,18 @@ The repo no longer contains an in-process agent loop — the worker shells out.
   both sockets) before `tmux kill-session`, then TERMs the groups, escalates to
   KILL, and reports `gone` only when none survives, so a SIGHUP-ignoring backend
   (`agy`) cannot outlive its turn while the next turn starts beside it (todo 4472).
-  The orphan reaper matches the stdin-pipe wrappers of `claude_code` and `pi` and
-  the direct `stdout`/`stderr` redirect wrappers used by `codex` / `agy`.
+  The orphan reaper matches the stdin-pipe wrappers of `claude_code`, `pi` and the
+  Codex `app-server` harness and the direct `stdout`/`stderr` redirect wrappers used by
+  `codex exec` / `agy`.
 - **Lambda hand-off** — since Lambda caps at ~15 min, the worker releases its lease
   before the deadline and re-enqueues itself via SQS; the next invocation picks up the
   existing tail offset. `poll_loop.py` unifies the steer / interrupt polling cadence.
 - **Steer** — mid-conversation user messages are delivered to a running Claude Code
-  or pi session through a `tail -f` stdin pipe. `codex exec` and `agy -p` have no
-  input channel, so a Codex or agy steer ends the running turn and the closeout
-  continuation resumes the same thread / `--conversation` with the message as the
-  next prompt. `y chat stop` is the
+  or pi session through a `tail -f` stdin pipe, and to a Codex `app-server` turn as a
+  `turn/steer` request on the same pipe. `codex exec` and `agy -p` have no input
+  channel, so on those harnesses a Codex or agy steer ends the running turn and the
+  closeout continuation resumes the same thread / `--conversation` with the message as
+  the next prompt. `y chat stop` is the
   explicit interrupt path; an interrupt watchdog thread also fires during LLM waits.
 - **Context monitor** — per-chat token usage is tracked; when a root-role session
   crosses 50% context or 50 turns, it auto-restarts in a fresh chat with a short

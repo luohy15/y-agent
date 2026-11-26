@@ -261,10 +261,10 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
     # already written stays claimed (never write an input twice); only the
     # ledger's own terminal states decide what still needs answering.
     ledger = _load_input_ledger(chat_id, proc)
-    # Build the steer checker. claude_code and pi forward a steer into the live
-    # stdin pipe. Codex and agy have no live input channel: their tail ends the
-    # running turn, and closeout relaunches the same thread with the message as
-    # the prompt.
+    # Build the steer checker. claude_code, pi and the codex app-server harness
+    # forward a steer into the live stdin pipe. `codex exec` and agy have no
+    # live input channel: their tail ends the running turn, and closeout
+    # relaunches the same thread / conversation with the message as the prompt.
     from worker.runner import make_steer_checker
     steer_fn = make_steer_checker(chat_id, initial_msg_ids, previously_consumed=ledger.written_ids())
 
@@ -295,23 +295,44 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             conversation_id=proc.get("session_id"),
         )
     elif backend_type == "codex":
-        from agent.codex import tail_codex_output
-        result = await tail_codex_output(
-            chat_id=chat_id,
-            node=node,
-            offset=offset,
-            last_message_id=last_message_id,
-            message_callback=_msg_callback,
-            check_interrupted_fn=_check_interrupted,
-            check_deadline_fn=_check_deadline,
-            check_steer_fn=steer_fn,
-            ssh_client=client,
-            input_ledger=ledger,
-            launch_input_uuid=launch_input_uuid,
-            pending_result=_load_json_field(proc, "pending_result") or None,
-            resume_thread_id=proc.get("resume_thread_id"),
-            model=proc.get("model"),
-        )
+        from agent.codex import CODEX_APP_SERVER_HARNESS, tail_codex_output
+        if proc.get("codex_harness") == CODEX_APP_SERVER_HARNESS:
+            from agent.codex import tail_codex_app_server_output
+
+            result = await tail_codex_app_server_output(
+                chat_id=chat_id,
+                node=node,
+                offset=offset,
+                last_message_id=last_message_id,
+                message_callback=_msg_callback,
+                check_interrupted_fn=_check_interrupted,
+                check_deadline_fn=_check_deadline,
+                check_steer_fn=steer_fn,
+                ssh_client=client,
+                input_ledger=ledger,
+                launch_input_uuid=launch_input_uuid,
+                pending_result=_load_json_field(proc, "pending_result") or None,
+                resume_thread_id=proc.get("resume_thread_id"),
+                session_id=proc.get("session_id"),
+                model=proc.get("model"),
+            )
+        else:
+            result = await tail_codex_output(
+                chat_id=chat_id,
+                node=node,
+                offset=offset,
+                last_message_id=last_message_id,
+                message_callback=_msg_callback,
+                check_interrupted_fn=_check_interrupted,
+                check_deadline_fn=_check_deadline,
+                check_steer_fn=steer_fn,
+                ssh_client=client,
+                input_ledger=ledger,
+                launch_input_uuid=launch_input_uuid,
+                pending_result=_load_json_field(proc, "pending_result") or None,
+                resume_thread_id=proc.get("resume_thread_id"),
+                model=proc.get("model"),
+            )
     elif backend_type == "pi":
         from agent.pi_cli import tail_pi_output
         result = await tail_pi_output(

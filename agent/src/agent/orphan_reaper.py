@@ -7,9 +7,9 @@ stdlib-only, import-free of `agent`, and Python 3.9 compatible.
 A target is a process owned by this UID that is its own session and process
 group leader, whose argv is exactly `<shell> -c <inner>` where `<inner>` starts
 with the detach heartbeat prefix and is either a `tail -f -n +1
-'<stdin_prefix>*.stdin' |` pipe (claude_code / pi) or a backend's direct
-`> '<stdin_prefix>*.stdout' 2> '<stdin_prefix>*.stderr'` redirect (codex /
-agy),
+'<stdin_prefix>*.stdin' |` pipe (claude_code / pi / codex app-server) or a
+backend's direct `> '<stdin_prefix>*.stdout' 2> '<stdin_prefix>*.stderr'`
+redirect (codex exec / agy),
 that is not a live tmux pane, and that is at least `min_age_s` old. Pane
 enumeration happens after the candidate scan, and any tmux failure reaps
 nothing (fail closed). Every signal is sent to a single PID only after its start
@@ -71,10 +71,10 @@ def is_wrapper(argv, stdin_prefix):
     if len(argv) != 3 or argv[1] != "-c" or not argv[0].endswith("sh"):
         return False
     inner = argv[2]
-    # claude_code and pi forward input through a stdin tail pipe; codex / agy
-    # have no input channel and redirect the CLI's streams directly. Match
-    # either form so a killed tmux session cannot leave any backend's wrapper
-    # behind (todo 4472).
+    # claude_code, pi and codex app-server forward input through a stdin tail
+    # pipe; codex exec / agy have no input channel and redirect the CLI's
+    # streams directly. Match either form so a killed tmux session cannot leave
+    # any backend's wrapper behind (todo 4472).
     name_chars = re.escape(stdin_prefix) + r"[A-Za-z0-9_.-]*"
     stdin_re = r"tail -f -n \+1 '" + name_chars + r"\.stdin' \|"
     streams_re = r"> '" + name_chars + r"\.stdout' 2> '" + name_chars + r"\.stderr'"

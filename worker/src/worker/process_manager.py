@@ -58,6 +58,7 @@ def register_process(chat_id: str, user_id: int, vm_name: str,
                      target_id: str = None,
                      codex_refusal_retries: int = 0,
                      resume_thread_id: str = None,
+                     codex_harness: str = None,
                      model: str = None) -> None:
     """Register a running tmux process in DynamoDB. status=running, offset=0."""
     now = int(time.time())
@@ -115,6 +116,8 @@ def register_process(chat_id: str, user_id: int, vm_name: str,
         item["target_id"] = {"S": target_id}
     for key, value in codex_retry_fields(codex_refusal_retries, resume_thread_id).items():
         item[key] = {"N": str(value)} if key == "codex_refusal_retries" else {"S": value}
+    if codex_harness:
+        item["codex_harness"] = {"S": codex_harness}
 
     _get_dynamodb().put_item(TableName=TABLE_NAME, Item=item)
 

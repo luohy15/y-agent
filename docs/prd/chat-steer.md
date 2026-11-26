@@ -24,16 +24,16 @@ Sending a message to a running chat requires no special UI or command: the
 message is appended to the chat like any other, but no new worker task is
 enqueued. The already-running worker polls the chat for new user messages every
 couple of seconds and delivers each one into the live agent session. Claude
-Code print mode accepts mid-run input through its stdin pipe, and pi's RPC mode
-accepts a `steer` command on the same pipe. `codex exec` and `agy -p` have no
-input channel, so their steer ends the running turn and the same native session
-resumes with the pending message as the next prompt. An accepted message is
-either completed by that session or assigned to one serialized continuation. A
-successful stdin-file write is not evidence of consumption.
-Native per-input lifecycle events, persisted delivery state, and a locked
-busy-to-idle transition protect closeout and ordinary Lambda handoffs. This
-is not a distributed exactly-once side-effect guarantee across arbitrary
-worker/VM crashes.
+Code print mode accepts mid-run input through its stdin pipe, pi's RPC mode
+accepts a `steer` command on the same pipe, and Codex does the same on its
+`app-server` harness through `turn/steer`. `agy -p` has no input channel, so its
+steer ends the running turn and the same native session resumes with the pending
+message as the next prompt. An accepted message is either completed by that
+session or assigned to one serialized continuation. A successful stdin-file
+write is not evidence of consumption. Native per-input lifecycle events,
+persisted delivery state, and a locked busy-to-idle transition protect closeout
+and ordinary Lambda handoffs. This is not a distributed exactly-once
+side-effect guarantee across arbitrary worker/VM crashes.
 
 ## User Stories
 
@@ -94,16 +94,41 @@ worker/VM crashes.
   session header; resume stays `--session <id>` in the same work dir. A steer
   that arrives after the settle is refused and answered by the continuation.
   Interrupt takes priority over steer.
-- **Codex steer ends the turn instead of writing stdin.** `codex exec` has no
-  mid-run input channel, so the Codex tail's poll loop stops the session when a
-  steer is accepted, retires the run's launch input, and reports a completed
-  turn. The locked closeout selects the message as pending input and the
-  continuation launches `codex exec resume <thread>` with it, preserving
-  context. A steer that arrives before `thread.started` stays unclaimed and is
-  answered by the ordinary turn-end continuation instead. Interrupt still wins.
-  A transient top-level `error` retry notice earlier in the turn does not block
-  the completed steer result or the continuation (todo 4420). `turn.failed`, or
-  an `error` the turn never completes past, still blocks that continuation.
+- **Codex steers on the app-server harness (todo 4476).** With
+  `Y_CODEX_HARNESS=app-server` the launch runs one `codex app-server --listen
+  stdio://` per turn behind the same `tail -f` stdin pipe, and `exec` stays the
+  default until the deployed soak clears it. Setup writes `initialize` plus
+  `thread/start` or `thread/resume`; once the thread id is observed the launch
+  appends `turn/start` with the folded prompt and images as `localImage`. A
+  steer appends one `turn/steer` request carrying `expectedTurnId` and the
+  input's native uuid as `clientUserMessageId`, and never ends the turn. The
+  response's `{turnId}` acknowledges the request, `-32600` (no active turn or a
+  different id) drops it for the closeout continuation, and the `userMessage`
+  item with that `clientId` completes it; a steer still open at turn end stays
+  open. `turn/completed` (completed / failed / interrupted) ends the turn, and
+  the tail tears the long-lived app-server down with no self-kill sentinel
+  because the terminal event is the evidence. Exit is stdin EOF, which the
+  teardown produces by killing the wrapper. The staged per-launch `CODEX_HOME`
+  reproduces `exec --ignore-user-config` (generated config, no user hooks or
+  MCP, no `auth.json`; the relay key stays in `OPENAI_API_KEY`) and its
+  `sessions` symlink keeps the rollout where the usage closeout reads it.
+  A resumed launch maps `thread/resume` `-32600 "no rollout found"` to the
+  existing fresh-thread recovery, and a handoff carries thread id, turn id and
+  the thread usage total so a re-attached tail can steer without waiting for a
+  new turn event; a tail that lost the turn id asks `thread/turns/list` for the
+  `inProgress` turn. v2 notifications are folded into the exec event shapes, so
+  usage rows, the rollout closeout and the transcript stay identical.
+- **`codex exec` steer ends the turn instead of writing stdin.** On the default
+  exec harness there is no mid-run input channel: the Codex tail's poll loop
+  stops the session when a steer is accepted, retires the run's launch input,
+  and reports a completed turn. The locked closeout selects the message as
+  pending input and the continuation launches `codex exec resume <thread>` with
+  it, preserving context. A steer that arrives before `thread.started` stays
+  unclaimed and is answered by the ordinary turn-end continuation instead.
+  Interrupt still wins. A transient top-level `error` retry notice earlier in
+  the turn does not block the completed steer result or the continuation (todo
+  4420). `turn.failed`, or an `error` the turn never completes past, still
+  blocks that continuation.
 - **`agy` steer ends the turn and reaps its process group (todo 4472).**
   `agy -p` is sequential turn-per-line, so a steer kills the detached session
   and closeout relaunches `--conversation <id>` with the pending message.
@@ -132,7 +157,11 @@ worker/VM crashes.
   `completed` marks the consuming turn ended; `cancelled`, `discarded`, and
   `refused` do not prove an answer. Pi echoes the same UUID as the `id` of the
   command `response`: `success:true` acknowledges, `success:false` is a
-  refusal, and `agent_settled` retires what is still open. Native bookkeeping is
+  refusal, and `agent_settled` retires what is still open. On the Codex
+  app-server harness the same uuid is the JSON-RPC request id and the
+  `clientUserMessageId`, so a `{turnId}` result acknowledges it, any `-32600`
+  refusal drops it, and the `userMessage` item carrying that `clientId`
+  completes it. Native bookkeeping is
   not another user bubble. Missing events never fall back to write-confirmation.
 - **Result and input completion are distinct.** Standalone command completion
   follows its result; a folded command may complete before its result. A new

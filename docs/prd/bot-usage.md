@@ -682,8 +682,10 @@ later delivery.
 
 ### Codex turn usage
 
-- The worker records one `chat_request_usage` row per successful `codex exec
-  --json` launch. `turn.completed.usage` is the thread total, not the turn.
+- The worker records one `chat_request_usage` row per successful Codex launch
+  (`codex exec --json`, or the `app-server` harness whose folded
+  `turn.completed.usage` comes from `thread/tokenUsage/updated.tokenUsage.total`).
+  `turn.completed.usage` is the thread total, not the turn.
   Stored counters are the delta from the previous row of the same
   `(user_id, chat_id, session_id)`: that row's `cumulative_*` when present,
   otherwise its counters (a legacy snapshot). The first turn stores the total
@@ -706,7 +708,7 @@ later delivery.
 - The authenticated transcript-upload attribution applies only to Claude Code.
   The resume gate covers every agentic backend and measures each one's own
   final request (below for Codex; `pi_request` for Pi).
-- `codex exec --json` has no context window. Closeout reads the node rollout
+- The Codex event stream has no context window. Closeout reads the node rollout
   for that thread (`model_context_window` and final-request `last_token_usage`).
   The chat badge numerator is that final-request occupancy when the rollout
   read succeeds, otherwise the turn delta. `chat.cumulative_*` is the thread

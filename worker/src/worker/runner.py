@@ -15,6 +15,7 @@ from storage.dto.chat import validate_launch_env
 from storage.service import chat as chat_service
 
 import agent.config as agent_config
+from agent.codex import CODEX_APP_SERVER_HARNESS
 
 
 # Roles an inline (non-agentic) backend accepts in its request body.
@@ -1034,6 +1035,25 @@ def build_codex_resume_cmd(thread_id: str, model: str = None, exam_isolation: bo
     return cmd
 
 
+def codex_harness() -> str:
+    """`exec` unless the deployment opts into `Y_CODEX_HARNESS=app-server`."""
+    value = (os.environ.get("Y_CODEX_HARNESS") or "").strip().lower()
+    return CODEX_APP_SERVER_HARNESS if value == CODEX_APP_SERVER_HARNESS else "exec"
+
+
+def build_codex_app_server_cmd(model: str = None) -> list:
+    """`codex app-server` behind the stdin pipe for one turn.
+
+    Fresh vs resume is not argv: the agent module writes `thread/start` or
+    `thread/resume` from the launch's resume id. The approval/sandbox policy
+    comes from the per-launch staged CODEX_HOME config.
+    """
+    cmd = ["codex", "app-server", "--listen", "stdio://"]
+    if model:
+        cmd.extend(["-c", f'model="{model}"'])
+    return cmd
+
+
 def build_codex_provider_args(bot_config, entry: dict = None) -> list:
     """Five `-c` pairs that point Codex at this entry's relay. The key stays off argv."""
     base_url = provider_base_url(
@@ -1138,6 +1158,7 @@ def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: s
     env = validate_launch_env(getattr(chat, "launch_env", None), strict=False)
     # Exam runs use the sandbox policy in their per-run CODEX_HOME config.
     exam_isolation = env.get("CODEX_ISOLATION") == "exam"
+    harness = codex_harness()
 
     # The catalog launch uses this window for both report and compaction. A
     # missing row or a failed read leaves the launch on the bundled catalog.
@@ -1153,7 +1174,10 @@ def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: s
                 chat_id, type(exc).__name__,
             )
 
-    if resume and thread_id:
+    if harness == CODEX_APP_SERVER_HARNESS:
+        cmd = build_codex_app_server_cmd(model)
+        cmd.extend(provider_args)
+    elif resume and thread_id:
         cmd = build_codex_resume_cmd(thread_id, model, exam_isolation=exam_isolation)
         cmd.extend(provider_args)
     else:
@@ -1189,6 +1213,8 @@ def _build_codex_params(chat, chat_id: str, user_id: int, bot_config, vm_name: s
         "last_message_id": last_message_id,
         "model": model,
         "context_window": context_window,
+        "harness": harness,
+        "exam_isolation": exam_isolation,
         "messages": messages,
     }
 
@@ -1436,6 +1462,10 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
             unset_env=params.get("unset_env"),
             model=params.get("model"),
             context_window=params.get("context_window"),
+            harness=params.get("harness"),
+            resume_thread_id=params.get("thread_id") if params.get("resume") else None,
+            input_uuid=launch_uuid,
+            exam_isolation=bool(params.get("exam_isolation")),
         )
     elif effective_backend == "pi":
         from agent.pi_cli import start_detached_pi_ssh
@@ -1505,6 +1535,7 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
             target_id=node.name,
             codex_refusal_retries=codex_refusal_retries,
             resume_thread_id=params.get("thread_id") if params.get("resume") else None,
+            codex_harness=params.get("harness") if effective_backend == "codex" else None,
         )
     except Exception as e:
         if mcp_material is not None:

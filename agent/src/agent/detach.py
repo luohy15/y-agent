@@ -179,13 +179,25 @@ class DetachBackendSpec:
     - `parse_initial(obj) -> Optional[str]` — inspect a parsed stream-json
       event from the first few stdout lines and return the session/thread id
       if this event carries it; return None to keep scanning.
+    - `after_initial(client, chat_id, prompt, images, initial_id)` — optional,
+      runs once after the initial-id sniff. Codex app-server is a two-phase
+      launch: the thread id must be known before `turn/start` can be appended
+      to the stdin pipe.
+    - `initial_stdout_lines` / `initial_wait_seconds` — how much of the stdout
+      file the sniff reads and how long it waits. App-server startup warnings
+      can push the thread id past the default five lines.
     """
 
     build_exec: Callable[[List[str], str, str, Optional[List[str]]], str]
     parse_initial: Callable[[Dict], Optional[str]]
     setup: Optional[Callable[[object, str, str, Optional[List[str]]], None]] = None
+    after_initial: Optional[
+        Callable[[object, str, str, Optional[List[str]], Optional[str]], None]
+    ] = None
     upload_images: bool = True
     cleanup: Optional[Callable[[], str]] = None
+    initial_stdout_lines: int = 5
+    initial_wait_seconds: float = INITIAL_ID_WAIT_SECONDS
 
 
 def _upload_images(client, chat_id: str, images: Optional[List[str]]) -> Optional[List[str]]:
@@ -219,6 +231,44 @@ def _upload_images(client, chat_id: str, images: Optional[List[str]]) -> Optiona
 
 def _is_s3_uri(uri: str) -> bool:
     return isinstance(uri, str) and uri.startswith("s3://")
+
+
+def upload_steer_images(client, chat_id: str, msg_id: str,
+                        images: Optional[List[str]]) -> List[str]:
+    """Stage a steer's images on the node under a per-message subdirectory.
+
+    The launch uploads to `/tmp/cc-<chat_id>-images/<index>-<name>`; a steer
+    uses `/tmp/cc-<chat_id>-images/<msg_id>/<index>-<name>` so filenames cannot
+    collide. The next launch removes the whole image directory.
+    """
+    if not images:
+        return []
+
+    remote_dir = f"/tmp/cc-{chat_id}-images/{msg_id}"
+    _ssh_exec(client, f"mkdir -p {_shell_quote(remote_dir)}")
+    sftp = client.open_sftp()
+    staged_files: List[Path] = []
+    try:
+        remote_paths = []
+        for index, image_path in enumerate(images):
+            source = (_download_s3_to_tmp(image_path, chat_id)
+                      if _is_s3_uri(image_path) else Path(image_path).expanduser())
+            if _is_s3_uri(image_path):
+                staged_files.append(source)
+            if not source.exists():
+                remote_paths.append(image_path)
+                continue
+            remote_path = f"{remote_dir}/{index}-{source.name}"
+            sftp.put(str(source), remote_path)
+            remote_paths.append(remote_path)
+        return remote_paths
+    finally:
+        sftp.close()
+        for staged_file in staged_files:
+            try:
+                staged_file.unlink()
+            except FileNotFoundError:
+                pass
 
 
 def assemble_inner(
@@ -424,21 +474,35 @@ async def _start_detached_tmux(
 
         # 5. Sniff initial stdout for session/thread id. The budget matches
         # the previous fixed sleep; a ready id returns on the first read.
-        stdout_read = f"head -5 {_shell_quote(stdout_file)} 2>/dev/null"
-        return await _await_initial_id(
+        stdout_read = (
+            f"head -{int(spec.initial_stdout_lines)} {_shell_quote(stdout_file)} 2>/dev/null"
+        )
+        initial_id = await _await_initial_id(
             lambda: _ssh_exec(client, stdout_read),
             spec.parse_initial,
+            spec.initial_wait_seconds,
         )
+        # 6. Backend follow-up that needs the id (app-server `turn/start`).
+        if spec.after_initial:
+            try:
+                spec.after_initial(client, chat_id, prompt, exec_images, initial_id)
+            except Exception:
+                if spec.cleanup:
+                    _ssh_exec(client, spec.cleanup())
+                raise
+        return initial_id
 
 
-async def _await_initial_id(read_output, parse_initial) -> Optional[str]:
-    """Return the first parsed id, or None when the 2s budget is spent.
+async def _await_initial_id(
+    read_output, parse_initial, wait_seconds: float = INITIAL_ID_WAIT_SECONDS,
+) -> Optional[str]:
+    """Return the first parsed id, or None when the budget is spent.
 
     The first read is immediate. Later reads are about 100ms apart, and one
     read still happens at the deadline. A read or parse error is ignored for
     that attempt and does not raise or end the wait early.
     """
-    deadline = time.monotonic() + INITIAL_ID_WAIT_SECONDS
+    deadline = time.monotonic() + wait_seconds
     while True:
         try:
             output = read_output()
