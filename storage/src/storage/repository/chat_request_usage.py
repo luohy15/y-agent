@@ -508,8 +508,13 @@ def rows_for_backend(user_id: int, backend: str, start, end) -> list[dict]:
     return [dict(row._mapping) for row in found]
 
 
-def turns_for_chats(user_id: int, chat_ids: list[str]) -> dict[str, int]:
-    """Answered turns per chat, summed across the derived daily activity rows."""
+def activity_for_chats(user_id: int, chat_ids: list[str]) -> dict[str, dict]:
+    """Turns and Requests per chat, summed across the derived activity rows.
+
+    Requests are attributed assistant messages (todo 4483), so for an agy chat
+    this is its observed request count; `turns` keeps its answered-prompt
+    meaning.
+    """
     if not chat_ids:
         return {}
     from storage.entity.chat_model_activity import ChatModelActivityEntity
@@ -519,6 +524,7 @@ def turns_for_chats(user_id: int, chat_ids: list[str]) -> dict[str, int]:
             select(
                 ChatModelActivityEntity.chat_id,
                 func.coalesce(func.sum(ChatModelActivityEntity.turns), 0),
+                func.coalesce(func.sum(ChatModelActivityEntity.requests), 0),
             )
             .where(
                 ChatModelActivityEntity.user_id == user_id,
@@ -526,7 +532,35 @@ def turns_for_chats(user_id: int, chat_ids: list[str]) -> dict[str, int]:
             )
             .group_by(ChatModelActivityEntity.chat_id)
         ).all()
-    return {chat_id: int(turns) for chat_id, turns in grouped}
+    return {
+        chat_id: {"turns": int(turns), "requests": int(requests)}
+        for chat_id, turns, requests in grouped
+    }
+
+
+def activity_by_model(user_id: int, chat_ids: list[str]) -> dict[str, dict]:
+    """Turns and Requests per model, summed across the derived activity rows."""
+    if not chat_ids:
+        return {}
+    from storage.entity.chat_model_activity import ChatModelActivityEntity
+
+    with get_db() as session:
+        grouped = session.execute(
+            select(
+                ChatModelActivityEntity.model,
+                func.coalesce(func.sum(ChatModelActivityEntity.turns), 0),
+                func.coalesce(func.sum(ChatModelActivityEntity.requests), 0),
+            )
+            .where(
+                ChatModelActivityEntity.user_id == user_id,
+                ChatModelActivityEntity.chat_id.in_(chat_ids),
+            )
+            .group_by(ChatModelActivityEntity.model)
+        ).all()
+    return {
+        model: {"turns": int(turns), "requests": int(requests)}
+        for model, turns, requests in grouped
+    }
 
 
 # Local to the surrounding transaction. 250ms bounds this lookup only; the caller

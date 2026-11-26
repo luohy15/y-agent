@@ -92,6 +92,23 @@ def upsert_hourly(user_id: int, rows: list[dict], synced_at: str) -> int:
         return len(rows)
 
 
+def delete_window(user_id: int, source: str, from_date: date, to_date: date) -> int:
+    """Delete one source's hourly rows in an inclusive local-date window.
+
+    Used by the agy recompute, which replaces its window instead of only
+    upserting, so an hour that lost all activity does not linger (todo 4483).
+    """
+    with get_db() as session:
+        return int(
+            session.query(ModelUsageHourlyEntity).filter(
+                ModelUsageHourlyEntity.user_id == user_id,
+                ModelUsageHourlyEntity.source == source,
+                ModelUsageHourlyEntity.usage_date >= from_date,
+                ModelUsageHourlyEntity.usage_date <= to_date,
+            ).delete(synchronize_session=False) or 0
+        )
+
+
 def count_for(
     user_id: int,
     source: Optional[str] = None,

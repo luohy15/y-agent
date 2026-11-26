@@ -29,12 +29,12 @@ MISMATCH_LIMIT = 20
 def _counter_mismatches(user_id: int) -> list[dict]:
     """Daily (date, model) cells where answered turns exceed recorded requests.
 
-    Requests are observed provider calls; Turns are attributed answered prompt
-    groups. A relay turn issues at least one request and one agy launch is one
-    request, so turns > requests means a turn lost its usage row (todo 4483).
-    Only cells carrying a usage row are compared: activity-only models (inline
-    search) have no request count to compare against. The two-day window matches
-    the agy recompute range.
+    Turns are attributed answered prompt groups; an agy Request is one of the
+    attributed assistant messages the fold saw, so every Turn coincides with a
+    Request and turns > requests means the aggregates are stale or a relay turn
+    lost its usage row (todo 4483). Only cells carrying a usage row are
+    compared: activity-only models (inline search) have no request count to
+    compare against. The two-day window matches the agy recompute range.
     """
     today = local_today()
     mismatches = []
@@ -69,17 +69,22 @@ async def handle_sync_model_usage() -> dict:
         results = []
         mismatches = []
         for user in list_users():
-            # Full relay sync envelope: daily + hourly (crs-hourly) results.
-            envelope = usage_service.sync(user.id)
+            # Activity first: the agy aggregate reads its request counts, so a
+            # fresh turn must be folded before the usage pull (todo 4483).
             try:
-                envelope["activity"] = activity_service.sync(user.id)
+                activity = activity_service.sync(user.id)
+                activity_ok = True
             except Exception as exc:
                 logger.opt(exception=exc).error(
                     "sync_model_usage: chat activity sync failed for user {}: {}",
                     user.id,
                     exc,
                 )
-                envelope["activity"] = {"status": "error", "rows": 0}
+                activity = {"status": "error", "rows": 0}
+                activity_ok = False
+            # Full relay sync envelope: daily + hourly (crs-hourly) results.
+            envelope = usage_service.sync(user.id, activity_synced=activity_ok)
+            envelope["activity"] = activity
             try:
                 user_mismatches = _counter_mismatches(user.id)
             except Exception as exc:

@@ -1,4 +1,4 @@
-"""Repository for derived per-chat, per-day model activity."""
+"""Repository for derived per-chat, per-day, per-hour model activity."""
 
 from datetime import date
 
@@ -33,8 +33,10 @@ def _replace_for_chat(
                 "user_id": user_id,
                 "chat_id": chat_id,
                 "usage_date": row["usage_date"],
+                "usage_hour": int(row.get("usage_hour") or 0),
                 "model": row["model"],
                 "turns": int(row.get("turns") or 0),
+                "requests": int(row.get("requests") or 0),
             }
             for row in rows
         ])
@@ -159,6 +161,97 @@ def list_chat_batch(
         ) for row in rows]
 
 
+def recompute_backend_chats(
+    user_id: int,
+    backend: str,
+    derive_rows,
+    batch_size: int = 100,
+) -> dict:
+    """Recompute every chat of one backend for this owner, one keyset pass.
+
+    Used by the activity fact-version self-recompute (todo 4483): a schema
+    change to the derived facts rebuilds the affected chats from their
+    messages once, then the caller stamps the version.
+    """
+    chats = 0
+    activity_rows = 0
+    after_id = 0
+    while True:
+        with get_db() as session:
+            batch = (
+                session.query(
+                    ChatEntity.id,
+                    ChatEntity.chat_id,
+                    ChatEntity.json_content,
+                    ChatEntity.enc_version,
+                )
+                .filter(
+                    ChatEntity.user_id == user_id,
+                    ChatEntity.backend == backend,
+                    ChatEntity.id > after_id,
+                )
+                .order_by(ChatEntity.id.asc())
+                .limit(batch_size)
+                .all()
+            )
+            if not batch:
+                break
+            from storage.crypto.orm import open_projected
+            for row in batch:
+                body = open_projected(
+                    session, user_id=user_id, table="chat", column="json_content",
+                    public_id=row.chat_id, enc_version=row.enc_version, value=row.json_content,
+                )
+                activity_rows += _replace_for_chat(
+                    session, user_id, row.chat_id, derive_rows(body),
+                )
+                chats += 1
+                after_id = row.id
+    return {"chats": chats, "rows": activity_rows}
+
+
+def requests_for_backend(
+    user_id: int,
+    backend: str,
+    from_date: date,
+    to_date: date,
+) -> dict[tuple[str, int, str], int]:
+    """Attributed assistant-message counts per (local date, hour, model).
+
+    Only activity from chats whose persisted backend matches is counted, so a
+    relay model of the same id is never mixed in (todo 4483).
+    """
+    with get_db() as session:
+        rows = session.execute(
+            select(
+                ChatModelActivityEntity.usage_date,
+                ChatModelActivityEntity.usage_hour,
+                ChatModelActivityEntity.model,
+                func.coalesce(func.sum(ChatModelActivityEntity.requests), 0),
+            )
+            .join(
+                ChatEntity,
+                (ChatEntity.chat_id == ChatModelActivityEntity.chat_id)
+                & (ChatEntity.user_id == ChatModelActivityEntity.user_id),
+            )
+            .where(
+                ChatModelActivityEntity.user_id == user_id,
+                ChatEntity.backend == backend,
+                ChatModelActivityEntity.usage_date >= from_date,
+                ChatModelActivityEntity.usage_date <= to_date,
+            )
+            .group_by(
+                ChatModelActivityEntity.usage_date,
+                ChatModelActivityEntity.usage_hour,
+                ChatModelActivityEntity.model,
+            )
+        ).all()
+    return {
+        (day.isoformat() if isinstance(day, date) else str(day), int(hour), model): int(count)
+        for day, hour, model, count in rows
+    }
+
+
 def sweep_orphans(user_id: int) -> int:
     """Delete activity whose chat no longer exists for this owner."""
     with get_db() as session:
@@ -193,6 +286,7 @@ def aggregate(
                 ChatModelActivityEntity.model,
                 func.count(func.distinct(ChatModelActivityEntity.chat_id)).label("sessions"),
                 func.coalesce(func.sum(ChatModelActivityEntity.turns), 0).label("turns"),
+                func.coalesce(func.sum(ChatModelActivityEntity.requests), 0).label("requests"),
             )
             .group_by(ChatModelActivityEntity.model)
             .order_by(ChatModelActivityEntity.model.asc())
@@ -201,11 +295,21 @@ def aggregate(
         total = base.with_entities(
             func.count(func.distinct(ChatModelActivityEntity.chat_id)).label("sessions"),
             func.coalesce(func.sum(ChatModelActivityEntity.turns), 0).label("turns"),
+            func.coalesce(func.sum(ChatModelActivityEntity.requests), 0).label("requests"),
         ).one()
         return {
             "models": [
-                {"model": row.model, "sessions": int(row.sessions), "turns": int(row.turns)}
+                {
+                    "model": row.model,
+                    "sessions": int(row.sessions),
+                    "turns": int(row.turns),
+                    "requests": int(row.requests),
+                }
                 for row in model_rows
             ],
-            "total": {"sessions": int(total.sessions), "turns": int(total.turns)},
+            "total": {
+                "sessions": int(total.sessions),
+                "turns": int(total.turns),
+                "requests": int(total.requests),
+            },
         }

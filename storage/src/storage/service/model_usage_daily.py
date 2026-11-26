@@ -65,6 +65,10 @@ def upsert_daily(user_id: int, rows: list[dict], synced_at: str | None = None) -
     return repo.upsert_daily(user_id, rows, synced_at or get_utc_iso8601_timestamp())
 
 
+def delete_window(user_id: int, source: str, from_date: date, to_date: date) -> int:
+    return repo.delete_window(user_id, source, from_date, to_date)
+
+
 def list_for(user_id: int, source: str | None = None, from_date: str | None = None, to_date: str | None = None, limit: int = 1000):
     return repo.list_for(user_id, source=source, from_date=from_date, to_date=to_date, limit=limit)
 
@@ -520,7 +524,13 @@ def is_within_cooldown(last_synced_at: str | None, if_stale_seconds: int | None)
     return 0 <= age < if_stale_seconds
 
 
-def sync(user_id: int, source: str | None = None, if_stale_seconds: int | None = None) -> dict:
+def sync(
+    user_id: int,
+    source: str | None = None,
+    if_stale_seconds: int | None = None,
+    *,
+    activity_synced: bool = False,
+) -> dict:
     """Run the enabled source pulls. `source` filters to one of crs / agy.
 
     When CRS is enabled, also pulls hourly for [yesterday, today] into
@@ -530,7 +540,10 @@ def sync(user_id: int, source: str | None = None, if_stale_seconds: int | None =
     The non-relay `agy` source (todo 4463) is not behind the CRS credential
     gate: it recomputes from stored turn rows and runs for a caller with no
     relay key. A `source=None` run does both; a missing credential then leaves
-    `reason=no_relay_credential` on an otherwise successful envelope.
+    `reason=no_relay_credential` on an otherwise successful envelope. Because
+    agy Requests come from the derived activity table, that table is synced
+    before the recompute; a caller that already did it passes
+    `activity_synced=True` (todo 4483).
 
     `if_stale_seconds` (todo 4465) is an opt-in cooldown for the CRS batch: when
     this user's last CRS pull is younger than that many seconds, the relay HTTP
@@ -606,7 +619,9 @@ def sync(user_id: int, source: str | None = None, if_stale_seconds: int | None =
         from storage.service import model_usage_backend
 
         try:
-            results.append(model_usage_backend.sync_backend(user_id, synced_at=synced_at))
+            results.append(model_usage_backend.sync_backend(
+                user_id, synced_at=synced_at, refresh_activity=not activity_synced,
+            ))
         except Exception as exc:
             # Isolate the non-relay source: a failure here must not discard the
             # relay grains the CRS part already wrote.

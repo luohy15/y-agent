@@ -203,6 +203,8 @@ async def sync(
 ):
     """Trigger the model-usage sync and this caller's chat-activity sync.
 
+    Activity runs first: the agy aggregate reads its request counts, so a
+    fresh turn must be folded before the usage pull (todo 4483).
     With no `source`, both pipes run: the CRS pull (daily + hourly) and the
     non-relay `agy` recompute. The non-relay source is not behind the relay
     credential gate, so a caller with no sealed relay credential still gets
@@ -218,16 +220,22 @@ async def sync(
     (`crs_skipped`). Every envelope carries `last_synced_at`.
     """
     user_id = request.state.user_id
-    envelope = usage_service.sync(user_id, source=source, if_stale_seconds=if_stale_seconds)
     try:
-        envelope["activity"] = activity_service.sync(user_id)
+        activity = activity_service.sync(user_id)
+        activity_ok = True
     except Exception as exc:
         logger.opt(exception=exc).error(
             "usage sync: chat activity sync failed for user {}: {}",
             user_id,
             exc,
         )
-        envelope["activity"] = {"status": "error", "rows": 0}
+        activity = {"status": "error", "rows": 0}
+        activity_ok = False
+    envelope = usage_service.sync(
+        user_id, source=source, if_stale_seconds=if_stale_seconds,
+        activity_synced=activity_ok,
+    )
+    envelope["activity"] = activity
     return envelope
 
 

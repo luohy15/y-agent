@@ -33,6 +33,10 @@ def upsert_hourly(user_id: int, rows: list[dict], synced_at: str | None = None) 
     return repo.upsert_hourly(user_id, rows, synced_at or get_utc_iso8601_timestamp())
 
 
+def delete_window(user_id: int, source: str, from_date: date, to_date: date) -> int:
+    return repo.delete_window(user_id, source, from_date, to_date)
+
+
 def list_for(
     user_id: int,
     source: str | None = None,

@@ -545,8 +545,12 @@ def aggregate_for_trace(user_id: int, trace_id: str, now: datetime | None = None
 
     `sessions` counts chats associated with the trace. `transcripts` counts distinct session
     ids in the uploaded rows. `turns` comes from the derived activity table and
-    `inbound` from the chat body. Non-Claude chats with worker usage rows are
-    collected at turn granularity; those without rows remain uncollected.
+    `inbound` from the chat body. Claude Code requests stay uploaded-record
+    counts; an agy Request is one attributed assistant message from the
+    activity table (`usage_granularity='assistant_message'`, todo 4483). Other
+    non-Claude chats with worker usage rows are collected at turn granularity;
+    those without rows remain uncollected. The `tokens` block keeps its
+    uploaded-row observations for its missing-counter counts.
     """
     from storage.database.base import get_db
     from storage.entity.chat import ChatEntity
@@ -559,49 +563,75 @@ def aggregate_for_trace(user_id: int, trace_id: str, now: datetime | None = None
         ).order_by(ChatEntity.created_at_unix.asc()).all()
 
     chat_ids = [chat.chat_id for chat in chats]
+    backend_by_chat = {chat.chat_id: chat.backend or "" for chat in chats}
+    agy_chat_ids = [chat.chat_id for chat in chats if (chat.backend or "") == "agy"]
     rows = repo.rows_for_chats(user_id, chat_ids)
-    turns = repo.turns_for_chats(user_id, chat_ids)
+    activity = repo.activity_for_chats(user_id, chat_ids)
+    agy_activity_by_model = repo.activity_by_model(user_id, agy_chat_ids)
     by_chat: dict[str, list] = {}
     for row in rows:
         by_chat.setdefault(row.chat_id, []).append(row)
 
     per_chat = []
+    total_requests = 0
     for chat in chats:
+        backend = chat.backend or ""
+        counts = activity.get(chat.chat_id, {"turns": 0, "requests": 0})
         entry = {
             "chat_id": chat.chat_id,
             "skill": chat.skill or "",
             "bot_name": chat.bot_name or "",
             "tier": chat.tier or "",
-            "backend": chat.backend or "",
+            "backend": backend,
             "created_at_unix": chat.created_at_unix or 0,
-            "turns": turns.get(chat.chat_id, 0),
+            "turns": counts["turns"],
             "inbound": _inbound(chat.json_content),
         }
         chat_rows = by_chat.get(chat.chat_id, [])
-        if (chat.backend or "") != "claude_code" and not chat_rows:
+        if backend == "agy":
+            entry["collected"] = True
+            entry["usage_granularity"] = "assistant_message"
+            entry.update(_counter_block(chat_rows))
+            entry["requests_observed"] = counts["requests"]
+        elif backend == "claude_code":
+            entry["collected"] = True
+            entry["usage_granularity"] = "request"
+            entry.update(_counter_block(chat_rows))
+        elif not chat_rows:
             entry["collected"] = False
             entry["reason"] = "backend_not_claude_code"
             entry["requests_observed"] = 0
         else:
             entry["collected"] = True
-            entry["usage_granularity"] = "request" if chat.backend == "claude_code" else "turn"
+            entry["usage_granularity"] = "turn"
             entry.update(_counter_block(chat_rows))
+        total_requests += entry["requests_observed"]
         per_chat.append(entry)
 
     by_model: dict[str, list] = {}
     for row in rows:
         by_model.setdefault(row.model, []).append(row)
-    per_model = [
-        {"model": model, **_counter_block(model_rows)}
-        for model, model_rows in sorted(by_model.items())
-    ]
+    per_model = []
+    for model in sorted(set(by_model) | set(agy_activity_by_model)):
+        model_rows = by_model.get(model, [])
+        block = _counter_block(model_rows)
+        # Row counts are the request count only for non-agy backends; an agy
+        # chat is counted by its attributed assistant messages, so its launch
+        # rows never add a request (todo 4483).
+        non_agy_rows = [
+            row for row in model_rows if backend_by_chat.get(row.chat_id) != "agy"
+        ]
+        block["requests_observed"] = (
+            len(non_agy_rows) + agy_activity_by_model.get(model, {}).get("requests", 0)
+        )
+        per_model.append({"model": model, **block})
 
     return {
         "trace_id": trace_id,
         "sessions": len(chats),
         "transcripts": len({row.session_id for row in rows}),
-        "requests": len(rows),
-        "turns": sum(turns.get(chat.chat_id, 0) for chat in chats),
+        "requests": total_requests,
+        "turns": sum(entry["turns"] for entry in per_chat),
         "inbound": sum(entry["inbound"] for entry in per_chat),
         "tokens": _counter_block(rows),
         "models": per_model,

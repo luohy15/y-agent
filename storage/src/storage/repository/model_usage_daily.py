@@ -89,6 +89,23 @@ def upsert_daily(user_id: int, rows: list[dict], synced_at: str) -> int:
         return len(rows)
 
 
+def delete_window(user_id: int, source: str, from_date: date, to_date: date) -> int:
+    """Delete one source's rows in an inclusive local-date window.
+
+    Used by the agy recompute, which replaces its window instead of only
+    upserting, so a model that lost all activity does not linger (todo 4483).
+    """
+    with get_db() as session:
+        return int(
+            session.query(ModelUsageDailyEntity).filter(
+                ModelUsageDailyEntity.user_id == user_id,
+                ModelUsageDailyEntity.source == source,
+                ModelUsageDailyEntity.usage_date >= from_date,
+                ModelUsageDailyEntity.usage_date <= to_date,
+            ).delete(synchronize_session=False) or 0
+        )
+
+
 def list_for(
     user_id: int,
     source: Optional[str] = None,

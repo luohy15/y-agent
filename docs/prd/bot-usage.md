@@ -882,7 +882,7 @@ later delivery.
   same per-key relay stats as Claude and Codex. One pipe, one parser. The
   sequencing rule was: never remove a working ingestion path until the
   replacement is confirmed capturing usage end-to-end.
-- **Non-relay source: agy turns (todo 4463, tombstones fixed in todo 4483).**
+- **Non-relay source: agy turns (todo 4463, requests redefined in todo 4483).**
   Antigravity (agy) never goes
   through the relay, so its turns are invisible to the CRS pull. The worker
   stores one `chat_request_usage` row per agy launch that produced output
@@ -892,23 +892,37 @@ later delivery.
   counters with `usage_state='missing'` instead of being dropped. The row is
   stamped with the runtime `init` model (falling back to the bot config) so
   usage and activity join on the same id, and a counter-less row never anchors
-  the next turn's delta. `sync_backend()`
-  recomputes `source='agy'` `scope='aggregate'` rows from those turns at both
-  grains for local yesterday and today: counters are summed, `requests` is
-  the number of launch rows (one `agy -p` launch each; internal vendor calls
-  per turn are not observable), `all_tokens = input + output + cache_read` to
-  match the relay's allTokens, `provider` stays the vendor (`google` for a
-  Gemini model id), and cost is 0 with `cost_basis='unknown'`. agy reports no
-  cache-write counter, so `cache_create_tokens` is 0 and the UI renders it
-  as n/a. The rows are replaced, never incremented, so a re-run is
-  idempotent; history older than the recompute window is not backfilled.
+  the next turn's delta. Those launch rows supply **tokens only**.
+  **Requests for agy come from chat activity:** one attributed assistant
+  message is one Request, whether it carries text or a tool call, bucketed by
+  its local date, hour and model. A model-less or `<synthetic>` message does
+  not count. Turns keep their meaning (an answered prompt group), and because
+  a Turn always coincides with one of the group's Request-bearing messages,
+  **Requests >= Turns** holds structurally. `sync_backend()`
+  recomputes `source='agy'` `scope='aggregate'` rows at both grains for local
+  yesterday and today from those two facts: the window is deleted and rewritten
+  so a re-run leaves identical rows and a model that lost all activity does not
+  linger. Token counters are summed from the launch rows
+  (`all_tokens = input + output + cache_read` to match the relay's allTokens;
+  a NULL counter contributes nothing); `requests` is summed from the activity
+  facts, never from launch-row counts, so nothing is double counted. The union
+  of both key sets is emitted, so a model with activity but no launch row still
+  shows its requests with zero tokens. `provider` stays the vendor (`google`
+  for a Gemini model id), and cost is 0 with `cost_basis='unknown'`. agy
+  reports no cache-write counter, so `cache_create_tokens` is 0 and the UI
+  renders it as n/a. History older than the recompute window is not backfilled.
   `chat_request_usage.backend` names the backend (`claude_code` stamped by the
   transcript upload, `codex` / `agy` by the worker turn writer); rows written
-  before that column existed stay NULL rather than being guessed. One launch is
-  one request and one answered prompt group is one turn, so per (day, model)
-  Requests >= Turns; the five-minute sync compares the two over the last two
+  before that column existed stay NULL rather than being guessed.
+  Activity is recomputed before every agy aggregate: `sync_backend()` syncs it
+  unless the caller just did, the five-minute action runs activity then usage,
+  and the closeout rollup uses the same path. One bounded self-recompute runs
+  on the first sync after a fact-shape change (version 2 adds `requests` and
+  the hourly bucket): every agy chat is rebuilt from its messages once, then
+  the version is stamped, so the pass is idempotent and not repeated. The
+  five-minute sync still compares Turns against Requests over the last two
   local days and logs a bounded warning plus `counter_mismatches` in its
-  envelope when a turn lost its row.
+  envelope when a turn lost its row or the aggregate is stale.
 - **One sealed relay credential per user (relay source only).** The CRS pull
   reads today's per-model counters using only the caller's credential for the
   primary relay. Without that credential the CRS grains are unavailable; the
@@ -1924,10 +1938,12 @@ later delivery.
 ### Chat session and answered-turn activity (todo 3569)
 
 - **Two sources stay explicit.** Sessions and Turns come from persisted y-agent
-  chat messages. Requests comes from relay usage and can include many model
-  calls inside one answered turn, retries, internal calls, and traffic with no
-  y-agent chat attribution. `Avg requests` is therefore a descriptive
-  model/period aggregate ratio (`relay Requests / attributed Turns`), not exact
+  chat messages. Requests come from relay usage for relayed models and, for
+  agy, from the same attributed chat activity (one Request per attributed
+  assistant message, todo 4483), and can include many model calls inside one
+  answered turn, retries, internal calls, and traffic with no y-agent chat
+  attribution. `Avg requests` is therefore a descriptive model/period
+  aggregate ratio (`Requests / attributed Turns`), not exact
   matched API requests for an individual prompt.
 - **Activity output clock and ratio boundary.** A session is one distinct chat
   with at least one attributed assistant message from the model in the selected
@@ -1959,17 +1975,23 @@ later delivery.
   its denominator is zero. If the activity request itself is unavailable, all
   three activity cells render `-` rather than fabricated zeros.
 - **Persisted fact and aggregation contract.** Host-owned
-  `chat_model_activity` stores `(user_id, chat_id, usage_date, model, turns)`
-  with one unique row per tuple. Recompute replaces one chat's derived facts in
+  `chat_model_activity` stores
+  `(user_id, chat_id, usage_date, usage_hour, model, turns, requests)` with one
+  unique row per `(user_id, chat_id, usage_date, usage_hour, model)` (todo
+  4483). `turns` counts answered prompt groups and `requests` counts attributed
+  assistant messages; both use the host `Y_AGENT_TIMEZONE` date and wall-clock
+  hour. Recompute replaces one chat's derived facts in
   one transaction; each incremental pass replaces every changed chat, sweeps
   deleted-chat orphans, and advances its chat-update watermark atomically, with
   an overlap on the next pass. The five-minute `sync_model_usage` worker and
-  `POST /api/usage/sync` both run that pass for the caller. The web envelope
+  `POST /api/usage/sync` both run that pass for the caller, before the usage
+  pull so the agy aggregate reads fresh request counts. The web envelope
   adds `activity` with the activity result. An activity failure stays isolated:
   usage results are still returned and `activity` is `{status: error, rows: 0}`.
   `GET /api/usage/model-activity?time=&tz=` uses
   the same optionally unbounded date-window handling as `model-daily` and
-  returns `{from_date, to_date, coverage_from, models, total}`. The UI computes
+  returns `{from_date, to_date, coverage_from, models, total}`, each model and
+  the total carrying `sessions`, `turns` and `requests`. The UI computes
   row `Avg requests` as that usage row's Requests divided by its attributed
   Turns. The Total cell is the ratio of totals, total Requests divided by the
   endpoint's all-model Turns, never a mean of row ratios. Because the Live table
@@ -1990,7 +2012,12 @@ later delivery.
 
 - **What a trace counts.** `sessions` is the number of chats on the trace.
   `transcripts` is the number of distinct Claude Code session ids among the
-  uploaded rows. `requests` counts those rows. `turns` comes from
+  uploaded rows. For Claude Code, `requests` counts those rows. For an agy chat
+  it counts attributed assistant messages from `chat_model_activity` and the
+  chat is labelled `usage_granularity='assistant_message'` (todo 4483), so its
+  requests are never below its turns; an agy chat with activity but no launch
+  row is still collected with zero token counters. Other non-Claude chats with
+  worker rows keep turn-granularity row counts. `turns` comes from
   `chat_model_activity` and `inbound` counts user-role messages in the chat
   body. The two are different facts: a turn is an answered prompt group, an
   inbound message is one user message.

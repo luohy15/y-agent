@@ -843,6 +843,8 @@ def _record_agy_turn_usage(user_id: int, chat, agy_turn):
 def _rollup_agy_usage(user_id: int, chat_id: str) -> None:
     """Recompute this owner's `source='agy'` model_usage rows after a turn.
 
+    `sync_backend` syncs chat activity first, so the finished turn's assistant
+    messages are part of the request count it aggregates (todo 4483).
     Best-effort and isolated: the 5-minute scheduled sync is the backstop, so a
     failure here must not affect closeout. Makes a fresh agy turn visible in Bot
     Usage Live immediately, even while the relay is unreachable (todo 4465).
