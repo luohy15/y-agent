@@ -127,10 +127,13 @@ def _project_messages(messages) -> List[dict]:
     for message in messages or []:
         data = message.to_dict() if hasattr(message, "to_dict") else dict(message)
         role = data.get("role") or ""
-        projected.append({
-            "role": role,
-            "content": "" if role == "tool" else _text(data.get("content")),
-        })
+        if role == "tool":
+            projected.append({"role": role, "content": ""})
+            continue
+        text = _text(data.get("content"))
+        if role == "assistant" and not text.strip():
+            continue
+        projected.append({"role": role, "content": text})
     return projected
 
 

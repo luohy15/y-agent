@@ -121,7 +121,8 @@ entity + controller + service + CLI slices, and most have a web panel.
   user, read-only, with an explicit selection of related notes, chats, and links
   (default empty). Note bodies are sealed snapshots; chats are read live with
   tool results removed; links use the existing content helper. The grant is not
-  a `trace_share`. `y todo share|unshare|shares|shared|public` and
+  a `trace_share`. `y todo share|unshare|shares|public`,
+  `y todo shared [open|note|chat]` and
   `/api/todo/share|shares|shared|shared/detail|share/summary|visit|public`. A recipient opens one selected note or chat at `/api/todo/shared/item`.
   A logged-in load of a public todo share records a visit (newest 200). Apply
   `migration/4422_todo_share.sql` before deploy, including the additive
