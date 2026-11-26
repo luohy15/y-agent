@@ -53,6 +53,10 @@ _PAYLOAD_KINDS = (("image_item", "image"), ("voice_item", "voice"),
 _TEXT_LIMIT = 64000
 _NAME_LIMIT = 1024
 _ID_LIMIT = 256
+_MEDIA_ITEMS_LIMIT = 9
+_MEDIA_URL_LIMIT = 4096
+_MEDIA_KEY_LIMIT = 256
+_MEDIA_SIZE_RE = re.compile(r"[0-9]{1,18}")
 
 
 def _clip(value, limit):
@@ -126,6 +130,85 @@ def _item_text(item):
     return _clip(text, _TEXT_LIMIT)
 
 
+def _media_size(value):
+    """A non-negative declared byte count from an int or a bounded digit string.
+
+    The provider controls `len`, and `str.isdigit()` accepts characters `int()`
+    rejects (`"²"`), so match ASCII digits only. The length bound keeps an
+    absurd digit string from hitting `int()`'s own conversion limit.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, str):
+        text = value.strip()
+        if _MEDIA_SIZE_RE.fullmatch(text):
+            return int(text)
+    return None
+
+
+def _media_items(items):
+    """Up to nine image/file CDN descriptors for one inbound message.
+
+    Only what the API needs to fetch and decrypt is forwarded: kind, the CDN
+    url or query param, both AES key spellings and, for a file, its name and
+    declared size. The nested `media` object wins over an item-level fallback.
+    """
+    out = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        kind, _name = _item_media(item)
+        if kind not in ("image", "file"):
+            continue
+        payload = item.get("image_item" if kind == "image" else "file_item")
+        if not isinstance(payload, dict):
+            payload = {}
+        media = payload.get("media")
+        if not isinstance(media, dict):
+            media = {}
+        descriptor = {"kind": kind}
+        for field in ("full_url", "encrypt_query_param"):
+            value = _clip(media.get(field), _MEDIA_URL_LIMIT) or _clip(
+                payload.get(field), _MEDIA_URL_LIMIT)
+            if value:
+                descriptor[field] = value
+        aeskey = _clip(payload.get("aeskey"), _MEDIA_KEY_LIMIT) or _clip(
+            media.get("aeskey"), _MEDIA_KEY_LIMIT)
+        if aeskey:
+            descriptor["aeskey"] = aeskey
+        aes_key = _clip(media.get("aes_key"), _MEDIA_KEY_LIMIT) or _clip(
+            payload.get("aes_key"), _MEDIA_KEY_LIMIT)
+        if aes_key:
+            descriptor["aes_key"] = aes_key
+        if kind == "file":
+            name = (_clip(payload.get("file_name"), _NAME_LIMIT)
+                    or _clip(payload.get("name"), _NAME_LIMIT))
+            if name:
+                descriptor["file_name"] = name
+            size = _media_size(payload.get("len"))
+            if size is not None:
+                descriptor["size"] = size
+        if "full_url" not in descriptor and "encrypt_query_param" not in descriptor:
+            continue
+        out.append(descriptor)
+        if len(out) >= _MEDIA_ITEMS_LIMIT:
+            break
+    return out
+
+
+def _media_shape(item):
+    """Present payload key -> its nested `media` key names, never values."""
+    out = {}
+    for key in _payload_keys(item):
+        payload = item.get(key)
+        media = payload.get("media") if isinstance(payload, dict) else None
+        if isinstance(media, dict) and media:
+            out[key] = sorted(name for name, value in media.items() if value is not None)
+    return out
+
+
 def _shape(item):
     """Diagnostic shape of one item: type, present keys and payload keys."""
     shape = {"type": item.get("type"),
@@ -133,6 +216,9 @@ def _shape(item):
     payload = _payload_keys(item)
     if payload:
         shape["payload"] = payload
+    media = _media_shape(item)
+    if media:
+        shape["media"] = media
     return shape
 
 
@@ -256,9 +342,13 @@ def inbound(msg, account):
         if text:
             texts.append(text)
     text = "\n".join(texts)[:_TEXT_LIMIT]
-    return {"peer": msg["from_user_id"], "message_id": str(msg["message_id"]),
-            "context_token": msg.get("context_token"), "text": text,
-            "media": media, "media_kind": media_kind, "media_name": media_name, "quote": quote}
+    payload = {"peer": msg["from_user_id"], "message_id": str(msg["message_id"]),
+               "context_token": msg.get("context_token"), "text": text,
+               "media": media, "media_kind": media_kind, "media_name": media_name, "quote": quote}
+    media_items = _media_items(items)
+    if media_items:
+        payload["media_items"] = media_items
+    return payload
 
 
 def run(path):
@@ -268,9 +358,10 @@ def run(path):
             raise ValueError("Bridge requires private state and HTTPS API")
         client = Client(http, state["baseurl"], state["bot_token"])
 
-        def api(action, body=None):
+        def api(action, body=None, timeout=40):
             response = http.post(state["api"] + "/api/wechat/bridge/" + action, json=body or {},
-                                 headers={"Authorization": "Bearer " + state["bridge_token"]}, timeout=40)
+                                 headers={"Authorization": "Bearer " + state["bridge_token"]},
+                                 timeout=timeout)
             if response.status_code in (401, 403):
                 raise ValueError("Bridge revoked or access denied")
             response.raise_for_status()
@@ -318,7 +409,9 @@ def run(path):
                     for msg in batch.get("msgs") or []:
                         payload = inbound(msg, state["ilink_bot_id"])
                         if payload:
-                            api("inbound", payload)
+                            # The API fetches and decrypts media inside this
+                            # request; give it more than the default budget.
+                            api("inbound", payload, timeout=120)
                     if batch.get("get_updates_buf"):
                         state["get_updates_buf"] = batch["get_updates_buf"]
                         save(path, state)

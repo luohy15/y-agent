@@ -164,6 +164,31 @@ the second for Roy but did not confirm it. A `binded_redirect` result or a
 credential rotation is a blocker, not permission to reuse credentials or to
 switch to an undocumented binding path.
 
+### Inbound media
+
+The bridge never downloads media. It forwards, for up to nine image or file
+items, a descriptor with the kind, the provider CDN url or encrypted query
+param, the AES key in both spellings the client uses, and (for a file) its name
+and declared size. The API fetches because the bridge-to-API body is capped at
+600 KB and the Lambda request at 6 MB, while one file may be 20 MB; keeping the
+bytes out of the bridge also keeps it credential-only with no crypto or storage.
+
+The API validates before fetching: HTTPS only, no userinfo, port 443, a host
+under `*.cdn.weixin.qq.com`, every resolved address public, and no redirects.
+It streams with a 10 MB image cap and a 20 MB file cap. The provider's blob is
+AES-128-ECB with PKCS7 padding; the key is a raw 32-character hex `aeskey` (an
+image's preferred field) or a base64 `aes_key` that decodes either to the 16 raw
+bytes or to 32 hex characters. A JPEG, PNG, GIF or WEBP image is stored
+unchanged; HEIF/HEIC (an iOS original) is re-encoded to an RGB JPEG. Files reuse
+the same classifier and storage path as Telegram, including the executable
+denylist and 20 MB cap. The descriptor is never persisted; only the stored
+paths are, on `Message.images` and `Message.files`. This adds no DDL and no
+tenant-encryption field.
+
+A bridge that sends `media_items` requires this API version. An old API rejects
+the payload with 422 and loses that message, so deploy and verify the API before
+restarting the bridge.
+
 ### Components
 
 - **Bridge daemon** (`y wechat bridge --bot default`): runs as `ubuntu` on the
@@ -303,18 +328,29 @@ Inbound:
 
 1. The bridge posts each non-bot `WeixinMessage` to the API with account id,
    provider message id, sender id, text, the message's own media hint,
-   `context_token`, and its structured `quote` when the message carries a
-   `ref_msg`.
+   `context_token`, its structured `quote` when the message carries a
+   `ref_msg`, and up to nine `media_items` descriptors for image and file
+   items.
 2. The API rejects unknown, revoked or paused accounts, deduplicates by provider
    message id before touching chat, and applies a per-peer inbound rate cap.
 3. The API resolves the sender's peer row:
    - unknown sender: one fixed refusal notice, no turn;
    - pending peer: verify the code from that same sender with a bounded failure
      count, then activate or revoke, no turn;
-   - active peer: re-check the peer owner's admission and continue.
-4. Non-text items receive one fixed "text only for now" notice and create no
-   turn. Their text, media kind and media name are still stored on the inbound
-   receipt so a later quote of that message can show a media placeholder.
+   - active peer: re-check the peer owner's admission. A de-admitted owner
+     gets one fixed "This account is not approved." notice and no turn.
+4. Image and file items follow the message's text route. The target is
+   resolved before any fetch, so an absent or foreign target keeps its notice
+   and downloads nothing. Images are fetched from the provider CDN, decrypted
+   and stored under the image assets directory; a file is stored under the
+   attachments directory. A captionless message gets `请看这张图片` or
+   `请看这个文件` as its text. Every rejection (fetch, decrypt, store, too
+   large, unsupported type, a jump node without image support, an `agy` chat
+   that refuses images) produces one explicit outbox notice and never a silent
+   drop. Voice, video and other non-image/file items receive one fixed "text
+   only for now" notice and create no turn; their text, media kind and media
+   name are still stored on the inbound receipt so a later quote of that
+   message can show a media placeholder.
 5. A reply or selected quote goes through the shared
    `storage.service.inbound_quote` formatter: `> [Quoted assistant]: …` for a
    bot message, `> [Quoted you]: …` for a user message, truncated at 500
@@ -337,7 +373,8 @@ Inbound:
    `[attachment]`. The bridge prints one content-free `bridge shape` line per
    quoted or media message: item type and present key names, plus a nested
    `ref_msg` block with its keys and its `message_item` type and payload keys,
-   never a value.
+   and, for a direct image or file, the `media` object's key names. It never
+   prints a value.
 6. Text that starts with `/<chat_id> ` or `/<todo_id> ` goes to that peer
    owner's chat through `accept_user_message` with `source="wechat"` and
    `human_reply=True`. A todo prefix resolves through the shared
@@ -434,6 +471,12 @@ opened by the existing flush and load hooks under that peer owner's tenant key
 when the owner is tenant-encryption-active. The two users' rows are
 independently encrypted.
 
+Inbound media adds no channel key custody. It fetches the provider's own
+at-rest blob over HTTPS and decrypts it with the descriptor's AES-128-ECB key;
+that is transport of the provider's encoding, not channel encryption, and it
+does not change the at-rest story below. The stored image or file is an ordinary
+asset read from the peer owner's node.
+
 Encryption eligibility and activation remain the existing hosted-tenant rollout
 (`docs/prd/hosted-tenant-confidentiality.md`); this feature neither changes
 eligibility nor claims coverage for an inactive owner. Roy's personal account is
@@ -448,7 +491,9 @@ master key can read plaintext.
   wire behavior is unchanged; the API and CLI deploy in lockstep.
 - The API must reach the provider over HTTPS from the deployed runtime. If that
   egress is unavailable, binding cannot run; the delivery must not fall back to
-  handing the bot token to a client.
+  handing the bot token to a client. Inbound image and file fetch needs the same
+  egress to the provider CDN; if it is unavailable every media message gets its
+  explicit notice instead of a silent drop.
 - The account row remains the serialization point for binding, activation and
   revocation. Per-peer operations lock consistently so two users cannot activate
   or replace the same peer concurrently.
@@ -475,7 +520,8 @@ Verification targets external behavior at the channel boundary.
   read status for another user, that a forwarded code from a different WeChat
   account cannot activate a pending peer, that a peer already bound to another
   user cannot be rebound, and that an unadmitted or de-admitted user cannot bind,
-  open a turn or receive a delivery.
+  open a turn or receive assistant content; a de-admitted peer receives only the
+  fixed not-approved notice.
 - Provisioning checks assert that a non-maintainer without an enabled default
   node, work directory, credentials or a usable bot is refused before a QR is
   shown.
@@ -508,8 +554,9 @@ Verification targets external behavior at the channel boundary.
 - Cross-peer administration beyond the maintainer's revoke. There is no
   maintainer send-as another peer and no reading of another peer's message
   bodies.
-- WeChat group chats; images, voice, files and video in either direction beyond
-  a fixed text notice for inbound media.
+- WeChat group chats; voice, video and other non-image/file inbound media, and
+  outbound media in either direction beyond the fixed inbound text notices.
+  More than nine media items in one message are not supported.
 - The WeChat Official Account and WeCom (企业微信) surfaces.
 - End-to-end encryption, and any claim that the operator cannot read content.
 - Changing tenant-encryption eligibility, key custody or activation.

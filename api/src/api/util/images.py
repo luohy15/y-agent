@@ -1,6 +1,7 @@
 import base64
 import binascii
 import errno
+import io
 import os
 import re
 import shlex
@@ -10,13 +11,30 @@ from typing import Protocol
 from urllib.parse import urlparse
 from uuid import uuid4
 
+import pillow_heif
 from fastapi import HTTPException
 from loguru import logger
+from PIL import Image
+
+pillow_heif.register_heif_opener()
 
 IMAGE_ASSETS_DIR = Path(os.environ.get("Y_AGENT_IMAGE_DIR", "/Users/roy/luohy15/assets/images"))
 _ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+_ALLOWED_IMAGE_FORMATS = {"JPEG": ".jpg", "MPO": ".jpg", "PNG": ".png", "GIF": ".gif", "WEBP": ".webp"}
 _MAX_IMAGE_UPLOAD_BYTES = 10 * 1024 * 1024
 _REMOTE_IMAGE_SCHEMES = {"http", "https"}
+
+
+class ImageRejected(ValueError):
+    """An inbound image that cannot be stored.
+
+    `code` is `too_large` or `unsupported_type`.
+    """
+
+    def __init__(self, code):
+        super().__init__(code)
+        self.code = code
+
 
 # Lazily build the SSH pool so the agent layer (paramiko/cryptography/boto3)
 # stays out of the API import path until an image actually needs SSH upload.
@@ -144,6 +162,41 @@ def save_image_bytes(content: bytes, *, prefix: str, suffix: str, vm_config=None
             raise
 
     return ssh_put_image_bytes(content, prefix=prefix, suffix=suffix, vm_config=vm_config)
+
+
+def normalize_image_bytes(content: bytes, *, max_bytes: int = _MAX_IMAGE_UPLOAD_BYTES) -> tuple[bytes, str]:
+    """Validate an inbound image and return `(bytes, suffix)`.
+
+    JPEG / PNG / GIF / WEBP pass through unchanged, as does the MPO
+    multi-picture container some phone JPEGs report (stored with a `.jpg`
+    suffix). HEIF / HEIC, the iOS original encoding, is re-encoded to an RGB
+    JPEG. Any other format, an unreadable file, or a result over the cap is
+    rejected with `ImageRejected`.
+    """
+    if not content:
+        raise ImageRejected("unsupported_type")
+    if len(content) > max_bytes:
+        raise ImageRejected("too_large")
+    try:
+        with Image.open(io.BytesIO(content)) as image:
+            image_format = (image.format or "").upper()
+            if image_format in _ALLOWED_IMAGE_FORMATS:
+                image.verify()
+                return content, _ALLOWED_IMAGE_FORMATS[image_format]
+            if image_format not in ("HEIF", "HEIC"):
+                raise ImageRejected("unsupported_type")
+            image.load()
+            converted = image.convert("RGB")
+    except ImageRejected:
+        raise
+    except Exception:
+        raise ImageRejected("unsupported_type") from None
+    buffer = io.BytesIO()
+    converted.save(buffer, format="JPEG", quality=95)
+    data = buffer.getvalue()
+    if len(data) > max_bytes:
+        raise ImageRejected("too_large")
+    return data, ".jpg"
 
 
 def resolve_message_image_paths(images: list[str] | None, image_uploads: list[ImageUploadLike] | None, *, prefix: str = "upload", vm_config=None) -> list[str] | None:

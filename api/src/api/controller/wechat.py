@@ -1,11 +1,12 @@
 import asyncio
 import time
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, ValidationError
 from starlette.concurrency import run_in_threadpool
 
+from api.util import wechat_media
 from storage.database.base import get_db
 from storage.service import wechat
 
@@ -58,6 +59,17 @@ class Quote(BaseModel):
     partial_text: PartialText | None = None
 
 
+class MediaItem(BaseModel):
+    model_config = {"extra": "forbid"}
+    kind: Literal["image", "file"]
+    full_url: Annotated[str, Field(min_length=1, max_length=4096)] | None = None
+    encrypt_query_param: Annotated[str, Field(max_length=4096)] | None = None
+    aes_key: Annotated[str, Field(max_length=256)] | None = None
+    aeskey: Annotated[str, Field(max_length=256)] | None = None
+    file_name: Annotated[str, Field(max_length=1024)] | None = None
+    size: Annotated[int, Field(ge=0)] | None = None
+
+
 class Inbound(BaseModel):
     model_config = {"extra": "forbid"}
     message_id: Identifier
@@ -67,6 +79,7 @@ class Inbound(BaseModel):
     media: bool = False
     media_kind: Identifier | None = None
     media_name: Annotated[str, Field(max_length=1024)] | None = None
+    media_items: Annotated[list[MediaItem], Field(max_length=9)] = Field(default_factory=list)
     quote: Quote | None = None
 
 
@@ -195,7 +208,8 @@ def bridge_action(action, token, data):
                     account.last_poll = account.heartbeat
                 return {"ok": True}
             if action == "inbound":
-                result = asyncio.run(wechat.inbound(db, account, **body.model_dump()))
+                result = asyncio.run(wechat.inbound(
+                    db, account, media_handler=wechat_media.handle_media, **body.model_dump()))
             elif action == "claim":
                 return wechat.claim(db, account)
             else:

@@ -23,6 +23,7 @@ QR_TTL = 480
 CODE_TTL = 600
 CODE_ATTEMPTS = 5
 REFUSAL = "This WeChat account is not bound."
+NOT_APPROVED = "This account is not approved."
 TOKEN_FIELDS = ("bot_token", "bridge_token")
 LIVE = ("open", "awaiting_code")
 TERMINAL_QR = {
@@ -490,8 +491,45 @@ def _quote_context(db, account, owner, peer, quote):
     return QuoteContext(text=full, sender=sender, media_kind=media_kind, media_name=media_name)
 
 
+def _media_caption(text, images, files):
+    """The typed text, or a default caption for a captionless media message."""
+    if (text or "").strip():
+        return text
+    if images:
+        return "请看这张图片"
+    if files:
+        return "请看这个文件"
+    return ""
+
+
+def _enqueue_notices(db, account, peer, event, user_id, notices):
+    for index, notice in enumerate(notices):
+        if notice:
+            enqueue(db, account, peer, notice, f"{event}:media:{index}", user_id)
+
+
+async def _inbound_media(media_handler, user_id, chat, items):
+    """`(image_paths, file_paths, notices)` for one message's media descriptors."""
+    if not items:
+        return [], [], []
+    if media_handler is None:
+        return [], [], ["Images and files are not supported right now."]
+    try:
+        images, files, notices = await media_handler(user_id=user_id, chat=chat, items=items)
+    except Exception:
+        logger.exception("wechat inbound media failed")
+        return [], [], ["Could not download that attachment from WeChat. Nothing was saved."]
+    images = list(images or [])
+    files = list(files or [])
+    notices = [notice for notice in (notices or []) if notice]
+    if not (images or files or notices):
+        notices = ["Could not download that attachment from WeChat. Nothing was saved."]
+    return images, files, notices
+
+
 async def inbound(db, account, message_id, peer, text, context_token, media,
-                  media_kind=None, media_name=None, quote=None):
+                  media_kind=None, media_name=None, quote=None, media_items=None,
+                  media_handler=None):
     from storage.dto.chat import Chat
     from storage.repository import chat as chat_repo
     from storage.service import chat as chats
@@ -529,18 +567,23 @@ async def inbound(db, account, message_id, peer, text, context_token, media,
         enqueue(db, account, peer, REFUSAL, digest(f"refuse:{message_id}"), account.user_id)
         return {"result": "notice"}
     if not admitted(active.user_id):
-        return {"result": "not_admitted"}
+        # The fixed notice is owned by the account so the claim path, which
+        # drops a de-admitted peer's rows, can still deliver it.
+        enqueue(db, account, peer, NOT_APPROVED, digest(f"denied:{message_id}"), account.user_id)
+        return {"result": "notice"}
     # Only an active, admitted peer's own text is stored for future quotes: a
     # binding PIN, a stranger's message, or a not-admitted row never lands here.
     receipt.quote_text = (text or "") or None
     receipt.media_kind = media_kind
     receipt.media_name = media_name
     event = digest(f"{active.generation}:{message_id}")
-    if media or not (text or "").strip():
+    media_items = [item for item in (media_items or []) if isinstance(item, dict)]
+    text_value = text or ""
+    if not media_items and (media or not text_value.strip()):
         enqueue(db, account, peer, "Text messages only for now.", event, active.user_id)
         return {"result": "notice"}
     quote_context = _quote_context(db, account, active.user_id, peer, quote)
-    route = split_inbound_route(text, skip_leading_quotes=True)
+    route = split_inbound_route(text_value, skip_leading_quotes=True)
     if route.kind:
         if not route.body.strip():
             target, notice = None, usage_notice(route.ref)
@@ -550,9 +593,15 @@ async def inbound(db, account, message_id, peer, text, context_token, media,
         else:
             target, notice = await resolve_todo_route(active.user_id, route.ref)
         if target is not None:
+            # The target is resolved before any fetch: a bad or absent target
+            # keeps its notice and downloads nothing.
+            images, files, notices = await _inbound_media(
+                media_handler, active.user_id, target, media_items)
+            _enqueue_notices(db, account, peer, event, active.user_id, notices)
             try:
                 accepted = await chats.accept_user_message(
                     active.user_id, target, format_quoted_message(route.body, quote_context),
+                    images=images or None, files=files or None,
                     source="wechat", human_reply=True, session=db,
                     event_id=f"wc_{active.generation}_{event}")
                 if not accepted.already_running:
@@ -563,7 +612,7 @@ async def inbound(db, account, message_id, peer, text, context_token, media,
                 notice = "This conversation is read-only. Send /clear to start a new one."
         enqueue(db, account, peer, notice, event, active.user_id)
         return {"result": "notice"}
-    reset = text.strip() in {"/clear", "/new"}
+    reset = text_value.strip() in {"/clear", "/new"}
     chat = chat_repo.find_latest_chat_by_role(active.user_id, "manager")
     if not chat or reset:
         timestamp = get_utc_iso8601_timestamp()
@@ -571,10 +620,18 @@ async def inbound(db, account, message_id, peer, text, context_token, media,
                     create_time=timestamp, update_time=timestamp, running=False)
         chat_repo._insert_chat_sync(active.user_id, chat, session=db)
         chat_repo.release_role(active.user_id, "manager", except_chat_id=chat.id, session=db)
+    images, files, notices = await _inbound_media(
+        media_handler, active.user_id, chat, media_items)
+    _enqueue_notices(db, account, peer, event, active.user_id, notices)
+    body = _media_caption(text_value, images, files) if media_items else text_value
+    if media_items and not (body or "").strip() and not images and not files:
+        # Nothing could be attached and there is no text: notices only.
+        return {"result": "notice"}
     try:
         accepted = await chats.accept_user_message(
             active.user_id, chat,
-            "load manager skill" if reset else format_quoted_message(text, quote_context),
+            "load manager skill" if reset else format_quoted_message(body, quote_context),
+            images=images or None, files=files or None,
             role="manager", source=None if reset else "wechat", human_reply=True, session=db,
             event_id=f"wc_{active.generation}_{event}")
         if not accepted.already_running:

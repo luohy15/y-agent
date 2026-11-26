@@ -242,8 +242,10 @@ entity + controller + service + CLI slices, and most have a web panel.
   `storage.service.inbound_route`), the same as WeChat; a todo prefix resolves
   to the todo's existing trace chat and never creates one. Automatic DM
   delivery is manager-only.
-  Image attachments remain Telegram-only and require a binding; non-manager
-  sessions have no Telegram reply path. Their detail surface is web. Markdown → HTML
+  Image attachments require a binding on Telegram; WeChat inbound images and
+  files ride the shared gateway path instead (`docs/prd/wechat-channel.md`
+  "Inbound media"). Non-manager sessions have no Telegram reply path. Their
+  detail surface is web. Markdown → HTML
   conversion, root-role callbacks short-circuited at the API layer. Web-only
   artifact fences are stripped to `[chart]` / `[diagram]` / `[svg]`
   placeholders before Telegram delivery. Proactive notices are not this path;
