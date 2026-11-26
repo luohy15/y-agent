@@ -63,13 +63,13 @@ The Live mode of that bot-page Usage view also presents a current
 subscription-limit status section for GPT (Codex), Grok, and Gemini (agy),
 read **directly from each provider** rather than through any relay. Claude
 subscription limits are not read or shown. Codex still reports rolling
-windows, `five_hour` / `one_week`, in the fetched payload; the Live card draws
-the weekly window. Grok reports its current billing period, and Gemini (agy)
-reports weekly and 5-hour windows of which the card draws the weekly one. Each
-drawn window shows percent used, percent remaining, reset time, freshness, and
-explicit unavailable / stale / re-auth states. The three reads run in the `y`
-CLI **on the user's VM** (stable source IP, already known to these vendors),
-behind one `y usage limits --json`
+windows, `five_hour` / `one_week`, in the fetched payload; the Live limits row
+draws the weekly window. Grok reports its current billing period, and Gemini
+(agy) reports weekly and 5-hour windows, of which the row draws the weekly
+one. Each drawn window shows percent used, percent remaining, reset time,
+freshness, and explicit unavailable / stale / re-auth states. The three reads
+run in the `y` CLI **on the user's VM** (stable source IP, already known to
+these vendors), behind one `y usage limits --json`
 envelope. A 30-minute worker
 schedule SSH-execs that command per user, normalizes the result, and persists
 the latest snapshot in `user_preference` (key `usage_limits_latest`, todo
@@ -99,9 +99,9 @@ credential handling is involved. There is no y-agent credential
 store and no y-agent login command. Subscription-limit refresh handles no
 Anthropic grant: it does not scrape `/usage` and it does not exchange an
 Anthropic token. Claude API spend stays on the relay. Re-authentication for a
-limits card is a **vendor** action (`codex login` / `grok login`, or running
+limits cell is a **vendor** action (`codex login` / `grok login`, or running
 `agy` on the VM and signing in), which is
-exactly what the expired-login card tells the user to run.
+exactly what the expired-login cell tells the user to run.
 
 Session context analysis (todo 3844) explains a single chat's context
 request by request. After a run, the VM analyses that chat's attributed Claude
@@ -181,7 +181,7 @@ later delivery.
 
 16. As a web user, I want the Live tab of the bot Usage view to show
     subscription-limit status for GPT (Codex), Grok, and Gemini (agy), and not
-    a Claude subscription card, so that I can choose a retained backend with
+    a Claude subscription row, so that I can choose a retained backend with
     enough available capacity before starting work without adding operational
     status to the historical Over-time tab. Claude API spend, models, and
     stored limit history stay.
@@ -189,7 +189,7 @@ later delivery.
     so that limit status does not depend on a relay service staying deployed,
     configured, and in sync, and so that a provider the relay has no usage
     concept for can still be shown.
-18. As a web user, I want the Live card to show the weekly window for GPT
+18. As a web user, I want the Live limits row to show the weekly window for GPT
     (Codex) and Gemini (agy) and the current billing period for Grok. Codex's
     and agy's 5-hour windows stay in the fetched payload and are not drawn. A
     provider is not given an empty row for a window it does not have.
@@ -212,9 +212,9 @@ later delivery.
     retained as stale when available, so that partial source failure does not
     blank the whole status section.
 24. As a user with several accounts for the same backend, I want exactly one
-    deterministically selected limit-status card per backend, so that
+    deterministically selected limit-status cell per backend, so that
     account-wide subscription limits are not presented as bot-specific quotas
-    or duplicate backend cards.
+    or duplicate backend cells.
 25. As an API consumer, I want a provider-neutral latest-status response that
     identifies the backend, provider, account scope, the windows that provider
     reports, observation time, and availability state, so that future surfaces
@@ -245,13 +245,13 @@ later delivery.
 30. As a user, I want my vendor credential file left byte-identical whenever a
     refresh fails, and never observed half-written by a vendor CLI running at
     the same moment, so that reading a status number can never cost me a login.
-31. As a user, I want an expired or absent login surfaced as an actionable card
-    naming the **vendor** action to take (`codex login`, `grok login`, or
+31. As a user, I want an expired or absent login surfaced as an actionable
+    state naming the **vendor** action to take (`codex login`, `grok login`, or
     running `agy` and signing in), so that I can fix it without knowing
     y-agent's internals.
 32. As a user, I want a CLI command that reports each provider's credential
     state without ever printing token material, so that I can diagnose a dark
-    card from a terminal safely.
+    status from a terminal safely.
 33. As a user, I want subscription-limit refresh to perform no Anthropic token
     handling, so that Claude API spend can keep using the relay without a
     subscription login path in this feature.
@@ -1081,8 +1081,9 @@ later delivery.
   `billing_period` usage row with the period end as its reset; agy reports a
   `five_hour` and a `one_week` bucket. A row is usable when **any** window
   carries a real percentage. Demanding the 5-hour/1-week pair would leave Grok
-  permanently unavailable. The Live card draws Codex's and agy's weekly window
-  and Grok's billing-period window; the 5-hour windows stay in the payload.
+  permanently unavailable. The Live limits row draws Codex's and agy's weekly
+  window and Grok's billing-period window; the 5-hour windows stay in the
+  payload.
   Model-specific extra windows are not collected or served. A provider-specific
   `extra` map (xAI's `used`/`monthlyLimit`, prepaid balance,
   on-demand cap/used, unified-billing flag) may still ride on the window.
@@ -1095,7 +1096,7 @@ later delivery.
   yields no window does it fall back to `GET /v1/billing?format=credits` and
   read `config.creditUsagePercent` directly when present. Both shapes share
   one parser and the same `billing_period` window kind, so nothing downstream
-  (contract, envelope, web card) needs to know which shape produced a given
+  (contract, envelope, web view) needs to know which shape produced a given
   reading. Plain-first exists because, as of 2026-08-03, the account's
   `?format=credits` view stopped carrying `creditUsagePercent` while the plain
   view's `used`/`monthlyLimit` pair stayed populated (the reverse of the
@@ -1159,7 +1160,7 @@ later delivery.
 - **Malformed data is never a number.** Missing, non-numeric, NaN, or infinite
   percentages normalize to null and render as unavailable; an unrecognized
   provider response shape becomes `parse_failed`. A vendor changing its schema
-  must produce a dark card, never a fabricated 0%.
+  must produce a dark cell, never a fabricated 0%.
 - **Degradation rules.** Any non-`available` availability collapses to
   `unavailable` freshness. A stopped EC2 instance answers `vm_unreachable`
   immediately and is never started to serve a refresh; the last good snapshot
@@ -1396,7 +1397,7 @@ later delivery.
 - **Account scope.** Status is account-wide, and the Usage view presents
   exactly one deterministically selected representative per backend, preferring
   a fresh available row with usable windows, then stale usable data, then an
-  unavailable row (so a dead-grant card still renders), with ties broken by
+  unavailable row (so a dead-grant cell still renders), with ties broken by
   observation recency and stable identity fields.
 
 ### Realtime run rate
@@ -1490,8 +1491,8 @@ later delivery.
   is precisely what killed the live `codex` login during this work.
 - **Re-auth is always a vendor action.** `codex login` or `grok login`, or
   running `agy` on the VM and signing in, which is exactly what the
-  `reauth_required` card names. The CLI cannot distinguish a missing agy login
-  from an expired one, so that card's copy says "expired or is missing" and
+  `reauth_required` cell names. The CLI cannot distinguish a missing agy login
+  from an expired one, so that cell's copy says "expired or is missing" and
   names the action.
   `y usage credentials` reports each provider's state (`active` /
   `reauth_required` / `not_logged_in`) by exercising the real refresh path, and
@@ -1597,22 +1598,34 @@ later delivery.
   balances in Live, before Today by hour in the wide left column; Model share
   stays right. Narrow panels put Model share first, then balances and limits.
   Limits is not rendered or fetched for Over-time, which remains a
-  historical-spend-only view. GPT (Codex), Grok, and Gemini (agy) each use two
-  lines: provider name, freshness dot, muted `1 week` or `Billing period`, and
-  right-aligned percent used; then a 4px track and full, untruncated reset
-  text. Provider letter chips are removed. The fill is `base0` below 60%,
-  yellow at 60%, orange at 80%; `limit reached` and `not reported` states
-  remain. The row does not draw Codex's or agy's 5-hour window. There is no
-  Claude subscription row.
+  historical-spend-only view. Subscription limits is one provider row in the
+  same form as Account balances: GPT (Codex), Grok, and Gemini (agy) are equal
+  cells on one line at a 640px section width and above, separated by vertical
+  hairline dividers, and stack as hairline rows below it. Each cell keeps, in
+  order, the provider name with its freshness dot and the right-aligned
+  percent used, a 4px track, and a meta line with the muted `1 week` or
+  `Billing period` window label on the left and the full, untruncated reset
+  text on the right. The dot is green when fresh, yellow when stale or
+  awaiting re-login, and red when unavailable. Provider letter chips are
+  removed. The fill is `base0` below 60%, yellow at 60%, orange at 80%;
+  `limit reached` and `not reported` states remain. The row does not draw
+  Codex's or agy's 5-hour window. There is no Claude subscription row.
   A provider that reports no drawn window uses a dedicated "no windows reported"
-  state rather than empty rows. A `reauth_required` provider renders an
-  actionable card naming the vendor action to take, distinct from plain
-  unavailable and from `vm_unreachable`. For agy that copy says the login
-  "expired or is missing" and names running `agy` on
-  the VM. Cards are classified from stable `backend`/`provider` identifiers,
-  never from display text. Provider failures are isolated, the envelope's error
-  list shows as a partial-read badge, and the limit refresh control is visually
-  and behaviorally separate from spend refresh.
+  state rather than empty rows. A `reauth_required` provider stays the same
+  cell with a muted `not reported` percent, no track and no reset, and a plain
+  detail line under its window label: a yellow uppercase "Re-login needed"
+  title above one sentence naming the vendor action to take. It is plain cell
+  detail, not a nested warning card, and stays distinct from plain unavailable
+  and from `vm_unreachable`. For agy that copy says the login "expired or is
+  missing" and names running `agy` on the VM. Stale and error states stay
+  inside the cell too: a stale provider keeps its last reading with a yellow
+  dot and a `stale: last read failed` detail line; an unavailable provider
+  shows a red dot, a muted `not reported` percent, an empty track,
+  `reset unavailable`, and its friendly error line. Cells are classified from
+  stable `backend`/`provider` identifiers, never from display text. Provider
+  failures are isolated, the envelope's error list shows as a partial-read
+  badge, and the limit refresh control is visually and behaviorally separate
+  from spend refresh.
 - **Live visual roles (todo 4152).** Follow D10–D15 in
   [Design Language](design-language.md): one canvas, hairline sections with 16px
   gaps and 12px top padding, `text-xs font-medium uppercase tracking-wide`
@@ -2137,8 +2150,8 @@ as decisions.
 - **Failure and freshness behavior is tested externally:** one reader can fail
   while the others succeed; a failed read retains the last successful snapshot
   as stale with an error code; several candidates resolve to one deterministic
-  card per backend while origin errors stay separate; an unavailable candidate
-  is still returned so a dead-grant card renders at all; no read launches a
+  cell per backend while origin errors stay separate; an unavailable candidate
+  is still returned so a dead-grant cell renders at all; no read launches a
   paid model turn solely to obtain status.
 - **Raw codes never render as prose:** the UI is asserted not to emit an error
   code as a text node, and unmapped codes fall back to generic copy.
@@ -2301,7 +2314,7 @@ as decisions.
   and automating Anthropic's monthly re-authorization via a stored browser
   cookie.
 - **Waking the VM to serve a status poll**, and rendering the xAI `extra` map
-  (prepaid balance, on-demand cap/used) in the card, which is carried as a
+  (prepaid balance, on-demand cap/used) in the cell, which is carried as a
   contract field only.
 - **A Grok rate-limit (429) badge.** The billing-period row is the better
   signal.
