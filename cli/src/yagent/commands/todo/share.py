@@ -169,16 +169,6 @@ def todo_shared(ctx):
         _print_shared()
 
 
-def _shared_item(share_id, kind, ref_id):
-    try:
-        return api_request(
-            "GET", "/api/todo/shared/item",
-            params={"share_id": share_id, "kind": kind, "ref_id": ref_id},
-        ).json()
-    except httpx.HTTPStatusError as exc:
-        raise click.ClickException(str(exc).split("\n", 1)[0]) from exc
-
-
 @todo_shared.command("open")
 @click.argument("share_id")
 @click.option("--summary", is_flag=True, default=False, help="Show metadata and item ids/titles only.")
@@ -192,32 +182,6 @@ def todo_shared_open(share_id, summary, full):
     except httpx.HTTPStatusError as exc:
         raise click.ClickException(str(exc).split("\n", 1)[0]) from exc
     _render_shared_detail(payload, summary=summary, full=full)
-
-
-@todo_shared.command("note")
-@click.argument("share_id")
-@click.argument("note_id")
-def todo_shared_note(share_id, note_id):
-    """Read one selected note of a shared todo."""
-    payload = _shared_item(share_id, "note", note_id)
-    click.echo(f"Note:      {payload.get('note_id') or note_id}  {payload.get('title') or '-'}")
-    content = payload.get("content")
-    if content is None:
-        click.echo("Note snapshot is unreadable")
-    elif content:
-        click.echo(content)
-
-
-@todo_shared.command("chat")
-@click.argument("share_id")
-@click.argument("chat_id")
-@click.option("--full", is_flag=True, default=False, help="Include stripped tool result placeholders.")
-def todo_shared_chat(share_id, chat_id, full):
-    """Read one selected chat of a shared todo."""
-    payload = _shared_item(share_id, "chat", chat_id)
-    title = payload.get("title") or ""
-    click.echo(f"Chat:      {payload.get('chat_id') or chat_id}" + (f"  {title}" if title else ""))
-    _echo_messages(payload.get("messages"), full)
 
 
 @click.command("public")
