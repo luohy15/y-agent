@@ -588,7 +588,7 @@ def _abort_unlaunched(chat, chat_id: str, user_id: int, exc: Exception) -> None:
 
 
 async def run_chat(user_id: int, chat_id: str, bot_name: str = None, bot_tier: str = None, vm_name: str = None, work_dir: str = None, post_hooks: list = None, trace_id: str = None, role: str = None, skill: str = None, resume_5xx_retries: int = 0, run_seq: int = None, continuation_from_id: str = None, handled_input_ids=None, codex_refusal_retries: int = 0) -> str:
-    """Execute a chat round. Inline backends run in-process; claude_code, codex and pi detach to tmux.
+    """Execute a chat round. Inline backends run in-process; claude_code, codex, pi and agy detach to tmux.
 
     bot_name, user_id, vm_name, work_dir, and post_hooks are passed from the queue message.
     The launch backend is chat.backend, or the resolved bot's preferred backend when
@@ -1249,6 +1249,66 @@ def _build_pi_params(chat, chat_id, user_id, bot_config, vm_name=None,
     }
 
 
+def agy_resume_conversation(stored_backend, external_id, work_dir_matches):
+    """Never pass a foreign backend's handle to agy."""
+    if stored_backend and stored_backend != "agy":
+        raise agent_config.BackendMismatchError(chat_backend=stored_backend, other_backend="agy")
+    return external_id if external_id and work_dir_matches else None
+
+
+def build_agy_env(chat_id=None, trace_id=None, role=None, last_message_id=None):
+    """agy credentials are the node's own login; the launch carries no API key."""
+    env = {
+        "TZ": os.getenv("Y_AGENT_TIMEZONE") or "Asia/Shanghai",
+        **_workspace_env(),
+    }
+    if chat_id:
+        env["Y_CHAT_ID"] = chat_id
+    if trace_id:
+        env["Y_TRACE_ID"] = trace_id
+    if role:
+        env["Y_ROLE"] = role
+        env["Y_TOPIC"] = role
+    if last_message_id:
+        env["Y_MESSAGE_ID"] = last_message_id
+    return env
+
+
+def _build_agy_params(chat, chat_id, user_id, bot_config, vm_name=None,
+                      work_dir=None, trace_id=None, role=None,
+                      continuation_from_id=None, handled_input_ids=None,
+                      entry=None):
+    """Extract prompt, build cmd/env/cwd for agy. Resume only when work_dir still matches.
+
+    No relay credential and no effort flag: the node's existing `agy` login is
+    the whole auth story.
+    """
+    from agent.agy import IMAGE_UNSUPPORTED, build_agy_argv
+    from agent.chat_target import layout
+
+    messages = list(chat.messages)
+    selected = select_run_inputs(messages, continuation_from_id, handled_input_ids)
+    prompt, images = _prompt_from_inputs(selected)
+    if images:
+        raise ValueError(IMAGE_UNSUPPORTED)
+    resolve_reasoning_effort(selected, "agy")
+    node = layout(user_id, getattr(chat, "execution_target", None))
+    cwd = work_dir or node.work_dir or os.path.expanduser(os.environ.get("VM_WORK_DIR_CLI") or os.getcwd())
+    session_id = agy_resume_conversation(chat.backend, chat.external_id, chat.work_dir == cwd)
+    model = _entry_model(entry, bot_config)
+    cmd = build_agy_argv(model, session_id)
+    last_message_id = messages[-1].id if messages else None
+    env = validate_launch_env(getattr(chat, "launch_env", None), strict=False)
+    env.update(build_agy_env(chat_id, trace_id, role, last_message_id))
+    return {
+        "prompt": with_codex_skill_preamble(prompt, chat.skill, bool(session_id)),
+        "images": [], "input_ids": [m.id for m in selected if m.id],
+        "cmd": cmd, "env": env, "unset_env": [], "cwd": cwd, "node": node,
+        "session_id": session_id, "resume": bool(session_id),
+        "last_message_id": last_message_id, "model": model, "messages": messages,
+    }
+
+
 def _persist_routing(chat_id, user_id, backend, bot_name, tier):
     """Write the accepted bot only after the last refusal check has passed."""
     from storage.repository import chat as chat_repo
@@ -1270,7 +1330,7 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
                            next_backend=None, next_bot=None, next_tier=None,
                            entry: dict = None,
                            codex_refusal_retries: int = 0) -> None:
-    """Start claude_code, codex or pi as a detached tmux process on the chat node.
+    """Start claude_code, codex, pi or agy as a detached tmux process on the chat node.
 
     Called from run_chat after chat loading, trace setup, and running flag are done.
     Starts tmux, registers in DynamoDB, returns immediately.
@@ -1299,6 +1359,13 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
                                   measurement=measurement,
                                   current_limit=current_limit, pending_limit=pending_limit,
                                   entry=entry)
+    elif effective_backend == "agy":
+        params = _build_agy_params(chat, chat_id, user_id, bot_config,
+                                   vm_name=vm_name, work_dir=work_dir,
+                                   trace_id=trace_id, role=role,
+                                   continuation_from_id=continuation_from_id,
+                                   handled_input_ids=handled_input_ids,
+                                   entry=entry)
     elif effective_backend == "claude_code":
         params = _build_claude_code_params(chat, chat_id, user_id, bot_config,
                                             vm_name=vm_name, work_dir=work_dir,
@@ -1368,6 +1435,13 @@ async def _start_detached(chat, chat_id: str, user_id: int, bot_config,
             cmd=params["cmd"], prompt=params["prompt"], cwd=cwd, chat_id=chat_id,
             node=node, env=params["env"], images=params.get("images"),
             unset_env=params.get("unset_env"), provider=params["provider"],
+        )
+    elif effective_backend == "agy":
+        from agent.agy import start_detached_agy_ssh
+        session_id = await start_detached_agy_ssh(
+            cmd=params["cmd"], prompt=params["prompt"], cwd=cwd, chat_id=chat_id,
+            node=node, env=params["env"], images=params.get("images"),
+            unset_env=params.get("unset_env"),
         )
     else:
         from agent.claude_code import start_detached_ssh

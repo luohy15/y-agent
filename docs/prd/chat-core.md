@@ -364,11 +364,11 @@ mode (`-i`) serves a human at a terminal.
     creates duplicate runs.
 43. As a user, I want each chat's backend fixed at first run, so that
     changing my default bot never migrates an existing conversation between
-    agent backends mid-session. Agentic backends are `claude_code`, `codex`, and `pi`
-    (todo 4357). This pins a chat to the runtime that owns its native session
+    agent backends mid-session. Agentic backends are `claude_code`, `codex`, `pi`,
+    and `agy` (todo 4357; todo 4460). This pins a chat to the runtime that owns its native session
     and keeps that session resumable, and it still pins a chat away from the
     inline query backends. A codex chat stores the Codex thread id; a pi chat
-    stores its pi session id. Pi also ends a running turn on steer and resumes
+    stores its pi session id; an agy chat stores its Antigravity conversation id. Pi also ends a running turn on steer and resumes
     its native session with the pending message.
     `codex exec` has no live input channel: a message sent while that turn is
     running ends the turn, and the same thread resumes with that message as
@@ -653,7 +653,7 @@ mode (`-i`) serves a human at a terminal.
   can set it.
 - **Backend dispatch in the worker**: Perplexity and OpenAI-style backends run
   inline (message-list in, reply out, no VM). Agentic CLI backends are
-  `claude_code`, `codex`, and `pi` (todo 4357). All launch as a detached tmux
+  `claude_code`, `codex`, `pi`, and `agy` (todo 4357; todo 4460). All launch as a detached tmux
   subprocess on the chat's node over SSH, are registered in a process table
   (DynamoDB) for monitoring, and are tailed by a monitor loop that appends each
   streamed event as a chat message. Each resumes its own native session.

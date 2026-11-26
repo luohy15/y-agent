@@ -417,7 +417,7 @@ entity + controller + service + CLI slices, and most have a web panel.
 
 The repo no longer contains an in-process agent loop — the worker shells out.
 
-- **Backends** — agentic CLIs are `claude_code`, `codex`, and `pi`. Claude Code
+- **Backends** — agentic CLIs are `claude_code`, `codex`, `pi`, and `agy`. Claude Code
   lives in `agent/src/agent/claude_code.py`; Codex lives in `agent/src/agent/codex.py`
   (restored in todo 4304 on Codex CLI `exec --json`).
   A codex bot must set `base_url` and `api_key`; the key is `OPENAI_API_KEY`, not an argv
@@ -429,7 +429,16 @@ The repo no longer contains an in-process agent loop — the worker shells out.
   only matching work dirs resume. `agent_settled` completes the turn after
   retries; `agent_end` is accepted only at clean exit without a retry. Pi steer
   ends the turn and the continuation resumes its session. Pi usage and effort
-  mapping are not implemented. `gemini_cli`, `grok_build`, and the old `pi_cli`
+  mapping are not implemented. `agy` (`agent/src/agent/agy.py`, Antigravity CLI
+  1.5.17) runs `agy -p --output-format stream-json` on the node's own Google
+  login: no relay, no API key, no effort flag. `chat.external_id` is the
+  `init` conversation id and later turns resume `--conversation` only when the
+  work dir matches; a steer ends the running turn and closeout relaunches the
+  conversation. `result.usage` totals the whole conversation, so per-turn rows
+  store the reduced delta. agy is row-only: it is not in `AGENTIC_BACKENDS`
+  connection entries (which require `base_url`), the resume gate, or the
+  context-window badge, and it refuses image input. `gemini_cli`, `grok_build`,
+  and the old `pi_cli`
   backend name stay removed (todo 2930). Anything else is rejected instead of falling through
   to `claude_code`. The non-agentic inline backends stay:
   `perplexity` (`agent/src/agent/perplexity.py`, the `px` web fact-check), `openai`

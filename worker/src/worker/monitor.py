@@ -276,6 +276,22 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
         result = _load_json_field(proc, "closeout_pending")
     elif proc.get("resume_pending"):
         result = json.loads(proc["resume_pending"])
+    elif backend_type == "agy":
+        from agent.agy import tail_agy_output
+        result = await tail_agy_output(
+            chat_id=chat_id,
+            node=node,
+            offset=offset,
+            last_message_id=last_message_id,
+            message_callback=_msg_callback,
+            check_interrupted_fn=_check_interrupted,
+            check_deadline_fn=_check_deadline,
+            check_steer_fn=steer_fn,
+            ssh_client=client,
+            input_ledger=ledger,
+            launch_input_uuid=launch_input_uuid,
+            pending_result=_load_json_field(proc, "pending_result") or None,
+        )
     elif backend_type == "codex":
         from agent.codex import tail_codex_output
         result = await tail_codex_output(
@@ -451,6 +467,9 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             codex_turn = None
             if backend_type == "codex":
                 codex_turn = _prepare_codex_turn_usage(user_id, chat_id, result, proc, client)
+            agy_turn = None
+            if backend_type == "agy":
+                agy_turn = _prepare_agy_turn_usage(user_id, chat_id, result, proc)
 
             def _apply_metadata(chat):
                 try:
@@ -461,6 +480,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                         proc=proc,
                         chat_id=chat_id,
                         codex_turn=codex_turn,
+                        agy_turn=agy_turn,
                     )
                 except Exception as e:
                     logger.exception("completion metadata failed: chat_id={} error={}", chat_id, e)
@@ -487,6 +507,8 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
 
             if backend_type == "codex":
                 _record_codex_turn_usage(user_id, fresh, codex_turn)
+            elif backend_type == "agy":
+                _record_agy_turn_usage(user_id, fresh, agy_turn)
 
             # The SQL receipt keeps this reservation and input subset durable.
             # Queue delivery may be retried; run claiming admits one backend.
@@ -685,6 +707,85 @@ def _record_codex_turn_usage(user_id: int, chat, codex_turn):
         logger.warning("codex usage write failed: chat_id={} error={}", chat.id, type(exc).__name__)
 
 
+def _prepare_agy_turn_usage(user_id: int, chat_id: str, result: dict, proc: dict):
+    """Turn delta, conversation total and final-request occupancy for one agy turn.
+
+    `result.usage` totals the whole conversation (verified on agy 1.5.17: turn 2
+    reports turn 1 plus itself), so it is stored as the cumulative side and
+    reduced against this thread's previous row. A failure returns None and
+    leaves the stored badge alone.
+    """
+    data = result.get("result_data")
+    if result.get("status") != "completed":
+        return None
+    try:
+        from datetime import datetime, timezone
+        from agent.agy import normalize_usage, successful_result
+        from storage.service import bot_config, chat_request_usage
+
+        inner = successful_result(data)
+        if inner is None:
+            return None
+        session_id = (result.get("conversation_id") or result.get("session_id")
+                      or proc.get("session_id"))
+        started_at = proc.get("started_at")
+        if not isinstance(session_id, str) or not session_id or not isinstance(started_at, (int, float)):
+            logger.warning("agy usage missing identity: chat_id={}", chat_id)
+            return None
+        config = bot_config.get_config(user_id, proc.get("bot_name"))
+        raw_model = getattr(config, "model", None) if config else None
+        model = raw_model.strip('"').strip() if isinstance(raw_model, str) else ""
+        if not model:
+            logger.warning("agy usage missing identity: chat_id={}", chat_id)
+            return None
+        current = normalize_usage(inner.get("usage"))
+        counters = {name: current.get(name) for name in chat_request_usage.COUNTERS}
+        request_id = f"agy-{chat_id}-{started_at}"
+        anchor = chat_request_usage.previous_anchor(user_id, chat_id, session_id, request_id)
+        delta, reason = chat_request_usage.turn_delta(counters, anchor)
+        if reason == "regression":
+            logger.warning("agy usage regression: chat_id={}", chat_id)
+        request_usage = result.get("request_usage")
+        if not isinstance(request_usage, dict) or request_usage.get("usage_state") != "observed":
+            request_usage = None
+        return {
+            "delta": delta,
+            "cumulative": counters,
+            "request_usage": request_usage,
+            "usage_state": "observed" if any(v is not None for v in delta.values()) else "missing",
+            "session_id": session_id,
+            "model": model,
+            "requested_at": datetime.fromtimestamp(started_at, timezone.utc).isoformat(),
+            "request_id": request_id,
+        }
+    except Exception as exc:
+        logger.warning("agy usage prepare failed: chat_id={} error={}", chat_id, type(exc).__name__)
+        return None
+
+
+def _record_agy_turn_usage(user_id: int, chat, agy_turn):
+    """Write the prepared delta. Does not recompute usage from the result event."""
+    if not agy_turn:
+        return
+    try:
+        from storage.service import chat_request_usage
+
+        outcome = chat_request_usage.record_backend_turn(
+            user_id=user_id,
+            chat_id=chat.id,
+            session_id=agy_turn["session_id"],
+            model=agy_turn["model"],
+            requested_at=agy_turn["requested_at"],
+            request_id=agy_turn["request_id"],
+            usage={**agy_turn["delta"], "usage_state": agy_turn["usage_state"]},
+            cumulative=agy_turn["cumulative"],
+        )
+        if any(outcome["conflicts"].values()):
+            logger.warning("agy usage identity conflict: chat_id={}", chat.id)
+    except Exception as exc:
+        logger.warning("agy usage write failed: chat_id={} error={}", chat.id, type(exc).__name__)
+
+
 async def _trigger_context_ingest(node, backend_type: str, session_id):
     """Launch a scoped ingest after closeout; the hourly scan remains the backstop.
 
@@ -726,7 +827,7 @@ def _should_resume_5xx(result: dict, proc: dict) -> bool:
 
 
 def _apply_completion_metadata(fresh, result: dict, result_data: dict, proc: dict, chat_id: str,
-                              codex_turn=None):
+                              codex_turn=None, agy_turn=None):
     """Persist backend completion metadata after running=False is durable."""
     from storage.entity.dto import Message
     from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
@@ -749,6 +850,12 @@ def _apply_completion_metadata(fresh, result: dict, result_data: dict, proc: dic
         if session_id and cwd_matches:
             fresh.external_id = session_id
         _apply_pi_context_usage(fresh, result)
+        return
+
+    if proc.get("backend_type") == "agy":
+        _apply_agy_completion(
+            fresh, result, result_data, proc, chat_id, cwd_matches, agy_turn=agy_turn,
+        )
         return
 
     effective_session_id = result.get("session_id") or proc.get("session_id")
@@ -1056,6 +1163,44 @@ def _apply_codex_completion(fresh, result: dict, result_data: dict, proc: dict, 
         error_text = (result_data.get("result") if isinstance(result_data, dict) else None) or "Codex exited with an error."
         if not isinstance(error_text, str) or not error_text.startswith("Codex "):
             error_text = format_codex_turn_failure(error_text if isinstance(error_text, str) else None)
+        fresh.messages.append(Message(
+            id=generate_message_id(),
+            role="assistant",
+            content=error_text,
+            timestamp=get_utc_iso8601_timestamp(),
+            unix_timestamp=get_unix_timestamp(),
+        ))
+
+
+def _apply_agy_completion(fresh, result: dict, result_data: dict, proc: dict, chat_id: str,
+                          cwd_matches: bool, agy_turn=None):
+    """Persist an agy conversation id, turn badge and error text.
+
+    `context_usage_source` stays unset: the resume gate does not cover agy, so
+    the badge is display only rather than trusted prompt occupancy.
+    """
+    from storage.entity.dto import Message
+    from storage.util import generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp
+
+    effective_id = result.get("conversation_id") or result.get("session_id") or proc.get("session_id")
+    if effective_id:
+        if cwd_matches:
+            fresh.external_id = effective_id
+        else:
+            logger.warning(
+                "skip external_id update: chat_id={} run_work_dir={} chat_work_dir={} (agy conversation_id={})",
+                chat_id, proc.get("work_dir"), fresh.work_dir, effective_id,
+            )
+    if agy_turn:
+        # The final request's own counters are the closest thing to occupancy;
+        # the turn delta is the fallback when no step usage survived a handoff.
+        usage = agy_turn.get("request_usage") or agy_turn.get("delta") or {}
+        fresh.input_tokens = usage.get("input_tokens")
+        fresh.output_tokens = usage.get("output_tokens")
+        fresh.cache_read_input_tokens = usage.get("cache_read_tokens")
+        fresh.cache_creation_input_tokens = usage.get("cache_creation_tokens")
+    if result.get("status") == "error":
+        error_text = (result_data.get("result") if isinstance(result_data, dict) else None) or "Antigravity CLI exited with an error."
         fresh.messages.append(Message(
             id=generate_message_id(),
             role="assistant",

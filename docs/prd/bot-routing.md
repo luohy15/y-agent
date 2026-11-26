@@ -54,7 +54,9 @@ inspectable and editable through the bot CLI, never memorized in instructions.
 
 `bot_config.resume_context_limit` is nullable: NULL inherits the global limit
 (`Y_AGENT_RESUME_CONTEXT_LIMIT`, default 100000) that applies to every agentic
-bot (`claude_code`, `codex`, `pi`); 0 disables the gate for that bot; a positive
+bot (`claude_code`, `codex`, `pi`). `agy` is not gated: its `result.usage` totals
+the conversation rather than measuring a final request (todo 4460). 0 disables
+the gate for that bot; a positive
 value overrides the global limit. This does not change routing weights or
 tiers. The derived read-only state and continuation contract are defined in
 `pages/feature-y-agent-chat-resume-gate.md`. Admission checks the persisted bot
@@ -73,7 +75,7 @@ spend remain display-only.
 3. As a user, I want a backend filter (for example perplexity) to narrow
    candidates to enabled configs with that effective backend, so that I can
    choose the runtime family without knowing config names. Agentic backends are
-   `claude_code`, `codex`, and `pi` (todo 4357). `gemini_cli`, `grok_build`, and
+   `claude_code`, `codex`, `pi`, and `agy` (todo 4357; todo 4460). `gemini_cli`, `grok_build`, and
    `pi_cli` stay removed (todo 2930). The filter also separates those from the
    inline query backends (`perplexity`, `openai`, `xai_web`, `xai_x`).
 4. As a user, I want a chat with no bot, backend, or tier specified to
@@ -299,7 +301,8 @@ spend remain display-only.
   a backend from `external_id`. A message into a running chat skips the API
   check and steers the in-flight turn. The refusal exists because the inline
   query backends (`perplexity`, `openai`, `xai_web`, `xai_x`) have no
-  session at all, and because `claude_code`, `codex`, and `pi` (todo 4357) each
+  session at all, and because `claude_code`, `codex`, `pi`, and `agy`
+  (todo 4357; todo 4460) each
   resume a different native session. `gemini_cli`, `grok_build`, and
   `pi_cli` stay removed (todo 2930).
 - **Connection entries (todo 4349).** `bot_config.backends` is a nullable
@@ -309,7 +312,10 @@ spend remain display-only.
   for legacy readers and effort binding. NULL derives one entry from those
   columns, so existing rows need no backfill. A malformed array falls back
   to that single derived entry and never broadens support. Inline bots stay
-  on the row columns and cannot set the array. `api_key` stays row-level.
+  on the row columns and cannot set the array. `agy` is row-only for the same
+  reason: a connection entry requires `base_url` and agy has none, so it stays
+  a single-row backend that a name or backend filter can select (todo 4460).
+  `api_key` stays row-level.
   Launch reads the entry for `chat.backend` and uses that entry's base URL
   and model. Subscription auth is `claude_code` only, so codex/pi entries and
   subscription tiers cannot be set together. A new chat may pass `backend`
