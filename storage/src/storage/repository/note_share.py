@@ -52,6 +52,13 @@ def set_password_hash(share_id: str, password_hash: Optional[str]) -> None:
         )
 
 
+def set_snapshot_key(share_id: str, snapshot_key: Optional[str]) -> None:
+    with get_db() as session:
+        session.query(NoteShareEntity).filter_by(share_id=share_id).update(
+            {"snapshot_key": snapshot_key}
+        )
+
+
 def delete_by_share_id(share_id: str) -> int:
     with get_db() as session:
         return session.query(NoteShareEntity).filter_by(share_id=share_id).delete()

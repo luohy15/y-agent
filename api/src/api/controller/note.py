@@ -2,8 +2,6 @@ import os
 from pathlib import Path
 from typing import Dict, Optional
 
-import boto3
-from botocore.exceptions import ClientError
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
@@ -11,8 +9,6 @@ from agent.vm_command import run_vm_command as _exec
 from storage.service import note as note_service
 
 router = APIRouter(prefix="/note")
-
-S3_BUCKET = os.environ.get("Y_AGENT_S3_BUCKET", "")
 
 
 def _get_user_id(request: Request) -> int:
@@ -36,51 +32,32 @@ def _validate_content_key(content_key: str) -> None:
         raise HTTPException(status_code=400, detail="Invalid content key")
 
 
-def _snapshot_s3_key(user_id: int, note_id: str) -> str:
+def _snapshot_key(user_id: int, share_id: str, note_id: str) -> str:
+    from storage.crypto.blob import share_note_object_key
+    from storage.database.base import get_db
+    with get_db() as session:
+        return share_note_object_key(user_id, share_id, note_id, "_note_share", session)
+
+
+def _legacy_snapshot_key(user_id: int, note_id: str) -> str:
     from storage.crypto.blob import note_object_key
     from storage.database.base import get_db
     with get_db() as session:
         return note_object_key(user_id, note_id, session)
 
 
-async def _snapshot_note_content(user_id: int, note_id: str, content_key: str) -> str:
-    if not S3_BUCKET:
-        raise HTTPException(status_code=500, detail="Y_AGENT_S3_BUCKET is not configured")
+def _share_snapshot_key(share) -> str:
+    """The snapshot a note-share row reads and deletes, new key or legacy."""
+    return share.snapshot_key or _legacy_snapshot_key(share.user_id, share.note_id)
+
+
+async def _read_note_content(user_id: int, content_key: str) -> bytes:
     _validate_content_key(content_key)
     try:
         content = await _exec(user_id, ["cat", content_key], timeout=30)
     except Exception as exc:
         raise HTTPException(status_code=404, detail="Note content not found") from exc
-    from storage.crypto.blob import seal_body
-    s3_key = _snapshot_s3_key(user_id, note_id)
-    boto3.client("s3").put_object(
-        Bucket=S3_BUCKET,
-        Key=s3_key,
-        Body=seal_body(s3_key, content.encode("utf-8")),
-        ContentType="text/markdown",
-    )
-    return s3_key
-
-
-def _delete_note_snapshot(user_id: int, note_id: str) -> None:
-    if not S3_BUCKET:
-        return
-    try:
-        boto3.client("s3").delete_object(Bucket=S3_BUCKET, Key=_snapshot_s3_key(user_id, note_id))
-    except ClientError:
-        pass
-
-
-def _read_note_snapshot(user_id: int, note_id: str) -> str:
-    if not S3_BUCKET:
-        raise HTTPException(status_code=500, detail="Y_AGENT_S3_BUCKET is not configured")
-    from storage.crypto.blob import open_body
-    try:
-        key = _snapshot_s3_key(user_id, note_id)
-        obj = boto3.client("s3").get_object(Bucket=S3_BUCKET, Key=key)
-        return open_body(key, obj["Body"].read()).decode("utf-8")
-    except ClientError as exc:
-        raise HTTPException(status_code=404, detail="Note content not found") from exc
+    return content.encode("utf-8")
 
 
 async def share_note(
@@ -91,17 +68,19 @@ async def share_note(
 ) -> Dict:
     """Snapshot a note's content to S3 and ensure a note_share row exists.
 
-    Reusable across controllers (note.py create_share + trace.py batch share).
-    Does get_note (ownership check) -> _snapshot_note_content (S3, API concern)
-    -> note_share service (pure DB). Returns {share_id, password?}.
+    Reusable across controllers. Gets the note (ownership check), reads the live
+    content, then persists one per-share snapshot keyed by ``share_id`` and
+    records it on the row. Returns ``{share_id, password?}``.
     """
+    from api.share_snapshot import delete_snapshot, put_snapshot
     from storage import share_password as sp
+    from storage.repository.note_share import get_by_share_id, set_snapshot_key
     from storage.service import note_share as note_share_service
 
     note = note_service.get_note(user_id, note_id)
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
-    await _snapshot_note_content(user_id, note_id, note.content_key)
+    body = await _read_note_content(user_id, note.content_key)
 
     generated_password: Optional[str] = None
     password_hash: Optional[str] = None
@@ -112,6 +91,16 @@ async def share_note(
         password_hash = sp.hash_password(password)
 
     share_id, _ = note_share_service.ensure_share(user_id, note_id, password_hash=password_hash)
+    previous = get_by_share_id(share_id)
+    key = _snapshot_key(user_id, share_id, note_id)
+    old_key = previous.snapshot_key if previous and previous.snapshot_key else _legacy_snapshot_key(user_id, note_id)
+    put_snapshot(key, body)
+    # Switch the DB pointer before deleting the old object: a concurrent read
+    # must never see a key whose object is already gone.
+    set_snapshot_key(share_id, key)
+    if old_key != key:
+        delete_snapshot(old_key)
+
     resp: Dict = {"share_id": share_id}
     if generated_password is not None:
         resp["password"] = generated_password
@@ -134,10 +123,11 @@ def revoke_note_share(share) -> None:
     random share_id token so reshare reuses the same /n/<id> URL). Reusable across
     controllers (note.py delete_share + trace.py delete_share cascade). Caller
     checks ownership."""
+    from api.share_snapshot import delete_snapshot
     from storage.repository.note_share import set_revoked
     from storage.util import get_utc_iso8601_timestamp
 
-    _delete_note_snapshot(share.user_id, share.note_id)
+    delete_snapshot(_share_snapshot_key(share))
     set_revoked(share.share_id, get_utc_iso8601_timestamp())
 
 
@@ -208,5 +198,9 @@ async def get_share(share_id: str = Query(...), password: Optional[str] = Query(
         raise HTTPException(status_code=404, detail="Note not found")
 
     data = note.to_dict()
-    data["content"] = _read_note_snapshot(share.user_id, note.note_id)
+    from api.share_snapshot import read_snapshot
+    content = read_snapshot(_share_snapshot_key(share))
+    if content is None:
+        raise HTTPException(status_code=404, detail="Note content not found")
+    data["content"] = content
     return data

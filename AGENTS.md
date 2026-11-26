@@ -142,9 +142,16 @@ entity + controller + service + CLI slices, and most have a web panel.
   A logged-in load of a public todo share records a visit (newest 200). Apply
   `migration/4422_todo_share.sql` before deploy. Todo 4478 merges the former
   public `trace_share` table into `todo_share`: public `/t/:share_id` rows are
-  `recipient_user_id IS NULL` with their selection in `todo_share.selection`.
-  Apply `migration/4478_todo_share_merge.sql` before deploy and
-  `migration/4478_drop_trace_share.sql` after the deployed public read is
+  `recipient_user_id IS NULL`. Both audiences select through `todo_share_item`
+  under `todo_share.selection_mode` (`all` = every related item, no rows;
+  `items` = closed allowlist, 0 rows = none; NULL reads as `all` on public and
+  `items` on private rows). Note bodies are sealed per-share snapshots built by
+  `share_note_object_key`; public `GET /api/trace/share/note` serves one note
+  with the payload's password gate, falling back to a legacy `note_share`
+  snapshot. Apply `migration/4478_todo_share_merge.sql` and
+  `migration/4478_followup_share_selection.sql` before deploy, then
+  `migration/4478_drop_trace_share.sql` and
+  `migration/4478_followup_drop_selection.sql` after the deployed public read is
   smoke-verified. The owner share popover manages both audiences;
   missing public selection lists include all related items, empty lists include none.
 - **Declared machine wait (todo 4100)**: `y todo hold <id> --on <dependency> --chat <id> [--until +6h]` (with `wait` retained as a hidden alias) stores bounded `todo.machine_wait` on active work and suppresses automatic awaiting claims until lapse, except when the shared idle recheck proves no live work and finds an idle same-trace `chat.needs_attention` checkpoint (todo 4278). That checkpoint enters awaiting with the chat pointer and a reply notice; running work, unknown runtime, release waiters and wakeups still suppress. The declaration clears on a real status change, a new accepted message into the declaring chat, or `--clear`.

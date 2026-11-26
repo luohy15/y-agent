@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, Column, Integer, String, ForeignKey, Index, UniqueConstraint, CheckConstraint, text
+from sqlalchemy import Column, Integer, String, ForeignKey, Index, UniqueConstraint, CheckConstraint, text
 from .base import Base, BaseEntity
 
 
@@ -6,8 +6,9 @@ class TodoShareEntity(Base, BaseEntity):
     """One share row serves both audiences.
 
     ``recipient_user_id IS NULL`` is a public ``/t/:shareId`` link (optionally
-    password-protected, with an optional ``selection`` JSON). ``IS NOT NULL`` is
-    a private per-recipient grant backed by ``todo_share_item``.
+    password-protected). ``IS NOT NULL`` is a private per-recipient grant. Both
+    audiences select through ``todo_share_item`` rows; ``selection_mode`` marks
+    a legacy public ``all`` share that has no item rows.
     """
 
     __tablename__ = "todo_share"
@@ -19,7 +20,7 @@ class TodoShareEntity(Base, BaseEntity):
     share_id = Column(String, nullable=False, unique=True, index=True)
     password_hash = Column(String, nullable=True)
     revoked_at = Column(String, nullable=True)
-    selection = Column(JSON(none_as_null=True), nullable=True)
+    selection_mode = Column(String, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("user_id", "todo_id", "recipient_user_id", name="uq_todo_share_owner_todo_recipient"),
@@ -41,6 +42,10 @@ class TodoShareEntity(Base, BaseEntity):
         CheckConstraint(
             "recipient_user_id IS NULL OR password_hash IS NULL",
             name="ck_todo_share_public_password",
+        ),
+        CheckConstraint(
+            "recipient_user_id IS NULL OR selection_mode IS DISTINCT FROM 'all'",
+            name="ck_todo_share_all_is_public",
         ),
     )
 

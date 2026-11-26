@@ -40,6 +40,21 @@ def note_object_key(user_id: int, note_id: str, session=None) -> str:
     return f"notes/{note_id}/content.md"
 
 
+def share_note_object_key(
+    user_id: int,
+    share_id: str,
+    note_id: str,
+    prefix: str = "_todo_share",
+    session=None,
+) -> str:
+    """Per-share note snapshot key shared by todo-share items and note shares.
+
+    ``prefix`` is ``_todo_share`` for a todo share item and ``_note_share`` for
+    an individual note share, so the two documents never collide.
+    """
+    return note_object_key(user_id, f"{prefix}/{share_id}/note-{note_id}", session)
+
+
 def seal_body(key: str, body: bytes, *, session=None) -> bytes:
     match = _TENANT_KEY.match(key or "")
     if match is None:

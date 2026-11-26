@@ -59,6 +59,8 @@ export interface TraceNote {
   created_at?: string;
   share_id?: string;
   has_password?: boolean;
+  /** Public projection: the share can serve this note's sealed body. */
+  openable?: boolean;
 }
 
 export interface TraceCalendarEvent {
@@ -269,7 +271,11 @@ export default function TraceView({
     !publicMode && isLoggedIn && hasValidTodo && !todoDeleted ? `${API}/api/todo/shares` : null, fetcher,
   );
   const grants = outgoing?.filter(row => row.todo_id === selectedTraceId) ?? [];
-  const unavailable = !publicMode && loaded && !fetchFailed && (todoDeleted || (requireTodo && !hasValidTodo));
+  // A public payload without a live todo is unavailable (the server 404s one);
+  // an authed trace only enforces that when the caller requires a todo.
+  const unavailable = loaded && !fetchFailed && (
+    todoDeleted || (publicMode ? !hasValidTodo : (requireTodo && !hasValidTodo))
+  );
 
   const [todoDetailOpen, setTodoDetailOpen] = useState(true);
   const [linksOpen, setLinksOpen] = useState(true);
@@ -405,7 +411,7 @@ export default function TraceView({
                   {todoStatus}
                 </span>
               )}
-              {!publicMode && loaded && <SharePopover
+              {!publicMode && loaded && hasValidTodo && <SharePopover
                 key={selectedTraceId}
                 onCreate={createTraceShare}
                 buildUrl={buildTraceShareUrl}
@@ -415,10 +421,10 @@ export default function TraceView({
                 existingShare={myShare ?? null}
                 onDelete={deleteTraceShare}
                 hasGrants={grants.length > 0}
-                ownerPanel={hasValidTodo && selectedTraceId ? (
+                ownerPanel={
                   shareError || grantsError ? <span>Could not load existing shares.</span> :
                   myShare === undefined || !outgoing ? <span>Loading shares…</span> :
-                  <TodoSharePanel todoId={selectedTraceId} publicShare={myShare} grants={grants}
+                  <TodoSharePanel todoId={selectedTraceId!} publicShare={myShare} grants={grants}
                     options={{
                       chat: (traceChats ?? []).map(chat => ({ id: chat.chat_id, label: chat.title || chat.chat_id })),
                       note: (traceNotes ?? []).map(note => ({ id: note.note_id, label: note.content_key })),
@@ -426,7 +432,7 @@ export default function TraceView({
                         ? [{ id: link.activity_id, label: link.title || link.base_url }] : []),
                     }}
                     refresh={() => Promise.all([mutateTrace(), mutateMyShare(), mutateGrants()])} />
-                ) : undefined}
+                }
               />}
               <button
                 type="button"
@@ -566,16 +572,16 @@ export default function TraceView({
                 {notesOpen && (
                   <div className="px-2 pb-2 space-y-1">
                     {traceNotes.map((note) => {
-                      // Public mode: only notes carrying a `share_id` (S3 snapshot) are
-                      // openable as FileViewer tabs; others are shown but non-openable.
-                      const openable = publicMode ? !!note.share_id : !!onOpenFile;
+                      // Public mode: only notes the share can serve (item snapshot or
+                      // legacy note_share snapshot) are openable as FileViewer tabs.
+                      const openable = publicMode ? !!note.openable : !!onOpenFile;
                       return (
                       <div
                         key={note.note_id}
                         className={`bg-sol-base02/50 rounded px-2 py-1 ${openable ? "cursor-pointer hover:bg-sol-base02" : ""}`}
                         onClick={() => {
                           if (publicMode) {
-                            if (note.share_id) onOpenNote?.(note);
+                            if (note.openable) onOpenNote?.(note);
                           } else {
                             onOpenFile?.(defaultWorkDir ? `${defaultWorkDir}/${note.content_key}` : note.content_key);
                           }

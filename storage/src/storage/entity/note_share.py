@@ -11,6 +11,7 @@ class NoteShareEntity(Base, BaseEntity):
     note_id = Column(String, nullable=False)
     password_hash = Column(String, nullable=True)
     revoked_at = Column(String, nullable=True)
+    snapshot_key = Column(String, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("user_id", "note_id"),

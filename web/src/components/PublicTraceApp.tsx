@@ -47,12 +47,14 @@ export default function PublicTraceApp() {
   const [passwordInput, setPasswordInput] = useState("");
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
+  // Password the payload was unlocked with; shared note tabs use the same gate.
+  const [activePassword, setActivePassword] = useState<string | undefined>(sharePassword);
 
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   // chatHide: true → FileViewer (trace.md / note tabs) center pane; false → snapshot
   // ChatView pane. Default to FileViewer/trace.md, matching the authed app's default.
   const [chatHide, setChatHide] = useState(true);
-  // FileViewer tabs: the permanent `trace.md` tab plus note tabs keyed by `share_id`.
+  // FileViewer tabs: the permanent `trace.md` tab plus note tabs keyed by `share_id ?? note_id`.
   const [openFiles, setOpenFiles] = useState<string[]>([TRACE_TAB]);
   const [activeFile, setActiveFile] = useState<string>(TRACE_TAB);
   const [rightPanel, setRightPanel] = useState<RightPanel>("chats");
@@ -74,6 +76,7 @@ export default function PublicTraceApp() {
     if (!r.ok) throw new Error("Shared chat not found");
     const d: TraceShareResponse = await r.json();
     setData(d);
+    setActivePassword(password);
     if (d.todo && getToken()) {
       void authFetch(`${API}/api/todo/visit`, {
         method: "POST",
@@ -91,7 +94,9 @@ export default function PublicTraceApp() {
         const raw = localStorage.getItem(storageKey(shareId));
         if (raw) {
           const saved = JSON.parse(raw);
-          const validNoteIds = new Set((d.notes ?? []).map((n) => n.share_id).filter((x): x is string => !!x));
+          const validNoteIds = new Set(
+            (d.notes ?? []).filter((n) => n.openable).map((n) => n.share_id ?? n.note_id),
+          );
           // openFiles: always keep TRACE_TAB; plus saved note tabs that still exist.
           const savedOpen: string[] = Array.isArray(saved.openFiles) ? saved.openFiles : [];
           const keptNotes = savedOpen.filter((f) => f !== TRACE_TAB && validNoteIds.has(f));
@@ -131,8 +136,10 @@ export default function PublicTraceApp() {
   }, [shareId, sharePassword, fetchShare]);
 
   const handleRefresh = useCallback(() => {
-    fetchShare(sharePassword).catch((e) => setError(e.message));
-  }, [fetchShare, sharePassword]);
+    // Reuse whatever password unlocked the page, not just the URL one, so a
+    // manually unlocked share does not re-prompt on refresh.
+    fetchShare(activePassword).catch((e) => setError(e.message));
+  }, [fetchShare, activePassword]);
 
   // Ctrl+` toggles the center FileViewer <-> ChatView, matching the authed app.
   useEffect(() => {
@@ -161,18 +168,19 @@ export default function PublicTraceApp() {
   };
 
   const noteMeta = useMemo(() => {
-    const m: Record<string, { content_key: string; front_matter?: Record<string, unknown> | null }> = {};
+    const m: Record<string, { note_id: string; content_key: string; front_matter?: Record<string, unknown> | null }> = {};
     for (const n of data?.notes ?? []) {
-      if (n.share_id) m[n.share_id] = { content_key: n.content_key, front_matter: n.front_matter };
+      m[n.share_id ?? n.note_id] = { note_id: n.note_id, content_key: n.content_key, front_matter: n.front_matter };
     }
     return m;
   }, [data]);
 
   const openNote = useCallback((note: TodoNoteInfo) => {
-    // No share_id → no S3 snapshot → not openable (graceful no-op).
-    if (!note.share_id) return;
-    setOpenFiles((prev) => prev.includes(note.share_id!) ? prev : [...prev, note.share_id!]);
-    setActiveFile(note.share_id);
+    // No snapshot on either side → not openable (graceful no-op).
+    if (!note.openable) return;
+    const key = note.share_id ?? note.note_id;
+    setOpenFiles((prev) => prev.includes(key) ? prev : [...prev, key]);
+    setActiveFile(key);
     setChatHide(true);
     setRightPanelOpen(false);
   }, []);
@@ -364,6 +372,8 @@ export default function PublicTraceApp() {
                 onReorderFiles={setOpenFiles}
                 noteMeta={noteMeta}
                 traceData={data}
+                shareId={shareId}
+                sharePassword={activePassword}
                 onSelectChat={selectChat}
                 onOpenNote={openNote}
               />

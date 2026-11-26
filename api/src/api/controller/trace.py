@@ -243,40 +243,74 @@ class CreateShareRequest(BaseModel):
     link_ids: Optional[List[str]] = None
 
 
-def _public_selection(req, related):
-    selection = {}
-    for kind, ids in related.items():
-        key = f"{kind}_ids"
-        requested = getattr(req, key)
-        if requested is not None:
-            if not set(requested) <= ids:
-                raise HTTPException(status_code=422, detail=f"Unknown or unrelated {kind}")
-            selection[key] = list(dict.fromkeys(requested))
-    return selection or None
+def _public_password_gate(share, password: Optional[str]) -> None:
+    """Password + rate-limit gate shared by the public payload and note reads."""
+    from storage import share_password as sp
+
+    if not share.password_hash:
+        return
+    if not password:
+        raise HTTPException(status_code=401, detail={"password_required": True})
+    allowed, retry_after = sp.check_rate_limit(share.share_id)
+    if not allowed:
+        raise HTTPException(status_code=429, detail={"retry_after": retry_after})
+    if not sp.verify_password(password, share.password_hash):
+        sp.record_failure(share.share_id)
+        raise HTTPException(status_code=403, detail="Invalid password")
+
+
+def _live_public_share(share_id: str):
+    from storage.repository.todo_share import get_public_by_share_id
+
+    share = get_public_by_share_id(share_id)
+    if not share or share.revoked_at:
+        raise HTTPException(status_code=404, detail="Share not found")
+    return share
+
+
+def _live_public_todo(share):
+    from storage.repository.todo import get_todo
+
+    todo = get_todo(share.user_id, share.todo_id)
+    if todo is None or todo.status == "deleted":
+        raise HTTPException(status_code=404, detail="Share not found")
+    return todo
 
 
 @router.post("/share")
 async def create_share(req: CreateShareRequest, request: Request):
-    """Create a shareable link for a trace, optionally batch-sharing assoc'd notes.
+    """Create or update a trace's public share.
 
-    When ``note_ids`` is supplied, each note is shared server-side in public mode
-    (no password) best-effort, and the response gains a ``notes`` list. Omitting
-    ``note_ids`` keeps the original ``{share_id, password?}`` shape (back-compat).
+    A request carrying at least one selection list is a closed item allowlist
+    (``selection_mode=items``); no lists keeps the legacy dynamic ``all``
+    share. Selected note bodies are written as sealed per-share snapshots.
     """
+    from api.controller.todo_share import _read_note_bytes
+    from api.share_snapshot import delete_snapshot, put_snapshot
     from storage import share_password as sp
-    from api.controller.note import revoke_note_share
-    from storage.repository.note_share import get_by_note_ids
     from storage.repository.todo import get_todo
-    from storage.repository.todo_share import create_public, get_public_by_trace_id, update_public_options
-    from storage.service.todo_share import related_ids
+    from storage.repository.todo_share import get_public_by_trace_id, save_public
+    from storage.service.todo_share import (
+        TodoShareError,
+        prepare_public_selection,
+        snapshot_items,
+    )
 
     user_id = _get_user_id(request)
     todo = get_todo(user_id, req.trace_id)
     if todo is None or todo.status == "deleted":
         raise HTTPException(status_code=404, detail="Todo not found")
-    trace_id = todo.todo_id
-    related = related_ids(user_id, trace_id)
-    selection = _public_selection(req, related)
+    try:
+        prepared = prepare_public_selection(
+            user_id, todo.todo_id, req.note_ids, req.chat_ids, req.link_ids,
+        )
+    except TodoShareError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+
+    bodies = {}
+    for item in prepared["items"]:
+        if item["kind"] == "note":
+            bodies[item["ref_id"]] = await _read_note_bytes(user_id, item["content_key"])
 
     generated_password: Optional[str] = None
     password_hash: Optional[str] = None
@@ -286,75 +320,71 @@ async def create_share(req: CreateShareRequest, request: Request):
     elif req.password and req.password.strip():
         password_hash = sp.hash_password(req.password)
 
-    existing = get_public_by_trace_id(user_id, trace_id, include_revoked=True)
-    if existing:
-        share_id = existing.share_id
-        previous = (existing.selection or {}).get("note_ids", related["note"])
-        if not existing.revoked_at and req.note_ids is not None:
-            for note_share in get_by_note_ids(user_id, list(set(previous) - set(req.note_ids))):
-                revoke_note_share(note_share)
-        update_public_options(share_id, selection, password_hash, password_hash is not None or req.password == "")
-    else:
-        share_id = generate_id()
-        create_public(user_id, share_id, trace_id, password_hash=password_hash, selection=selection)
+    existing = get_public_by_trace_id(user_id, todo.todo_id, include_revoked=True)
+    share_id = existing.share_id if existing else generate_id()
+    keyed = snapshot_items(user_id, share_id, prepared["items"])
+    for item in keyed:
+        if item["kind"] == "note":
+            put_snapshot(item["snapshot_key"], bodies[item["ref_id"]])
+    saved = save_public(
+        user_id,
+        share_id,
+        todo.todo_id,
+        prepared["selection_mode"],
+        keyed,
+        password_hash=password_hash,
+        replace_password=password_hash is not None or req.password == "",
+    )
+    for key in saved["obsolete_keys"]:
+        delete_snapshot(key)
 
-    resp = {"share_id": share_id}
+    resp = {"share_id": saved["share_id"]}
     if generated_password is not None:
         resp["password"] = generated_password
-
-    if req.note_ids is not None:
-        # Share notes in public mode (no password): the public trace page renders
-        # note links as bare /n/<share_id>, so a per-note password would force a
-        # second prompt there. Best-effort: skip per-note failures.
-        from api.controller.note import share_note
-        shared_notes = []
-        for note_id in req.note_ids:
-            try:
-                note_resp = await share_note(user_id, note_id)
-            except Exception:
-                continue
-            shared_notes.append({"note_id": note_id, "share_id": note_resp["share_id"]})
-        resp["notes"] = shared_notes
-
     return resp
 
 
 @router.delete("/share")
 async def delete_share(request: Request, share_id: str = Query(...)):
-    """Delete a share link owned by the current user.
+    """Revoke a public share.
 
-    Cascade: also revoke shares for every note associated with this trace's todo,
-    so the public ``/n/<share_id>`` note links never outlive the trace share
-    (authoritative mirror of ``create_share``'s batch note-share). Done server-side
-    rather than in the frontend so unshare is robust regardless of what notes the
-    web client currently has loaded.
+    Deletes its item snapshots and revokes any related ``note_share`` rows for
+    the selected notes (``all`` covers every related note), so legacy
+    ``/n/<share_id>`` links never outlive the trace share.
     """
-    from storage.repository.todo_share import get_public_by_share_id, set_public_revoked
-    from storage.repository.note_todo_relation import list_by_todo as list_note_relations
-    from storage.repository.note_share import get_by_note_ids
-    from storage.util import get_utc_iso8601_timestamp
     from api.controller.note import revoke_note_share
+    from api.share_snapshot import delete_snapshot
+    from storage.repository.note_share import get_by_note_ids
+    from storage.repository.note_todo_relation import list_by_todo as list_note_relations
+    from storage.repository.todo_share import (
+        get_public_by_share_id,
+        list_items,
+        revoke_public,
+    )
 
     user_id = _get_user_id(request)
     share = get_public_by_share_id(share_id)
     if not share or share.user_id != user_id:
         raise HTTPException(status_code=404, detail="Share not found")
-    set_public_revoked(share_id, get_utc_iso8601_timestamp())
+    items = list_items(share_id)
+    for key in revoke_public(share_id) or []:
+        delete_snapshot(key)
 
-    note_ids = (share.selection or {}).get("note_ids")
-    if note_ids is None:
+    if (share.selection_mode or "all") == "all":
         note_ids = list_note_relations(user_id, share.todo_id)
-    if note_ids:
-        for note_share in get_by_note_ids(user_id, note_ids):
-            revoke_note_share(note_share)
+    else:
+        note_ids = [item["ref_id"] for item in items if item["kind"] == "note"]
+    for note_share in get_by_note_ids(user_id, note_ids):
+        revoke_note_share(note_share)
 
     return {"deleted": True}
 
 
 @router.get("/share/mine")
 async def get_my_share(request: Request, trace_id: str = Query(...)):
-    """Get the current user's share for a trace, if any."""
+    """Get the current user's public share for a trace, if any."""
     from storage.repository.todo_share import get_public_by_trace_id
+    from storage.service.todo_share import selection_payload
 
     user_id = _get_user_id(request)
     share = get_public_by_trace_id(user_id, trace_id)
@@ -366,7 +396,7 @@ async def get_my_share(request: Request, trace_id: str = Query(...)):
         "share_id": share.share_id,
         "trace_id": share.todo_id,
         "has_password": bool(share.password_hash),
-        "selection": share.selection,
+        "selection": selection_payload(share),
     }
 
 
@@ -390,35 +420,28 @@ async def list_shares(request: Request):
 @router.get("/share")
 async def get_share(share_id: str = Query(...), password: Optional[str] = Query(None)):
     """Public endpoint: get trace data by share_id."""
-    from storage.repository.todo import get_todo
-    from storage.repository.todo_share import get_public_by_share_id
-    from storage import share_password as sp
+    from storage.repository.note import get_notes_by_ids
+    from storage.repository.note_share import get_by_note_ids
+    from storage.repository.note_todo_relation import list_by_todo as list_note_relations
+    from storage.repository.todo_share import list_items
+    from storage.service.todo_share import public_selected
 
-    share = get_public_by_share_id(share_id)
-    if not share or share.revoked_at:
-        raise HTTPException(status_code=404, detail="Share not found")
-
-    if share.password_hash:
-        if not password:
-            raise HTTPException(status_code=401, detail={"password_required": True})
-        allowed, retry_after = sp.check_rate_limit(share_id)
-        if not allowed:
-            raise HTTPException(status_code=429, detail={"retry_after": retry_after})
-        if not sp.verify_password(password, share.password_hash):
-            sp.record_failure(share_id)
-            raise HTTPException(status_code=403, detail="Invalid password")
-
+    share = _live_public_share(share_id)
+    _public_password_gate(share, password)
+    todo = _live_public_todo(share)
     user_id = share.user_id
-    trace_id = share.todo_id
-    todo = get_todo(user_id, trace_id)
-    if todo is None or todo.status == "deleted":
-        raise HTTPException(status_code=404, detail="Share not found")
-    selection = share.selection or {}
+    trace_id = todo.todo_id
+    selected = public_selected(share)
+    item_keys = {
+        item["ref_id"]: item["snapshot_key"]
+        for item in list_items(share.share_id)
+        if item["kind"] == "note"
+    }
 
     chats = find_chats_with_messages_by_trace_id(user_id, trace_id)
     result_chats = []
     for chat_id, title, topic, role, skill, backend, bot_name, json_content in chats:
-        if "chat_ids" in selection and chat_id not in selection["chat_ids"]:
+        if selected is not None and chat_id not in selected["chat"]:
             continue
         messages = json.loads(json_content).get("messages", []) if json_content else []
         segments = _extract_segments(messages)
@@ -455,30 +478,23 @@ async def get_share(share_id: str = Query(...), password: Optional[str] = Query(
     }
 
     links = _associated_links(user_id, trace_id)
-    if "link_ids" in selection:
-        links = [link for link in links if link["activity_id"] in selection["link_ids"]]
+    if selected is not None:
+        links = [link for link in links if link["activity_id"] in selected["link"]]
 
-    # Fetch associated notes
-    from storage.repository.note_todo_relation import list_by_todo as list_note_relations
-    from storage.repository.note import get_notes_by_ids
-    from storage.repository.note_share import get_by_note_ids as get_note_shares_by_note_ids
+    # Related notes: bodies live in the item snapshot (or a legacy note_share
+    # snapshot, which `/share/note` still falls back to).
     note_ids = list_note_relations(user_id, trace_id)
-    if "note_ids" in selection:
-        note_ids = [note_id for note_id in note_ids if note_id in selection["note_ids"]]
-    note_shares = {
-        share.note_id: {
-            "share_id": share.share_id,
-            "has_password": bool(share.password_hash),
-        }
-        for share in get_note_shares_by_note_ids(user_id, note_ids)
-    } if note_ids else {}
+    if selected is not None:
+        note_ids = [note_id for note_id in note_ids if note_id in selected["note"]]
+    legacy_note_shares = (
+        {share.note_id for share in get_by_note_ids(user_id, note_ids) if not share.password_hash}
+        if note_ids else set()
+    )
     notes = []
     if note_ids:
         for note in get_notes_by_ids(user_id, note_ids):
             note_data = note.to_dict()
-            share = note_shares.get(note.note_id)
-            if share:
-                note_data.update(share)
+            note_data["openable"] = bool(item_keys.get(note.note_id)) or note.note_id in legacy_note_shares
             notes.append(note_data)
 
     # Fetch associated calendar events (calendar_event.todo_id = trace_id)
@@ -494,3 +510,61 @@ async def get_share(share_id: str = Query(...), password: Optional[str] = Query(
         "notes": notes,
         "calendar_events": calendar_events,
     }
+
+
+@router.get("/share/note")
+async def get_share_note(
+    share_id: str = Query(...),
+    note_id: str = Query(...),
+    password: Optional[str] = Query(None),
+):
+    """Public endpoint: one shared note's sealed body.
+
+    Serves the selected item snapshot; a migrated legacy item without a key
+    falls back to the note's live ``note_share`` snapshot.
+    """
+    from api.share_snapshot import read_snapshot
+    from storage.repository.note import get_note
+    from storage.repository.note_share import get_by_note_id
+    from storage.repository.todo_share import list_items
+    from storage.service.todo_share import related_ids
+
+    share = _live_public_share(share_id)
+    _public_password_gate(share, password)
+    todo = _live_public_todo(share)
+    user_id = share.user_id
+
+    key = None
+    if (share.selection_mode or "all") == "items":
+        item = next(
+            (row for row in list_items(share.share_id)
+             if row["kind"] == "note" and row["ref_id"] == note_id),
+            None,
+        )
+        if item is None:
+            raise HTTPException(status_code=404, detail="Note not found")
+        key = item.get("snapshot_key")
+    elif note_id not in related_ids(user_id, todo.todo_id)["note"]:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    note = get_note(user_id, note_id)
+    if note is None:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    content = read_snapshot(key)
+    if content is None:
+        # Migrated legacy item: reuse the note's own snapshot (new key or the
+        # pre-change object). A password-protected standalone note share was
+        # never readable here, so it is not advertised or served either.
+        from api.controller.note import _share_snapshot_key
+
+        legacy = get_by_note_id(user_id, note_id)
+        if legacy is None or legacy.password_hash:
+            raise HTTPException(status_code=404, detail="Note content not found")
+        content = read_snapshot(_share_snapshot_key(legacy))
+        if content is None:
+            raise HTTPException(status_code=404, detail="Note content not found")
+
+    data = note.to_dict()
+    data["content"] = content
+    return data

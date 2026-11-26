@@ -16,7 +16,7 @@ export default function PublicNoteList({ items, onSelectNote }: PublicNoteListPr
           <div className="space-y-0">
             {items.map((note) => {
               const displayName = note.content_key.replace(/^.*\//, "").replace(/\.md$/, "");
-              if (!note.share_id) {
+              if (!note.openable) {
                 return (
                   <div
                     key={note.note_id}

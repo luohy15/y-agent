@@ -2,14 +2,12 @@ import os
 from pathlib import Path
 from typing import List, Optional
 
-import boto3
-from botocore.exceptions import ClientError
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from agent.vm_command import run_vm_command
 from api.controller.link import _read_link_content
-from storage.crypto.blob import open_body, seal_body
+from api.share_snapshot import delete_snapshot, put_snapshot, read_snapshot
 from storage.repository import link as link_repo
 from storage.repository import note as note_repo
 from storage.repository.chat import get_chat, get_chat_metas
@@ -18,7 +16,6 @@ from storage.service.todo_share import TodoShareError, note_title
 
 router = APIRouter(prefix="/todo", tags=["todo-share"])
 
-S3_BUCKET = os.environ.get("Y_AGENT_S3_BUCKET", "")
 NOTE_LIMIT = 1_000_000
 
 
@@ -73,41 +70,6 @@ async def _read_note_bytes(user_id: int, content_key: str) -> bytes:
     return body
 
 
-def _put_snapshot(key: str, body: bytes) -> None:
-    if not S3_BUCKET:
-        raise HTTPException(status_code=500, detail="Y_AGENT_S3_BUCKET is not configured")
-    boto3.client("s3").put_object(
-        Bucket=S3_BUCKET,
-        Key=key,
-        Body=seal_body(key, body),
-        ContentType="text/markdown",
-    )
-
-
-def _delete_snapshot(key: str) -> None:
-    if not key or not S3_BUCKET:
-        return
-    try:
-        boto3.client("s3").delete_object(Bucket=S3_BUCKET, Key=key)
-    except ClientError:
-        pass
-
-
-def _read_snapshot(key: Optional[str]) -> Optional[str]:
-    if not key:
-        return None
-    if not S3_BUCKET:
-        raise HTTPException(status_code=500, detail="Y_AGENT_S3_BUCKET is not configured")
-    try:
-        obj = boto3.client("s3").get_object(Bucket=S3_BUCKET, Key=key)
-        return open_body(key, obj["Body"].read()).decode("utf-8")
-    except ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code", "")
-        if code in {"NoSuchKey", "404", "NotFound"}:
-            return None
-        raise HTTPException(status_code=503, detail="Note snapshot is temporarily unavailable") from exc
-
-
 def _text(content) -> str:
     if isinstance(content, list):
         parts = []
@@ -148,7 +110,7 @@ def _note_payload(item: dict, notes_by_id: dict) -> dict:
     return {
         "note_id": item["ref_id"],
         "title": note_title(note) if note else item["ref_id"],
-        "content": _read_snapshot(item.get("snapshot_key")),
+        "content": read_snapshot(item.get("snapshot_key")),
     }
 
 
@@ -266,7 +228,7 @@ async def create_share(req: ShareTodoRequest, request: Request):
     keyed = _run(share_service.snapshot_items, user_id, prepared["share_id"], prepared["items"])
     for item in keyed:
         if item["kind"] == "note":
-            _put_snapshot(item["snapshot_key"], bodies[item["ref_id"]])
+            put_snapshot(item["snapshot_key"], bodies[item["ref_id"]])
     saved = _run(
         share_service.save_share,
         user_id,
@@ -276,7 +238,7 @@ async def create_share(req: ShareTodoRequest, request: Request):
         keyed,
     )
     for key in saved["obsolete_keys"]:
-        _delete_snapshot(key)
+        delete_snapshot(key)
     notified = share_service.notify_share(
         prepared["recipient_id"], prepared["owner_label"], prepared["todo_name"],
     )
@@ -292,7 +254,7 @@ async def delete_share(request: Request, todo_id: str = Query(...), to: str = Qu
     user_id = _get_user_id(request)
     revoked = _run(share_service.revoke_share, user_id, todo_id, to)
     for key in revoked["snapshot_keys"]:
-        _delete_snapshot(key)
+        delete_snapshot(key)
     return {"ok": True}
 
 

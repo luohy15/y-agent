@@ -4,7 +4,7 @@ from typing import Dict, List, Optional
 
 from loguru import logger
 
-from storage.crypto.blob import note_object_key
+from storage.crypto.blob import share_note_object_key
 from storage.database.base import get_db
 from storage.entity.chat import ChatEntity
 from storage.entity.user import UserEntity
@@ -191,13 +191,48 @@ def prepare_share(owner_id: int, todo_id: str, to: str, notes, chats, links, cle
     }
 
 
+def prepare_public_selection(owner_id: int, todo_id: str, notes, chats, links) -> Dict:
+    """Resolve a public selection request into a mode plus item rows.
+
+    No list supplied keeps the legacy dynamic ``all`` share. Any supplied list
+    (including empty) is a closed ``items`` allowlist.
+    """
+    if notes is None and chats is None and links is None:
+        return {"selection_mode": "all", "items": []}
+    return {
+        "selection_mode": "items",
+        "items": _selection_items(owner_id, todo_id, notes, chats, links),
+    }
+
+
+def public_selected(share) -> Optional[Dict[str, set]]:
+    """Selected item ids for a public share; ``None`` means every related item."""
+    if (share.selection_mode or "all") == "all":
+        return None
+    grouped = {"note": set(), "chat": set(), "link": set()}
+    for item in share_repo.list_items(share.share_id):
+        if item["kind"] in grouped:
+            grouped[item["kind"]].add(item["ref_id"])
+    return grouped
+
+
+def selection_payload(share) -> Optional[Dict[str, List[str]]]:
+    """Legacy ``{kind}_ids`` shape for the owner panel; ``None`` means all."""
+    selected = public_selected(share)
+    if selected is None:
+        return None
+    return {f"{kind}_ids": sorted(selected[kind]) for kind in ("note", "chat", "link")}
+
+
 def snapshot_items(owner_id: int, share_id: str, items: List[Dict]) -> List[Dict]:
     with get_db() as session:
         keyed = []
         for item in items:
             key = None
             if item["kind"] == "note":
-                key = note_object_key(owner_id, f"_todo_share/{share_id}/note-{item['ref_id']}", session)
+                key = share_note_object_key(
+                    owner_id, share_id, item["ref_id"], session=session,
+                )
             keyed.append({"kind": item["kind"], "ref_id": item["ref_id"], "snapshot_key": key})
         return keyed
 

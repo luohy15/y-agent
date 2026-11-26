@@ -19,6 +19,8 @@ export interface TodoNoteInfo {
   front_matter?: Record<string, unknown> | null;
   share_id?: string;
   has_password?: boolean;
+  /** Public projection: the share can serve this note's sealed body. */
+  openable?: boolean;
 }
 
 export interface TodoInfo {

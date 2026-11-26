@@ -48,13 +48,16 @@ interface FileViewerProps {
   fileHistory?: TabHistoryMap;
   onFileBack?: () => void;
   onFileForward?: () => void;
-  // Public trace projection: render note tabs keyed by note `share_id`, with content
-  // fetched from the public S3-backed `/api/note/share` endpoint (no auth, no /api/file/*).
+  // Public trace projection: render note tabs keyed by `share_id ?? note_id`, with content
+  // fetched from the public `/api/trace/share/note` endpoint (same password gate as the
+  // payload; legacy notes fall back to their note_share snapshot server-side).
   // Public mode only: the reserved `trace.md` tab renders <TraceView> in injected mode from `traceData`.
   // Authenticated `trace.md` is retired (todo 3179 H3); do not reintroduce it here.
   mode?: "public";
-  noteMeta?: Record<string, { content_key: string; front_matter?: Record<string, unknown> | null }>;
+  noteMeta?: Record<string, { note_id?: string; content_key: string; front_matter?: Record<string, unknown> | null }>;
   traceData?: TraceChatsResponse | null;
+  shareId?: string;
+  sharePassword?: string;
   onOpenNote?: (note: TraceNote) => void;
 }
 
@@ -76,17 +79,20 @@ interface PublicNoteCache {
   error?: string;
 }
 
-// Public note-tab viewer: tabs keyed by note `share_id`, content from the no-JWT
-// `/api/note/share` endpoint, rendered via MarkdownPreview. No edit/save/import,
-// no binary/raw, no special-views, no /api/file/* fetches.
-function PublicFileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, noteMeta, traceData, onSelectChat, onOpenNote }: {
+// Public note-tab viewer: tabs keyed by `share_id ?? note_id`, content from the
+// no-JWT `/api/trace/share/note` endpoint (password-gated like the payload),
+// rendered via MarkdownPreview. No edit/save/import, no binary/raw, no
+// special-views, no /api/file/* fetches.
+function PublicFileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, noteMeta, traceData, shareId, sharePassword, onSelectChat, onOpenNote }: {
   openFiles: string[];
   activeFile: string | null;
   onSelectFile: (path: string) => void;
   onCloseFile: (path: string) => void;
   onReorderFiles: (files: string[]) => void;
-  noteMeta: Record<string, { content_key: string; front_matter?: Record<string, unknown> | null }>;
+  noteMeta: Record<string, { note_id?: string; content_key: string; front_matter?: Record<string, unknown> | null }>;
   traceData?: TraceChatsResponse | null;
+  shareId?: string;
+  sharePassword?: string;
   onSelectChat?: (chatId: string) => void;
   onOpenNote?: (note: TraceNote) => void;
 }) {
@@ -94,16 +100,23 @@ function PublicFileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, on
 
   useEffect(() => {
     if (!activeFile || activeFile === PUBLIC_TRACE_TAB) return;
-    if (cache[activeFile] && !cache[activeFile].error) return;
+    // One fetch per tab: an error result must not re-trigger this effect (the
+    // state update itself re-runs it), or a 403/404 loops forever.
+    if (cache[activeFile]) return;
     setCache((prev) => ({ ...prev, [activeFile]: { loading: true } }));
-    fetch(`${API}/api/note/share?share_id=${encodeURIComponent(activeFile)}`)
+    const params = new URLSearchParams({
+      share_id: shareId ?? "",
+      note_id: noteMeta[activeFile]?.note_id ?? activeFile,
+    });
+    if (sharePassword) params.set("password", sharePassword);
+    fetch(`${API}/api/trace/share/note?${params.toString()}`)
       .then(async (res) => {
         if (!res.ok) throw new Error(res.status === 401 ? "This note is password-protected" : "Failed to load note");
         const data = await res.json();
         setCache((prev) => ({ ...prev, [activeFile]: { content: data.content ?? "", loading: false } }));
       })
       .catch((e) => setCache((prev) => ({ ...prev, [activeFile]: { loading: false, error: e.message } })));
-  }, [activeFile, cache]);
+  }, [activeFile, cache, noteMeta, shareId, sharePassword]);
 
   const labelFor = (shareId: string) => {
     if (shareId === PUBLIC_TRACE_TAB) return "chat";
@@ -171,7 +184,7 @@ function PublicFileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, on
   );
 }
 
-export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, sharedItemTabs = {}, fileTabs = {}, fileDirty = {}, fileFocus = {}, uiArtifacts = [], uiArtifactsLoaded = true, onUiArtifactRolledBack, onSelectChat, previewFile, onPinFile, fileHistory = {}, onFileBack, onFileForward, mode, noteMeta, traceData, onOpenNote }: FileViewerProps) {
+export default function FileViewer({ openFiles, activeFile, onSelectFile, onCloseFile, onReorderFiles, vmName, workDir, defaultWorkDir, diffFiles, artifactTabs, sharedItemTabs = {}, fileTabs = {}, fileDirty = {}, fileFocus = {}, uiArtifacts = [], uiArtifactsLoaded = true, onUiArtifactRolledBack, onSelectChat, previewFile, onPinFile, fileHistory = {}, onFileBack, onFileForward, mode, noteMeta, traceData, shareId, sharePassword, onOpenNote }: FileViewerProps) {
   const [mdPreview, setMdPreview] = useState<Record<string, boolean>>({});
   // One refresh registry, remount nonce, and spin flag per open module tab
   // (todo 3674, contract v18; shared runner extracted for todo 3680). Keyed by
@@ -205,6 +218,8 @@ export default function FileViewer({ openFiles, activeFile, onSelectFile, onClos
         onReorderFiles={onReorderFiles}
         noteMeta={noteMeta || {}}
         traceData={traceData}
+        shareId={shareId}
+        sharePassword={sharePassword}
         onSelectChat={onSelectChat}
         onOpenNote={onOpenNote}
       />

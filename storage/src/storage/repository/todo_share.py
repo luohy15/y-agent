@@ -136,6 +136,7 @@ def save_grant(owner_id: int, todo_id: str, recipient_id: int, share_id: str, it
                 snapshot_key=key,
             ))
         row.revoked_at = None
+        row.selection_mode = "items"
         row.updated_at = now
         row.updated_at_unix = unix
         session.flush()
@@ -298,45 +299,85 @@ def get_public_by_trace_id(user_id: int, trace_id: str, include_revoked: bool = 
         return query.first()
 
 
-def create_public(
+def save_public(
     user_id: int,
     share_id: str,
     todo_id: str,
+    selection_mode: str,
+    items: List[Dict],
     password_hash: Optional[str] = None,
-    selection=None,
-) -> TodoShareEntity:
+    replace_password: bool = False,
+) -> Dict:
+    """Revive or create a public share and replace its item rows.
+
+    Returns ``{share_id, obsolete_keys}``; the caller deletes those S3 objects.
+    """
+    now = get_utc_iso8601_timestamp()
+    unix = get_unix_timestamp()
     with get_db() as session:
-        entity = TodoShareEntity(
-            user_id=user_id,
-            todo_id=todo_id,
-            recipient_user_id=None,
-            share_id=share_id,
-            password_hash=password_hash,
-            selection=selection,
-        )
-        session.add(entity)
+        row = session.query(TodoShareEntity).filter(
+            TodoShareEntity.user_id == user_id,
+            TodoShareEntity.todo_id == todo_id,
+            TodoShareEntity.recipient_user_id.is_(None),
+        ).first()
+        if row is None:
+            row = TodoShareEntity(
+                user_id=user_id,
+                todo_id=todo_id,
+                recipient_user_id=None,
+                share_id=share_id,
+                password_hash=password_hash,
+                selection_mode=selection_mode,
+            )
+            session.add(row)
+            session.flush()
+        elif share_id and row.share_id != share_id:
+            raise ValueError("todo share id mismatch")
+        stored_id = row.share_id
+        previous = session.query(TodoShareItemEntity).filter_by(share_id=stored_id).all()
+        old_keys = {item.snapshot_key for item in previous if item.snapshot_key}
+        session.query(TodoShareItemEntity).filter_by(share_id=stored_id).delete(synchronize_session=False)
+        new_keys = set()
+        for item in items:
+            key = item.get("snapshot_key")
+            if key:
+                new_keys.add(key)
+            session.add(TodoShareItemEntity(
+                share_id=stored_id,
+                kind=item["kind"],
+                ref_id=item["ref_id"],
+                snapshot_key=key,
+            ))
+        row.selection_mode = selection_mode
+        row.revoked_at = None
+        if replace_password:
+            row.password_hash = password_hash
+        row.updated_at = now
+        row.updated_at_unix = unix
         session.flush()
-        session.expunge(entity)
-        return entity
+        return {"share_id": stored_id, "obsolete_keys": sorted(old_keys - new_keys)}
 
 
-def update_public_options(share_id: str, selection, password_hash: Optional[str], replace_password: bool) -> None:
-    values = {"selection": selection, "revoked_at": None}
-    if replace_password:
-        values["password_hash"] = password_hash
+def revoke_public(share_id: str) -> Optional[List[str]]:
+    """Revoke one public share; return its item snapshot keys, or None."""
+    now = get_utc_iso8601_timestamp()
+    unix = get_unix_timestamp()
     with get_db() as session:
-        session.query(TodoShareEntity).filter(
+        row = session.query(TodoShareEntity).filter(
             TodoShareEntity.share_id == share_id,
             TodoShareEntity.recipient_user_id.is_(None),
-        ).update(values)
-
-
-def set_public_revoked(share_id: str, revoked_at: Optional[str]) -> None:
-    with get_db() as session:
-        session.query(TodoShareEntity).filter(
-            TodoShareEntity.share_id == share_id,
-            TodoShareEntity.recipient_user_id.is_(None),
-        ).update({"revoked_at": revoked_at})
+        ).first()
+        if row is None:
+            return None
+        keys = [
+            item.snapshot_key
+            for item in session.query(TodoShareItemEntity).filter_by(share_id=share_id).all()
+            if item.snapshot_key
+        ]
+        row.revoked_at = now
+        row.updated_at = now
+        row.updated_at_unix = unix
+        return keys
 
 
 def list_public_by_user(user_id: int) -> List[TodoShareEntity]:
