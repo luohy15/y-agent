@@ -1699,6 +1699,7 @@ def _app_server_pending(state: Dict, terminal_status: Optional[str] = None,
         "thread_id": state.get("thread_id"),
         "turn_id": state.get("turn_id"),
         "usage": state.get("usage"),
+        "thread_observed": bool(state.get("thread_observed")),
         "terminal_status": terminal_status,
         "result_data": result_data,
         "extra_view": dict(extra_view or {}),
@@ -1752,7 +1753,8 @@ async def tail_codex_app_server_output(
 
     converter = CodexStreamConverter(last_message_id=last_message_id, model=model)
     ledger = input_ledger if input_ledger is not None else InputLedger(chat_id)
-    state: Dict = {"thread_id": None, "turn_id": None, "usage": None}
+    state: Dict = {"thread_id": None, "turn_id": None, "usage": None,
+                   "thread_observed": False}
     if isinstance(session_id, str) and session_id:
         state["thread_id"] = session_id
     carried = pending_result if isinstance(pending_result, dict) else None
@@ -1764,6 +1766,11 @@ async def tail_codex_app_server_output(
             value = carried.get(key)
             if value is not None:
                 state[key] = value
+        if "thread_observed" in carried:
+            state["thread_observed"] = bool(carried.get("thread_observed"))
+        else:
+            # Old record: a carried thread id proves the response arrived.
+            state["thread_observed"] = bool(state["thread_id"])
         restored_terminal = carried.get("terminal_status")
         if isinstance(restored_terminal, str) and restored_terminal:
             terminal_status = restored_terminal
@@ -1779,10 +1786,12 @@ async def tail_codex_app_server_output(
     current_offset = offset
     stream_error = None
     poll = None
+    stdout_ch = None
     # Guards the steer write and the terminal teardown: a steer must never be
     # appended after the session was torn down.
     steer_lock = threading.RLock()
     torn_down = False
+    home_disposed = False
     reader_stop = threading.Event()
 
     def _view(is_done: bool, status: str, data=None) -> dict:
@@ -1866,6 +1875,9 @@ async def tail_codex_app_server_output(
                 return _end_error((error or {}).get("message") if isinstance(error, dict) else None)
             return None
         if request_id == APP_THREAD_ID:
+            # Any response to the thread request (success or refusal) means
+            # app-server answered; a silent exit afterwards is not a startup.
+            state["thread_observed"] = True
             if error is not None:
                 return _end_thread_error(error)
             thread = result.get("thread") if isinstance(result, dict) else None
@@ -1897,6 +1909,7 @@ async def tail_codex_app_server_output(
     def _handle_notification(method: str, params: Dict) -> Optional[str]:
         nonlocal result_data, terminal_status
         if method == "thread/started":
+            state["thread_observed"] = True
             thread = params.get("thread") if isinstance(params.get("thread"), dict) else {}
             thread_id = thread.get("id")
             if isinstance(thread_id, str) and thread_id:
@@ -1997,6 +2010,50 @@ async def tail_codex_app_server_output(
             return _handle_notification(method, params)
         return None
 
+    def _teardown_session(*, kill: bool, self_killed: bool = False) -> None:
+        """One staged-home lifecycle for every session-ending exit.
+
+        Handoff exits never call this: a deadline, a cancellation or a set
+        `reader_stop` keeps the staged home (and its rollout) alive for the
+        re-attach. Every other exit does, and a watchdog/reader race runs
+        the remote work exactly once: under `steer_lock` it marks the
+        session torn down, copies the staged rollouts back, optionally
+        kills the process group (with the self-kill sentinel only for our
+        own interrupt), copies again, removes the staged home, and closes
+        the stdout channel.
+        """
+        nonlocal torn_down, home_disposed
+        with steer_lock:
+            torn_down = True
+            if home_disposed:
+                return
+            home_disposed = True
+            _sync_app_server_rollouts(client, chat_id)
+            if kill:
+                try:
+                    if self_killed:
+                        _kill_session_marking_self_killed(client, chat_id, node=node)
+                    else:
+                        from agent.detach import _tmux_kill_cmd
+
+                        _ssh_exec(client, _tmux_kill_cmd(chat_id, node=node))
+                except Exception as exc:
+                    logger.warning(
+                        "codex app-server teardown failed chat_id={}: {}", chat_id, exc,
+                    )
+            _sync_app_server_rollouts(client, chat_id)
+            _remove_app_server_home(client, chat_id)
+        channel = stdout_ch
+        if channel is not None:
+            try:
+                channel.channel.close()
+            except Exception:
+                pass
+
+    def _on_interrupt():
+        logger.info("interrupt watchdog (codex app-server): killing tmux session cc-{}", chat_id)
+        _teardown_session(kill=True, self_killed=True)
+
     try:
         tail_cmd = _build_tail_cmd(stdout_file, exit_file, offset, node=node)
         stdin_ch, stdout_ch, stderr_ch = client.exec_command(tail_cmd)
@@ -2012,45 +2069,6 @@ async def tail_codex_app_server_output(
                 logger.warning(
                     "codex app-server turns/list recovery failed chat_id={}: {}", chat_id, exc,
                 )
-
-        def _kill_detached():
-            nonlocal torn_down
-            logger.info("interrupt watchdog (codex app-server): killing tmux session cc-{}", chat_id)
-            with steer_lock:
-                torn_down = True
-                _sync_app_server_rollouts(client, chat_id)
-                _kill_session_marking_self_killed(client, chat_id, node=node)
-                _sync_app_server_rollouts(client, chat_id)
-                _remove_app_server_home(client, chat_id)
-                try:
-                    stdout_ch.channel.close()
-                except Exception:
-                    pass
-
-        def _teardown_session():
-            """Close the long-lived app-server after a terminal turn event.
-
-            A terminal event is a clean end, not a death, so no self-kill
-            sentinel is written. The kill is synchronous: the process is gone
-            before closeout can launch a continuation beside it. Killing the
-            wrapper also stops the `tail -f` stdin producer, which is the only
-            way app-server's stdin ever closes. The rollout is copied to the
-            real sessions tree first, and again after the wrapper may have
-            flushed and exited; the staged home is removed after both copies.
-            """
-            _sync_app_server_rollouts(client, chat_id)
-            try:
-                from agent.detach import _tmux_kill_cmd
-
-                _ssh_exec(client, _tmux_kill_cmd(chat_id, node=node))
-            except Exception as exc:
-                logger.warning("codex app-server teardown failed chat_id={}: {}", chat_id, exc)
-            _sync_app_server_rollouts(client, chat_id)
-            _remove_app_server_home(client, chat_id)
-            try:
-                stdout_ch.channel.close()
-            except Exception:
-                pass
 
         def _on_steer(text, msg_id, images=None) -> bool:
             """Append a `turn/steer` request to the live stdin pipe.
@@ -2093,7 +2111,7 @@ async def tail_codex_app_server_output(
 
         poll = PollLoop(
             check_interrupted_fn=check_interrupted_fn,
-            on_interrupt=_kill_detached,
+            on_interrupt=_on_interrupt,
             check_steer_fn=check_steer_fn,
             on_steer=_on_steer,
         )
@@ -2106,11 +2124,9 @@ async def tail_codex_app_server_output(
                 # after `turn/completed` was handled but before teardown was
                 # safe): tear the long-lived app-server down before tailing,
                 # instead of following stdout past the terminal line.
-                with steer_lock:
-                    if reader_stop.is_set():
-                        return "deadline"
-                    torn_down = True
-                    _teardown_session()
+                if reader_stop.is_set():
+                    return "deadline"
+                _teardown_session(kill=True)
                 return None
             try:
                 for raw_line in stdout_ch:
@@ -2122,10 +2138,7 @@ async def tail_codex_app_server_output(
                         continue
 
                     if check_interrupted_fn and check_interrupted_fn():
-                        with steer_lock:
-                            torn_down = True
-                            _kill_session_marking_self_killed(client, chat_id, node=node)
-                            stdout_ch.channel.close()
+                        _teardown_session(kill=True, self_killed=True)
                         return "interrupted"
 
                     if check_deadline_fn and check_deadline_fn():
@@ -2144,20 +2157,20 @@ async def tail_codex_app_server_output(
 
                     outcome = _handle_message(obj)
                     if outcome == "done":
-                        with steer_lock:
-                            if reader_stop.is_set():
-                                return "deadline"
-                            torn_down = True
-                            _teardown_session()
+                        if reader_stop.is_set():
+                            return "deadline"
+                        _teardown_session(kill=True)
                         return None
             except (OSError, EOFError, Exception) as exc:
                 if check_interrupted_fn and check_interrupted_fn():
+                    _teardown_session(kill=True, self_killed=True)
                     return "interrupted"
                 if not isinstance(exc, (OSError, EOFError)):
                     raise
                 stream_error = exc
 
             if check_interrupted_fn and check_interrupted_fn():
+                _teardown_session(kill=True, self_killed=True)
                 return "interrupted"
             return None
 
@@ -2225,13 +2238,12 @@ async def tail_codex_app_server_output(
             elif _tmux_session_alive(client, chat_id, node=node):
                 pass
             else:
-                # The process is gone: publish whatever rollout it wrote
-                # before reporting the failure.
-                _sync_app_server_rollouts(client, chat_id)
-                _remove_app_server_home(client, chat_id)
+                # The process is gone: publish whatever rollout it wrote and
+                # remove the staged home before reporting the failure.
+                _teardown_session(kill=False)
                 attempt = read_codex_attempt_diagnostic(client, chat_id, stream_error)
                 text = attempt["text"]
-                if (not state["thread_id"] and not converter.has_usable_output
+                if (not state["thread_observed"] and not converter.has_usable_output
                         and attempt.get("exit_code") == 0):
                     # A silent exit 0 is a startup failure, not a finished
                     # turn: name it instead of "process exited with code 0".
@@ -2260,6 +2272,14 @@ async def tail_codex_app_server_output(
         logger.error("tail_codex_app_server_output error: {} {}", type(exc).__name__, exc)
         if poll is not None:
             poll.stop()
+        # Re-attachable tail failure: dispose the staged home only when the
+        # session is provably gone. A live app-server keeps its home for the
+        # next attempt, because removing it would truncate the rollout.
+        try:
+            if not _tmux_session_alive(client, chat_id, node=node):
+                _teardown_session(kill=False)
+        except Exception:
+            pass
         if owns_client:
             try:
                 from agent.chat_target import close_owned_client

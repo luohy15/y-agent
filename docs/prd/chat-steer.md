@@ -113,9 +113,13 @@ side-effect guarantee across arbitrary worker/VM crashes.
   MCP, no `auth.json`; the relay key stays in `OPENAI_API_KEY`). Its sessions
   directory holds only the resumed thread's rollout, because exposing the
   node's whole history makes app-server backfill every rollout before it
-  answers `initialize`; the tail copies the rollout back to
-  `$HOME/.codex/sessions` at teardown so usage closeout and the next resume
-  find it.
+  answers `initialize`. One teardown helper owns the staged home for every
+  session-ending exit (terminal turn event, stop watchdog, reader interrupt,
+  dead process): it copies the staged rollout back to
+  `$HOME/.codex/sessions`, ends the process with the self-kill sentinel only
+  for our own interrupt, copies again, then removes the staged home. A Lambda
+  handoff is not an end: deadline, cancellation and reader-stop exits keep the
+  home and rollout for the re-attach, and the next launch clears any leftover.
   A resumed launch maps `thread/resume` `-32600 "no rollout found"` to the
   existing fresh-thread recovery, and a handoff carries thread id, turn id and
   the thread usage total so a re-attached tail can steer without waiting for a
