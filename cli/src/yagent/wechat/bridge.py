@@ -149,20 +149,21 @@ def _media_size(value):
 
 
 def _media_items(items):
-    """Up to nine image/file CDN descriptors for one inbound message.
+    """Up to nine image/file/voice CDN descriptors for one inbound message.
 
-    Only what the API needs to fetch and decrypt is forwarded: kind, the CDN
-    url or query param, both AES key spellings and, for a file, its name and
-    declared size. The nested `media` object wins over an item-level fallback.
+    Only what the API needs to fetch, decrypt and transcribe is forwarded:
+    kind, the CDN url or query param, both AES key spellings, a file's name and
+    declared size, and for a voice note its declared duration, codec and sample
+    rate. The nested `media` object wins over an item-level fallback.
     """
     out = []
     for item in items:
         if not isinstance(item, dict):
             continue
         kind, _name = _item_media(item)
-        if kind not in ("image", "file"):
+        if kind not in ("image", "file", "voice"):
             continue
-        payload = item.get("image_item" if kind == "image" else "file_item")
+        payload = item.get(kind + "_item")
         if not isinstance(payload, dict):
             payload = {}
         media = payload.get("media")
@@ -190,6 +191,16 @@ def _media_items(items):
             size = _media_size(payload.get("len"))
             if size is not None:
                 descriptor["size"] = size
+        elif kind == "voice":
+            duration = _media_size(payload.get("playtime"))
+            if duration is not None:
+                descriptor["duration_ms"] = duration
+            encode_type = _media_size(payload.get("encode_type"))
+            if encode_type is not None:
+                descriptor["encode_type"] = encode_type
+            sample_rate = _media_size(payload.get("sample_rate"))
+            if sample_rate is not None:
+                descriptor["sample_rate"] = sample_rate
         if "full_url" not in descriptor and "encrypt_query_param" not in descriptor:
             continue
         out.append(descriptor)
@@ -331,9 +342,10 @@ def inbound(msg, account):
             media = True
             if media_kind is None:
                 media_kind, media_name = kind, name
-            if kind == "voice":
-                # Keep a voice transcript so an ID-only quote of this message
-                # still shows it; the message itself stays a media notice.
+            if kind == "voice" and not _media_items([item]):
+                # No CDN descriptor: keep the client transcript so the API can
+                # still deliver it. With a descriptor the API transcribes, so
+                # the provider's own text never duplicates the body.
                 transcript = _item_text(item)
                 if transcript:
                     texts.append(transcript)

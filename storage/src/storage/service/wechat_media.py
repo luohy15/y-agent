@@ -24,6 +24,7 @@ CDN_HOST_SUFFIX = ".cdn.weixin.qq.com"
 CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c"
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 MAX_FILE_BYTES = 20 * 1024 * 1024
+MAX_VOICE_BYTES = 4_000_000
 _HEX_KEY = re.compile(r"[0-9a-fA-F]{32}")
 _BLOCK_BYTES = 16
 _CONNECT_TIMEOUT = 15
@@ -139,13 +140,13 @@ def enforce_cap(size, max_bytes):
         raise MediaRejected("too_large")
 
 
-async def fetch_media(item, *, max_bytes):
+async def fetch_media(item, *, max_bytes, read_timeout=_READ_TIMEOUT):
     """Fetch one descriptor and return its decrypted plaintext bytes."""
     url = media_url(item)
     host = validate_media_url(url)
     key = decode_aes_key(item)
     await require_public_host(host)
-    timeout = httpx.Timeout(_READ_TIMEOUT, connect=_CONNECT_TIMEOUT)
+    timeout = httpx.Timeout(read_timeout, connect=_CONNECT_TIMEOUT)
     ciphertext = bytearray()
     try:
         async with httpx.AsyncClient(follow_redirects=False, timeout=timeout) as client:

@@ -85,6 +85,20 @@ reply instead of a silent drop. A file whose route (`/<chat_id>` or
 cannot read the EC2 asset path. Web rendering of `Message.files` is owned by
 [chat-core](chat-core.md).
 
+A private-chat voice note rides the shared gateway voice service
+(`api.util.gateway_voice`), the same path WeChat uses. The webhook resolves the
+route first, then streams the `getFile` download under a 4 MB cap, decodes the
+OGG/Opus to 16 kHz mono PCM16, and uploads it to the published `voice` module
+as the bound user before delivering `polished_text or raw_text` as the message
+body, composed with any caption and quote. Takes land in that user's Voice
+archive. The declared duration is capped at 2 minutes and the decoded PCM at
+3,999,956 bytes; an unsupported codec, oversize or over-duration note, unknown
+node, disabled module, download failure or empty transcript gets one explicit
+Telegram reply and opens no turn. `message["audio"]` (a music/audio upload) is
+rejected with the same unsupported-format notice instead of being silently
+dropped. A jump node and an `agy` chat accept voice because only text reaches
+the chat.
+
 The `tg_topic` binding table, its repository/service/entity/DTO/API
 registration, forum-topic auto-discovery, thread lookup, and General-topic
 fallback are removed from the codebase. `y telegram send --topic` (and the
@@ -156,7 +170,8 @@ best-effort drop.
   todo 3468 sub-task 6 by a separate session.
 - Web chat file-upload UI. File-chip rendering of `Message.files` belongs to
   [chat-core](chat-core.md).
-- Inbound video, audio, voice, and stickers (still ignored), and outbound
-  document sending (`y telegram send` stays images and text).
+- Inbound video, video notes, and stickers (still ignored); inbound music or
+  audio uploads get an explicit unsupported-format notice. Outbound document
+  sending (`y telegram send` stays images and text).
 - Making a photo that was routed to a jump node readable. That gap already
   existed; this delivery only rejects documents on that node.

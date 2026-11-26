@@ -166,30 +166,48 @@ switch to an undocumented binding path.
 
 ### Inbound media
 
-The bridge never downloads media. It forwards, for up to nine image or file
-items, a descriptor with the kind, the provider CDN url or encrypted query
+The bridge never downloads media. It forwards, for up to nine image, file or
+voice items, a descriptor with the kind, the provider CDN url or encrypted query
 param, the AES key in both spellings the client uses, and (for a file) its name
-and declared size. The API fetches because the bridge-to-API body is capped at
+and declared size or (for a voice note) its `playtime`, `encode_type` and
+`sample_rate`. The API fetches because the bridge-to-API body is capped at
 600 KB and the Lambda request at 6 MB, while one file may be 20 MB; keeping the
 bytes out of the bridge also keeps it credential-only with no crypto or storage.
 
 The API validates before fetching: HTTPS only, no userinfo, port 443, a host
 under `*.cdn.weixin.qq.com`, every resolved address public, and no redirects.
-It streams with a 10 MB image cap and a 20 MB file cap. The provider's blob is
-AES-128-ECB with PKCS7 padding; the key is a raw 32-character hex `aeskey` (an
-image's preferred field) or a base64 `aes_key` that decodes either to the 16 raw
-bytes or to 32 hex characters. A JPEG, PNG, GIF or WEBP image is stored
-unchanged; HEIF/HEIC (an iOS original) is re-encoded to an RGB JPEG. Files reuse
-the same classifier and storage path as Telegram: no file type is rejected, the
-name is sanitized, and the cap is 20 MB. Because those helpers are shared, the
-Telegram document path accepts executable and installer suffixes too now, and
-its former "file type is not supported" reply is gone. The descriptor is never
-persisted; only the stored paths are, on `Message.images` and `Message.files`.
-This adds no DDL and no tenant-encryption field.
+It streams with a 10 MB image cap, a 20 MB file cap and a 4 MB voice cap. The
+provider's blob is AES-128-ECB with PKCS7 padding; the key is a raw
+32-character hex `aeskey` (an image's preferred field) or a base64 `aes_key`
+that decodes either to the 16 raw bytes or to 32 hex characters. A JPEG, PNG,
+GIF or WEBP image is stored unchanged; HEIF/HEIC (an iOS original) is
+re-encoded to an RGB JPEG. Files reuse the same classifier and storage path as
+Telegram: no file type is rejected, the name is sanitized, and the cap is
+20 MB. Because those helpers are shared, the Telegram document path accepts
+executable and installer suffixes too now, and its former "file type is not
+supported" reply is gone. The descriptor is never persisted; only the stored
+paths are, on `Message.images` and `Message.files`. This adds no DDL and no
+tenant-encryption field.
+
+A voice note takes no EC2 asset path: the API decodes the decrypted SILK to
+16 kHz mono PCM16 (`api.util.voice_transcode`, capped at 120 seconds and
+3,999,956 PCM bytes) and uploads it to the published `voice` module in-process
+through `api.util.gateway_voice`, bound to the sending peer's own user. The
+module transcribes and polishes it, and its take lands in that user's Voice
+archive. A jump node or an `agy` chat accepts voice even though it refuses
+images, because only plain text reaches the chat. Every rejection (fetch,
+decrypt, unsupported codec, over the size or duration cap, node or module
+unavailable, empty transcript) produces one explicit outbox notice. Telegram
+rides the same service, so both channels share one archive and one transcript
+quality. The provider's own `voice_item.text` is used only when the item carries
+no CDN descriptor; otherwise the module transcript is the body and the stored
+`quote_text`.
 
 A bridge that sends `media_items` requires this API version. An old API rejects
 the payload with 422 and loses that message, so deploy and verify the API before
-restarting the bridge.
+restarting the bridge. The non-maintainer voice path also needs the Voice module
+published with `dispatch_scope: authenticated`; until then the pre-check
+rejects with the "not enabled for this account" notice instead of fetching.
 
 ### Components
 
@@ -331,8 +349,8 @@ Inbound:
 1. The bridge posts each non-bot `WeixinMessage` to the API with account id,
    provider message id, sender id, text, the message's own media hint,
    `context_token`, its structured `quote` when the message carries a
-   `ref_msg`, and up to nine `media_items` descriptors for image and file
-   items.
+   `ref_msg`, and up to nine `media_items` descriptors for image, file and
+   voice items.
 2. The API rejects unknown, revoked or paused accounts, deduplicates by provider
    message id before touching chat, and applies a per-peer inbound rate cap.
 3. The API resolves the sender's peer row:
@@ -341,18 +359,21 @@ Inbound:
      count, then activate or revoke, no turn;
    - active peer: re-check the peer owner's admission. A de-admitted owner
      gets one fixed "This account is not approved." notice and no turn.
-4. Image and file items follow the message's text route. The target is
+4. Image, file and voice items follow the message's text route. The target is
    resolved before any fetch, so an absent or foreign target keeps its notice
    and downloads nothing. Images are fetched from the provider CDN, decrypted
    and stored under the image assets directory; a file is stored under the
-   attachments directory. A captionless message gets `请看这张图片` or
-   `请看这个文件` as its text. Every rejection (fetch, decrypt, store, too
-   large, unsupported image type, a jump node without image support, an `agy`
-   chat that refuses images) produces one explicit outbox notice and never a
-   silent drop. Voice, video and other non-image/file items receive one fixed
-   "text only for now" notice and create no turn; their text, media kind and
-   media name are still stored on the inbound receipt so a later quote of that
-   message can show a media placeholder.
+   attachments directory; a voice note is decoded and transcribed through the
+   shared gateway voice service. A captionless image or file message gets
+   `请看这张图片` or `请看这个文件` as its text; a voice message's text is its
+   transcript. Every rejection (fetch, decrypt, store, too large, unsupported
+   image type, unsupported voice codec, over the voice duration cap, a jump node
+   without image support, an `agy` chat that refuses images, a disabled voice
+   module) produces one explicit outbox notice and never a silent drop. Video
+   and other non-image/file/voice items receive one fixed "text only for now"
+   notice and create no turn; their text, media kind and media name are still
+   stored on the inbound receipt so a later quote of that message can show a
+   media placeholder.
 5. A reply or selected quote goes through the shared
    `storage.service.inbound_quote` formatter: `> [Quoted assistant]: …` for a
    bot message, `> [Quoted you]: …` for a user message, truncated at 500
@@ -375,8 +396,8 @@ Inbound:
    `[attachment]`. The bridge prints one content-free `bridge shape` line per
    quoted or media message: item type and present key names, plus a nested
    `ref_msg` block with its keys and its `message_item` type and payload keys,
-   and, for a direct image or file, the `media` object's key names. It never
-   prints a value.
+   and, for a direct image, file or voice item, the `media` object's key names.
+   It never prints a value.
 6. Text that starts with `/<chat_id> ` or `/<todo_id> ` goes to that peer
    owner's chat through `accept_user_message` with `source="wechat"` and
    `human_reply=True`. A todo prefix resolves through the shared
@@ -398,7 +419,9 @@ Inbound:
    replay delivers to the same user or fails closed if the peer is no longer
    active. It also stores the message text, media kind and media name for
    future quote resolution under the tenant-encryption fields of
-   `wechat_inbound` (`quote_text`, `media_name`).
+   `wechat_inbound` (`quote_text`, `media_name`). A transcribed voice note
+   replaces `quote_text` with the module's final (polished) transcript, so a
+   later quote shows clean text.
 
 Outbound:
 
@@ -472,6 +495,14 @@ relayed per request and never stored. Each peer's classified rows are sealed and
 opened by the existing flush and load hooks under that peer owner's tenant key
 when the owner is tenant-encryption-active. The two users' rows are
 independently encrypted.
+
+Gateway voice input does not extend that registry. A transcribed take lives in
+the `voice` module's own `voice_take` table, and the hooks are ORM listeners
+installed only on the host entities listed in `storage/crypto/fields.py`; they
+do not reach module-owned entities. `voice_take` (`raw_text`, `polished_text`,
+`label`) therefore stays plaintext for every owner, while the archived audio
+bytes still seal through `voice_store` when the owner is encryption-active.
+Covering the module table needs a module-side change, not a host SPECS entry.
 
 Inbound media adds no channel key custody. It fetches the provider's own
 at-rest blob over HTTPS and decrypts it with the descriptor's AES-128-ECB key;
@@ -556,9 +587,10 @@ Verification targets external behavior at the channel boundary.
 - Cross-peer administration beyond the maintainer's revoke. There is no
   maintainer send-as another peer and no reading of another peer's message
   bodies.
-- WeChat group chats; voice, video and other non-image/file inbound media, and
+- WeChat group chats; video and other non-image/file/voice inbound media, and
   outbound media in either direction beyond the fixed inbound text notices.
-  More than nine media items in one message are not supported.
+  More than nine media items in one message are not supported. Legacy AMR/MP3
+  voice notes are rejected with an explicit unsupported-format notice.
 - The WeChat Official Account and WeCom (企业微信) surfaces.
 - End-to-end encryption, and any claim that the operator cannot read content.
 - Changing tenant-encryption eligibility, key custody or activation.

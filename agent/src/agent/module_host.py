@@ -1719,8 +1719,10 @@ def photo_delete_objects(user_id: int, photo_id: str) -> dict[str, Any]:
     return photo_store.delete_all_versions(user_id, photo_id)
 
 
-# v30 private voice objects in Y_AGENT_S3_BUCKET (todo 4165). The storage
-# service also enforces the configured maintainer; callers never supply keys.
+# v30 private voice objects in Y_AGENT_S3_BUCKET (todo 4165). Each call is
+# bound to the request owner and the voice store accepts any admitted owner,
+# so every take stays under the caller's own prefix (todo 4484). Callers never
+# supply keys.
 
 
 def voice_put_part(

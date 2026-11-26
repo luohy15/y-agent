@@ -473,13 +473,23 @@ behavior. Treat the column as claims on host slots, not as a manifest of exports
 
 ### Base module set for admitted users
 
-Base set: `chat`, `module`, `todo`, `note`, `file`, `tag`, `bot`.
+Base set: `chat`, `module`, `todo`, `note`, `file`, `tag`, `bot`, `voice`.
 
-An admitted non-maintainer sees exactly these seven enabled modules in the catalog.
+An admitted non-maintainer sees exactly these eight enabled modules in the catalog.
 Their active versions use `authenticated` dispatch; data access remains scoped
 to the caller except for the balance endpoint below. Other modules, including
 `calendar`, `reminder`, `dev`, and `im`, remain maintainer-only. The maintainer
 still sees the full catalog.
+
+`voice` is in the base set because the shared gateway voice path (todo 4484)
+transcribes an inbound WeChat or Telegram voice note as the sending peer's own
+user. Every take row, chunk upload, audio read and delete is owner-scoped to
+that caller; the host `voice_store` accepts any admitted owner but derives the
+object prefix from the request owner, so one peer can never resolve another
+peer's key. `voice_take` is a module entity and is outside the host tenant
+field-encryption registry (`storage/crypto/fields.py`), so its transcript text
+is not envelope-encrypted; the audio bytes still seal in `voice_store` when the
+owner is encryption-active.
 
 Bot configurations belong to the caller, but `GET /api/module/bot/balances`
 uses the process environment and shows the maintainer's balances to any admitted

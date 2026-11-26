@@ -30,11 +30,17 @@ class VoiceStoreError(Exception):
 
 
 def _require_owner(user_id: int) -> str:
-    from storage.service.user import get_live_public_user_id, get_module_maintainer_user_id
+    """Every admitted owner may store their own takes (todo 4484 decision C).
 
-    maintainer = get_module_maintainer_user_id()
-    if maintainer is None or maintainer != user_id:
-        raise VoiceStoreError("Voice storage is restricted to the configured maintainer.", "forbidden")
+    The key still comes from this request's own user id, so cross-owner reads
+    and deletes cannot resolve another owner's prefix. Admission is re-checked
+    live rather than trusting an existing user row.
+    """
+    from storage.service.user import get_live_public_user_id
+    from storage.service.user_access import request_admitted
+
+    if request_admitted(user_id, None).get("admitted") is not True:
+        raise VoiceStoreError("The voice owner is not admitted.", "forbidden")
     public = get_live_public_user_id(user_id)
     if not isinstance(public, str) or not public or any(part in public for part in ("/", "\\", "..")):
         raise VoiceStoreError("The voice owner was not found.", "forbidden")

@@ -61,8 +61,14 @@ leaves the resulting turn's delivery unchanged. The two channels also share one
 inbound quote formatter (`storage.service.inbound_quote`): a reply or selected
 quote becomes a sender-headed blockquote (`[Quoted assistant]` /
 `[Quoted you]`) capped at 500 characters, with media and unavailable-content
-placeholders, before the turn is created. `y gateway send
---reply-chat <id>` passes it. `config` and `status` are unchanged.
+placeholders, before the turn is created. An inbound voice note on either
+channel rides one shared gateway voice service (`api.util.gateway_voice`): the
+API downloads the channel's audio, decodes it to 16 kHz mono PCM16, and
+transcribes it through the published `voice` module as the sending peer's own
+user, so the transcript becomes the message body and the take lands in that
+user's Voice archive. Any rejection is one explicit notice on the originating
+channel, never a silent drop. `y gateway send --reply-chat <id>` passes it.
+`config` and `status` are unchanged.
 
 For manager turns, the worker mirrors user text from web or CLI through the
 gateway before execution. Neither channel echoes its own input. WeChat-origin
@@ -95,7 +101,8 @@ No schema migration. The trial is `y gateway config --channel wechat`. Revert is
 
 ## Out of Scope
 
-- WeChat images, attachments, and files.
+- Outbound WeChat images, attachments, and files; inbound WeChat images, files
+  and voice use the shared inbound gateway path.
 - Changing inbound routing or moving image delivery off Telegram.
 - Deleting `y telegram send` or `POST /api/telegram/send`.
 - A deployment-wide or bot-level channel default.

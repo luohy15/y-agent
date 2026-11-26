@@ -18,6 +18,7 @@ from storage.entity.dto import Message
 from storage.util import generate_id, generate_message_id, get_utc_iso8601_timestamp, get_unix_timestamp, get_telegram_bot_token, send_telegram_message, send_telegram_photo_bytes
 # generate_id remains for non-chat identifiers (e.g. safe_file_id fallback).
 from api.util.attachments import classify_document, save_attachment_bytes, MAX_ATTACHMENT_BYTES
+from api.util.gateway_voice import VoiceRejected, process_inbound_voice, voice_notice
 from api.util.images import decode_send_image_upload, resolve_send_image_path, save_image_bytes
 
 router = APIRouter(prefix="/telegram")
@@ -275,6 +276,69 @@ async def telegram_webhook(request: Request):
                 return {"ok": True}
             files = [saved]
 
+    # A music/audio upload has no voice path: reject it explicitly instead of
+    # dropping the update, and never open an empty turn for it.
+    if isinstance(message.get("audio"), dict):
+        user = get_user_by_telegram_id(telegram_user_id)
+        if not user:
+            await _send_message(telegram_chat_id, "Please /bind your account first.")
+            return {"ok": True}
+        if await _refuse_unapproved(telegram_chat_id, user):
+            return {"ok": True}
+        await _send_message(telegram_chat_id, voice_notice("unsupported_type", "telegram"))
+        return {"ok": True}
+
+    # A voice note is transcribed through the shared gateway voice service.
+    # The target route is resolved before the download, then the transcript
+    # becomes the body delivered to that chat.
+    voice = message.get("voice")
+    if isinstance(voice, dict):
+        user = get_user_by_telegram_id(telegram_user_id)
+        if not user:
+            await _send_message(telegram_chat_id, "Please /bind your account first.")
+            return {"ok": True}
+        if await _refuse_unapproved(telegram_chat_id, user):
+            return {"ok": True}
+        caption = (message.get("caption") or "").strip()
+        route = split_inbound_route(caption)
+        target_chat = None
+        if route.kind == "chat":
+            from storage.repository import chat as chat_repo
+            target_chat = await chat_repo.get_chat(user.id, route.ref)
+            if not target_chat:
+                await _send_message(telegram_chat_id, f"chat /{route.ref} not found")
+                return {"ok": True}
+        elif route.kind == "todo":
+            if not route.body.strip():
+                await _send_message(telegram_chat_id, usage_notice(route.ref))
+                return {"ok": True}
+            target_chat, notice = await resolve_todo_route(user.id, route.ref)
+            if target_chat is None:
+                await _send_message(telegram_chat_id, notice)
+                return {"ok": True}
+        else:
+            target_chat = find_latest_chat_by_role(user.id, "manager")
+        try:
+            transcript = await process_inbound_voice(
+                user_id=user.id, chat=target_chat, fetch=_voice_fetcher(voice),
+                duration_ms=_voice_duration_ms(voice), label="telegram", channel="telegram",
+            )
+        except VoiceRejected as exc:
+            await _send_message(telegram_chat_id, voice_notice(exc.code, "telegram"))
+            return {"ok": True}
+        except Exception:
+            logger.exception("telegram voice failed")
+            await _send_message(telegram_chat_id, voice_notice("unavailable", "telegram"))
+            return {"ok": True}
+        body = transcript
+        if route.body.strip():
+            body = f"{route.body}\n\n{transcript}"
+        body = _with_reply_context(body, reply_context)
+        if route.kind in ("chat", "todo"):
+            return await _handle_routed_message(
+                telegram_chat_id, telegram_user_id, target_chat.id, body)
+        return await _handle_message(telegram_chat_id, telegram_user_id, body)
+
     if not text:
         logger.info("telegram webhook: empty text")
         return {"ok": True}
@@ -428,6 +492,54 @@ async def _download_telegram_document(document: dict, *, vm_config=None):
     except Exception as e:
         logger.exception("telegram document download error: {}", e)
         return None, "download_failed"
+
+
+def _voice_duration_ms(voice: dict):
+    """Declared Telegram duration in seconds as milliseconds, or None."""
+    duration = voice.get("duration")
+    if isinstance(duration, bool) or not isinstance(duration, (int, float)) or duration <= 0:
+        return None
+    return int(duration * 1000)
+
+
+def _voice_fetcher(voice: dict):
+    """Thin streamed getFile downloader for one Telegram voice note."""
+
+    async def fetch(max_bytes):
+        file_id = voice.get("file_id")
+        if not file_id or not TELEGRAM_BOT_TOKEN:
+            raise VoiceRejected("download_failed")
+        try:
+            async with httpx.AsyncClient(
+                follow_redirects=False, timeout=httpx.Timeout(20, connect=15),
+            ) as client:
+                resp = await client.get(_bot_api_url("getFile"), params={"file_id": file_id})
+                if not resp.is_success:
+                    logger.error("telegram voice getFile failed: {}", resp.status_code)
+                    raise VoiceRejected("download_failed")
+                file_path = resp.json()["result"]["file_path"]
+                file_url = f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}"
+                async with client.stream("GET", file_url) as response:
+                    if response.status_code != 200:
+                        raise VoiceRejected("download_failed")
+                    length = response.headers.get("content-length", "")
+                    if length.isdigit() and int(length) > max_bytes:
+                        raise VoiceRejected("too_large")
+                    data = bytearray()
+                    async for chunk in response.aiter_bytes():
+                        data.extend(chunk)
+                        if len(data) > max_bytes:
+                            raise VoiceRejected("too_large")
+                    if not data:
+                        raise VoiceRejected("download_failed")
+                    return bytes(data)
+        except VoiceRejected:
+            raise
+        except Exception:
+            logger.exception("telegram voice download failed")
+            raise VoiceRejected("download_failed") from None
+
+    return fetch
 
 
 async def _download_telegram_photos(photo_sizes: list, *, vm_config=None) -> List[str]:

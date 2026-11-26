@@ -509,22 +509,24 @@ def _enqueue_notices(db, account, peer, event, user_id, notices):
 
 
 async def _inbound_media(media_handler, user_id, chat, items):
-    """`(image_paths, file_paths, notices)` for one message's media descriptors."""
+    """`(image_paths, file_paths, transcript, notices)` for one message's media."""
     if not items:
-        return [], [], []
+        return [], [], None, []
     if media_handler is None:
-        return [], [], ["Images and files are not supported right now."]
+        return [], [], None, ["Attachments are not supported right now."]
     try:
-        images, files, notices = await media_handler(user_id=user_id, chat=chat, items=items)
+        images, files, transcript, notices = await media_handler(
+            user_id=user_id, chat=chat, items=items)
     except Exception:
         logger.exception("wechat inbound media failed")
-        return [], [], ["Could not download that attachment from WeChat. Nothing was saved."]
+        return [], [], None, ["Could not download that attachment from WeChat. Nothing was saved."]
     images = list(images or [])
     files = list(files or [])
+    transcript = transcript if isinstance(transcript, str) and transcript.strip() else None
     notices = [notice for notice in (notices or []) if notice]
-    if not (images or files or notices):
+    if not (images or files or transcript or notices):
         notices = ["Could not download that attachment from WeChat. Nothing was saved."]
-    return images, files, notices
+    return images, files, transcript, notices
 
 
 async def inbound(db, account, message_id, peer, text, context_token, media,
@@ -579,7 +581,9 @@ async def inbound(db, account, message_id, peer, text, context_token, media,
     event = digest(f"{active.generation}:{message_id}")
     media_items = [item for item in (media_items or []) if isinstance(item, dict)]
     text_value = text or ""
-    if not media_items and (media or not text_value.strip()):
+    if not media_items and (media or not text_value.strip()) and not (
+            media_kind == "voice" and text_value.strip()):
+        # A voice item without a CDN descriptor keeps its client transcript.
         enqueue(db, account, peer, "Text messages only for now.", event, active.user_id)
         return {"result": "notice"}
     quote_context = _quote_context(db, account, active.user_id, peer, quote)
@@ -595,12 +599,18 @@ async def inbound(db, account, message_id, peer, text, context_token, media,
         if target is not None:
             # The target is resolved before any fetch: a bad or absent target
             # keeps its notice and downloads nothing.
-            images, files, notices = await _inbound_media(
+            images, files, transcript, notices = await _inbound_media(
                 media_handler, active.user_id, target, media_items)
             _enqueue_notices(db, account, peer, event, active.user_id, notices)
+            body = route.body
+            if transcript:
+                # A quoted voice message keeps its final transcript, not the
+                # client's own placeholder text.
+                receipt.quote_text = transcript
+                body = f"{body}\n\n{transcript}" if body.strip() else transcript
             try:
                 accepted = await chats.accept_user_message(
-                    active.user_id, target, format_quoted_message(route.body, quote_context),
+                    active.user_id, target, format_quoted_message(body, quote_context),
                     images=images or None, files=files or None,
                     source="wechat", human_reply=True, session=db,
                     event_id=f"wc_{active.generation}_{event}")
@@ -620,10 +630,17 @@ async def inbound(db, account, message_id, peer, text, context_token, media,
                     create_time=timestamp, update_time=timestamp, running=False)
         chat_repo._insert_chat_sync(active.user_id, chat, session=db)
         chat_repo.release_role(active.user_id, "manager", except_chat_id=chat.id, session=db)
-    images, files, notices = await _inbound_media(
+    images, files, transcript, notices = await _inbound_media(
         media_handler, active.user_id, chat, media_items)
     _enqueue_notices(db, account, peer, event, active.user_id, notices)
-    body = _media_caption(text_value, images, files) if media_items else text_value
+    if transcript:
+        receipt.quote_text = transcript
+    if transcript:
+        body = f"{text_value}\n\n{transcript}" if text_value.strip() else transcript
+    elif media_items:
+        body = _media_caption(text_value, images, files)
+    else:
+        body = text_value
     if media_items and not (body or "").strip() and not images and not files:
         # Nothing could be attached and there is no text: notices only.
         return {"result": "notice"}

@@ -1490,6 +1490,19 @@ wheels = [
 ]
 
 [[package]]
+name = "opuslib-next-bundled"
+version = "0.1.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ff/b5/849e7e4424d5fc2965dbce6383fe518a6f174bdaef0a7768dc73bde5d2be/opuslib_next_bundled-0.1.1.tar.gz", hash = "sha256:af36ac1585a841cd502a0fa260a7c18fd1b870a6767a42676fd7af39104b0c71", size = 4768942, upload-time = "2026-07-03T08:53:43.091Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/65/39/a669b0ac478e4ea9363ac6b5ec7ec968c206c65e65742aefb054f30a56d8/opuslib_next_bundled-0.1.1-py3-none-macosx_10_9_x86_64.whl", hash = "sha256:2266ae4f0e8416bc0b7d7c935c52cf92bb243d8c772c41f3624094cc28e63148", size = 333570, upload-time = "2026-07-03T08:53:35.277Z" },
+    { url = "https://files.pythonhosted.org/packages/66/4f/2ba2ce1eb207a87045bd226683d9a083c534028f0323b9daf92d37403084/opuslib_next_bundled-0.1.1-py3-none-macosx_11_0_arm64.whl", hash = "sha256:b71894d2533e7081d5520d9f9d2293ea08bc22286336a0e6002c947c4441d5b0", size = 329206, upload-time = "2026-07-03T08:53:36.951Z" },
+    { url = "https://files.pythonhosted.org/packages/9c/13/c5596cca8b83e5c7510ee7c6a3718867f3551243ea6104ca8816af63a172/opuslib_next_bundled-0.1.1-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:0450f00ccc67e58542cad4391e55d56ca9e8fb83ff8f547941d221d2eeb57ee5", size = 356184, upload-time = "2026-07-03T08:53:38.508Z" },
+    { url = "https://files.pythonhosted.org/packages/c3/c1/1e1f429bca6d7361c5a58e5436bb8e82d28261cf2d743fbb4b9412a85b38/opuslib_next_bundled-0.1.1-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:a9e2039139d37c42cb77a0edc7242d281e532de2471bdcf624b30aeb04d2e5f0", size = 371736, upload-time = "2026-07-03T08:53:39.979Z" },
+    { url = "https://files.pythonhosted.org/packages/00/f0/286d8572a4648b77624415de86f66b7181982aae586ec7e1cefc0ba47114/opuslib_next_bundled-0.1.1-py3-none-win_amd64.whl", hash = "sha256:62ca41c951e11aee3e639fff4467f35e40cf326c48c102eed7a2b277881e3ccd", size = 316820, upload-time = "2026-07-03T08:53:41.388Z" },
+]
+
+[[package]]
 name = "packaging"
 version = "26.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2073,6 +2086,35 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/e8/52/d87eba7cb129b81563019d1679026e7a112ef76855d6159d24754dbd2a51/pyperclip-1.11.0.tar.gz", hash = "sha256:244035963e4428530d9e3a6101a1ef97209c6825edab1567beac148ccc1db1b6", size = 12185, upload-time = "2025-09-26T14:40:37.245Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/df/80/fc9d01d5ed37ba4c42ca2b55b4339ae6e200b456be3a1aaddf4a9fa99b8c/pyperclip-1.11.0-py3-none-any.whl", hash = "sha256:299403e9ff44581cb9ba2ffeed69c7aa96a008622ad0c46cb575ca75b5b84273", size = 11063, upload-time = "2025-09-26T14:40:36.069Z" },
+]
+
+[[package]]
+name = "pysilk-mod"
+version = "1.6.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/8d/94/c0ea4e5b179e7f284429c66766f6568130d8351ff3b105fcd0ddd273dd32/pysilk_mod-1.6.4.tar.gz", hash = "sha256:20ca00975d6ce11412bbc9ae9f339b5817489c56aafa681d54293aa9eeddb891", size = 210387, upload-time = "2024-10-10T15:44:01.143Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b6/14/10744f470fcefacdec396312b5f001cc10653c63e545eb36464623966ec9/pysilk_mod-1.6.4-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:a7c8d08120e3d6ea8caae5a1e648cffb2bee0c17d441c08a0eafc08e81aad578", size = 175586, upload-time = "2024-10-10T15:43:01.512Z" },
+    { url = "https://files.pythonhosted.org/packages/9e/3d/ede3f347f28f47d1e56043cb0fedb47f0b69f8c74d74c3adad630cd87151/pysilk_mod-1.6.4-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:2b600e36817f208c7b1a0284518e87281e541fc7587750391a89e5cfeaa0cbbe", size = 242030, upload-time = "2024-10-10T15:43:02.606Z" },
+    { url = "https://files.pythonhosted.org/packages/c3/6e/e5878c0992069a221cc2e93928064257da1e6423eaee5849cdea15ada9f3/pysilk_mod-1.6.4-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:a588801639158fd184469d8ad30c14788740e1509dc916face5bf63b91748cd7", size = 245211, upload-time = "2024-10-10T15:43:04.011Z" },
+    { url = "https://files.pythonhosted.org/packages/79/66/6f44416f43b0159dc7779b900a517f757979f8211a195a7816c4ecaebf15/pysilk_mod-1.6.4-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:10ca05a69b0f50c5905e6d546ff486d2b335a1beafc8da9a335d0267732bdea4", size = 1169315, upload-time = "2024-10-10T15:43:05.168Z" },
+    { url = "https://files.pythonhosted.org/packages/f7/59/a9257bf52028a3b60794011bf43d0fd277a788a98c06cfb916dd6434aee7/pysilk_mod-1.6.4-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:0c72783ea70fa9610c8e1e233fdb7ac71cd27d43802f409988e6e35c3e472e6f", size = 1214675, upload-time = "2024-10-10T15:43:07.047Z" },
+    { url = "https://files.pythonhosted.org/packages/96/30/e375cb2fd7730a81ece1012178da19562bfbcedf7b634d863dcc8e21d4cf/pysilk_mod-1.6.4-cp311-cp311-win_amd64.whl", hash = "sha256:ddf0160cebc7130140bd4733e1377fac96242eda258893ca4621905ea035ca23", size = 161965, upload-time = "2024-10-10T15:43:09.969Z" },
+    { url = "https://files.pythonhosted.org/packages/16/53/6ede72cd883ea75d44ce93dd60881f97b0b9943a6606b0308a444d6a2e04/pysilk_mod-1.6.4-cp311-cp311-win_arm64.whl", hash = "sha256:ce2b5ef50de8dbd9fca271be5b808b512332ac123865246b5bcbcd70c2e2f2e2", size = 147310, upload-time = "2024-10-10T15:43:11.005Z" },
+    { url = "https://files.pythonhosted.org/packages/e7/cd/6b23a44b475f84d31704d1ca20031938a3cbe0e096e6b666326dc56a8606/pysilk_mod-1.6.4-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:1dd9e4a23f13156b508de01c2550b5539fcf05e57695e012e9085709105dd634", size = 174367, upload-time = "2024-10-10T15:43:14.118Z" },
+    { url = "https://files.pythonhosted.org/packages/0f/df/3cea7074d018b75ebf678d0039d07776ef9ab9e192a71caa17dd949d442c/pysilk_mod-1.6.4-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:16f208c21d5719b7e3ca384ff18cf065fe12661ac885f01dcb1eded0306322ad", size = 241460, upload-time = "2024-10-10T15:43:15.291Z" },
+    { url = "https://files.pythonhosted.org/packages/71/49/4cfd25bd03fb5831e471aded9c1ab1e2c1d622dcf108c4b0c24c222a33c0/pysilk_mod-1.6.4-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:bee431174126e06befdc8a38bdf60e05c9113c9d0dda94878218ea46606d7e8b", size = 245322, upload-time = "2024-10-10T15:43:16.39Z" },
+    { url = "https://files.pythonhosted.org/packages/00/4f/300534ec839a4afa7be70ea33d9dcca981c00c70c4cf07c73412ae512704/pysilk_mod-1.6.4-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:1803e151c692ce6418c49024c5b37fa618b1a7e0fdb37874b2d5f5968e5aa713", size = 1169046, upload-time = "2024-10-10T15:43:17.524Z" },
+    { url = "https://files.pythonhosted.org/packages/36/6a/a461a313de56846cb125fedd489f4cc8d91fe9d27073055ed1c01bf2930b/pysilk_mod-1.6.4-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:1e00524ccaa51f2715351da889f65c0e70bee269c0fc01880502761e0317b897", size = 1213897, upload-time = "2024-10-10T15:43:18.773Z" },
+    { url = "https://files.pythonhosted.org/packages/f8/5b/4b55ec2db19ea6ba31d5faef7706f0cd89199a6119276fa8d41b016200d2/pysilk_mod-1.6.4-cp312-cp312-win_amd64.whl", hash = "sha256:92d1aa791dedd399763c55f5dba6c9fd4dea2877eb0079835492f297279f4a05", size = 162281, upload-time = "2024-10-10T15:43:19.94Z" },
+    { url = "https://files.pythonhosted.org/packages/79/36/912f59a032e3c0167054a12f6d48f7aa9bb73a45be846da3a2c85f792d11/pysilk_mod-1.6.4-cp312-cp312-win_arm64.whl", hash = "sha256:1ad7a18c8c35d164c431d23ed2314725270f634b0fdf1ca8ae11b5390edf16d6", size = 147267, upload-time = "2024-10-10T15:43:20.965Z" },
+    { url = "https://files.pythonhosted.org/packages/ff/a2/2bb13544f3a607dfc4e3337eb3ce2e97604508c6263b996665c8e0fc2fa0/pysilk_mod-1.6.4-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:5c3405c7376bf6c5bb17989c9a650bb07eca2ccfee229b85bddcd7a929d3193b", size = 174391, upload-time = "2024-10-10T15:43:21.983Z" },
+    { url = "https://files.pythonhosted.org/packages/1f/c4/2948b786f5788004865f8277401992f232d9f16414c5f04b9f2141f6d081/pysilk_mod-1.6.4-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:5753cb05dfedd789c88a24c61e21edc7cd6b7b5c13ace6dc93e26f60a1f6a50e", size = 241687, upload-time = "2024-10-10T15:43:23.023Z" },
+    { url = "https://files.pythonhosted.org/packages/57/d4/3868c2bc92324d708977a591a94b40d9b5b9f7a816d24f06cc82c2f8af2a/pysilk_mod-1.6.4-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:fcc44322f44b1e9164c1a5afc68249ea5b8827017b71c53c6846ab7fe2dbde4b", size = 245351, upload-time = "2024-10-10T15:43:24.136Z" },
+    { url = "https://files.pythonhosted.org/packages/aa/89/6f37b5b375bb3a3f02f9681b77177eeff3ceba252920140bf04f1d027489/pysilk_mod-1.6.4-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:cf389d20d84419ed45ee6e8e08f18483b3b945164f7a1d1c3b6dc93879418f6f", size = 1169013, upload-time = "2024-10-10T15:43:25.277Z" },
+    { url = "https://files.pythonhosted.org/packages/4d/87/d9288dee2cb4832da4630b5421a24d7f4cea623a51f5f2f53b6d13ad5c1d/pysilk_mod-1.6.4-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:4f270bdfe00c6677e341fccafbcda66d31a0ecb0a427fcd776b9892a58f624c1", size = 1214033, upload-time = "2024-10-10T15:43:26.562Z" },
+    { url = "https://files.pythonhosted.org/packages/6b/60/1bf8ff9934c9567ba314cf0a11ca91d9bead99235607ed0fd6afcfb4b05c/pysilk_mod-1.6.4-cp313-cp313-win_amd64.whl", hash = "sha256:141ae615dfcf2e22ca3b77d30a521395365e5bb53613f6f006d4236637415e3a", size = 162279, upload-time = "2024-10-10T15:43:28.368Z" },
+    { url = "https://files.pythonhosted.org/packages/51/12/327b495e28d087240accb2869a3f9456352b743e926c2dd9200542eaf8ad/pysilk_mod-1.6.4-cp313-cp313-win_arm64.whl", hash = "sha256:e15d31e40030f54c8995a534290c7d566b66e5a545cb8c9f9d84ca783ba9a9a9", size = 147241, upload-time = "2024-10-10T15:43:29.788Z" },
 ]
 
 [[package]]
@@ -2920,9 +2962,11 @@ dependencies = [
     { name = "fastapi" },
     { name = "google-auth" },
     { name = "httpx" },
+    { name = "opuslib-next-bundled" },
     { name = "pillow" },
     { name = "pillow-heif" },
     { name = "pyjwt" },
+    { name = "pysilk-mod" },
     { name = "python-dotenv" },
     { name = "python-multipart" },
     { name = "requests" },
@@ -2944,9 +2988,11 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "google-auth", specifier = ">=2.29.0" },
     { name = "httpx", specifier = ">=0.27.0" },
+    { name = "opuslib-next-bundled", specifier = "==0.1.1" },
     { name = "pillow", specifier = "==12.1.1" },
     { name = "pillow-heif", specifier = "==1.8.0" },
     { name = "pyjwt", specifier = ">=2.8.0" },
+    { name = "pysilk-mod", specifier = "==1.6.4" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "python-multipart", specifier = ">=0.0.22" },
     { name = "requests", specifier = ">=2.31.0" },

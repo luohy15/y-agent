@@ -244,7 +244,10 @@ entity + controller + service + CLI slices, and most have a web panel.
   delivery is manager-only.
   Image attachments require a binding on Telegram; WeChat inbound images and
   files ride the shared gateway path instead (`docs/prd/wechat-channel.md`
-  "Inbound media"). Non-manager sessions have no Telegram reply path. Their
+  "Inbound media"). A private-chat voice note is decoded and transcribed
+  through `api.util.gateway_voice` (the same service WeChat uses) and delivered
+  as text; a rejection or a music/audio upload gets one explicit reply and opens
+  no turn. Non-manager sessions have no Telegram reply path. Their
   detail surface is web. Markdown → HTML
   conversion, root-role callbacks short-circuited at the API layer. Web-only
   artifact fences are stripped to `[chart]` / `[diagram]` / `[svg]`
@@ -263,7 +266,11 @@ entity + controller + service + CLI slices, and most have a web panel.
   `POST /api/gateway/send`, `GET /api/gateway/status`, `PUT /api/gateway/config`,
   and `y gateway send|config|status`. `send` takes optional `reply_chat`: the
   delivered text starts with `/<chat_id> `, and a later `/<chat_id> ` reply on
-  either channel returns to that owner chat. No `y notify` alias. No schema change. See
+  either channel returns to that owner chat. An inbound voice note on either
+  channel uses one shared service (`api.util.gateway_voice`): fetch, decode to
+  16 kHz mono PCM16 (`api.util.voice_transcode`), then transcribe through the
+  published `voice` module as the sending peer's own user, so its take lands in
+  that user's archive. No `y notify` alias. No schema change. See
   [`docs/prd/notify-gateway.md`](docs/prd/notify-gateway.md).
 - **Channel gateway** — the authenticated `gateway` module supplies the panel
   and its API. The built-in `y gateway channels status|bind|unbind` inspects
@@ -286,6 +293,10 @@ entity + controller + service + CLI slices, and most have a web panel.
   resolves through `wechat_outbox.provider_message_id` (the bridge acks the
   provider message id) or `wechat_inbound.message_id`, filtered strictly by
   `(account, peer, user_id)`; nothing crosses peers or users.
+  An image, file or voice item follows the message's route after the target
+  resolves: images and files ride the shared inbound media path, and a voice
+  note is decoded and transcribed through `api.util.gateway_voice` (as the peer
+  owner, so the take is theirs) with one outbox notice per rejection.
   Other text reserves that owner's manager turn. WeChat-triggered manager
   turns reply only through `enqueue_reply` in that peer's outbox, regardless of
   channel preference. Gateway sends that select WeChat enqueue text through
@@ -348,8 +359,8 @@ entity + controller + service + CLI slices, and most have a web panel.
   resolved module child-route identity. Host-owned raw/hourly/daily telemetry is
   rolled up and retained by the worker schedule. The `monitor` module reads it only
   through four configured-maintainer-only `api_latency_*` backend contract v10 queries.
-- **Voice objects (todos 4165 / 4275)**: backend contract v35 replaces single-shot
-  upload with request-owner and configured-maintainer bound `voice_put_part`,
+- **Voice objects (todos 4165 / 4275 / 4484)**: backend contract v35 replaces
+  single-shot upload with request-owner bound `voice_put_part`,
   `voice_finalize_parts`, and `voice_delete_parts`; `voice_get_object` and
   `voice_delete_objects` remain. `storage/service/voice_store.py` stores ordered,
   idempotent parts (up to 300, each 1 MB) in the existing private `Y_AGENT_S3_BUCKET`
@@ -360,6 +371,17 @@ entity + controller + service + CLI slices, and most have a web panel.
   PCM assembly is capped at 3,999,956 bytes and gains a canonical 44-byte WAV
   header; stored bytes and returned metadata are always WAV. No schema change
   or audio-format column is needed.
+  Todo 4484 opens storage to every admitted owner: `voice_store._require_owner`
+  re-checks admission live and still derives the key from the request user's own
+  public id, so one peer can never resolve another's prefix. `voice` is part of
+  the admitted-user base module set (`dispatch_scope: authenticated`).
+  Gateway voice input (`api.util.gateway_voice`) feeds it: WeChat and Telegram
+  download the channel audio, `api.util.voice_transcode` decodes SILK or
+  OGG/Opus to 16 kHz mono PCM16 (4 MB / 120 s caps), and the take is uploaded as
+  the sending peer's user. `voice_take` is a module entity, so the host tenant
+  field-encryption hooks (`storage/crypto/fields.py`) do not cover its
+  `raw_text` / `polished_text` / `label`; audio bytes still seal in
+  `voice_store` when the owner is encryption-active.
   Finalize replay returns the same version; reads require that version. Cancel
   deletes all part versions and markers; take deletion also removes the original.
   Bucket privacy/versioning/encryption audits cache successful results for 60s.

@@ -61,13 +61,16 @@ class Quote(BaseModel):
 
 class MediaItem(BaseModel):
     model_config = {"extra": "forbid"}
-    kind: Literal["image", "file"]
+    kind: Literal["image", "file", "voice"]
     full_url: Annotated[str, Field(min_length=1, max_length=4096)] | None = None
     encrypt_query_param: Annotated[str, Field(max_length=4096)] | None = None
     aes_key: Annotated[str, Field(max_length=256)] | None = None
     aeskey: Annotated[str, Field(max_length=256)] | None = None
     file_name: Annotated[str, Field(max_length=1024)] | None = None
     size: Annotated[int, Field(ge=0)] | None = None
+    duration_ms: Annotated[int, Field(ge=0)] | None = None
+    encode_type: Annotated[int, Field(ge=0)] | None = None
+    sample_rate: Annotated[int, Field(ge=0)] | None = None
 
 
 class Inbound(BaseModel):

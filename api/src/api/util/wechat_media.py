@@ -1,22 +1,27 @@
-"""Inbound WeChat image/file handling for the shared gateway path.
+"""Inbound WeChat image/file/voice handling for the shared gateway path.
 
 The bridge forwards a small CDN descriptor. This module applies the target
 node and backend guards, then per item fetches and decrypts through
 `storage.service.wechat_media`, normalizes and stores an image, classifies and
-stores a file, and returns one user-visible notice per rejection.
+stores a file, or transcribes a voice note through the shared gateway voice
+service, and returns one user-visible notice per rejection.
 """
 
 from loguru import logger
 
+from api.util import gateway_voice
 from api.util.attachments import classify_document, save_attachment_bytes
 from api.util.images import ImageRejected, normalize_image_bytes, save_image_bytes
+from api.util.voice_transcode import VoiceRejected
 from storage.service.wechat_media import (
-    MAX_FILE_BYTES, MAX_IMAGE_BYTES, MediaRejected, fetch_media,
+    MAX_FILE_BYTES, MAX_IMAGE_BYTES, MAX_VOICE_BYTES, MediaRejected, fetch_media,
 )
 
 AGY_BACKEND = "agy"
 IMAGE = "image"
 FILE = "file"
+VOICE = "voice"
+_VOICE_READ_TIMEOUT = 20
 
 
 def _reject_notice(kind, code):
@@ -63,20 +68,38 @@ def _save_file(content, filename, user_id):
     )
 
 
+def _voice_fetch(item):
+    async def fetch(max_bytes):
+        try:
+            return await fetch_media(
+                item, max_bytes=min(max_bytes, MAX_VOICE_BYTES),
+                read_timeout=_VOICE_READ_TIMEOUT,
+            )
+        except MediaRejected as exc:
+            raise VoiceRejected("too_large" if exc.code == "too_large" else "download_failed") from None
+
+    return fetch
+
+
 async def handle_media(*, user_id, chat, items):
-    """Return `(image_paths, file_paths, notices)` for one inbound message."""
+    """Return `(image_paths, file_paths, transcript, notices)` for one message.
+
+    Voice is plain text and needs no EC2 disk asset, so a jump node or an
+    `agy` chat accepts it even though it still refuses images.
+    """
     images, files, notices = [], [], []
+    transcripts = []
     if not items:
-        return images, files, notices
+        return images, files, None, notices
     block = _node_block(user_id, chat)
-    if block:
-        return images, files, [block]
     images_refused = getattr(chat, "backend", None) == AGY_BACKEND
     for item in items:
         kind = item.get("kind") if isinstance(item, dict) else None
         if kind == IMAGE:
-            if images_refused:
-                notices.append("Images are not supported in this conversation.")
+            if block or images_refused:
+                notice = "Images are not supported in this conversation." if images_refused else block
+                if notice not in notices:
+                    notices.append(notice)
                 continue
             try:
                 data = await fetch_media(item, max_bytes=MAX_IMAGE_BYTES)
@@ -88,6 +111,10 @@ async def handle_media(*, user_id, chat, items):
                 logger.exception("wechat inbound image failed")
                 notices.append(_store_notice(IMAGE))
         elif kind == FILE:
+            if block:
+                if block not in notices:
+                    notices.append(block)
+                continue
             code = classify_document(
                 {"file_name": item.get("file_name") or "", "file_size": item.get("size")})
             if code:
@@ -101,6 +128,19 @@ async def handle_media(*, user_id, chat, items):
             except Exception:
                 logger.exception("wechat inbound file failed")
                 notices.append(_store_notice(FILE))
+        elif kind == VOICE:
+            try:
+                transcript = await gateway_voice.process_inbound_voice(
+                    user_id=user_id, chat=chat, fetch=_voice_fetch(item),
+                    duration_ms=item.get("duration_ms"), label="wechat", channel="wechat",
+                )
+            except VoiceRejected as exc:
+                notices.append(gateway_voice.voice_notice(exc.code, "wechat"))
+            except Exception:
+                logger.exception("wechat inbound voice failed")
+                notices.append(gateway_voice.voice_notice("unavailable", "wechat"))
+            else:
+                transcripts.append(transcript)
         else:
             notices.append("That attachment type is not supported.")
-    return images, files, notices
+    return images, files, "\n".join(transcripts) or None, notices

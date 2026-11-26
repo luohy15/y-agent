@@ -28,10 +28,12 @@ copy operator credentials, or prove the tenant's `prod` node is usable.
 Module-owned tables (including IM, finance, food and vault) are outside L1 v1.
 Photos and upload object bodies are also outside L1: presigned access and
 infrastructure SSE-S3 do not provide application-layer confidentiality.
-Photos and voice remain restricted to the configured maintainer. There are
-no audited target photo/upload/voice rows to migrate. Voice originals and
-voice part uploads use application envelopes when their owner is encryption-active;
-part identities are authenticated independently before final assembly.
+Photos remain restricted to the configured maintainer. Voice objects are open
+to every admitted owner (todo 4484) but stay outside L1: `voice_take` is a
+module entity, so the transcript columns are not in this registry, while voice
+originals and voice part uploads use application envelopes when their owner is
+encryption-active; part identities are authenticated independently before final
+assembly. There are no audited target photo/upload rows to migrate.
 
 Homepage admission is a separate concern owned by
 [public-homepage-admission](public-homepage-admission.md): it decides who may

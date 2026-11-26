@@ -23,6 +23,8 @@ dependencies = [
     "boto3>=1.34.0",
     "Pillow==12.1.1",
     "pillow-heif==1.8.0",
+    "pysilk-mod==1.6.4",
+    "opuslib-next-bundled==0.1.1",
 ]
 
 [dependency-groups]
