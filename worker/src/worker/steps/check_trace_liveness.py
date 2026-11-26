@@ -34,6 +34,7 @@ from storage.repository import dev_release as dev_release_repo
 from storage.repository.trace_runtime import get_snapshots, trace_runtime_roles
 from storage.service import pipeline_lock as pipeline_lock_service
 from storage.service import todo as todo_service
+from storage.service import todo_notice, user_preference as user_pref_service
 from storage.service.trace_runtime import derive_runtime
 from storage.util import get_unix_timestamp
 from worker.process_manager import get_process, get_running_processes
@@ -76,15 +77,13 @@ def _process_snapshot():
     return live_traces, live_chats
 
 
-def _fault_detail(reason, chat_id, outcome, error_text) -> str:
-    detail = {
-        "idle": "没有正在运行的会话。",
-        "backstop": f"已活跃超过 {ZERO_CHAT_BACKSTOP_SECONDS // 3600} 小时，但该 todo 没有任何会话。",
-        "session_end": "会话已结束，该 todo 上没有其他任务在运行。",
-    }[reason]
+def _fault_detail(reason, chat_id, outcome, error_text, language) -> str:
+    detail = todo_notice.fault_sentence(
+        reason, language, hours=ZERO_CHAT_BACKSTOP_SECONDS // 3600)
     if chat_id:
-        detail += f" 最近的会话 {chat_id}：退出状态 {outcome}。"
-        excerpt = todo_service.notice_excerpt(error_text)
+        detail += todo_notice.fault_sentence(
+            "chat_suffix", language, chat_id=chat_id, outcome=outcome)
+        excerpt = todo_notice.notice_excerpt(error_text)
         if excerpt:
             detail += f" {excerpt[:ERROR_TEXT_LIMIT]}"
     return detail
@@ -117,6 +116,7 @@ def claim_idle_trace(user_id: int, todo, reason: str, observed_after_ms: int) ->
     entry.
     """
     todo_id = todo.todo_id
+    language = None
     seen = {"evidence": None, "runtime_state": None, "rechecked": False, "chat_id": None}
 
     def recheck(session, row):
@@ -167,7 +167,8 @@ def claim_idle_trace(user_id: int, todo, reason: str, observed_after_ms: int) ->
         attention = next((c for c in chats if c.status == "idle" and c.needs_attention), None)
         if attention:
             seen["chat_id"] = attention.chat_id
-            return f"会话 {attention.chat_id} 正在等待你的回复。", attention.chat_id, True
+            return (todo_notice.fault_sentence(
+                "attention", language, chat_id=attention.chat_id), attention.chat_id, True)
         chat_id = chats[0].chat_id if chats else None
         outcome = (newest_record or {}).get("status") or "unknown"
         error_text = None
@@ -178,11 +179,15 @@ def claim_idle_trace(user_id: int, todo, reason: str, observed_after_ms: int) ->
         seen["chat_id"] = chat_id
         # The caller's reason labels the detail; `current` only re-validates
         # that a fault still applies under the lock.
-        return _fault_detail(reason, chat_id, outcome, error_text), chat_id, False
+        return _fault_detail(reason, chat_id, outcome, error_text, language), chat_id, False
 
     try:
+        # Resolve the owner's language before the lock; the recheck closure
+        # reads it without another query.
+        language = user_pref_service.get_language(user_id)
         _todo, changed = todo_service.claim_fault(
             user_id, todo_id, expected_updated_at_unix=todo.updated_at_unix, recheck=recheck,
+            language=language,
         )
     except Exception:
         logger.exception("check_trace_liveness: evidence recheck failed, no claim: user_id={} todo_id={}", user_id, todo_id)

@@ -68,14 +68,15 @@ async def persist_terminal(chat_id, proc, result, outcome="error"):
 
 def inbox_fault_detail(prefix: str, error_text: str) -> str:
     """Owner-notice detail for the inbox arm: keep the structural prefix, drop a credential-shaped tail."""
-    from storage.service import todo as todo_service
-    excerpt = todo_service.notice_excerpt(error_text)
+    from storage.service import todo_notice
+    excerpt = todo_notice.notice_excerpt(error_text)
     return f"{prefix} {excerpt}" if excerpt else prefix
 
 
 async def deliver_death(chat_id, proc, outcome, error):
     from storage.service import gateway as gateway_service
     from storage.service import todo as todo_service
+    from storage.service import todo_notice, user_preference as user_pref_service
     from storage.entity.chat import ChatEntity
 
     user_id = proc["user_id"]
@@ -84,8 +85,12 @@ async def deliver_death(chat_id, proc, outcome, error):
             or not current_run(chat_id, proc)):
         return "obsolete"
     chat_service.mark_chat_completion_unread(user_id, chat_id)
-    prefix = f"Todo {chat.trace_id or 'unknown'}, chat {chat_id}: observed {outcome}."
-    inbox_prefix = f"Todo {chat.trace_id or 'unknown'} 的会话 {chat_id} 异常结束（{outcome}）。"
+    language = user_pref_service.get_language(user_id)
+    trace_id = chat.trace_id or "unknown"
+    prefix = todo_notice.fault_sentence(
+        "death_manager", language, todo_id=trace_id, chat_id=chat_id, outcome=outcome)
+    inbox_prefix = todo_notice.fault_sentence(
+        "death", language, todo_id=trace_id, chat_id=chat_id, outcome=outcome)
     error_text = str(error or "No error detail available.")[:1800]
     text = f"{prefix} {error_text}"
     if chat.role == "manager":
@@ -98,9 +103,14 @@ async def deliver_death(chat_id, proc, outcome, error):
         target_id = parent_id(chat)
         parent = await chat_service.get_chat(user_id, target_id) if target_id else None
         if parent and parent.trace_id == chat.trace_id and parent.role != "manager":
+            # Agent-to-agent dispatch stays English regardless of the owner's
+            # preference (todo 4492): only the user-facing manager text follows it.
+            english_prefix = todo_notice.fault_sentence(
+                "death_manager", "en", todo_id=trace_id, chat_id=chat_id, outcome=outcome)
+            parent_text = f"{english_prefix} {error_text}"
             try:
                 await chat_service.deliver_dispatch(
-                    user_id, parent, text, trace_id=chat.trace_id,
+                    user_id, parent, parent_text, trace_id=chat.trace_id,
                     from_chat_id=chat_id, from_role=chat.role, role=parent.role,
                     work_dir=parent.work_dir,
                 )
@@ -136,7 +146,8 @@ async def deliver_death(chat_id, proc, outcome, error):
 
     try:
         _todo, changed = todo_service.claim_fault(
-            user_id, chat.trace_id, expected_updated_at_unix=todo.updated_at_unix, recheck=recheck,
+            user_id, chat.trace_id, expected_updated_at_unix=todo.updated_at_unix,
+            recheck=recheck, language=language,
         )
         return "inbox" if changed else "suppressed"
     except Exception:

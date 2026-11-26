@@ -1,7 +1,6 @@
 """Todo service."""
 
 import ast
-import re
 from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 from loguru import logger
@@ -15,6 +14,14 @@ from storage.repository import todo as todo_repo
 from storage.repository import trace_runtime as runtime_repo
 from storage.repository import entity_tag as tag_repo
 from storage.service import gateway as gateway_service
+from storage.service import user_preference as user_pref_service
+from storage.service.todo_notice import (
+    FAULT_TEXT_LIMIT,
+    fault_sentence,
+    notice_heading,
+    validate_notice,
+)
+from storage.service.user_preference import DEFAULT_LANGUAGE
 from storage.service.trace_runtime import derive_runtime, machine_wait_live
 from storage.util import generate_id, get_utc_iso8601_timestamp, get_unix_timestamp, local_today
 from storage.todo_sla import OPEN_STATUSES, resolve_sla, is_overdue, format_digest
@@ -328,99 +335,30 @@ def _transition_locked(session, row, fields, *, action="updated", extra_note=Non
     return True
 
 
-NOTICE_LIMIT = 200
-FAULT_TEXT_LIMIT = 1000
-_CREDENTIAL_RES = (
-    re.compile(r"(?<![A-Za-z0-9])sk-"),
-    re.compile(r"(?<![A-Za-z0-9])ghp_"),
-    re.compile(r"(?<![A-Za-z0-9])gho_"),
-    re.compile(r"(?<![A-Za-z0-9])github_pat_"),
-    re.compile(r"(?<![A-Za-z0-9])AKIA"),
-    re.compile(r"(?<![A-Za-z0-9])xoxb-"),
-    re.compile(r"Bearer "),
-    re.compile(r"Authorization:"),
-    re.compile(r"://user:pass@"),
-)
-_MIXED_TOKEN = re.compile(r"(?<![A-Za-z0-9])[A-Za-z0-9+/_\-]{40,}(?![A-Za-z0-9])")
-_HEX_TOKEN = re.compile(r"^[0-9a-fA-F]+$")
-_HAS_LETTER = re.compile(r"[A-Za-z]")
-_HAS_DIGIT = re.compile(r"[0-9]")
-
-
-def _collapse_notice(text: Optional[str]) -> Optional[str]:
-    if text is None:
-        return None
-    collapsed = " ".join(str(text).split())
-    return collapsed or None
-
-
-def _matches_credential_shape(text: str) -> bool:
-    if any(pattern.search(text) for pattern in _CREDENTIAL_RES):
-        return True
-    return any(
-        not _HEX_TOKEN.fullmatch(token) and _HAS_LETTER.search(token) and _HAS_DIGIT.search(token)
-        for token in _MIXED_TOKEN.findall(text)
-    )
-
-
-def validate_notice(text: Optional[str]) -> Optional[str]:
-    """Collapse and accept a writer-supplied awaiting summary, or raise.
-
-    Omitted notice stays None. An explicit empty/whitespace summary is
-    rejected so the writer cannot think a blank --note was recorded.
-    Over-long or credential-shaped text is rejected before any mutation so
-    the writer can retry with a shorter, non-secret sentence. Truncating
-    or dropping would hide the loss.
-    """
-    if text is None:
-        return None
-    collapsed = _collapse_notice(text)
-    if collapsed is None:
-        raise ValueError("notice must be a non-empty sentence after whitespace collapse")
-    if len(collapsed) > NOTICE_LIMIT:
-        raise ValueError(
-            f"notice must be at most {NOTICE_LIMIT} characters after whitespace collapse; shorten and retry"
-        )
-    if _matches_credential_shape(collapsed):
-        raise ValueError("notice matches a credential shape; omit secrets and retry")
-    return collapsed
-
-
-def notice_excerpt(text: Optional[str]) -> Optional[str]:
-    """Bounded machine-fed excerpt, or None when it matches a credential shape.
-
-    Watchdog/death claims cannot retry, so a matching tail is omitted rather
-    than rejected. Length is still bounded by FAULT_TEXT_LIMIT.
-    """
-    collapsed = _collapse_notice(text)
-    if collapsed is None:
-        return None
-    excerpt = collapsed[:FAULT_TEXT_LIMIT]
-    if _matches_credential_shape(excerpt):
-        return None
-    return excerpt
-
-
-def awaiting_notice_text(todo: Todo, extra: Optional[str] = None) -> str:
+def awaiting_notice_text(todo: Todo, extra: Optional[str] = None,
+                         language: str = DEFAULT_LANGUAGE) -> str:
     """Plain-text owner DM for a new awaiting inbox entry.
 
-    The heading carries only the todo id; the stored English name is not
-    rendered. `extra` is bounded context from the triggering event: a
-    writer-supplied Chinese summary, or a watchdog/death claim's Chinese
-    sentence plus an optional raw error tail. It is never read back from a
-    persisted reason field.
+    The heading carries only the todo id; the stored name is not rendered.
+    `extra` is bounded context from the triggering event: a writer-supplied
+    summary, or a watchdog/death claim's localized sentence plus an optional
+    raw error tail. It is never read back from a persisted reason field. The
+    heading follows the recipient's language; `extra` is already in that
+    language when a fault catalog produced it.
     """
-    lines = [f"【进度】{todo.todo_id}"]
+    lines = [notice_heading(todo.todo_id, language)]
     if extra:
         lines.append(extra[:FAULT_TEXT_LIMIT])
     return "\n".join(lines)
 
 
 def _maybe_notice(user_id: int, todo_id: str, todo: Optional[Todo], entered: bool,
-                  *, extra: Optional[str] = None) -> Optional[Todo]:
+                  *, extra: Optional[str] = None,
+                  language: Optional[str] = None) -> Optional[Todo]:
     if todo and entered:
         try:
-            gateway_service.send(user_id, awaiting_notice_text(todo, extra))
+            lang = language or user_pref_service.get_language(user_id)
+            gateway_service.send(user_id, awaiting_notice_text(todo, extra, lang))
         except Exception:
             logger.exception(
                 "todo awaiting notice failed: user_id={} todo_id={}", user_id, todo_id,
@@ -632,7 +570,8 @@ def resume_locked(session, row) -> bool:
     return _transition_locked(session, row, {"status": "active"})
 
 
-def claim_fault(user_id: int, todo_id: str, *, expected_updated_at_unix: int, recheck) -> Tuple[Optional[Todo], bool]:
+def claim_fault(user_id: int, todo_id: str, *, expected_updated_at_unix: int, recheck,
+                language: Optional[str] = None) -> Tuple[Optional[Todo], bool]:
     """Watchdog/death fault claim: active -> awaiting under fresh under-lock evidence.
 
     `recheck(session, row)` re-validates the fault against the locked row and
@@ -642,7 +581,11 @@ def claim_fault(user_id: int, todo_id: str, *, expected_updated_at_unix: int, re
     never read back from a persisted reason field. Only an `active` row with
     the expected `updated_at_unix` is eligible, so intervening progress/status
     writes invalidate a stale claim attempt before `recheck` even runs.
+    `language` lets the caller resolve the owner's preference once outside the
+    lock (its fault sentences already use that language); omitted, it is read
+    here.
     """
+    language = language or user_pref_service.get_language(user_id)
     claimed = {}
 
     def apply(session, row):
@@ -657,12 +600,14 @@ def claim_fault(user_id: int, todo_id: str, *, expected_updated_at_unix: int, re
             return False
         if wait and not user_blocked:
             lapsed = datetime.fromtimestamp(wait["until"] / 1000, tz=timezone.utc).isoformat()
-            detail = f'声明的机器等待 "{wait["on"]}" 已于 {lapsed} 到期，没有收到回调。'
+            detail = fault_sentence("lapsed_wait", language, on=wait["on"], until=lapsed)
         claimed["detail"] = detail
         return _await_locked(session, row, pointer_chat_id, extra_note=detail)
 
     todo, entered, changed = _mutate_transition(user_id, todo_id, apply)
-    return _maybe_notice(user_id, todo_id, todo, entered, extra=claimed.get("detail")), changed
+    return _maybe_notice(
+        user_id, todo_id, todo, entered, extra=claimed.get("detail"), language=language,
+    ), changed
 
 
 def bulk_update_todos(

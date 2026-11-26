@@ -614,24 +614,29 @@ no polling, and no worker change. Status stays active. The watchdog is unchanged
 ### Agent notice and fault-notice wording
 
 Agent notice is compact: one fixed heading line plus optional bounded context
-from the triggering event, written in Chinese. The heading is the literal
-label `【进度】` followed by the todo id, with no name and no space after
-the id. The notice text is a Chinese summary; stored `name` / `desc` /
-`--progress` stay English, so `y todo get` / `y todo list` and cross-session
-handoff reads are unaffected. There is still no literal `todo`, invented
-review/question/stalled label, "needs you", or reply instruction. Missing
-context is valid: the notice is just the heading line.
+from the triggering event. Its language follows the recipient's
+`user_preference.language` (see
+[user-language-preference](user-language-preference.md)): `[Progress] <id>` for
+`en` (the default) and `【进度】<id>` for `zh`, with no name and no space after
+the id. Stored `name` / `desc` / `--progress` follow the same preference at
+write time, so `y todo get` / `y todo list` and cross-session handoff reads
+match what the writer stored; a preference change never rewrites existing rows.
+There is still no literal `todo`, invented review/question/stalled label,
+"needs you", or reply instruction. Missing context is valid: the notice is
+just the heading line.
 
 ```text
-【进度】<id>
-[<中文摘要>]
+[Progress] <id>        (en)
+【进度】<id>            (zh)
+[<summary>]
 ```
 
 The optional second line is evidence, not a reason enum. A reporting session
-supplies it directly in concise Chinese through `y todo status <id> awaiting
---note "<中文摘要>"` / `POST /api/todo/status` `notice`. A watchdog or death
-claim supplies a localized structural sentence plus an optional raw error
-tail; the error excerpt is kept verbatim, not translated. The renderer
+supplies it directly in concise prose, in the same language as the session's
+other user-facing text, through `y todo status <id> awaiting --note
+"<summary>"` / `POST /api/todo/status` `notice`. A watchdog or death claim
+supplies a localized structural sentence plus an optional raw error tail; the
+error excerpt is kept verbatim, not translated. The renderer
 (`awaiting_notice_text`) just prints `extra` when present; it does not
 translate, invent urgency, completion, or a decision.
 
@@ -652,14 +657,14 @@ sentence survives, because a watchdog or death claim cannot retry. The
 accepted summary is folded into the same history entry as the status
 change, labelled `notice:` (fault claims keep `fault:`).
 
-The localized fault sentences are: idle `没有正在运行的会话。`; the
-24-hour zero-chat backstop `已活跃超过 24 小时，但该 todo 没有任何会话。`;
-session end `会话已结束，该 todo 上没有其他任务在运行。`; the newest-chat
-suffix ` 最近的会话 <chat_id>：退出状态 <outcome>。`; the idle attention
-checkpoint `会话 <chat_id> 正在等待你的回复。`; a lapsed declared wait
-`声明的机器等待 "<on>" 已于 <iso> 到期，没有收到回调。`; and the death
-inbox prefix `Todo <id> 的会话 <chat_id> 异常结束（<outcome>）。` The
-parent-chat death dispatch and its manager text remain English.
+The heading and fault catalogs live in `storage.service.todo_notice` and every
+entry has an `en` and a `zh` form. The fault sentences cover: idle; the
+24-hour zero-chat backstop; session end; the newest-chat suffix ` Recent
+session <chat_id>: exit status <outcome>.` / ` 最近的会话 <chat_id>：退出状态
+<outcome>。`; the idle attention checkpoint; a lapsed declared wait; and the
+death inbox prefix. Outcome tokens and raw error tails are never translated.
+The parent-chat death dispatch stays English because it is agent-to-agent
+evidence, not user-facing text.
 
 **No awaiting notice carries a reply instruction.** The notice names the
 todo; it never tells Roy where to type the answer, and it makes no
@@ -712,14 +717,20 @@ though it is no longer expressed as a branch:
 7. Todo 4481 (iteration 7) drops the name from the heading and writes the
    notice in Chinese: `【progress】<id>` plus an optional Chinese summary.
    Stored `name` / `desc` / `--progress` and leaf-to-parent `y chat` callbacks
-   stay English. The `claim_fault` lapsed-wait text, the watchdog/session-end
-   templates and the death inbox prefix are localized; raw error excerpts and
-   the parent-chat death dispatch stay English. `--note` on an already-awaiting
-   row still sends no second DM.
+   were English at the time, before todo 4492 made both follow the owner's
+   language preference. The `claim_fault` lapsed-wait text, the
+   watchdog/session-end templates and the death inbox prefix were localized;
+   raw error excerpts and the parent-chat death dispatch stay English.
+   `--note` on an already-awaiting row still sends no second DM.
 8. Todo 4481 follow-up changes only the heading label literal from
    `【progress】` to `【进度】`, so the notice carries no English fragment.
    The name stays dropped, the id still gets no space and no `todo` literal,
    and every rule in step 7 is unchanged.
+9. Todo 4492 moves the heading, fault sentences and stored-field language from
+   hardcoded kernel defaults to the recipient's `user_preference.language`
+   (`en` default, `zh` opt-in). No historical row is rewritten; the English
+   heading is `[Progress] <id>`, and the parent-chat death dispatch stays
+   English.
 
 ### Runtime death delivery
 
