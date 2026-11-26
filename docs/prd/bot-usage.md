@@ -831,7 +831,8 @@ later delivery.
   `SUM(hourly WHERE usage_date=d)` compares directly to the daily row for `d`
   with no timezone conversion. Asia/Shanghai has no DST, so wall-clock hours
   are unambiguous under the current configured zone.
-- **Row dimensions.** `source` is the spend pipe (currently only `crs`);
+- **Row dimensions.** `source` is the ingestion pipe (`crs` for relayed
+  spend, `agy` for the non-relay Antigravity pipe, todo 4463);
   `provider` is the model vendor derived from the model id (bare
   `claude-*`/`gpt-*`/`gemini-*`... prefixes, or the `vendor/` prefix of
   OpenRouter-style ids); `model` is the specific model id with `*` reserved as
@@ -854,14 +855,18 @@ later delivery.
   rows default conservatively to `real`. When a row already exists, backfill
   refreshes its counters and cost without overwriting its go-forward
   `cost_basis`; it neither claims unsupported attribution nor erases known
-  attribution.
+  attribution. `cost_basis='unknown'` is the honest marker for a source with
+  no per-token price at all (the agy Gemini subscription): the stored cost is
+  0, but it is not "$0.00 spent" and the client excludes those rows from
+  dollar totals and cost charts. `real` / `notional` keep their meanings; a
+  multi-row rollup is `unknown` when any contributing row is unknown.
 - **Layering.** Standard entity, repository, service slice; the CLI and worker
   call only the service; migration SQL is hand-run by the maintainer per the
   repo convention.
 
 ### Sync (go-forward)
 
-- **Single source: the relay.** A dedicated OpenRouter ingestion (provisioning
+- **Relay source: the relay.** A dedicated OpenRouter ingestion (provisioning
   key plus the activity endpoint) was built first and then removed once all
   OpenRouter-bound bots were re-fronted through the relay; the relay
   path-routes non-native model ids on its chat-completions endpoint to its
@@ -869,11 +874,31 @@ later delivery.
   same per-key relay stats as Claude and Codex. One pipe, one parser. The
   sequencing rule was: never remove a working ingestion path until the
   replacement is confirmed capturing usage end-to-end.
-- **One sealed relay credential per user.** The sync reads today's per-model
-  counters using only the caller's credential for the primary relay. Without
-  that credential, usage is unavailable; the sync does not fall back to keys
-  from bot configs. Traffic on legacy shared keys before the rollout is out of
-  scope, so the rollout day's totals can omit usage from before the switch.
+- **Non-relay source: agy turns (todo 4463).** Antigravity (agy) never goes
+  through the relay, so its turns are invisible to the CRS pull. The worker
+  already stores one `chat_request_usage` row per agy turn (backend `agy`,
+  turn-delta counters, chat/session/model/requested_at). `sync_backend()`
+  recomputes `source='agy'` `scope='aggregate'` rows from those turns at both
+  grains for local yesterday and today: counters are summed, `requests` is
+  the number of turn rows (one `agy -p` turn each; internal vendor calls per
+  turn are not observable), `all_tokens = input + output + cache_read` to
+  match the relay's allTokens, `provider` stays the vendor (`google` for a
+  Gemini model id), and cost is 0 with `cost_basis='unknown'`. agy reports no
+  cache-write counter, so `cache_create_tokens` is 0 and the UI renders it
+  as n/a. The rows are replaced, never incremented, so a re-run is
+  idempotent; history older than the recompute window is not backfilled.
+  `chat_request_usage.backend` names the backend (`claude_code` stamped by the
+  transcript upload, `codex` / `agy` by the worker turn writer); rows written
+  before that column existed stay NULL rather than being guessed.
+- **One sealed relay credential per user (relay source only).** The CRS pull
+  reads today's per-model counters using only the caller's credential for the
+  primary relay. Without that credential the CRS grains are unavailable; the
+  sync does not fall back to keys from bot configs. The non-relay agy
+  recompute is outside that gate: it runs from stored turns for a caller with
+  no relay key, and a `source=None` envelope then carries
+  `reason=no_relay_credential` beside the agy result. Traffic on legacy shared
+  keys before the rollout is out of scope, so the rollout day's totals can
+  omit usage from before the switch.
 - **Aggregate, not per-key.** Per-key results are summed per model into one
   global aggregate row per model per day. Per-key rows were designed and
   rejected: the product question is "what did each model cost", not "which key
@@ -891,8 +916,8 @@ later delivery.
   CLI sync command; and an authenticated API sync endpoint used by the web
   refresh button, which returns the sync result envelope so the panel can
   revalidate afterward. Each run pulls daily for today and hourly for
-  `[yesterday, today]`; the envelope reports both grains (`crs` and
-  `crs-hourly`).
+  `[yesterday, today]`, and recomputes the non-relay agy grains; the envelope
+  reports one result per grain (`crs`, `crs-hourly`, `agy`).
 - **Streaming caveat.** The relay records usage for non-streaming
   chat-completions only, and all in-scope bots are non-streaming. If a bot ever
   switches to streaming, the relay's streaming usage parser must be extended
@@ -1510,8 +1535,11 @@ later delivery.
 ### Usage API
 
 - **Raw-grain passthrough.** The model-daily endpoint returns a bare list of
-  per-(model, day) row dicts filtered by source (default `crs`), time range,
-  and limit, with internal integer ids stripped. Multi-day aggregation is the
+  per-(model, day) row dicts filtered by source (default: every source, so
+  `crs` and `agy` both appear), time range, and limit, with internal integer
+  ids stripped. `model-hourly`, `daily-totals`, and the sync endpoint share
+  that default; `source=crs` stays available for a relay-only read.
+  Multi-day aggregation is the
   client's job by design: daily rows are tiny, and the finance views'
   server-side aggregation exists only because finance history is expensive to
   derive, which usage is not.
@@ -1541,7 +1569,8 @@ later delivery.
   window: a given calendar year, or the month-aligned past 12 months (the
   first of the month 11 months back through today). This decoupling exists so
   the heatmap always renders its full window regardless of the Live filter.
-  An empty Over-time model query still paints from this endpoint. A non-empty
+  It sums every source by default, so agy days contribute tokens and requests
+  (agy has no dollar cost). An empty Over-time model query still paints from this endpoint. A non-empty
   query does not: the client reads model-daily for the same window and sums
   only the matching models (story 66e). The endpoint itself stays an all-model
   total.
@@ -1776,6 +1805,13 @@ later delivery.
   and $149 observations remain conservatively presented as spend. This turns
   future all-notional windows from a spend anomaly into the efficiency fact they
   actually are without retroactively asserting attribution the source lacks.
+- **Unknown cost is not zero cost (todo 4463).** A `source='agy'` row has no
+  per-token price, so its Cost cell renders `-` (never `$0.00`), it is
+  excluded from dollar totals and cost charts, and a window whose rows include
+  any unknown-basis row is labelled unknown rather than presented as a spend
+  figure. Its Cache (cr/rd) cell renders the write side as `(n/a)` because agy
+  reports no cache-write counter; Tokens, Requests, Sessions and Turns remain
+  real observed values.
 - **Heatmap.** GitHub contribution semantics: week columns left to right,
   Monday to Sunday top to bottom, month labels on the column containing each
   month's first day, Mon/Wed/Fri gutter labels, hover tooltip with date and
@@ -2257,10 +2293,12 @@ as decisions.
 - **Per-key, per-account, or per-bot usage attribution.** Only the global
   per-model daily aggregate is stored; per-bot display is a loose model-name
   match for presentation only.
-- **Spend sources other than the relay.** Perplexity, Gemini CLI, and any
-  tool's internal accounting are not ingested; a future non-relay pipe would
-  add a new `source` value to the same table. The relay stays the meter for
-  relayed spend even though it is no longer the source of limit windows.
+- **Non-relay pipes other than agy.** Perplexity, Gemini CLI, and any tool's
+  internal accounting are not ingested. agy is now a first-class non-relay
+  source (todo 4463) through its stored `chat_request_usage` turns; any other
+  non-relay pipe would add a new `source` value to the same table the same
+  way. The relay stays the meter for relayed spend even though it is no longer
+  the source of limit windows.
 - **Streaming usage capture** in the relay's chat-completions path (extend
   the relay's stream parser before any in-scope bot switches to streaming).
 - **History older than the relay's ~32-day daily retention** (expired in

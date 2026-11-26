@@ -700,6 +700,7 @@ def _record_codex_turn_usage(user_id: int, chat, codex_turn):
             request_id=codex_turn["request_id"],
             usage={**codex_turn["delta"], "usage_state": codex_turn["usage_state"]},
             cumulative=codex_turn["cumulative"],
+            backend="codex",
         )
         if any(outcome["conflicts"].values()):
             logger.warning("codex usage identity conflict: chat_id={}", chat.id)
@@ -779,6 +780,7 @@ def _record_agy_turn_usage(user_id: int, chat, agy_turn):
             request_id=agy_turn["request_id"],
             usage={**agy_turn["delta"], "usage_state": agy_turn["usage_state"]},
             cumulative=agy_turn["cumulative"],
+            backend="agy",
         )
         if any(outcome["conflicts"].values()):
             logger.warning("agy usage identity conflict: chat_id={}", chat.id)

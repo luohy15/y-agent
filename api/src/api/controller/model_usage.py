@@ -34,15 +34,15 @@ def _local_now():
 @router.get("/model-daily")
 async def list_model_daily(
     request: Request,
-    source: Optional[str] = Query("crs"),
+    source: Optional[str] = Query(None),
     time: Optional[str] = Query(None),
     from_date: Optional[str] = Query(None),
     to_date: Optional[str] = Query(None),
     limit: int = Query(100000),
     tz: Optional[str] = Query(None),
 ):
-    """Per-model daily usage rows. Defaults to source='crs' and today's date
-    (the freshest CRS snapshot) when no range is given. When `time` is given it
+    """Per-model daily usage rows. Defaults to every source (`crs` plus the
+    non-relay `agy`) and today's date when no range is given. When `time` is given it
     is parsed server-side with the shared finance time grammar (specific dates,
     quarters, ranges, ytd/mtd/etc.); the parser's exclusive end boundary is converted
     to the repo's inclusive `<=` semantics via −1 day. `tz` (a client's browser
@@ -117,14 +117,14 @@ async def get_model_activity(
 @router.get("/model-hourly")
 async def list_model_hourly(
     request: Request,
-    source: Optional[str] = Query("crs"),
+    source: Optional[str] = Query(None),
     time: Optional[str] = Query(None),
     from_date: Optional[str] = Query(None),
     to_date: Optional[str] = Query(None),
     limit: int = Query(100000),
     tz: Optional[str] = Query(None),
 ):
-    """Per-model hourly usage rows. Defaults to source='crs' and today's date
+    """Per-model hourly usage rows. Defaults to every source and today's date
     when no range is given (same raw-grain convention as model-daily), with
     the same `tz`-overrides-default-today behavior. Marks `partial: true` on
     rows whose (usage_date, usage_hour) equals the server's current
@@ -177,7 +177,7 @@ async def get_range(
 @router.get("/daily-totals")
 async def list_daily_totals(
     request: Request,
-    source: Optional[str] = Query("crs"),
+    source: Optional[str] = Query(None),
     year: Optional[int] = Query(None),
 ):
     """Per-day usage totals (tokens / cost / requests) over the contribution
@@ -196,13 +196,17 @@ async def availability(request: Request):
 
 
 @router.post("/sync")
-async def sync(request: Request, source: Optional[str] = Query("crs")):
-    """Trigger the CRS model-usage sync and this caller's chat-activity sync.
+async def sync(request: Request, source: Optional[str] = Query(None)):
+    """Trigger the model-usage sync and this caller's chat-activity sync.
 
-    Activity uses the same isolation as the hourly worker: a failure is logged
-    and returned as ``activity.status=error`` without dropping the usage
-    envelope. A caller with no sealed relay credential still gets
-    status=unavailable and no upstream usage request; activity still runs.
+    With no `source`, both pipes run: the CRS pull (daily + hourly) and the
+    non-relay `agy` recompute. The non-relay source is not behind the relay
+    credential gate, so a caller with no sealed relay credential still gets
+    `status=unavailable` only when it explicitly asked for `source=crs`;
+    otherwise the envelope carries `reason=no_relay_credential` beside the
+    agy result. Activity uses the same isolation as the hourly worker: a
+    failure is logged and returned as ``activity.status=error`` without
+    dropping the usage envelope.
     """
     user_id = request.state.user_id
     envelope = usage_service.sync(user_id, source=source)

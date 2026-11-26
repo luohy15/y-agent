@@ -17,7 +17,7 @@ class ModelUsageDailyEntity(Base, BaseEntity):
     user_id = Column(Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True)
     usage_date = Column(Date, nullable=False)
     # --- generic dimensions ---
-    source = Column(String, nullable=False)              # 'crs' (the spend pipe)
+    source = Column(String, nullable=False)              # ingestion pipe: 'crs' (relay) | 'agy' (non-relay)
     provider = Column(String, nullable=False, default="")  # model vendor: 'anthropic'|'openai'|... ('' if unknown)
     model = Column(String, nullable=False, default="*")     # specific model id; '*' = all-models aggregate
     scope = Column(String, nullable=False, default="aggregate")  # 'account' | 'aggregate'
@@ -32,7 +32,7 @@ class ModelUsageDailyEntity(Base, BaseEntity):
     requests = Column(BigInteger, nullable=False, default=0)
     # --- cost ---
     cost = Column(Float, nullable=False, default=0.0)       # USD
-    cost_basis = Column(String, nullable=False, default="real")  # 'real' | 'rated' | 'notional'
+    cost_basis = Column(String, nullable=False, default="real")  # 'real' | 'rated' | 'notional' | 'unknown' (no price)
     synced_at = Column(String, nullable=False)
 
     __table_args__ = (

@@ -12,10 +12,15 @@ class ChatRequestUsageEntity(Base, BaseEntity):
     0 when the key was present as 0. usage_state is `missing` when the record
     had no usable usage dict and `observed` otherwise.
 
-    Codex rows store the turn delta in the four counters. The nullable
+    Codex and agy rows store the turn delta in the four counters. The nullable
     cumulative_* columns are that turn's thread total, the anchor for the next
     delta. A NULL cumulative column is a legacy snapshot: the counters themselves
     are the anchor.
+
+    `backend` names the agent backend that produced the turn. Claude Code
+    transcript uploads stamp 'claude_code'; the worker stamps 'codex' / 'agy'.
+    A NULL is a row written before the column existed, not a different kind of
+    row. The non-relay usage source selects on it (todo 4463).
     """
 
     __tablename__ = "chat_request_usage"
@@ -37,6 +42,7 @@ class ChatRequestUsageEntity(Base, BaseEntity):
     cumulative_cache_read_tokens = Column(Integer, nullable=True)
     usage_state = Column(String, nullable=False)
     applied_effort = Column(String, nullable=True)
+    backend = Column(String(32), nullable=True)
 
     __table_args__ = (
         UniqueConstraint("user_id", "request_id", name="uq_chat_request_usage"),
@@ -49,4 +55,5 @@ class ChatRequestUsageEntity(Base, BaseEntity):
             name="ck_chat_request_usage_applied_effort",
         ),
         Index("ix_chat_request_usage_user_chat", "user_id", "chat_id"),
+        Index("ix_chat_request_usage_user_backend_at", "user_id", "backend", "requested_at"),
     )

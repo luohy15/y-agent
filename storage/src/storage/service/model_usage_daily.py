@@ -84,19 +84,42 @@ def _heatmap_window(year: int | None) -> tuple[str, str]:
     return date(y, m, 1).isoformat(), today.isoformat()
 
 
-def daily_totals(user_id: int, year: int | None = None, source: str | None = "crs") -> list[dict]:
+def _rollup_basis(bases: set[str]) -> str:
+    """One cost_basis label for a set of contributing rows: `unknown` wins (an
+    uninstrumented source is in the window), else `notional` only when every
+    row is notional, else `real`."""
+    if "unknown" in bases:
+        return "unknown"
+    return "notional" if bases == {"notional"} else "real"
+
+
+def daily_totals(user_id: int, year: int | None = None, source: str | None = None) -> list[dict]:
     """Per-day usage totals (tokens / cost / requests summed across all models) over
     the heatmap window, decoupled from the Live time-range filter. Drives the bot
-    usage contribution heatmap so it always renders its full historical window."""
+    usage contribution heatmap so it always renders its full historical window.
+
+    `cost_basis` rolls up per day (plan decision 6): `unknown` when any
+    contributing row has no price (agy), so the heatmap never presents that
+    day's cost as spend."""
     from_date, to_date = _heatmap_window(year)
     rows = repo.list_for(user_id, source=source, from_date=from_date, to_date=to_date, limit=1000000)
     by_day: dict[str, dict] = {}
     for r in rows:
-        agg = by_day.setdefault(r.usage_date, {"all_tokens": 0, "cost": 0.0, "requests": 0})
+        agg = by_day.setdefault(r.usage_date, {"all_tokens": 0, "cost": 0.0, "requests": 0, "bases": set()})
         agg["all_tokens"] += r.all_tokens or 0
         agg["cost"] += r.cost or 0.0
         agg["requests"] += r.requests or 0
-    return [{"usage_date": d, **agg} for d, agg in sorted(by_day.items())]
+        agg["bases"].add(r.cost_basis or "real")
+    return [
+        {
+            "usage_date": d,
+            "all_tokens": agg["all_tokens"],
+            "cost": agg["cost"],
+            "requests": agg["requests"],
+            "cost_basis": _rollup_basis(agg["bases"]),
+        }
+        for d, agg in sorted(by_day.items())
+    ]
 
 
 # --- helpers ----------------------------------------------------------------
@@ -465,11 +488,16 @@ def backfill_crs(user_id: int, days: int = 32, synced_at: str | None = None) -> 
 # --- orchestration ----------------------------------------------------------
 
 def sync(user_id: int, source: str | None = None) -> dict:
-    """Run the enabled source pulls. `source` filters to one of crs.
+    """Run the enabled source pulls. `source` filters to one of crs / agy.
 
     When CRS is enabled, also pulls hourly for [yesterday, today] into
     model_usage_hourly (todo 3165). Daily-only filtering is still available
     via the same `source` switch — there is no separate hourly source value.
+
+    The non-relay `agy` source (todo 4463) is not behind the CRS credential
+    gate: it recomputes from stored turn rows and runs for a caller with no
+    relay key. A `source=None` run does both; a missing credential then leaves
+    `reason=no_relay_credential` on an otherwise successful envelope.
 
     Completes synchronously after both grains persist (no background
     enqueue). Basis lookups, the daily grain's per-key fetch, and the hourly
@@ -485,6 +513,7 @@ def sync(user_id: int, source: str | None = None) -> dict:
     """
     synced_at = get_utc_iso8601_timestamp()
     results = []
+    missing_credential = False
     if source in (None, "crs"):
         # Import lazily to avoid a circular import at module load (hourly
         # imports daily helpers for key/basis).
@@ -492,32 +521,49 @@ def sync(user_id: int, source: str | None = None) -> dict:
 
         found = _credential_target(user_id)
         if found is None:
+            missing_credential = True
+        else:
+            origin, api_key, billing = found
+            targets = [(origin, api_key)]
+            fallback = {targets[0]: billing}
+            date_list = hourly_service.default_hourly_dates()
+            with new_http_client() as client:
+                basis_work = {
+                    ("basis", *t): (lambda t=t: _crs_key_basis(client, *t, fallback.get(t)))
+                    for t in targets
+                }
+                daily_work = {("daily", *t): (lambda t=t: _fetch_crs_key(client, *t)) for t in targets}
+                hourly_work = {
+                    ("hourly", d, *t): (lambda t=t, d=d: hourly_service._fetch_crs_key_hourly(client, t[0], t[1], d))
+                    for d in date_list for t in targets
+                }
+                settled = _run_bounded({**basis_work, **daily_work, **hourly_work})
+
+                key_basis = {t: settled[("basis", *t)] for t in targets}
+                daily_fetched = {t: settled[("daily", *t)] for t in targets}
+                hourly_fetched = {(d, *t): settled[("hourly", d, *t)] for d in date_list for t in targets}
+
+                results.append(sync_crs(
+                    user_id, synced_at, client=client, key_basis=key_basis, targets=targets, fetched=daily_fetched,
+                ))
+                results.append(hourly_service.sync_crs_hourly(
+                    user_id, dates=date_list, synced_at=synced_at, client=client,
+                    key_basis=key_basis, targets=targets, fetched=hourly_fetched,
+                ))
+    if source in (None, "agy"):
+        from storage.service import model_usage_backend
+
+        try:
+            results.append(model_usage_backend.sync_backend(user_id, synced_at=synced_at))
+        except Exception as exc:
+            # Isolate the non-relay source: a failure here must not discard the
+            # relay grains the CRS part already wrote.
+            logger.opt(exception=exc).error(
+                "usage sync: agy recompute failed for user {}: {}", user_id, exc,
+            )
+            results.append({"source": "agy", "status": "error", "reason": type(exc).__name__, "rows": 0})
+    if missing_credential:
+        if source == "crs":
             return {"status": "unavailable", "reason": "no_relay_credential"}
-        origin, api_key, billing = found
-        targets = [(origin, api_key)]
-        fallback = {targets[0]: billing}
-        date_list = hourly_service.default_hourly_dates()
-        with new_http_client() as client:
-            basis_work = {
-                ("basis", *t): (lambda t=t: _crs_key_basis(client, *t, fallback.get(t)))
-                for t in targets
-            }
-            daily_work = {("daily", *t): (lambda t=t: _fetch_crs_key(client, *t)) for t in targets}
-            hourly_work = {
-                ("hourly", d, *t): (lambda t=t, d=d: hourly_service._fetch_crs_key_hourly(client, t[0], t[1], d))
-                for d in date_list for t in targets
-            }
-            settled = _run_bounded({**basis_work, **daily_work, **hourly_work})
-
-            key_basis = {t: settled[("basis", *t)] for t in targets}
-            daily_fetched = {t: settled[("daily", *t)] for t in targets}
-            hourly_fetched = {(d, *t): settled[("hourly", d, *t)] for d in date_list for t in targets}
-
-            results.append(sync_crs(
-                user_id, synced_at, client=client, key_basis=key_basis, targets=targets, fetched=daily_fetched,
-            ))
-            results.append(hourly_service.sync_crs_hourly(
-                user_id, dates=date_list, synced_at=synced_at, client=client,
-                key_basis=key_basis, targets=targets, fetched=hourly_fetched,
-            ))
+        return {"status": "ok", "reason": "no_relay_credential", "results": results}
     return {"status": "ok", "results": results}

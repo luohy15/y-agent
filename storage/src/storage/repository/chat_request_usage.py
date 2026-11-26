@@ -9,7 +9,7 @@ The check and the write share one lock, so two concurrent writers cannot both
 decide the row is new and then merge into each other.
 """
 
-from sqlalchemy import DateTime, Integer, String, bindparam, case, cast, desc, func, literal, select, text
+from sqlalchemy import DateTime, Integer, String, bindparam, case, cast, desc, func, literal, or_, select, text
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -72,6 +72,7 @@ def _values(user_id: int, row: dict) -> dict:
         "usage_state": row["usage_state"],
         **{name: row.get(name) for name in COUNTERS + CUMULATIVE},
         "applied_effort": row.get("applied_effort"),
+        "backend": row.get("backend"),
     }
 
 
@@ -192,14 +193,14 @@ _PG_UPSERT = text(
         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
         cumulative_input_tokens, cumulative_output_tokens,
         cumulative_cache_creation_tokens, cumulative_cache_read_tokens,
-        usage_state, applied_effort, created_at, updated_at, created_at_unix, updated_at_unix
+        usage_state, applied_effort, backend, created_at, updated_at, created_at_unix, updated_at_unix
     )
     SELECT
         :user_id, request_id, session_id, chat_id, model, requested_at,
         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
         cumulative_input_tokens, cumulative_output_tokens,
         cumulative_cache_creation_tokens, cumulative_cache_read_tokens,
-        usage_state, applied_effort, :stamp, :stamp, :stamp_unix, :stamp_unix
+        usage_state, applied_effort, backend, :stamp, :stamp, :stamp_unix, :stamp_unix
     FROM unnest(
         CAST(:request_id AS text[]),
         CAST(:session_id AS text[]),
@@ -215,13 +216,14 @@ _PG_UPSERT = text(
         CAST(:cumulative_cache_creation_tokens AS int[]),
         CAST(:cumulative_cache_read_tokens AS int[]),
         CAST(:usage_state AS text[]),
-        CAST(:applied_effort AS text[])
+        CAST(:applied_effort AS text[]),
+        CAST(:backend AS text[])
     ) AS incoming(
         request_id, session_id, chat_id, model, requested_at,
         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
         cumulative_input_tokens, cumulative_output_tokens,
         cumulative_cache_creation_tokens, cumulative_cache_read_tokens,
-        usage_state, applied_effort
+        usage_state, applied_effort, backend
     )
     ON CONFLICT (user_id, request_id) DO UPDATE SET
         input_tokens = GREATEST(
@@ -254,6 +256,7 @@ _PG_UPSERT = text(
             THEN 'observed' ELSE 'missing' END,
         requested_at = EXCLUDED.requested_at,
         applied_effort = COALESCE(chat_request_usage.applied_effort, EXCLUDED.applied_effort),
+        backend = COALESCE(chat_request_usage.backend, EXCLUDED.backend),
         updated_at = :stamp,
         updated_at_unix = :stamp_unix
     WHERE chat_request_usage.session_id = EXCLUDED.session_id
@@ -269,6 +272,7 @@ _PG_UPSERT = text(
     bindparam("requested_at", type_=ARRAY(String())),
     bindparam("usage_state", type_=ARRAY(String())),
     bindparam("applied_effort", type_=ARRAY(String())),
+    bindparam("backend", type_=ARRAY(String())),
     bindparam("input_tokens", type_=ARRAY(Integer())),
     bindparam("output_tokens", type_=ARRAY(Integer())),
     bindparam("cache_creation_tokens", type_=ARRAY(Integer())),
@@ -295,6 +299,7 @@ def _write_rows_pg(session, user_id: int, rows: list[dict]) -> set:
             "requested_at": [row["requested_at"] for row in rows],
             "usage_state": [row["usage_state"] for row in rows],
             "applied_effort": [row.get("applied_effort") for row in rows],
+            "backend": [row.get("backend") for row in rows],
             **{name: [row.get(name) for row in rows] for name in COUNTERS + CUMULATIVE},
         },
     ).all()
@@ -328,6 +333,7 @@ def _write_rows(session, dialect: str, user_id: int, rows: list[dict]) -> set:
                 "usage_state": _observed(stored.usage_state, excluded.usage_state),
                 "requested_at": excluded.requested_at,
                 "applied_effort": func.coalesce(stored.applied_effort, excluded.applied_effort),
+                "backend": func.coalesce(stored.backend, excluded.backend),
                 # A conflict-clause update skips ORM onupdate hooks.
                 "updated_at": get_utc_iso8601_timestamp(),
                 "updated_at_unix": get_unix_timestamp(),
@@ -383,6 +389,7 @@ def _apply(session, user_id: int, row: dict) -> dict:
                 "usage_state": _observed(stored.usage_state, excluded.usage_state),
                 "requested_at": excluded.requested_at,
                 "applied_effort": func.coalesce(stored.applied_effort, excluded.applied_effort),
+                "backend": func.coalesce(stored.backend, excluded.backend),
                 # A conflict-clause update skips ORM onupdate hooks.
                 "updated_at": get_utc_iso8601_timestamp(),
                 "updated_at_unix": get_unix_timestamp(),
@@ -464,6 +471,41 @@ def rows_for_chats(user_id: int, chat_ids: list[str]) -> list[ChatRequestUsageEn
                 ChatRequestUsageEntity.chat_id.in_(chat_ids),
             )
         ).all())
+
+
+def rows_for_backend(user_id: int, backend: str, start, end) -> list[dict]:
+    """Turn rows one backend produced in the half-open [start, end) window.
+
+    Returns plain dicts for the non-relay usage aggregation (todo 4463). A
+    counter is None when that turn's usage was not observed.
+
+    Rows written before the `backend` column existed are matched by their
+    documented `<backend>-<chat>-<started>` request-id prefix instead of being
+    backfilled. The row stays the same row: the prefix match only widens the
+    read, and a later re-record merges on (user, request_id).
+    """
+    requested_at = cast(ChatRequestUsageEntity.requested_at, DateTime(timezone=True))
+    with get_db() as session:
+        found = session.execute(
+            select(
+                ChatRequestUsageEntity.requested_at,
+                ChatRequestUsageEntity.model,
+                ChatRequestUsageEntity.input_tokens,
+                ChatRequestUsageEntity.output_tokens,
+                ChatRequestUsageEntity.cache_creation_tokens,
+                ChatRequestUsageEntity.cache_read_tokens,
+                ChatRequestUsageEntity.usage_state,
+            ).where(
+                ChatRequestUsageEntity.user_id == user_id,
+                or_(
+                    ChatRequestUsageEntity.backend == backend,
+                    ChatRequestUsageEntity.request_id.startswith(f"{backend}-", autoescape=True),
+                ),
+                requested_at >= start,
+                requested_at < end,
+            )
+        ).all()
+    return [dict(row._mapping) for row in found]
 
 
 def turns_for_chats(user_id: int, chat_ids: list[str]) -> dict[str, int]:

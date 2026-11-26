@@ -176,6 +176,9 @@ def validate_row(row: dict, index: int, now: datetime | None = None):
         "attribution": attribution,
         "trace_id": trace_id if attribution == "hint" else None,
         "applied_effort": _applied_effort(row.get("applied_effort")),
+        # Only the Claude Code transcript scanner uploads here, so the backend
+        # is stamped server-side rather than trusted from the payload.
+        "backend": "claude_code",
     }
     if not isinstance(usage, dict) or not any(name in usage for name in COUNTERS):
         clean["usage_state"] = "missing"
@@ -389,12 +392,13 @@ def previous_anchor(user_id: int, chat_id: str, session_id: str, exclude_request
 
 def record_backend_turn(user_id: int, chat_id: str, session_id: str, model: str,
                         requested_at: str, request_id: str, usage: dict,
-                        cumulative=None) -> dict:
+                        cumulative=None, backend=None) -> dict:
     """Persist trusted worker turn usage, not a transcript-upload attribution.
 
     The worker supplies the owned chat and normalized counters. Uploads keep
     their separate Claude-only attribution checks. `cumulative`, when given, is
-    this turn's thread total and is stored beside the delta counters.
+    this turn's thread total and is stored beside the delta counters. `backend`
+    names the agent backend (`codex` / `agy`) for the non-relay usage source.
     """
     counters = {name: usage.get(name) for name in COUNTERS}
     state = usage.get("usage_state")
@@ -407,6 +411,7 @@ def record_backend_turn(user_id: int, chat_id: str, session_id: str, model: str,
         "requested_at": requested_at,
         "request_id": request_id,
         "usage_state": state,
+        "backend": backend,
         **counters,
     }
     if cumulative is not None:
