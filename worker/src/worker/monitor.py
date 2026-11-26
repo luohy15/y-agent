@@ -617,7 +617,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
         # Check if paused due to hard timeout (not just Lambda deadline)
         if started_at and time.time() - started_at > HARD_TIMEOUT_SECONDS:
             logger.warning("hard timeout (mid-tail): chat_id={} started_at={} elapsed={}s", chat_id, started_at, int(time.time() - started_at))
-            await _handle_timeout(chat_id, proc, ssh_pool)
+            await _handle_timeout(chat_id, proc, ssh_pool, result)
             return
 
         release_lease(chat_id)
@@ -752,8 +752,13 @@ def _prepare_agy_turn_usage(user_id: int, chat_id: str, result: dict, proc: dict
     cumulative side and reduced against this thread's previous row. A failure
     or a launch with no usable output returns None and leaves the stored badge
     alone.
+
+    A Lambda handoff starts a fresh tail segment with an empty converter, so
+    output and the runtime model recorded by an earlier segment live on `proc`.
+    Both are read here, otherwise a turn that streamed before the handoff and
+    later steered, interrupted or errored would look output-less.
     """
-    if not result.get("has_usable_output"):
+    if not (result.get("has_usable_output") or proc.get("has_usable_output")):
         return None
     try:
         from datetime import datetime, timezone
@@ -767,6 +772,8 @@ def _prepare_agy_turn_usage(user_id: int, chat_id: str, result: dict, proc: dict
             logger.warning("agy usage missing identity: chat_id={}", chat_id)
             return None
         runtime_model = result.get("model")
+        if not (isinstance(runtime_model, str) and runtime_model.strip()):
+            runtime_model = proc.get("model")
         if isinstance(runtime_model, str) and runtime_model.strip():
             model = runtime_model.strip()
         else:
@@ -777,21 +784,26 @@ def _prepare_agy_turn_usage(user_id: int, chat_id: str, result: dict, proc: dict
             logger.warning("agy usage missing identity: chat_id={}", chat_id)
             return None
         # Only a SUCCESS result carries the conversation total; a steer or
-        # interrupt leaves no counters to record.
-        inner = successful_result(result.get("result_data"))
-        current = normalize_usage(inner.get("usage")) if inner is not None else normalize_usage(None)
-        counters = {name: current.get(name) for name in chat_request_usage.COUNTERS}
+        # interrupt leaves no counters to record. With no counters there is
+        # nothing to anchor against, so skip the delta read.
         request_id = f"agy-{chat_id}-{started_at}"
-        anchor = chat_request_usage.previous_anchor(user_id, chat_id, session_id, request_id)
-        delta, reason = chat_request_usage.turn_delta(counters, anchor)
-        if reason == "regression":
-            logger.warning("agy usage regression: chat_id={}", chat_id)
+        inner = successful_result(result.get("result_data"))
+        if inner is not None:
+            current = normalize_usage(inner.get("usage"))
+            counters = {name: current.get(name) for name in chat_request_usage.COUNTERS}
+            anchor = chat_request_usage.previous_anchor(user_id, chat_id, session_id, request_id)
+            delta, reason = chat_request_usage.turn_delta(counters, anchor)
+            if reason == "regression":
+                logger.warning("agy usage regression: chat_id={}", chat_id)
+        else:
+            counters = None
+            delta = {name: None for name in chat_request_usage.COUNTERS}
         request_usage = result.get("request_usage")
         if not isinstance(request_usage, dict) or request_usage.get("usage_state") != "observed":
             request_usage = None
         return {
             "delta": delta,
-            "cumulative": counters if inner is not None else None,
+            "cumulative": counters,
             "request_usage": request_usage,
             "usage_state": "observed" if any(v is not None for v in delta.values()) else "missing",
             "session_id": session_id,
@@ -1429,7 +1441,7 @@ async def _sweep_orphan_running_chats() -> dict:
     return {"status": "degraded" if failed else "ok", "swept": swept, "failed": failed}
 
 
-async def _handle_timeout(chat_id: str, proc: dict, ssh_pool=None):
+async def _handle_timeout(chat_id: str, proc: dict, ssh_pool=None, result: dict | None = None):
     """Handle hard timeout through the same terminal persistence and delivery as errors."""
     from agent.chat_target import layout
     from storage.service import chat as chat_service
@@ -1462,6 +1474,14 @@ async def _handle_timeout(chat_id: str, proc: dict, ssh_pool=None):
         "status": "error", "result_data": {"result": timeout_text},
     }, outcome="timeout")
     if fresh:
+        # A hard-timeout killed an agy launch that already answered, so it keeps
+        # its observed Request (todo 4483). `result` carries the last segment's
+        # conversation id/model; proc holds the pre-handoff output evidence.
+        if proc.get("backend_type") == "agy":
+            agy_turn = _prepare_agy_turn_usage(user_id, chat_id, result or {}, proc)
+            _record_agy_turn_usage(user_id, fresh, agy_turn)
+            if agy_turn:
+                _rollup_agy_usage(user_id, chat_id)
         await deliver_death(chat_id, proc, "timeout", timeout_text)
 
     logger.info("hard timeout: completed handling for chat_id={}", chat_id)
