@@ -318,12 +318,15 @@ async def shared_detail(request: Request, share_id: str = Query(...)):
 @router.get("/shared/item")
 async def shared_item(
     request: Request,
-    share_id: str = Query(...),
     kind: str = Query(...),
     ref_id: str = Query(...),
+    share_id: Optional[str] = Query(None),
 ):
     user_id = _get_user_id(request)
-    meta = _run(share_service.shared_detail, user_id, share_id)
+    if share_id:
+        meta = _run(share_service.shared_detail, user_id, share_id)
+    else:
+        meta = share_service.shared_item_by_ref(user_id, kind, ref_id)
     if meta is None:
         raise HTTPException(status_code=404, detail="Share not found")
     payload = await _shared_item_payload(meta, kind, ref_id)

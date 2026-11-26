@@ -272,6 +272,24 @@ def shared_detail(recipient_id: int, share_id: str) -> Optional[Dict]:
     }
 
 
+def shared_item_by_ref(recipient_id: int, kind: str, ref_id: str) -> Optional[Dict]:
+    """Resolve one selected item over the caller's live incoming grants."""
+    if kind not in {"note", "chat"} or not ref_id:
+        return None
+    row = share_repo.find_live_incoming_item(recipient_id, kind, ref_id)
+    if row is None:
+        return None
+    return {
+        "owner_id": row["owner_id"],
+        "todo_id": row["todo_id"],
+        "items": [{
+            "kind": row["kind"],
+            "ref_id": row["ref_id"],
+            "snapshot_key": row["snapshot_key"],
+        }],
+    }
+
+
 def list_outgoing(owner_id: int) -> List[Dict]:
     rows = share_repo.list_outgoing(owner_id)
     if not rows:

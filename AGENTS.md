@@ -124,8 +124,11 @@ entity + controller + service + CLI slices, and most have a web panel.
   a `trace_share`. `y todo share|unshare|shares|public`,
   `y todo shared` and `y todo shared open <share_id> [--summary|--full]` over
   `/api/todo/share|shares|shared|shared/detail|share/summary|visit|public`. A recipient
-  reads one selected note or chat through `y note get --share <share_id>` /
-  `y chat get --share <share_id>` (`GET /api/todo/shared/item`).
+  reads one selected note or chat through `y note get <note_id>` / `y chat get
+  <chat_id>`: their own route wins and, on 404, `GET /api/todo/shared/item`
+  resolves `kind` + `ref_id` (no `share_id`) over their live incoming grants.
+  The `share_id` form stays for the Web UI; `y todo get <todo_id>` stays
+  owner-scoped and a shared todo opens by `share_id`.
   A logged-in load of a public todo share records a visit (newest 200). Apply
   `migration/4422_todo_share.sql` before deploy, including the additive
   `trace_share.selection` column. The owner share popover manages both audiences;

@@ -196,6 +196,37 @@ def list_incoming(recipient_id: int) -> List[Dict]:
         return [_grant(row) for row in rows]
 
 
+def find_live_incoming_item(recipient_id: int, kind: str, ref_id: str) -> Optional[Dict]:
+    """Return the newest live grant item a user received for one ref, or None."""
+    with get_db() as session:
+        row = (
+            session.query(TodoShareEntity, TodoShareItemEntity)
+            .join(
+                TodoShareItemEntity,
+                TodoShareItemEntity.share_id == TodoShareEntity.share_id,
+            )
+            .join(TodoEntity, _live_join())
+            .filter(
+                TodoShareEntity.recipient_user_id == recipient_id,
+                TodoShareEntity.revoked_at.is_(None),
+                TodoEntity.status != "deleted",
+                TodoShareItemEntity.kind == kind,
+                TodoShareItemEntity.ref_id == ref_id,
+            )
+            .order_by(TodoShareEntity.updated_at_unix.desc(), TodoShareEntity.id.desc())
+            .first()
+        )
+        if row is None:
+            return None
+        grant, item = row
+        return {
+            **_grant(grant),
+            "kind": item.kind,
+            "ref_id": item.ref_id,
+            "snapshot_key": item.snapshot_key,
+        }
+
+
 def get_visible_incoming(recipient_id: int, share_id: str) -> Optional[Dict]:
     with get_db() as session:
         row = (
