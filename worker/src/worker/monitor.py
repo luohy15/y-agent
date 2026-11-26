@@ -509,6 +509,8 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                 _record_codex_turn_usage(user_id, fresh, codex_turn)
             elif backend_type == "agy":
                 _record_agy_turn_usage(user_id, fresh, agy_turn)
+                if agy_turn:
+                    _rollup_agy_usage(user_id, chat_id)
 
             # The SQL receipt keeps this reservation and input subset durable.
             # Queue delivery may be retried; run claiming admits one backend.
@@ -786,6 +788,21 @@ def _record_agy_turn_usage(user_id: int, chat, agy_turn):
             logger.warning("agy usage identity conflict: chat_id={}", chat.id)
     except Exception as exc:
         logger.warning("agy usage write failed: chat_id={} error={}", chat.id, type(exc).__name__)
+
+
+def _rollup_agy_usage(user_id: int, chat_id: str) -> None:
+    """Recompute this owner's `source='agy'` model_usage rows after a turn.
+
+    Best-effort and isolated: the 5-minute scheduled sync is the backstop, so a
+    failure here must not affect closeout. Makes a fresh agy turn visible in Bot
+    Usage Live immediately, even while the relay is unreachable (todo 4465).
+    """
+    try:
+        from storage.service import model_usage_backend
+
+        model_usage_backend.sync_backend(user_id, "agy")
+    except Exception as exc:
+        logger.warning("agy usage rollup failed: chat_id={} error={}", chat_id, type(exc).__name__)
 
 
 async def _trigger_context_ingest(node, backend_type: str, session_id):

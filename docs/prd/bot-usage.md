@@ -280,9 +280,9 @@ later delivery.
     rows to also pull hourly counters for yesterday and today across every
     distinct relay key, so that the previous day's final hour is repaired
     after midnight and the in-progress hour converges without a separate job.
-37c. As a user, I want the scheduled sync to run every hour at minute 50 local
-    (preserving the last run of a local day at 23:50), so that both grains
-    stay fresh without me remembering to trigger them.
+37c. As a user, I want the scheduled sync to run every five minutes (superseding
+    the todo 3165 hourly-at-minute-50 cadence), so that both grains stay fresh
+    without me remembering to trigger them.
 37d. As a user, I want a one-shot hourly backfill limited to at most 7 local
     days (the relay's hourly TTL), so that the recoverable window can be
     seeded without pretending older hours exist.
@@ -911,13 +911,26 @@ later delivery.
   (default Asia/Shanghai), mirroring the relay's timezone-stamped Redis day
   buckets, so both systems agree on day boundaries.
 - **Triggers.** Three, all through the same service function: a scheduled
-  worker-Lambda action on an hourly cron at minute 50 (so the last local run of
-  a day remains 23:50 Asia/Shanghai while also refreshing the current hour); a
-  CLI sync command; and an authenticated API sync endpoint used by the web
-  refresh button, which returns the sync result envelope so the panel can
-  revalidate afterward. Each run pulls daily for today and hourly for
-  `[yesterday, today]`, and recomputes the non-relay agy grains; the envelope
-  reports one result per grain (`crs`, `crs-hourly`, `agy`).
+  worker-Lambda action every five minutes (`rate(5 minutes)`, todo 4465; before
+  that an hourly cron at minute 50); a CLI sync command; and an authenticated
+  API sync endpoint used by the web Live panel, which returns the sync result
+  envelope so the panel can revalidate afterward. Each run pulls daily for today
+  and hourly for `[yesterday, today]`, and recomputes the non-relay agy grains;
+  the envelope reports one result per grain (`crs`, `crs-hourly`, `agy`).
+- **Stale-gated refresh (`if_stale_seconds`, todo 4465).** The API sync accepts
+  an optional `if_stale_seconds`; when this user's last CRS pull is younger than
+  that window the relay HTTP batch is skipped and the envelope says
+  `crs_skipped`, while the cheap local agy recompute still runs. The per-user
+  marker is the `user_preference` key `model_usage_sync`
+  (`{"last_synced_at": <ISO8601 UTC>}`), stamped when a CRS batch starts so a
+  failing relay also cools down. Every sync envelope carries `last_synced_at`.
+  This lets the Live panel fire a non-blocking background refresh on open
+  without repeating the relay calls the 5-minute schedule already made.
+- **agy closeout rollup (todo 4465).** After writing a completed agy turn the
+  worker also calls `sync_backend(user_id, "agy")` best-effort, so `neon` shows
+  up in Live immediately and even while the relay is unreachable. The 5-minute
+  schedule remains the backstop; a rollup failure is logged and never affects
+  closeout.
 - **Streaming caveat.** The relay records usage for non-streaming
   chat-completions only, and all in-scope bots are non-streaming. If a bot ever
   switches to streaming, the relay's streaming usage parser must be extended
@@ -987,8 +1000,9 @@ later delivery.
 - **Separate table, local wall-clock key.** See Storage. Incomplete current
   hour is a server-computed per-row `partial` flag on
   `GET /api/usage/model-hourly`, never a browser-clock decision.
-- **One sync, hourly cadence.** Daily and hourly share the minute-50 EventBridge
-  schedule and the same CLI/API entry points; the result envelope carries both.
+- **One sync, five-minute cadence.** Daily and hourly share the `rate(5
+  minutes)` EventBridge schedule (todo 4465; hourly at minute 50 before that)
+  and the same CLI/API entry points; the result envelope carries both.
 - **Presentation.** The todo 4152 Live layout supersedes todo 3261's full-width
   status rows: run rate is header metadata; at `@min-[720px]`, balances,
   subscription limits and Today by hour sit left of the Model share donut.

@@ -196,7 +196,11 @@ async def availability(request: Request):
 
 
 @router.post("/sync")
-async def sync(request: Request, source: Optional[str] = Query(None)):
+async def sync(
+    request: Request,
+    source: Optional[str] = Query(None),
+    if_stale_seconds: Optional[int] = Query(None, ge=0),
+):
     """Trigger the model-usage sync and this caller's chat-activity sync.
 
     With no `source`, both pipes run: the CRS pull (daily + hourly) and the
@@ -207,9 +211,14 @@ async def sync(request: Request, source: Optional[str] = Query(None)):
     agy result. Activity uses the same isolation as the hourly worker: a
     failure is logged and returned as ``activity.status=error`` without
     dropping the usage envelope.
+
+    `if_stale_seconds` (todo 4465) lets the Live panel fire a non-blocking
+    refresh on open without repeating the relay HTTP batch: when this user's
+    last CRS pull is younger than the window, the CRS batch is skipped
+    (`crs_skipped`). Every envelope carries `last_synced_at`.
     """
     user_id = request.state.user_id
-    envelope = usage_service.sync(user_id, source=source)
+    envelope = usage_service.sync(user_id, source=source, if_stale_seconds=if_stale_seconds)
     try:
         envelope["activity"] = activity_service.sync(user_id)
     except Exception as exc:

@@ -589,12 +589,14 @@ Resources:
             Schedule: rate(3 minutes)
             Input: '{"action": "batch_download_links"}'
         SyncModelUsageSchedule:
-          # Minute 50 every hour (UTC): keeps the last local Asia/Shanghai run of
-          # a day at 23:50 while also refreshing the current hour. Daily + hourly
-          # grains share this schedule (todo 3165).
+          # Every 5 minutes (todo 4465): keeps crs, agy, and chat activity fresh
+          # even when the web UI is closed, so Live no longer needs a manual
+          # refresh. The run is guarded by pipeline_lock, so an overrun skips
+          # the next tick instead of stacking. Daily + hourly grains share this
+          # schedule (todo 3165).
           Type: Schedule
           Properties:
-            Schedule: cron(50 * * * ? *)
+            Schedule: rate(5 minutes)
             Input: '{"action": "sync_model_usage"}'
         RollupApiLatencySchedule:
           Type: Schedule

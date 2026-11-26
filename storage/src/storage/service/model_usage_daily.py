@@ -10,7 +10,7 @@ One source in scope:
 
 import concurrent.futures
 import os
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import httpx
 from loguru import logger
@@ -487,7 +487,40 @@ def backfill_crs(user_id: int, days: int = 32, synced_at: str | None = None) -> 
 
 # --- orchestration ----------------------------------------------------------
 
-def sync(user_id: int, source: str | None = None) -> dict:
+# Per-user timestamp of the last CRS pull, read by the opt-in `if_stale_seconds`
+# cooldown (todo 4465). A `user_preference` row is used instead of MAX(synced_at)
+# on the usage rows so a sync that wrote nothing (no traffic) still records that
+# it ran; the value is an ISO 8601 UTC string.
+SYNC_STATE_KEY = "model_usage_sync"
+
+
+def _stored_last_synced_at(user_id: int) -> str | None:
+    pref = user_pref_service.get_preference(user_id, SYNC_STATE_KEY)
+    value = pref.value if pref and isinstance(pref.value, dict) else None
+    stored = value.get("last_synced_at") if isinstance(value, dict) else None
+    return stored if isinstance(stored, str) and stored else None
+
+
+def is_within_cooldown(last_synced_at: str | None, if_stale_seconds: int | None) -> bool:
+    """True when the stored CRS pull is younger than `if_stale_seconds`.
+
+    `None` means no cooldown was requested (always run). An unusable stored
+    value or a timestamp in the future is treated as stale so a corrupt marker
+    cannot suppress sync indefinitely.
+    """
+    if if_stale_seconds is None or if_stale_seconds <= 0 or last_synced_at is None:
+        return False
+    try:
+        last = datetime.fromisoformat(last_synced_at.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)
+    age = (datetime.now(timezone.utc) - last).total_seconds()
+    return 0 <= age < if_stale_seconds
+
+
+def sync(user_id: int, source: str | None = None, if_stale_seconds: int | None = None) -> dict:
     """Run the enabled source pulls. `source` filters to one of crs / agy.
 
     When CRS is enabled, also pulls hourly for [yesterday, today] into
@@ -498,6 +531,13 @@ def sync(user_id: int, source: str | None = None) -> dict:
     gate: it recomputes from stored turn rows and runs for a caller with no
     relay key. A `source=None` run does both; a missing credential then leaves
     `reason=no_relay_credential` on an otherwise successful envelope.
+
+    `if_stale_seconds` (todo 4465) is an opt-in cooldown for the CRS batch: when
+    this user's last CRS pull is younger than that many seconds, the relay HTTP
+    reads are skipped and the envelope says `crs_skipped`. The cheap local agy
+    recompute still runs, so a skipped call still refreshes non-relay rows.
+    Every envelope carries the effective `last_synced_at` (the timestamp of the
+    last pull, or the current run's start time).
 
     Completes synchronously after both grains persist (no background
     enqueue). Basis lookups, the daily grain's per-key fetch, and the hourly
@@ -512,6 +552,9 @@ def sync(user_id: int, source: str | None = None) -> dict:
     before, just resolved from one shared batch instead of three.
     """
     synced_at = get_utc_iso8601_timestamp()
+    stored_last_synced_at = _stored_last_synced_at(user_id)
+    last_synced_at = stored_last_synced_at
+    crs_skipped = False
     results = []
     missing_credential = False
     if source in (None, "crs"):
@@ -519,37 +562,46 @@ def sync(user_id: int, source: str | None = None) -> dict:
         # imports daily helpers for key/basis).
         from storage.service import model_usage_hourly as hourly_service
 
-        found = _credential_target(user_id)
-        if found is None:
-            missing_credential = True
+        if is_within_cooldown(stored_last_synced_at, if_stale_seconds):
+            crs_skipped = True
         else:
-            origin, api_key, billing = found
-            targets = [(origin, api_key)]
-            fallback = {targets[0]: billing}
-            date_list = hourly_service.default_hourly_dates()
-            with new_http_client() as client:
-                basis_work = {
-                    ("basis", *t): (lambda t=t: _crs_key_basis(client, *t, fallback.get(t)))
-                    for t in targets
-                }
-                daily_work = {("daily", *t): (lambda t=t: _fetch_crs_key(client, *t)) for t in targets}
-                hourly_work = {
-                    ("hourly", d, *t): (lambda t=t, d=d: hourly_service._fetch_crs_key_hourly(client, t[0], t[1], d))
-                    for d in date_list for t in targets
-                }
-                settled = _run_bounded({**basis_work, **daily_work, **hourly_work})
+            found = _credential_target(user_id)
+            if found is None:
+                missing_credential = True
+            else:
+                # Stamp the attempt before the HTTP batch so a failing relay
+                # still suppresses repeated calls inside the cooldown window.
+                user_pref_service.upsert_preference(
+                    user_id, SYNC_STATE_KEY, {"last_synced_at": synced_at},
+                )
+                last_synced_at = synced_at
+                origin, api_key, billing = found
+                targets = [(origin, api_key)]
+                fallback = {targets[0]: billing}
+                date_list = hourly_service.default_hourly_dates()
+                with new_http_client() as client:
+                    basis_work = {
+                        ("basis", *t): (lambda t=t: _crs_key_basis(client, *t, fallback.get(t)))
+                        for t in targets
+                    }
+                    daily_work = {("daily", *t): (lambda t=t: _fetch_crs_key(client, *t)) for t in targets}
+                    hourly_work = {
+                        ("hourly", d, *t): (lambda t=t, d=d: hourly_service._fetch_crs_key_hourly(client, t[0], t[1], d))
+                        for d in date_list for t in targets
+                    }
+                    settled = _run_bounded({**basis_work, **daily_work, **hourly_work})
 
-                key_basis = {t: settled[("basis", *t)] for t in targets}
-                daily_fetched = {t: settled[("daily", *t)] for t in targets}
-                hourly_fetched = {(d, *t): settled[("hourly", d, *t)] for d in date_list for t in targets}
+                    key_basis = {t: settled[("basis", *t)] for t in targets}
+                    daily_fetched = {t: settled[("daily", *t)] for t in targets}
+                    hourly_fetched = {(d, *t): settled[("hourly", d, *t)] for d in date_list for t in targets}
 
-                results.append(sync_crs(
-                    user_id, synced_at, client=client, key_basis=key_basis, targets=targets, fetched=daily_fetched,
-                ))
-                results.append(hourly_service.sync_crs_hourly(
-                    user_id, dates=date_list, synced_at=synced_at, client=client,
-                    key_basis=key_basis, targets=targets, fetched=hourly_fetched,
-                ))
+                    results.append(sync_crs(
+                        user_id, synced_at, client=client, key_basis=key_basis, targets=targets, fetched=daily_fetched,
+                    ))
+                    results.append(hourly_service.sync_crs_hourly(
+                        user_id, dates=date_list, synced_at=synced_at, client=client,
+                        key_basis=key_basis, targets=targets, fetched=hourly_fetched,
+                    ))
     if source in (None, "agy"):
         from storage.service import model_usage_backend
 
@@ -564,6 +616,11 @@ def sync(user_id: int, source: str | None = None) -> dict:
             results.append({"source": "agy", "status": "error", "reason": type(exc).__name__, "rows": 0})
     if missing_credential:
         if source == "crs":
-            return {"status": "unavailable", "reason": "no_relay_credential"}
-        return {"status": "ok", "reason": "no_relay_credential", "results": results}
-    return {"status": "ok", "results": results}
+            return {"status": "unavailable", "reason": "no_relay_credential", "last_synced_at": last_synced_at}
+        envelope = {"status": "ok", "reason": "no_relay_credential", "results": results}
+    else:
+        envelope = {"status": "ok", "results": results}
+    if crs_skipped:
+        envelope["crs_skipped"] = True
+    envelope["last_synced_at"] = last_synced_at
+    return envelope

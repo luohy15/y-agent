@@ -1,6 +1,7 @@
 """Scheduled action: pull LLM token/cost usage into model_usage_daily + hourly.
 
-Runs hourly on an EventBridge cron (minute 50). CRS usage is per-user (each
+Runs every 5 minutes on an EventBridge schedule (todo 4465; hourly at minute 50
+before that). CRS usage is per-user (each
 user's sync enumerates all distinct cr_ relay keys in their bot_configs and
 sums per model into the global per-model aggregate), so it iterates users.
 
