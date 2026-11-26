@@ -15,7 +15,6 @@ from storage.repository import note_todo_relation as note_relation_repo
 from storage.repository import todo as todo_repo
 from storage.repository import todo_share as share_repo
 from storage.repository import todo_visit as visit_repo
-from storage.repository import trace_share as trace_share_repo
 from storage.repository import user as user_repo
 from storage.service import gateway as gateway_service
 from storage.service.user_access import admission_state, normalize_email
@@ -343,12 +342,12 @@ def record_visit(user_id: int, share_id: str) -> Dict:
     token = (share_id or "").strip()
     if not token:
         raise TodoShareError(404, "Share not found")
-    share = trace_share_repo.get_by_share_id(token)
+    share = share_repo.get_public_by_share_id(token)
     if share is None or share.revoked_at:
         raise TodoShareError(404, "Share not found")
     if share.user_id == user_id:
         return {"recorded": False}
-    todo = todo_repo.get_todo(share.user_id, share.trace_id)
+    todo = todo_repo.get_todo(share.user_id, share.todo_id)
     if todo is None or todo.status == "deleted":
         return {"recorded": False}
     visit_repo.record(user_id, token)

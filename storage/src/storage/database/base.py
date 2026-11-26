@@ -97,7 +97,6 @@ def init_tables():
     import storage.entity.chat_wakeup  # noqa: F401
     import storage.entity.trace_runtime_snapshot  # noqa: F401
     import storage.entity.mcp  # noqa: F401
-    import storage.entity.trace_share  # noqa: F401
     import storage.entity.note_share  # noqa: F401
     import storage.entity.todo_share  # noqa: F401
     import storage.entity.todo_visit  # noqa: F401

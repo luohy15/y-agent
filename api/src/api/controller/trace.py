@@ -266,11 +266,16 @@ async def create_share(req: CreateShareRequest, request: Request):
     from storage import share_password as sp
     from api.controller.note import revoke_note_share
     from storage.repository.note_share import get_by_note_ids
-    from storage.repository.trace_share import get_by_trace_id, create, update_options
+    from storage.repository.todo import get_todo
+    from storage.repository.todo_share import create_public, get_public_by_trace_id, update_public_options
     from storage.service.todo_share import related_ids
 
     user_id = _get_user_id(request)
-    related = related_ids(user_id, req.trace_id)
+    todo = get_todo(user_id, req.trace_id)
+    if todo is None or todo.status == "deleted":
+        raise HTTPException(status_code=404, detail="Todo not found")
+    trace_id = todo.todo_id
+    related = related_ids(user_id, trace_id)
     selection = _public_selection(req, related)
 
     generated_password: Optional[str] = None
@@ -281,17 +286,17 @@ async def create_share(req: CreateShareRequest, request: Request):
     elif req.password and req.password.strip():
         password_hash = sp.hash_password(req.password)
 
-    existing = get_by_trace_id(user_id, req.trace_id, include_revoked=True)
+    existing = get_public_by_trace_id(user_id, trace_id, include_revoked=True)
     if existing:
         share_id = existing.share_id
         previous = (existing.selection or {}).get("note_ids", related["note"])
         if not existing.revoked_at and req.note_ids is not None:
             for note_share in get_by_note_ids(user_id, list(set(previous) - set(req.note_ids))):
                 revoke_note_share(note_share)
-        update_options(share_id, selection, password_hash, password_hash is not None or req.password == "")
+        update_public_options(share_id, selection, password_hash, password_hash is not None or req.password == "")
     else:
         share_id = generate_id()
-        create(user_id, share_id, req.trace_id, password_hash=password_hash, selection=selection)
+        create_public(user_id, share_id, trace_id, password_hash=password_hash, selection=selection)
 
     resp = {"share_id": share_id}
     if generated_password is not None:
@@ -324,21 +329,21 @@ async def delete_share(request: Request, share_id: str = Query(...)):
     rather than in the frontend so unshare is robust regardless of what notes the
     web client currently has loaded.
     """
-    from storage.repository.trace_share import get_by_share_id, set_revoked
+    from storage.repository.todo_share import get_public_by_share_id, set_public_revoked
     from storage.repository.note_todo_relation import list_by_todo as list_note_relations
     from storage.repository.note_share import get_by_note_ids
     from storage.util import get_utc_iso8601_timestamp
     from api.controller.note import revoke_note_share
 
     user_id = _get_user_id(request)
-    share = get_by_share_id(share_id)
+    share = get_public_by_share_id(share_id)
     if not share or share.user_id != user_id:
         raise HTTPException(status_code=404, detail="Share not found")
-    set_revoked(share_id, get_utc_iso8601_timestamp())
+    set_public_revoked(share_id, get_utc_iso8601_timestamp())
 
     note_ids = (share.selection or {}).get("note_ids")
     if note_ids is None:
-        note_ids = list_note_relations(user_id, share.trace_id)
+        note_ids = list_note_relations(user_id, share.todo_id)
     if note_ids:
         for note_share in get_by_note_ids(user_id, note_ids):
             revoke_note_share(note_share)
@@ -349,17 +354,17 @@ async def delete_share(request: Request, share_id: str = Query(...)):
 @router.get("/share/mine")
 async def get_my_share(request: Request, trace_id: str = Query(...)):
     """Get the current user's share for a trace, if any."""
-    from storage.repository.trace_share import get_by_trace_id
+    from storage.repository.todo_share import get_public_by_trace_id
 
     user_id = _get_user_id(request)
-    share = get_by_trace_id(user_id, trace_id)
+    share = get_public_by_trace_id(user_id, trace_id)
     # Empty is a normal result. 404 shows up as a browser console network error
     # even when the client treats it as "no share".
     if not share:
         return None
     return {
         "share_id": share.share_id,
-        "trace_id": share.trace_id,
+        "trace_id": share.todo_id,
         "has_password": bool(share.password_hash),
         "selection": share.selection,
     }
@@ -368,14 +373,14 @@ async def get_my_share(request: Request, trace_id: str = Query(...)):
 @router.get("/shares")
 async def list_shares(request: Request):
     """List all shares owned by the current user."""
-    from storage.repository.trace_share import list_by_user
+    from storage.repository.todo_share import list_public_by_user
 
     user_id = _get_user_id(request)
-    shares = list_by_user(user_id)
+    shares = list_public_by_user(user_id)
     return [
         {
             "share_id": s.share_id,
-            "trace_id": s.trace_id,
+            "trace_id": s.todo_id,
             "has_password": bool(s.password_hash),
         }
         for s in shares
@@ -385,10 +390,11 @@ async def list_shares(request: Request):
 @router.get("/share")
 async def get_share(share_id: str = Query(...), password: Optional[str] = Query(None)):
     """Public endpoint: get trace data by share_id."""
-    from storage.repository.trace_share import get_by_share_id
+    from storage.repository.todo import get_todo
+    from storage.repository.todo_share import get_public_by_share_id
     from storage import share_password as sp
 
-    share = get_by_share_id(share_id)
+    share = get_public_by_share_id(share_id)
     if not share or share.revoked_at:
         raise HTTPException(status_code=404, detail="Share not found")
 
@@ -403,7 +409,10 @@ async def get_share(share_id: str = Query(...), password: Optional[str] = Query(
             raise HTTPException(status_code=403, detail="Invalid password")
 
     user_id = share.user_id
-    trace_id = share.trace_id
+    trace_id = share.todo_id
+    todo = get_todo(user_id, trace_id)
+    if todo is None or todo.status == "deleted":
+        raise HTTPException(status_code=404, detail="Share not found")
     selection = share.selection or {}
 
     chats = find_chats_with_messages_by_trace_id(user_id, trace_id)
@@ -426,29 +435,24 @@ async def get_share(share_id: str = Query(...), password: Optional[str] = Query(
         })
 
     # Lookup todo info
-    todo_info = None
-    from storage.repository.todo import find_todos_by_ids
-    todo_map = find_todos_by_ids(user_id, [trace_id])
-    todo = todo_map.get(trace_id)
-    if todo:
-        todo_info = {
-            "todo_id": todo.todo_id,
-            "name": todo.name,
-            "status": todo.status,
-            "desc": todo.desc,
-            "tags": todo.tags,
-            "priority": todo.priority,
-            "due_date": todo.due_date,
-            "progress": todo.progress,
-            "handle_chat": todo.handle_chat,
-            "completed_at": todo.completed_at,
-            "created_at": todo.created_at,
-            "updated_at": todo.updated_at,
-            "history": [
-                {"timestamp": h.timestamp, "action": h.action, "note": h.note}
-                for h in reversed(todo.history or [])
-            ],
-        }
+    todo_info = {
+        "todo_id": todo.todo_id,
+        "name": todo.name,
+        "status": todo.status,
+        "desc": todo.desc,
+        "tags": todo.tags,
+        "priority": todo.priority,
+        "due_date": todo.due_date,
+        "progress": todo.progress,
+        "handle_chat": todo.handle_chat,
+        "completed_at": todo.completed_at,
+        "created_at": todo.created_at,
+        "updated_at": todo.updated_at,
+        "history": [
+            {"timestamp": h.timestamp, "action": h.action, "note": h.note}
+            for h in reversed(todo.history or [])
+        ],
+    }
 
     links = _associated_links(user_id, trace_id)
     if "link_ids" in selection:

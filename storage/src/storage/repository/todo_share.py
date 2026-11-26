@@ -185,6 +185,7 @@ def list_outgoing(owner_id: int) -> List[Dict]:
             .join(TodoEntity, _live_join())
             .filter(
                 TodoShareEntity.user_id == owner_id,
+                TodoShareEntity.recipient_user_id.is_not(None),
                 TodoShareEntity.revoked_at.is_(None),
                 TodoEntity.status != "deleted",
             )
@@ -268,3 +269,88 @@ def get_visible_incoming(recipient_id: int, share_id: str) -> Optional[Dict]:
                 .first()
             )
         return _grant(row) if row else None
+
+
+# Public share links: recipient_user_id IS NULL. Every public read says so.
+
+
+def get_public_by_share_id(share_id: str) -> Optional[TodoShareEntity]:
+    with get_db() as session:
+        return (
+            session.query(TodoShareEntity)
+            .filter(
+                TodoShareEntity.share_id == share_id,
+                TodoShareEntity.recipient_user_id.is_(None),
+            )
+            .first()
+        )
+
+
+def get_public_by_trace_id(user_id: int, trace_id: str, include_revoked: bool = False) -> Optional[TodoShareEntity]:
+    with get_db() as session:
+        query = session.query(TodoShareEntity).filter(
+            TodoShareEntity.user_id == user_id,
+            TodoShareEntity.todo_id == trace_id,
+            TodoShareEntity.recipient_user_id.is_(None),
+        )
+        if not include_revoked:
+            query = query.filter(TodoShareEntity.revoked_at.is_(None))
+        return query.first()
+
+
+def create_public(
+    user_id: int,
+    share_id: str,
+    todo_id: str,
+    password_hash: Optional[str] = None,
+    selection=None,
+) -> TodoShareEntity:
+    with get_db() as session:
+        entity = TodoShareEntity(
+            user_id=user_id,
+            todo_id=todo_id,
+            recipient_user_id=None,
+            share_id=share_id,
+            password_hash=password_hash,
+            selection=selection,
+        )
+        session.add(entity)
+        session.flush()
+        session.expunge(entity)
+        return entity
+
+
+def update_public_options(share_id: str, selection, password_hash: Optional[str], replace_password: bool) -> None:
+    values = {"selection": selection, "revoked_at": None}
+    if replace_password:
+        values["password_hash"] = password_hash
+    with get_db() as session:
+        session.query(TodoShareEntity).filter(
+            TodoShareEntity.share_id == share_id,
+            TodoShareEntity.recipient_user_id.is_(None),
+        ).update(values)
+
+
+def set_public_revoked(share_id: str, revoked_at: Optional[str]) -> None:
+    with get_db() as session:
+        session.query(TodoShareEntity).filter(
+            TodoShareEntity.share_id == share_id,
+            TodoShareEntity.recipient_user_id.is_(None),
+        ).update({"revoked_at": revoked_at})
+
+
+def list_public_by_user(user_id: int) -> List[TodoShareEntity]:
+    with get_db() as session:
+        entities = (
+            session.query(TodoShareEntity)
+            .filter(
+                TodoShareEntity.user_id == user_id,
+                TodoShareEntity.recipient_user_id.is_(None),
+                TodoShareEntity.revoked_at.is_(None),
+            )
+            .order_by(TodoShareEntity.id.desc())
+            .all()
+        )
+        for entity in entities:
+            session.expunge(entity)
+        return entities

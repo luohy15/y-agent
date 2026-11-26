@@ -93,7 +93,8 @@ entity + controller + service + CLI slices, and most have a web panel.
 
 - **Trace** — every notify / chat / worker step carries a `trace_id` and optional
   `from_chat` / `from_topic`. Participants are registered in `run_chat`; TraceView renders
-  the waterfall. `trace_share` makes a trace publicly viewable (optionally with a password).
+  the waterfall. A public `todo_share` row (`recipient_user_id IS NULL`) makes a
+  trace publicly viewable (optionally with a password).
 - **Notify (cross-skill)** — `y chat -m "..."` (fire-and-forget, default top-level
   mode) dispatches a message by role, skill or chat ID via the single union route
   `POST /api/chat/message`. A request is dispatch-shaped when it carries any of
@@ -120,8 +121,9 @@ entity + controller + service + CLI slices, and most have a web panel.
 - **Private todo sharing (todo 4422)**: an owner grants one todo to one admitted
   user, read-only, with an explicit selection of related notes, chats, and links
   (default empty). Note bodies are sealed snapshots; chats are read live with
-  tool results removed; links use the existing content helper. The grant is not
-  a `trace_share`. `y todo share|unshare|shares|public`,
+  tool results removed; links use the existing content helper. A private grant
+  is a `todo_share` row with `recipient_user_id` set; a public
+  `/t/:share_id` link is a `todo_share` row with it NULL. `y todo share|unshare|shares|public`,
   `y todo shared` and `y todo shared open <share_id> [--summary|--full]` over
   `/api/todo/share|shares|shared|shared/detail|share/summary|visit|public`. A recipient
   reads one selected note or chat through `y note get <note_id>` / `y chat get
@@ -138,8 +140,12 @@ entity + controller + service + CLI slices, and most have a web panel.
   Apply `migration/4467_todo_global_id.sql` (additive, guarded unique
   constraint) before deploy; the separate backfill needs user approval.
   A logged-in load of a public todo share records a visit (newest 200). Apply
-  `migration/4422_todo_share.sql` before deploy, including the additive
-  `trace_share.selection` column. The owner share popover manages both audiences;
+  `migration/4422_todo_share.sql` before deploy. Todo 4478 merges the former
+  public `trace_share` table into `todo_share`: public `/t/:share_id` rows are
+  `recipient_user_id IS NULL` with their selection in `todo_share.selection`.
+  Apply `migration/4478_todo_share_merge.sql` before deploy and
+  `migration/4478_drop_trace_share.sql` after the deployed public read is
+  smoke-verified. The owner share popover manages both audiences;
   missing public selection lists include all related items, empty lists include none.
 - **Declared machine wait (todo 4100)**: `y todo hold <id> --on <dependency> --chat <id> [--until +6h]` (with `wait` retained as a hidden alias) stores bounded `todo.machine_wait` on active work and suppresses automatic awaiting claims until lapse, except when the shared idle recheck proves no live work and finds an idle same-trace `chat.needs_attention` checkpoint (todo 4278). That checkpoint enters awaiting with the chat pointer and a reply notice; running work, unknown runtime, release waiters and wakeups still suppress. The declaration clears on a real status change, a new accepted message into the declaring chat, or `--clear`.
 - **Role**: every chat has an optional closed `role` (`manager` or `leader`).
@@ -562,7 +568,7 @@ exceptions noted):
   `gpt-6.1-sol` = 1050000, plus alias rows `opus[1m]`, `sonnet[1m]`, `fable`,
   and `deepseek-flash`. `grok-4-1-fast` has no row. No row leaves
   `chat.context_window` unset.
-- **Dev / trace**: `dev_worktree`, `dev_release`, `dev_release_waiter`, `trace_share`
+- **Dev / trace**: `dev_worktree`, `dev_release`, `dev_release_waiter`
 - **Todo sharing** (todo 4422): `todo_share`, `todo_share_item` (`entity/todo_share.py`),
   `todo_visit` (`entity/todo_visit.py`)
 - **API telemetry**: `api_latency_event`, `api_latency_rollup`

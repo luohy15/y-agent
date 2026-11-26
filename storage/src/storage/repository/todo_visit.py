@@ -4,8 +4,8 @@ from sqlalchemy import and_
 
 from storage.database.base import get_db
 from storage.entity.todo import TodoEntity
+from storage.entity.todo_share import TodoShareEntity
 from storage.entity.todo_visit import TodoVisitEntity
-from storage.entity.trace_share import TraceShareEntity
 from storage.util import get_unix_timestamp, get_utc_iso8601_timestamp
 
 KEEP = 200
@@ -38,18 +38,19 @@ def record(user_id: int, share_id: str) -> None:
 def list_live(user_id: int) -> List[Dict]:
     with get_db() as session:
         rows = (
-            session.query(TodoVisitEntity, TraceShareEntity)
-            .join(TraceShareEntity, TraceShareEntity.share_id == TodoVisitEntity.share_id)
+            session.query(TodoVisitEntity, TodoShareEntity)
+            .join(TodoShareEntity, TodoShareEntity.share_id == TodoVisitEntity.share_id)
             .join(
                 TodoEntity,
                 and_(
-                    TodoEntity.user_id == TraceShareEntity.user_id,
-                    TodoEntity.todo_id == TraceShareEntity.trace_id,
+                    TodoEntity.user_id == TodoShareEntity.user_id,
+                    TodoEntity.todo_id == TodoShareEntity.todo_id,
                 ),
             )
             .filter(
                 TodoVisitEntity.user_id == user_id,
-                TraceShareEntity.revoked_at.is_(None),
+                TodoShareEntity.recipient_user_id.is_(None),
+                TodoShareEntity.revoked_at.is_(None),
                 TodoEntity.status != "deleted",
             )
             .order_by(TodoVisitEntity.updated_at_unix.desc(), TodoVisitEntity.id.desc())
@@ -60,7 +61,7 @@ def list_live(user_id: int) -> List[Dict]:
             {
                 "share_id": visit.share_id,
                 "owner_id": share.user_id,
-                "todo_id": share.trace_id,
+                "todo_id": share.todo_id,
                 "visited_at": visit.updated_at,
             }
             for visit, share in rows
