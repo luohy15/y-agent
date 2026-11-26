@@ -56,6 +56,7 @@ import {
   makeFileTab,
   openOrdinaryWorkspaceTabWithHistory,
   persistHostWorkspace,
+  readHostWorkspaceOwner,
   readStoredDescriptors,
   reconcileFileWorkspace,
   remapTabHistory,
@@ -64,10 +65,24 @@ import {
   removeOrdinaryTabs,
   restoreHostWorkspace,
   stepTabHistory,
+  writeHostWorkspaceOwner,
   type FocusRequest,
   type OrdinaryFileTab,
   type TabHistoryMap,
 } from "./utils/fileWorkspace";
+import {
+  DEFAULT_VIEW_SELECTION,
+  parseViewSelection,
+  readLegacyViewSelection,
+  readViewSelectionCache,
+  removeLegacyViewSelectionKeys,
+  sameViewSelection,
+  VIEW_SELECTION_KEY,
+  writeLegacyViewSelection,
+  writeViewSelectionCache,
+  type ViewSelectionValue,
+} from "./utils/viewSelection";
+import { clearUserViewCaches } from "./utils/userViewCache";
 import { closeTabShortcutLabel, isApplePlatform } from "./utils/platform";
 import FileSearchDialog from "./components/FileSearchDialog";
 import { usePublishNoteIntent } from "./utils/noteHost";
@@ -78,6 +93,7 @@ import ArtifactMount from "./host/ArtifactMount";
 import {
   artifactLabel,
   artifactSlugFromPanel,
+  artifactSlugFromTab,
   artifactTabKey,
   isDetailOnlyArtifact,
   isPersistableTab,
@@ -149,7 +165,50 @@ const RIGHT_DIFF_ITEM: PanelItem<"diff"> = { key: "diff", label: "Diff", icon: <
 export default function App() {
   const { traceId: urlTraceId } = useParams<{ traceId?: string }>();
   const auth = useAuth();
+  // Todo 4468: the persisted host selection. A signed-in account paints only
+  // its own cache; a cold device waits for the preference GET.
+  const initialWorkspaceOwner = useMemo(() => readHostWorkspaceOwner(localStorage), []);
+  const initialViewSelectionCacheHit = useMemo(
+    () => auth.isLoggedIn && readViewSelectionCache(auth.email) != null,
+    [],
+  );
+  const initialViewSelection = useMemo<ViewSelectionValue>(() => {
+    if (auth.isLoggedIn) {
+      return readViewSelectionCache(auth.email) ?? DEFAULT_VIEW_SELECTION;
+    }
+    // A signed-out page carrying another account's tag (a session that ended
+    // without logout) must not paint its legacy selection.
+    if (initialWorkspaceOwner != null) return DEFAULT_VIEW_SELECTION;
+    return readLegacyViewSelection()?.value ?? DEFAULT_VIEW_SELECTION;
+  }, []);
+  // The browser-local workspace cache is trusted only for its owning account:
+  // a signed-in page needs a matching tag, a signed-out page needs no tag at
+  // all (an unattributed-but-tagged cache came from another session).
+  const initialWorkspaceOwnerMatches = useMemo(
+    () => (auth.isLoggedIn ? initialWorkspaceOwner === auth.email : initialWorkspaceOwner == null),
+    [],
+  );
+  // Todo 4468: local-intent markers for the persisted host selection. A user
+  // action (deep link, file open, centre switch, chat select, New) must win over
+  // a late preference GET even when it leaves the rendered state unchanged, so
+  // entry points mark the intent explicitly instead of relying on a state diff.
+  const viewSelectionTouchedRef = useRef(false);
+  const viewSelectionCentreTouchedRef = useRef(false);
+  /** Set by the in-place sign-out reset; suppresses one legacy-cache write. */
+  const viewSelectionSignedOutResetRef = useRef(false);
+  // Cold-device cache miss: hold the centre behind a neutral placeholder until
+  // the preference GET settles, so the persisted centre never flashes. A deep
+  // link or another local action reveals the centre immediately.
+  const [viewSelectionReady, setViewSelectionReady] = useState(
+    () => !auth.isLoggedIn || initialViewSelectionCacheHit,
+  );
+  const markViewSelectionLocal = useCallback((scope: "centre" | "selection") => {
+    if (scope === "selection") viewSelectionTouchedRef.current = true;
+    else viewSelectionCentreTouchedRef.current = true;
+    setViewSelectionReady(true);
+  }, []);
   const fileWorkspacePref = useUserPreference<unknown>("fileWorkspace", { enabled: auth.isLoggedIn });
+  const viewSelectionPref = useUserPreference<ViewSelectionValue>(VIEW_SELECTION_KEY, { enabled: auth.isLoggedIn });
   const {
     data: uiArtifactsResponse,
     isLoading: uiArtifactsLoading,
@@ -229,6 +288,9 @@ export default function App() {
   const resizingRef = useRef(false);
   // Todo 3084 H1: restore host workspace (ordinary file tabs + specials).
   const initialWorkspace = useMemo(() => {
+    if (!initialWorkspaceOwnerMatches) {
+      return { openTabs: [], active: null, preview: null, files: {} };
+    }
     let hostOpenTabs: string[] = [];
     try {
       hostOpenTabs = (JSON.parse(localStorage.getItem("openFiles") || "[]") as string[])
@@ -280,9 +342,9 @@ export default function App() {
   // the module has loaded, so the "open full view" affordance appears with the
   // panel rather than being promised up front for a panel-only artifact.
   const [uiArtifactHasDetail, setUiArtifactHasDetail] = useState<Record<string, boolean>>({});
-  const [chatHide, setChatHide] = useState(() => { const v = localStorage.getItem("chatHide"); return v === null ? false : v === "true"; });
+  const [chatHide, setChatHide] = useState(() => initialViewSelection.centreMode === "files");
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const [selectedChatId, setSelectedChatId] = useState<string | null>(() => localStorage.getItem("selectedChatId") || null);
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(() => initialViewSelection.chatId);
   const [chatListOpen, setChatListOpen] = useState(() => { const v = localStorage.getItem("chatListOpen"); return v === null ? false : v !== "false"; });
   const surfacesRef = useRef<MobileSurfaces>({ activity: false, left: false, right: false });
   surfacesRef.current = { activity: activityBarOpen, left: sidebarOpen, right: chatListOpen };
@@ -329,7 +391,7 @@ export default function App() {
   const currentVmWorkDir = vmList.find(v => v.name === (selectedVM || "default"))?.work_dir;
   const defaultWorkDir = vmList.find(v => v.name === "default")?.work_dir;
   const effectiveWorkDir = (selectedChatId && chatWorkDir) ? chatWorkDir : currentVmWorkDir;
-  const [chatListTraceId, setChatListTraceId] = useState<string | null>(localStorage.getItem("chatListTraceId") || null);
+  const [chatListTraceId, setChatListTraceId] = useState<string | null>(() => initialViewSelection.traceId);
   const [chatListRoutineName, setChatListRoutineName] = useState<string | null>(localStorage.getItem("chatListRoutineName") || null);
   const [chatListRoutineOnly, setChatListRoutineOnly] = useState<boolean>(() => localStorage.getItem("chatListRoutineOnly") === "true");
   const [bottomPanelCollapsed, setBottomPanelCollapsed] = useState(() => localStorage.getItem("bottomPanelCollapsed") === "true");
@@ -376,6 +438,17 @@ export default function App() {
       localStorage.setItem("host.fileDescriptors.v1", JSON.stringify(Object.values(fileTabs)));
     } catch { /* quota — leave prior descriptors */ }
   }, [fileTabs]);
+  // Attribute the browser-local workspace to its account (todo 4468), so the
+  // restore path above only paints a cache written by this same user. A
+  // signed-out page that still carries another account's tag (a session that
+  // ended without logout) drops that cache instead of inheriting it.
+  useEffect(() => {
+    if (auth.isLoggedIn) {
+      writeHostWorkspaceOwner(localStorage, auth.email);
+      return;
+    }
+    if (readHostWorkspaceOwner(localStorage) !== null) clearUserViewCaches();
+  }, [auth.isLoggedIn, auth.email]);
 
   const openFilesRef = useRef(openFiles);
   openFilesRef.current = openFiles;
@@ -387,20 +460,54 @@ export default function App() {
   fileTabsRef.current = fileTabs;
   const workspaceTouchedRef = useRef(false);
   const workspaceReconciledRef = useRef(false);
-  const [workspaceVisible, setWorkspaceVisible] = useState(!auth.isLoggedIn);
+  // A same-account workspace cache is real content: paint it immediately rather
+  // than holding the pane behind the preference GET (todo 4468).
+  const [workspaceVisible, setWorkspaceVisible] = useState(
+    () => !auth.isLoggedIn || initialWorkspaceOwnerMatches,
+  );
   const lastWorkspacePayloadRef = useRef<string | null>(null);
   const touchWorkspace = useCallback(() => {
     workspaceTouchedRef.current = true;
     setWorkspaceVisible(true);
   }, []);
 
+  // React to real auth transitions only: on mount the same-account cache hit
+  // must survive so instant paint is not blanked by a redundant reset. An
+  // in-place logout / revoked access drops the session's state so a later
+  // sign-in as another account cannot inherit it (todo 4468 review).
+  const wasLoggedInRef = useRef(auth.isLoggedIn);
   useEffect(() => {
+    const wasLoggedIn = wasLoggedInRef.current;
+    wasLoggedInRef.current = auth.isLoggedIn;
     if (!auth.isLoggedIn) {
       workspaceTouchedRef.current = false;
       workspaceReconciledRef.current = false;
       setWorkspaceVisible(true);
       lastWorkspacePayloadRef.current = null;
-    } else {
+      if (wasLoggedIn) {
+        setSelectedChatId(null);
+        setChatHide(false);
+        setChatListTraceId(null);
+        setOpenFiles([]);
+        setActiveFile(null);
+        setPreviewFile(null);
+        setFileTabs({});
+        setViewSelectionReady(true);
+        // The reset returns the rendered selection to defaults; align the
+        // local-intent baseline so the reset itself is never mistaken for a
+        // user action once a new account signs in (todo 4468 review).
+        viewSelectionMountRef.current = { ...DEFAULT_VIEW_SELECTION };
+        viewSelectionTouchedRef.current = false;
+        viewSelectionCentreTouchedRef.current = false;
+        viewSelectionSignedOutResetRef.current = true;
+      }
+      return;
+    }
+    if (!wasLoggedIn) {
+      // Fresh sign-in: wait for that account's preference GET and workspace.
+      workspaceTouchedRef.current = false;
+      workspaceReconciledRef.current = false;
+      lastWorkspacePayloadRef.current = null;
       setWorkspaceVisible(false);
     }
   }, [auth.isLoggedIn]);
@@ -436,7 +543,7 @@ export default function App() {
     );
     lastWorkspacePayloadRef.current = JSON.stringify(payload);
     if (result.source === "server") {
-      persistHostWorkspace(localStorage, result.snapshot);
+      persistHostWorkspace(localStorage, result.snapshot, auth.email);
       setOpenFiles(result.snapshot.openTabs);
       setActiveFile(result.snapshot.active);
       setPreviewFile(result.snapshot.preview);
@@ -445,7 +552,7 @@ export default function App() {
       fileWorkspacePref.setValue(payload);
     }
     setWorkspaceVisible(true);
-  }, [auth.isLoggedIn, fileWorkspacePref.loaded, fileWorkspacePref.serverValue, fileWorkspacePref.setValue, uiArtifactsLoading]);
+  }, [auth.isLoggedIn, auth.email, fileWorkspacePref.loaded, fileWorkspacePref.serverValue, fileWorkspacePref.setValue, uiArtifactsLoading]);
 
   // Persist complete normalized snapshots after bootstrap. This deliberately has
   // last-successful-write-wins behavior, matching activity-bar preferences.
@@ -468,8 +575,32 @@ export default function App() {
     fileWorkspacePref.setValue(payload);
   }, [auth.isLoggedIn, openFiles, activeFile, previewFile, fileTabs, fileWorkspacePref.setValue]);
 
+  // A restored `ui:<slug>` tab whose module is disabled or no longer listed is
+  // dropped instead of rendering "unavailable": fall back to the next valid
+  // tab, or an empty workspace when none remains (todo 4468).
+  useEffect(() => {
+    if (!auth.isLoggedIn || uiArtifactsLoading || !Array.isArray(uiArtifactsResponse)) return;
+    const available = new Set(mountedUiArtifacts.map((artifact) => artifact.slug));
+    const drop = openFiles.filter((key) => {
+      const slug = artifactSlugFromTab(key);
+      return slug != null && !available.has(slug);
+    });
+    if (drop.length === 0) return;
+    let snapshot = { openTabs: openFiles, active: activeFile, preview: previewFile, files: fileTabs };
+    for (const key of drop) snapshot = closeWorkspaceTabKey(snapshot, key);
+    setOpenFiles(snapshot.openTabs);
+    setActiveFile(snapshot.active);
+    setPreviewFile(snapshot.preview);
+    setFileTabs(snapshot.files);
+  }, [auth.isLoggedIn, uiArtifactsLoading, uiArtifactsResponse, mountedUiArtifacts, openFiles, activeFile, previewFile, fileTabs]);
+
   const openHostWorkspaceTab = useCallback((path: string) => {
     touchWorkspace();
+    // Opening a file (including a `/trace/:id` or `?entity_id=` deep link, which
+    // routes through here) is a local centre intent: mark it explicitly so a
+    // not-yet-settled preference GET cannot switch back to the chat centre,
+    // even when the cached centre was already "files" (todo 4468 review).
+    markViewSelectionLocal("centre");
     const p = path.replace(/^\.\//, "");
     // Ordinary files are host tabs; the aggregate ui:file tab is never opened.
     if (p === FILE_AGGREGATE_TAB) return;
@@ -479,7 +610,7 @@ export default function App() {
     setPreviewFile((current) => current === p ? null : current);
     setChatHide(true);
     if (window.innerWidth < 768) applySurface(surfaceActionForHostNavigation("file-preview"));
-  }, [touchWorkspace, applySurface]);
+  }, [touchWorkspace, markViewSelectionLocal, applySurface]);
 
   const applyOrdinaryOpen = useCallback((
     path: string,
@@ -489,6 +620,7 @@ export default function App() {
     line?: number,
   ) => {
     touchWorkspace();
+    markViewSelectionLocal("centre");
     const tab = makeFileTab(path, vmName, workDir);
     const { snapshot: next, history: nextHistory } = openOrdinaryWorkspaceTabWithHistory(
       {
@@ -511,7 +643,7 @@ export default function App() {
     }
     setChatHide(true);
     if (window.innerWidth < 768) applySurface(surfaceActionForHostNavigation("ordinary-file"));
-  }, [touchWorkspace, applySurface]);
+  }, [touchWorkspace, markViewSelectionLocal, applySurface]);
 
   const openOrdinaryFile = useCallback((
     path: string,
@@ -544,9 +676,9 @@ export default function App() {
     // seam so payload ids flow into ui:todo.
     const unregisterTodoDetail = registerTodoDetailEntryPoints({
       handleOpenFile,
-      setChatListTraceId,
-      setSelectedChatId,
-      setChatHide,
+      setChatListTraceId: (id) => { markViewSelectionLocal("selection"); setChatListTraceId(id); },
+      setSelectedChatId: (id) => { markViewSelectionLocal("selection"); setSelectedChatId(id); },
+      setChatHide: (hide) => { markViewSelectionLocal("centre"); setChatHide(hide); },
       getSelectedChatId: () => selectedChatIdRef.current,
       requestChatRefresh: () => setTodoOpenRefreshKey((k) => k + 1),
       onAfterTodoOpen: () => applySurface(surfaceActionForHostNavigation("todo-open")),
@@ -556,6 +688,7 @@ export default function App() {
     const unregisterChatOpen = registerHostCommand("chat.open", (payload) => {
       const chatId = chatIdFromPayload(payload);
       if (chatId === undefined) return;
+      markViewSelectionLocal("selection");
       openChat(chatId, {
         selectedChatId,
         setSelectedChatId,
@@ -567,6 +700,7 @@ export default function App() {
     const unregisterChatSetTraceFilter = registerHostCommand("chat.setTraceFilter", (payload) => {
       const traceId = traceIdFromPayload(payload);
       if (traceId === undefined) return;
+      markViewSelectionLocal("selection");
       setChatTraceFilter(traceId, setChatListTraceId);
     });
     const unregisterChatSetRoutineFilter = registerHostCommand("chat.setRoutineFilter", (payload) => {
@@ -627,7 +761,7 @@ export default function App() {
       unregisterEnglishOpen();
       unregisterRssOpen();
     };
-  }, [handleOpenFile, selectedChatId]);
+  }, [handleOpenFile, selectedChatId, markViewSelectionLocal]);
 
   // Todo 3816: Modules-row activation. `openArtifactDetail` stays a direct
   // slug opener; this command classifies the catalog row first.
@@ -747,6 +881,7 @@ export default function App() {
 
   const handleOpenArtifact = useCallback((type: ArtifactType, spec: string) => {
     touchWorkspace();
+    markViewSelectionLocal("centre");
     const id = Math.random().toString(36).slice(2, 10);
     const path = `artifact:${id}.${type}`;
     setArtifactTabs((prev) => ({ ...prev, [path]: { type, spec } }));
@@ -755,7 +890,7 @@ export default function App() {
     setPreviewFile(null);
     setChatHide(true);
     if (window.innerWidth < 768) applySurface(surfaceActionForHostNavigation("artifact-open"));
-  }, [touchWorkspace, applySurface]);
+  }, [touchWorkspace, markViewSelectionLocal, applySurface]);
 
   const handleCloseFile = useCallback((path: string) => {
     if (fileDirtyRef.current[path]) {
@@ -1035,8 +1170,158 @@ export default function App() {
     };
   }, [applyOrdinaryOpen, handleCloseFile, handleRemapOrdinaryFiles, handleRemoveOrdinaryFiles, openHostWorkspaceTab, uiArtifactBySlug]);
 
-  useEffect(() => { localStorage.setItem("chatHide", String(chatHide)); }, [chatHide]);
-  useEffect(() => { if (selectedChatId) localStorage.setItem("selectedChatId", selectedChatId); else localStorage.removeItem("selectedChatId"); }, [selectedChatId]);
+  // ---- Persisted host view selection (todo 4468) ----
+  // Centre mode, selected chat and trace filter persist as one additive
+  // `viewSelection:host` preference row. A local action (including a deep link)
+  // before the initial GET settles wins over its stale value; a signed-out
+  // session keeps the legacy per-key localStorage behaviour through the cache
+  // adapter, never through direct writes here.
+  const viewSelectionMountRef = useRef(initialViewSelection);
+  const viewSelectionReconciledRef = useRef(false);
+  const lastViewSelectionPayloadRef = useRef<string | null>(null);
+  /** Adopted document whose state update has not rendered yet. */
+  const viewSelectionTargetRef = useRef<string | null>(null);
+  const viewSelectionFromState = useCallback(
+    (): ViewSelectionValue => ({
+      version: 1,
+      chatId: selectedChatId,
+      centreMode: chatHide ? "files" : "chat",
+      traceId: chatListTraceId,
+    }),
+    [selectedChatId, chatHide, chatListTraceId],
+  );
+  useEffect(() => {
+    if (viewSelectionReconciledRef.current) return;
+    const mounted = viewSelectionMountRef.current;
+    if (selectedChatId !== mounted.chatId || chatListTraceId !== mounted.traceId) {
+      viewSelectionTouchedRef.current = true;
+    }
+    if (chatHide !== (mounted.centreMode === "files")) {
+      viewSelectionCentreTouchedRef.current = true;
+    }
+  }, [selectedChatId, chatHide, chatListTraceId]);
+  useEffect(() => {
+    if (!auth.isLoggedIn) {
+      viewSelectionTouchedRef.current = false;
+      viewSelectionCentreTouchedRef.current = false;
+      viewSelectionReconciledRef.current = false;
+      lastViewSelectionPayloadRef.current = null;
+      viewSelectionTargetRef.current = null;
+      setViewSelectionReady(true);
+      return;
+    }
+    if (!viewSelectionPref.loaded || viewSelectionReconciledRef.current) return;
+    viewSelectionReconciledRef.current = true;
+    setViewSelectionReady(true);
+    const readSucceeded = viewSelectionPref.status === "idle";
+    const stored = readSucceeded ? parseViewSelection(viewSelectionPref.serverValue) : null;
+    const local = viewSelectionFromState();
+    const adopt = (next: ViewSelectionValue, cache = true) => {
+      setSelectedChatId(next.chatId);
+      setChatHide(next.centreMode === "files");
+      setChatListTraceId(next.traceId);
+      if (cache) writeViewSelectionCache(auth.email, next);
+      lastViewSelectionPayloadRef.current = JSON.stringify(next);
+      // No pending state catch-up when the adopted document already matches
+      // what is rendered; otherwise remember it until the state renders.
+      viewSelectionTargetRef.current =
+        JSON.stringify(next) === JSON.stringify(local) ? null : JSON.stringify(next);
+    };
+    // A deep link into the files/todo centre changes only the centre mode; keep
+    // the stored chat/trace selection and write the merged document so a late
+    // GET can never pull the user back to the chat centre.
+    const mergeLocalCentre = (next: ViewSelectionValue): ViewSelectionValue =>
+      viewSelectionCentreTouchedRef.current
+        ? { ...next, centreMode: local.centreMode }
+        : next;
+    if (viewSelectionTouchedRef.current) {
+      lastViewSelectionPayloadRef.current = JSON.stringify(local);
+      writeViewSelectionCache(auth.email, local);
+      viewSelectionPref.setValue(local);
+      return;
+    }
+    if (stored) {
+      const merged = mergeLocalCentre(stored);
+      adopt(merged);
+      if (viewSelectionCentreTouchedRef.current) viewSelectionPref.setValue(merged);
+      return;
+    }
+    if (!readSucceeded) {
+      // Unknown server value: keep the painted cache/default and never write a
+      // failed read back as if it were the stored selection.
+      lastViewSelectionPayloadRef.current = JSON.stringify(local);
+      writeViewSelectionCache(auth.email, local);
+      return;
+    }
+    // Confirmed empty server row: seed from this account's cache, else from the
+    // legacy per-key entries of the pre-4468 build. The legacy seed is only
+    // safe while the browser was attributed to this same account at mount (or
+    // carried no tag at all); a tag from another account means a direct sign-in
+    // in a browser that held that account's keys. Legacy keys and the cache are
+    // written/removed only after the seeding PUT succeeds so a failure retries
+    // on the next mount instead of stranding the legacy entries.
+    const cache = readViewSelectionCache(auth.email);
+    const sameAccountAtMount =
+      initialWorkspaceOwner === auth.email || initialWorkspaceOwner === null;
+    const legacy = !cache && sameAccountAtMount ? readLegacyViewSelection() : null;
+    const seed = cache ?? legacy?.value ?? null;
+    if (!seed) {
+      lastViewSelectionPayloadRef.current = JSON.stringify(local);
+      writeViewSelectionCache(auth.email, local);
+      if (viewSelectionCentreTouchedRef.current) viewSelectionPref.setValue(local);
+      return;
+    }
+    const merged = mergeLocalCentre(seed);
+    adopt(merged, !legacy);
+    viewSelectionPref.setValue(merged);
+    if (legacy) {
+      const legacyKeys = legacy.keys;
+      void viewSelectionPref.flush().then((ok) => {
+        if (!ok) return;
+        writeViewSelectionCache(auth.email, merged);
+        removeLegacyViewSelectionKeys(legacyKeys);
+      });
+    }
+  }, [auth.isLoggedIn, auth.email, viewSelectionPref.loaded, viewSelectionPref.status, viewSelectionPref.serverValue, viewSelectionPref.setValue, viewSelectionPref.flush, viewSelectionFromState]);
+  useEffect(() => {
+    if (!auth.isLoggedIn || !viewSelectionReconciledRef.current) return;
+    const doc = viewSelectionFromState();
+    writeViewSelectionCache(auth.email, doc);
+    const serialized = JSON.stringify(doc);
+    const target = viewSelectionTargetRef.current;
+    if (target !== null) {
+      // The adoption just ran; wait for its state to render before judging the
+      // document against the last persisted payload (no redundant PUT).
+      if (serialized !== target) return;
+      viewSelectionTargetRef.current = null;
+    }
+    if (serialized === lastViewSelectionPayloadRef.current) return;
+    lastViewSelectionPayloadRef.current = serialized;
+    viewSelectionPref.setValue(doc);
+  }, [auth.isLoggedIn, auth.email, viewSelectionFromState, viewSelectionPref.setValue]);
+  useEffect(() => {
+    if (auth.isLoggedIn) {
+      viewSelectionSignedOutResetRef.current = false;
+      return;
+    }
+    // The sign-out transition itself resets the selection; never write that
+    // revoked/previous account's in-memory values back into localStorage.
+    if (viewSelectionSignedOutResetRef.current) {
+      viewSelectionSignedOutResetRef.current = false;
+      return;
+    }
+    const doc = viewSelectionFromState();
+    // Never mint default legacy keys while signed out: they would trigger a
+    // spurious migration PUT on the next clean login (M6).
+    if (sameViewSelection(doc, DEFAULT_VIEW_SELECTION)) return;
+    writeLegacyViewSelection(doc);
+  }, [auth.isLoggedIn, viewSelectionFromState]);
+  // Do not leave the centre hidden indefinitely if the preference GET stalls.
+  useEffect(() => {
+    if (!auth.isLoggedIn || viewSelectionReady) return;
+    const timer = window.setTimeout(() => setViewSelectionReady(true), 1500);
+    return () => window.clearTimeout(timer);
+  }, [auth.isLoggedIn, viewSelectionReady]);
   // Plan P2: publish selected-chat intent for code/y-module/chat (no visible change).
   // D-C: also carries botName, since selectedBot is intentionally not persisted
   // to localStorage the way selectedVM is (no other fallback for the module).
@@ -1048,7 +1333,6 @@ export default function App() {
   usePublishNoteIntent(chatListTraceId, selectedVM, defaultWorkDir ?? null, selectedVM, defaultWorkDir ?? null);
   // Drop the pre-H3 selectedTraceId key; selection authority is the Todo module.
   useEffect(() => { localStorage.removeItem("selectedTraceId"); }, []);
-  useEffect(() => { if (chatListTraceId) localStorage.setItem("chatListTraceId", chatListTraceId); else localStorage.removeItem("chatListTraceId"); }, [chatListTraceId]);
   useEffect(() => { if (chatListRoutineName) localStorage.setItem("chatListRoutineName", chatListRoutineName); else localStorage.removeItem("chatListRoutineName"); }, [chatListRoutineName]);
   useEffect(() => { localStorage.setItem("chatListRoutineOnly", String(chatListRoutineOnly)); }, [chatListRoutineOnly]);
   useEffect(() => { localStorage.setItem("chatListOpen", String(chatListOpen)); }, [chatListOpen]);
@@ -1110,20 +1394,26 @@ export default function App() {
     refreshBotList();
   }, [auth.isLoggedIn, refreshBotList]);
 
-  // URL /trace/:traceId → open the Todo module's in-place detail (H2).
+  // URL /trace/:traceId → open the Todo module's in-place detail (H2). The URL
+  // target wins over a stored preference: mark the centre intent before the
+  // preference GET settles, and reveal the centre immediately on a cold device.
   useEffect(() => {
+    if (!urlTraceId) return;
+    markViewSelectionLocal("centre");
     applyTodoDeepLink(urlTraceId, {
       handleOpenFile,
       setSidebarPanel: (panel) => setSidebarPanel(panel),
     });
-  }, [urlTraceId, handleOpenFile]);
+  }, [urlTraceId, handleOpenFile, markViewSelectionLocal]);
 
   // URL ?entity_id=... → open the Entity module detail.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const eid = params.get("entity_id");
-    if (eid) openEntity(eid, handleOpenFile);
-  }, [handleOpenFile]);
+    if (!eid) return;
+    markViewSelectionLocal("centre");
+    openEntity(eid, handleOpenFile);
+  }, [handleOpenFile, markViewSelectionLocal]);
 
   const chatHideRef = useRef(chatHide);
   chatHideRef.current = chatHide;
@@ -1316,8 +1606,9 @@ export default function App() {
   }, [bottomPanelHeight]);
 
   const handleChatCreated = useCallback((chatId: string) => {
+    markViewSelectionLocal("selection");
     setSelectedChatId(chatId);
-  }, []);
+  }, [markViewSelectionLocal]);
 
   // D-B (pages/decision-3042-chat-shell-host-seam.md): host commands the chat
   // module shell emits that had no registerHostCommand wiring yet. `chat.open`
@@ -1334,6 +1625,7 @@ export default function App() {
       handleChatCreated(chatId);
     });
     const unregisterChatCleared = registerHostCommand("chat.cleared", () => {
+      markViewSelectionLocal("selection");
       setSelectedChatId(null);
       setChatTopic(null);
       setChatSkill(null);
@@ -1368,7 +1660,7 @@ export default function App() {
       unregisterOpenFile();
       unregisterOpenArtifact();
     };
-  }, [handleChatCreated, handleOpenFile, handleOpenArtifact, handlePreviewFile]);
+  }, [handleChatCreated, handleOpenFile, handleOpenArtifact, handlePreviewFile, markViewSelectionLocal]);
 
   // Tag module click-to-navigate: one type-dispatch callback covering all 10
   // tag carriers. The actual dispatch logic lives in utils/tagNavigate.ts; this
@@ -1754,15 +2046,20 @@ export default function App() {
             {/* Center mode switcher header */}
             <CentreModeTabs
               mode={chatHide ? "files" : "chat"}
-              onModeChange={(mode) => setChatHide(mode === "files")}
-              onNew={() => { setSelectedChatId(null); setChatListTraceId(null); setChatListRoutineName(null); setChatListRoutineOnly(false); setChatTopic(null); setChatSkill(null); setChatBackend(null); setChatBotName(null); setChatTraceId(null); }}
+              onModeChange={(mode) => { markViewSelectionLocal("centre"); setChatHide(mode === "files"); }}
+              onNew={() => { markViewSelectionLocal("selection"); setSelectedChatId(null); setChatListTraceId(null); setChatListRoutineName(null); setChatListRoutineOnly(false); setChatTopic(null); setChatSkill(null); setChatBackend(null); setChatBotName(null); setChatTraceId(null); }}
             />
             {/* Center top: FileViewer / ChatView */}
             <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden relative">
+              {!viewSelectionReady && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-sol-base03 text-sol-base01 text-xs font-mono">
+                  Loading...
+                </div>
+              )}
               {/* FileViewer (shown when chat hidden) */}
               <div className={`absolute inset-0 ${chatHide ? "" : "hidden"}`}>
                 <ErrorBoundary label="Panel">
-                  <FileViewer openFiles={workspaceVisible ? openFiles : []} activeFile={workspaceVisible ? activeFile : null} onSelectFile={handleSelectFile} onCloseFile={handleCloseFile} onReorderFiles={handleReorderFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} sharedItemTabs={sharedItemTabs} fileTabs={workspaceVisible ? fileTabs : {}} fileDirty={fileDirty} fileFocus={fileFocus} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} onSelectChat={(id) => { setSelectedChatId(id); applySurface(surfaceActionForHostNavigation("chat-select")); setChatHide(false); }} previewFile={workspaceVisible ? previewFile : null} onPinFile={handlePinFile} fileHistory={fileHistory} onFileBack={handleFileBack} onFileForward={handleFileForward} />
+                  <FileViewer openFiles={workspaceVisible ? openFiles : []} activeFile={workspaceVisible ? activeFile : null} onSelectFile={handleSelectFile} onCloseFile={handleCloseFile} onReorderFiles={handleReorderFiles} vmName={selectedVM} workDir={effectiveWorkDir} defaultWorkDir={defaultWorkDir} diffFiles={diffFiles} artifactTabs={artifactTabs} sharedItemTabs={sharedItemTabs} fileTabs={workspaceVisible ? fileTabs : {}} fileDirty={fileDirty} fileFocus={fileFocus} uiArtifacts={mountedUiArtifacts} uiArtifactsLoaded={!auth.isLoggedIn || !uiArtifactsLoading} onUiArtifactRolledBack={() => { void mutateUiArtifacts(); }} onSelectChat={(id) => { markViewSelectionLocal("selection"); setSelectedChatId(id); applySurface(surfaceActionForHostNavigation("chat-select")); setChatHide(false); }} previewFile={workspaceVisible ? previewFile : null} onPinFile={handlePinFile} fileHistory={fileHistory} onFileBack={handleFileBack} onFileForward={handleFileForward} />
                 </ErrorBoundary>
               </div>
               {/* Chat stays mounted while hidden. The shell module owns the live

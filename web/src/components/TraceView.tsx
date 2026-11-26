@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import useSWR from "swr";
 import { API, authFetch, clearToken, jsonFetcher as fetcher } from "../api";
 import { runHostCommand } from "../host/commands";
@@ -262,11 +262,14 @@ export default function TraceView({
   const traceNotes = publicMode ? injectedData?.notes : (authedTraceData?.notes ?? []);
   const traceEvents = publicMode ? injectedData?.calendar_events : (authedTraceData?.calendar_events ?? []);
   const hasValidTodo = !!(todoInfo && typeof todoInfo.todo_id === "string" && todoInfo.todo_id);
+  // A soft-deleted todo is gone for selection purposes even though the trace
+  // endpoint still returns its row: never render its title or detail (todo 4468).
+  const todoDeleted = !publicMode && !!todoInfo && todoInfo.status === "deleted";
   const { data: outgoing, error: grantsError, mutate: mutateGrants } = useSWR<OutgoingGrant[]>(
-    !publicMode && isLoggedIn && hasValidTodo ? `${API}/api/todo/shares` : null, fetcher,
+    !publicMode && isLoggedIn && hasValidTodo && !todoDeleted ? `${API}/api/todo/shares` : null, fetcher,
   );
   const grants = outgoing?.filter(row => row.todo_id === selectedTraceId) ?? [];
-  const unavailable = !publicMode && requireTodo && loaded && !fetchFailed && !hasValidTodo;
+  const unavailable = !publicMode && loaded && !fetchFailed && (todoDeleted || (requireTodo && !hasValidTodo));
 
   const [todoDetailOpen, setTodoDetailOpen] = useState(true);
   const [linksOpen, setLinksOpen] = useState(true);
@@ -292,9 +295,12 @@ export default function TraceView({
     };
   }, []);
 
-  // Module detail: a required todo that resolved missing/malformed is unavailable.
-  // Transient fetch failures never fire this (parent keeps the selection for retry).
-  useEffect(() => {
+  // Module detail: a required todo that resolved missing/malformed/deleted is
+  // unavailable. Transient fetch failures never fire this (parent keeps the
+  // selection for retry). A layout effect lets the caller clear a restored
+  // selection before the unavailable panel paints, so a stale local id degrades
+  // silently instead of flashing (todo 4468).
+  useLayoutEffect(() => {
     if (!unavailable) {
       unavailableNotifiedForRef.current = null;
       return;

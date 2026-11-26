@@ -4,6 +4,7 @@
 // chrome. Used when the module shell is disabled or fails to load.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { API, authFetch, getToken } from "../api";
+import { runHostCommand } from "../host/commands";
 import { enterIsImeConfirm, usesNewlineOnEnter } from "./enter-policy";
 import HostMessageView, {
   filterTrailingEmptyAssistantMessages,
@@ -114,9 +115,23 @@ export default function ChatFallbackView({
     let cancelled = false;
 
     authFetch(`${API}/api/chat/messages/snapshot?chat_id=${encodeURIComponent(chatId)}`)
-      .then((r) => r.json())
+      .then(async (r) => {
+        if (r.status === 404 || r.status === 403) {
+          // A restored chat that no longer exists (or is no longer accessible)
+          // degrades silently to no selection; never fall through to SSE or an
+          // error surface (todo 4468).
+          if (!cancelled) {
+            setMessages([]);
+            setCompleted(false);
+            idxRef.current = 0;
+            runHostCommand("chat.cleared", {});
+          }
+          return null;
+        }
+        return r.json();
+      })
       .then((data) => {
-        if (cancelled) return;
+        if (!data || cancelled) return;
         setMessages(parseChatMessages(data.messages || []));
         idxRef.current = data.messages?.length ?? 0;
         if (data.interrupted) {

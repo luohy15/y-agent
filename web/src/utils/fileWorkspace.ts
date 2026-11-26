@@ -7,6 +7,33 @@ import { isOrdinaryFilePath } from "./fileHost";
 /** Side table of ordinary-file descriptors keyed by opaque tab id. */
 export const HOST_FILE_DESCRIPTORS_KEY = "host.fileDescriptors.v1";
 
+/**
+ * Account that owns the browser-local workspace cache (todo 4468). A signed-in
+ * user only paints this cache when the tag matches their email, so switching
+ * accounts in one browser never shows the previous user's tabs and paths.
+ */
+export const HOST_WORKSPACE_OWNER_KEY = "hostWorkspaceOwner";
+
+export function readHostWorkspaceOwner(storage: Pick<Storage, "getItem">): string | null {
+  try {
+    return storage.getItem(HOST_WORKSPACE_OWNER_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function writeHostWorkspaceOwner(
+  storage: Pick<Storage, "setItem" | "removeItem">,
+  owner: string | null,
+): void {
+  try {
+    if (owner) storage.setItem(HOST_WORKSPACE_OWNER_KEY, owner);
+    else storage.removeItem(HOST_WORKSPACE_OWNER_KEY);
+  } catch {
+    // Private mode or quota: the cache just stays unattributed and unpainted.
+  }
+}
+
 export const FILE_AGGREGATE_TAB = "ui:file";
 
 export interface OrdinaryFileTab {
@@ -171,6 +198,7 @@ export function restoreHostWorkspace(
 export function persistHostWorkspace(
   storage: Pick<Storage, "setItem" | "removeItem">,
   snapshot: HostWorkspaceSnapshot,
+  owner?: string | null,
 ): boolean {
   try {
     storage.setItem("openFiles", JSON.stringify(snapshot.openTabs));
@@ -179,6 +207,7 @@ export function persistHostWorkspace(
     if (snapshot.preview) storage.setItem("previewFile", snapshot.preview);
     else storage.removeItem("previewFile");
     storage.setItem(HOST_FILE_DESCRIPTORS_KEY, JSON.stringify(Object.values(snapshot.files)));
+    if (owner !== undefined) writeHostWorkspaceOwner(storage, owner);
     return true;
   } catch {
     return false;

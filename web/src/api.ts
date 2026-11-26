@@ -1,3 +1,5 @@
+import { clearUserViewCaches } from "./utils/userViewCache";
+
 export const API = (import.meta as any).env?.VITE_API_URL || window.location.origin;
 
 export function getToken(): string | null {
@@ -11,6 +13,9 @@ export function setToken(token: string): void {
 export function clearToken(): void {
   localStorage.removeItem("jwt_token");
   localStorage.removeItem("user_email");
+  // Selection / workspace caches are user-scoped; never leave them for the next
+  // account in this browser (todo 4468).
+  clearUserViewCaches();
 }
 
 export const ACCESS_REVOKED_EVENT = "y-access-revoked";
