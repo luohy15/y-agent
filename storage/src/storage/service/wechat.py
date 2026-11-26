@@ -533,7 +533,10 @@ async def _inbound_media(media_handler, user_id, chat, items):
     images = list(images or [])
     files = list(files or [])
     transcript = transcript if isinstance(transcript, str) and transcript.strip() else None
-    voice = voice if isinstance(voice, dict) and voice.get("take_id") else None
+    voice = voice if isinstance(voice, dict) and (
+        voice.get("take_id")
+        or (isinstance(voice.get("takes"), list) and voice["takes"])
+    ) else None
     notices = [notice for notice in (notices or []) if notice]
     if not (images or files or transcript or notices):
         notices = ["Could not download that attachment from WeChat. Nothing was saved."]

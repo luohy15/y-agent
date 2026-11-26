@@ -265,6 +265,7 @@ export type {
   PresentedCitationLink,
   PresentedFileReference,
   PresentedVoice,
+  PresentedVoiceTake,
   ResolveFileReference,
   PresentedContentState,
   LoadPresentedContent,

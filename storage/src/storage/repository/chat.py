@@ -421,6 +421,9 @@ def _insert_chat_sync(user_id: int, chat: Chat, *, session=None) -> Chat:
             if chat.trace_id and chat.role != ROOT_ROLE:
                 lock_todo(session, user_id, chat.trace_id)
             session.add(entity)
+            session.flush()
+            for message in chat.messages:
+                _index_voice_message(session, user_id, chat.id, message)
     except IntegrityError as exc:
         raise ChatIdCollision(user_id, chat.id) from exc
     return chat
@@ -611,22 +614,20 @@ class EffortOnRunningChat(Exception):
 
 
 def _index_voice_message(session, user_id: int, chat_id: str, message) -> None:
-    """Record the take -> message link beside the appended message (todo 4489).
+    """Record one take -> message row per take (todo 4489).
 
     A redelivered voice note can present the same take twice; the first link
     wins, so the unique (user_id, take_id) conflict is swallowed inside a
-    savepoint instead of failing acceptance.
+    per-take savepoint instead of failing acceptance.
     """
-    from storage.service.chat import voice_link_payload
+    from storage.service.chat import voice_link_payloads
 
-    link = voice_link_payload(message)
-    if link is None:
-        return
-    try:
-        with session.begin_nested():
-            session.add(ChatVoiceMessageEntity(user_id=user_id, chat_id=chat_id, **link))
-    except IntegrityError:
-        logger.info("Voice take {} is already linked; keeping the first message", link["take_id"])
+    for link in voice_link_payloads(message):
+        try:
+            with session.begin_nested():
+                session.add(ChatVoiceMessageEntity(user_id=user_id, chat_id=chat_id, **link))
+        except IntegrityError:
+            logger.info("Voice take {} is already linked; keeping the first message", link["take_id"])
 
 
 def accept_or_start_chat(user_id: int, chat_id: str, *, message=None,

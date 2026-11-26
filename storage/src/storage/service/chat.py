@@ -78,33 +78,50 @@ def chat_message_bounds(user_id: int, chat_ids: list[str]) -> dict:
         }
 
 
-def voice_link_payload(message: Message) -> Optional[Dict]:
-    """Derived index row for an inbound voice message, or None when it has none.
+def voice_link_payloads(message: Message) -> List[Dict]:
+    """Derived index rows for a voice message, one per take (todo 4489).
 
-    The message JSON stays the source of truth; this payload carries ids and
-    the message time only, never the message body or an excerpt.
+    Reads the multi-take `{"takes": [...]}` shape and the legacy single
+    `{take_id, duration_ms}` shape, deduped by take id in message order. The
+    message JSON stays the source of truth; these payloads carry ids and the
+    message time only, never the message body or an excerpt.
     """
-    voice = message.voice
-    take_id = voice.get("take_id") if isinstance(voice, dict) else None
-    if not isinstance(take_id, str) or not take_id or "\0" in take_id:
-        return None
     if not isinstance(message.id, str) or not message.id:
-        return None
+        return []
     if not isinstance(message.unix_timestamp, int) or isinstance(message.unix_timestamp, bool):
-        return None
-    return {
-        "take_id": take_id,
-        "message_id": message.id,
-        "message_unix_timestamp": message.unix_timestamp,
-    }
+        return []
+    voice = message.voice
+    if not isinstance(voice, dict):
+        return []
+    takes = voice.get("takes")
+    if isinstance(takes, list):
+        refs = takes
+    elif voice.get("take_id"):
+        refs = [voice]
+    else:
+        return []
+    payloads, seen = [], set()
+    for ref in refs:
+        take_id = ref.get("take_id") if isinstance(ref, dict) else None
+        if not isinstance(take_id, str) or not take_id or "\0" in take_id:
+            continue
+        if take_id in seen:
+            continue
+        seen.add(take_id)
+        payloads.append({
+            "take_id": take_id,
+            "message_id": message.id,
+            "message_unix_timestamp": message.unix_timestamp,
+        })
+    return payloads
 
 
 def voice_take_links(user_id: int, take_ids: List[str]) -> Dict[str, Dict]:
     """Map each owned take id to the inbound chat message that produced it.
 
-    Owner-scoped and bounded by the caller. A take with no message (composer
-    dictation, uploaded file, or a message accepted before this index existed)
-    is absent from the result. Never returns the message body.
+    Owner-scoped and bounded by the caller. A take with no message (an
+    uploaded file, a cancelled draft, or a message accepted before this index
+    existed) is absent from the result. Never returns the message body.
     """
     from sqlalchemy import and_
     from storage.crypto.orm import open_projected

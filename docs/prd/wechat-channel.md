@@ -203,6 +203,12 @@ quality. The provider's own `voice_item.text` is used only when the item carries
 no CDN descriptor; otherwise the module transcript is the body and the stored
 `quote_text`.
 
+One message may carry several voice items (a real message carried two). Each
+item is transcribed into its own take, and the single user message records
+every take in `voice.takes`, in item order; the web composer sends the same
+multi-take shape, and a legacy single `{take_id, duration_ms}` reference is
+still read.
+
 A bridge that sends `media_items` requires this API version. An old API rejects
 the payload with 422 and loses that message, so deploy and verify the API before
 restarting the bridge. The non-maintainer voice path also needs the Voice module
@@ -364,9 +370,11 @@ Inbound:
    and downloads nothing. Images are fetched from the provider CDN, decrypted
    and stored under the image assets directory; a file is stored under the
    attachments directory; a voice note is decoded and transcribed through the
-   shared gateway voice service. A captionless image or file message gets
-   `请看这张图片` or `请看这个文件` as its text; a voice message's text is its
-   transcript. Every rejection (fetch, decrypt, store, too large, unsupported
+   shared gateway voice service, every voice item into its own take. A
+   captionless image or file message gets
+   `请看这张图片` or `请看这个文件` as its text; a voice message's text joins its
+   item transcripts and the message carries all of its takes. Every rejection
+   (fetch, decrypt, store, too large, unsupported
    image type, unsupported voice codec, over the voice duration cap, a jump node
    without image support, an `agy` chat that refuses images, a disabled voice
    module) produces one explicit outbox notice and never a silent drop. Video

@@ -53,11 +53,13 @@ class ChatVoiceMessageEntity(Base, BaseEntity):
     """Which inbound chat message a voice take produced (todo 4489).
 
     Derived index for the reverse lookup the Voice panel needs: the only other
-    link is `messages[].voice.take_id` inside `chat.json_content`, which is
-    Text (and field-encrypted when active), so scanning it is neither cheap nor
-    encryption-safe. This row stores ids and the message time only, never the
-    message body or an excerpt; the message JSON stays the source of truth.
-    Written by `accept_or_start_chat` in the same transaction as the append.
+    link is `messages[].voice` (a legacy `take_id` or a `takes` list) inside
+    `chat.json_content`, which is Text (and field-encrypted when active), so
+    scanning it is neither cheap nor encryption-safe. This row stores ids and
+    the message time only, never the message body or an excerpt; the message
+    JSON stays the source of truth. Written in the same transaction as the
+    message: `accept_or_start_chat` for an appended message, `_insert_chat_sync`
+    for a chat's initial messages, one row per take.
     """
 
     __tablename__ = "chat_voice_message"

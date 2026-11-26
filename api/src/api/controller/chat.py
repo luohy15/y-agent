@@ -1,12 +1,12 @@
 import asyncio
 import json
 import time
-from typing import List, Optional
+from typing import Annotated, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from loguru import logger
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from storage.role import legacy_topic_to_role, validate_role
 from storage.dto.chat import validate_launch_env
 from sse_starlette.sse import EventSourceResponse
@@ -38,10 +38,42 @@ class ImageUpload(BaseModel):
     content_base64: str
 
 
+class VoiceTakeRef(BaseModel):
+    """One archived voice take a message carries (todo 4489).
+
+    Shape-validated only: the `chat_voice_message` index is owner-scoped, so a
+    forged or foreign id is inert, and the host never reads the module-owned
+    take row. Legacy messages keep the single `{take_id, duration_ms}` shape.
+    """
+
+    take_id: str
+    duration_ms: int
+
+    @field_validator("take_id")
+    @classmethod
+    def check_take_id(cls, value):
+        if not 1 <= len(value) <= 64:
+            raise ValueError("take_id must be 1..64 characters")
+        if "\0" in value:
+            raise ValueError("take_id must not contain NUL")
+        return value
+
+    @field_validator("duration_ms")
+    @classmethod
+    def check_duration(cls, value):
+        if not 0 <= value <= 120000:
+            raise ValueError("duration_ms must be between 0 and 120000")
+        return value
+
+
+VoiceTakes = Annotated[List[VoiceTakeRef], Field(max_length=20)]
+
+
 class CreateChatRequest(BaseModel):
     prompt: str
     images: Optional[List[str]] = None
     image_uploads: Optional[List[ImageUpload]] = None
+    voice_takes: Optional[VoiceTakes] = None
     bot_name: Optional[str] = None
     bot_tier: Optional[str] = None
     backend: Optional[str] = None
@@ -62,6 +94,7 @@ class SendMessageRequest(BaseModel):
     chat_id: Optional[str] = None
     images: Optional[List[str]] = None
     image_uploads: Optional[List[ImageUpload]] = None
+    voice_takes: Optional[VoiceTakes] = None
     bot_name: Optional[str] = None
     bot_tier: Optional[str] = None
     backend: Optional[str] = None
@@ -376,7 +409,14 @@ def _normalize_reasoning_effort(reasoning_effort: Optional[str]) -> Optional[str
     return normalized
 
 
-def _message_dict(role: str, content: str, images: Optional[List[str]] = None, reasoning_effort: Optional[str] = None) -> dict:
+def _message_voice(takes: Optional[List[VoiceTakeRef]]) -> Optional[dict]:
+    """The `messages[].voice` payload: every take, or None for text only."""
+    if not takes:
+        return None
+    return {"takes": [{"take_id": t.take_id, "duration_ms": t.duration_ms} for t in takes]}
+
+
+def _message_dict(role: str, content: str, images: Optional[List[str]] = None, reasoning_effort: Optional[str] = None, voice: Optional[dict] = None) -> dict:
     data = {
         "role": role,
         "content": content,
@@ -386,6 +426,8 @@ def _message_dict(role: str, content: str, images: Optional[List[str]] = None, r
     }
     if images:
         data["images"] = images
+    if voice:
+        data["voice"] = voice
     if reasoning_effort is not None:
         data["reasoning_effort"] = _normalize_reasoning_effort(reasoning_effort)
     return data
@@ -426,7 +468,7 @@ async def post_create_chat(req: CreateChatRequest, request: Request):
     images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-upload", vm_config=vm_config)
 
     # Build user message
-    user_msg = Message.from_dict(_message_dict("user", req.prompt, images, req.reasoning_effort))
+    user_msg = Message.from_dict(_message_dict("user", req.prompt, images, req.reasoning_effort, _message_voice(req.voice_takes)))
 
     try:
         chat = await chat_service.create_chat(
@@ -544,7 +586,8 @@ async def post_send_message(req: SendMessageRequest, request: Request):
         try:
             chat = await chat_service.deliver_user_message(
                 user_id, chat, req.prompt, human_reply=True,
-                images=images, reasoning_effort=reasoning_effort,
+                images=images, voice=_message_voice(req.voice_takes),
+                reasoning_effort=reasoning_effort,
                 bot_name=req.bot_name, bot_tier=req.bot_tier,
                 vm_name=req.vm_name, work_dir=work_dir, post_hooks=req.post_hooks,
             )
@@ -631,7 +674,8 @@ async def post_send_message(req: SendMessageRequest, request: Request):
             delivered = await chat_service.deliver_dispatch(
                 user_id, target, req.prompt,
                 from_chat_id=req.from_chat_id, from_role=req.from_role,
-                images=images, reasoning_effort=reasoning_effort,
+                images=images, voice=_message_voice(req.voice_takes),
+                reasoning_effort=reasoning_effort,
                 bot_name=req.bot_name, bot_tier=req.bot_tier,
                 work_dir=resolved, trace_id=req.trace_id, role=req.role, skill=skill,
             )
@@ -678,10 +722,11 @@ async def post_send_message(req: SendMessageRequest, request: Request):
         execution_target=req.execution_target,
     )
     images = resolve_message_image_paths(req.images, req.image_uploads, prefix="chat-upload", vm_config=vm_config)
+    voice = _message_voice(req.voice_takes)
 
     def build(new_id: str):
         user_msg = Message.from_dict(
-            _message_dict("user", _dispatch_content(new_id), images, reasoning_effort)
+            _message_dict("user", _dispatch_content(new_id), images, reasoning_effort, voice)
         )
         chat = Chat(
             id=new_id,

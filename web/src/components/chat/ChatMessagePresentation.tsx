@@ -24,10 +24,16 @@ export interface PresentedFileReference {
   line?: number;
 }
 
-/** The stored take one inbound voice note produced (todo 4489). */
-export interface PresentedVoice {
+/** One stored take a message produced (contract v35, todo 4489). */
+export interface PresentedVoiceTake {
   take_id: string;
   duration_ms: number;
+}
+/** Legacy single `take_id`/`duration_ms` or the multi-take `takes` list. */
+export interface PresentedVoice {
+  take_id?: string;
+  duration_ms?: number;
+  takes?: PresentedVoiceTake[];
 }
 
 export type ResolveFileReference = (

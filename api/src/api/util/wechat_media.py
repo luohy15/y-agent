@@ -84,10 +84,10 @@ def _voice_fetch(item):
 async def handle_media(*, user_id, chat, items):
     """Return `(image_paths, file_paths, transcript, voice, notices)` for one message.
 
-    `voice` is the take reference (`take_id`, `duration_ms`) when exactly one
-    voice note produced the transcript, else None: the message carries one
-    play control. Voice is plain text and needs no EC2 disk asset, so a jump
-    node or an `agy` chat accepts it even though it still refuses images.
+    `voice` carries every take this message produced as `{"takes": [...]}`,
+    one ordered entry per voice item, or None when there was no voice note.
+    Voice is plain text and needs no EC2 disk asset, so a jump node or an
+    `agy` chat accepts it even though it still refuses images.
     """
     images, files, notices = [], [], []
     transcripts, voices = [], []
@@ -145,7 +145,7 @@ async def handle_media(*, user_id, chat, items):
                 notices.append(gateway_voice.voice_notice("unavailable", "wechat"))
             else:
                 transcripts.append(voice.text)
-                voices.append(voice.as_message_voice())
+                voices.extend(voice.as_message_voice().get("takes") or [])
         else:
             notices.append("That attachment type is not supported.")
-    return images, files, "\n".join(transcripts) or None, voices[0] if len(voices) == 1 else None, notices
+    return images, files, "\n".join(transcripts) or None, {"takes": voices} if voices else None, notices

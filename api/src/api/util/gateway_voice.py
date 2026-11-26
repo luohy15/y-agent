@@ -65,8 +65,8 @@ class InboundVoice:
     duration_ms: int
 
     def as_message_voice(self):
-        """The `messages[].voice` reference the web player resolves (todo 4489)."""
-        return {"take_id": self.take_id, "duration_ms": self.duration_ms}
+        """The `messages[].voice.takes` entry the web player resolves (todo 4489)."""
+        return {"takes": [{"take_id": self.take_id, "duration_ms": self.duration_ms}]}
 
 
 async def process_inbound_voice(
