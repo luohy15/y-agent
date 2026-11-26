@@ -772,16 +772,13 @@ def _stage_model_catalog(client, cmd: List[str], chat_id: str, catalog_text: str
     cmd.extend(["-c", f'model_catalog_json="{path}"'])
 
 
-def _codex_restore_archive_cmd(thread_id: str, codex_home: Optional[str] = None) -> str:
+def _codex_restore_archive_cmd(thread_id: str) -> str:
     """Best-effort restore of a resumed thread's rollout from the node backup.
 
     The default node's backup preserves the rollout's YYYY/MM/DD path. Nodes
-    without that archive no-op. ``codex_home`` pins the destination home for a
-    command that runs outside the launch environment (exam isolation); the exec
-    harness leaves it unset and keeps relying on the launch's own CODEX_HOME.
+    without that archive no-op; isolated launches retain their CODEX_HOME.
     """
-    prefix = f"CODEX_HOME={_shell_quote(codex_home)}; " if codex_home else ""
-    return prefix + (
+    return (
         f"_y_archive={_shell_quote(CODEX_ARCHIVE_ROOT)}; "
         f"_y_src=$(find \"$_y_archive\" -type f -name {_shell_quote('*-' + thread_id + '.jsonl')} "
         "-print -quit 2>/dev/null); "
@@ -880,6 +877,12 @@ approval_policy = "never"
 sandbox_mode = "danger-full-access"
 """
 
+APP_SERVER_NO_THREAD_ERROR = (
+    "Codex app-server exited 0 before opening a thread and wrote no output. "
+    "The initialize/thread response never arrived; check the node's codex "
+    "startup and the staged CODEX_HOME."
+)
+
 _MISSING_ROLLOUT_MESSAGE_RE = re.compile(
     r"no rollout found for thread id\s+([0-9a-fA-F-]{36})"
 )
@@ -894,18 +897,21 @@ def codex_app_server_home(chat_id: str) -> str:
 
 
 def _stage_app_server_home(client, chat_id: str) -> str:
-    """Create this launch's CODEX_HOME: generated config + real sessions link.
+    """Create this launch's CODEX_HOME: generated config + an empty sessions dir.
 
-    The sessions symlink keeps the rollout in `$HOME/.codex/sessions`, where
-    `read_codex_rollout` and the archive backup already expect it. No auth.json
-    is staged: the relay credential comes from the provider's `env_key`.
+    The sessions directory must stay private to this launch. Pointing it at the
+    real `$HOME/.codex/sessions` makes app-server backfill every rollout before
+    it answers `initialize` (1,197 files and tens of seconds on the default
+    node), which overran the launch's wait budget in the first soak. A resumed
+    launch copies just its own thread's rollout in (`_stage_resume_rollout_cmd`)
+    and the tail copies the result back (`_sync_app_server_rollouts_cmd`).
+    No auth.json is staged: the relay credential comes from the provider's
+    `env_key`.
     """
     home = codex_app_server_home(chat_id)
     _ssh_exec(
         client,
-        f"rm -rf {_shell_quote(home)} && mkdir -p {_shell_quote(home)} && "
-        "mkdir -p \"$HOME/.codex/sessions\" && "
-        f"ln -sfn \"$HOME/.codex/sessions\" {_shell_quote(home + '/sessions')}",
+        f"rm -rf {_shell_quote(home)} && mkdir -p {_shell_quote(home + '/sessions')}",
     )
     sftp = client.open_sftp()
     try:
@@ -914,6 +920,61 @@ def _stage_app_server_home(client, chat_id: str) -> str:
     finally:
         sftp.close()
     return home
+
+
+def _stage_resume_rollout_cmd(thread_id: str, codex_home: str) -> str:
+    """Copy only the resumed thread's rollout into the staged home.
+
+    The real `$HOME/.codex/sessions` is tried first, then the node's archive
+    backup. The staged destination keeps the rollout's YYYY/MM/DD path, and
+    app-server appends the new turn to that copy.
+    """
+    pattern = _shell_quote('*-' + thread_id + '.jsonl')
+    dest_root = _shell_quote(codex_home.rstrip("/") + "/sessions")
+    return (
+        f"_y_root=\"${{CODEX_HOME:-$HOME/.codex}}/sessions\"; "
+        f"_y_dst_root={dest_root}; "
+        f"_y_f=$(find \"$_y_root\" -type f -name {pattern} -print -quit 2>/dev/null); "
+        f"if [ -z \"$_y_f\" ]; then _y_root={_shell_quote(CODEX_ARCHIVE_ROOT)}; "
+        f"_y_f=$(find \"$_y_root\" -type f -name {pattern} -print -quit 2>/dev/null); fi; "
+        "if [ -s \"$_y_f\" ]; then _y_rel=${_y_f#\"$_y_root\"/}; "
+        "mkdir -p \"$_y_dst_root/$(dirname \"$_y_rel\")\" && "
+        "cp -p \"$_y_f\" \"$_y_dst_root/$_y_rel\"; fi"
+    )
+
+
+def _sync_app_server_rollouts_cmd(chat_id: str) -> str:
+    """Copy every rollout in the staged home back to the real sessions tree."""
+    staged = _shell_quote(codex_app_server_home(chat_id) + "/sessions")
+    return (
+        f"_y_src={staged}; _y_dst=\"${{CODEX_HOME:-$HOME/.codex}}/sessions\"; "
+        "if [ -d \"$_y_src\" ]; then "
+        "find \"$_y_src\" -type f -name '*.jsonl' -print | while IFS= read -r _y_f; do "
+        "_y_rel=${_y_f#\"$_y_src\"/}; "
+        "mkdir -p \"$_y_dst/$(dirname \"$_y_rel\")\" && cp -p \"$_y_f\" \"$_y_dst/$_y_rel\"; "
+        "done; fi"
+    )
+
+
+def _remove_app_server_home(client, chat_id: str) -> None:
+    """Remove the staged home once its rollout has been copied out."""
+    try:
+        _ssh_exec(client, f"rm -rf {_shell_quote(codex_app_server_home(chat_id))}")
+    except Exception as exc:
+        logger.warning("codex app-server home cleanup failed chat_id={}: {}", chat_id, exc)
+
+
+def _sync_app_server_rollouts(client, chat_id: str) -> None:
+    """Publish the staged rollouts where usage closeout and resume look for them.
+
+    The tail removes the staged home after this copy, so the turn's rollout
+    must reach `$HOME/.codex/sessions` before teardown completes. Best effort:
+    a failure is logged and never fails the turn.
+    """
+    try:
+        _ssh_exec(client, _sync_app_server_rollouts_cmd(chat_id))
+    except Exception as exc:
+        logger.warning("codex app-server rollout sync failed chat_id={}: {}", chat_id, exc)
 
 
 def build_codex_app_server_launch(thread_id: Optional[str] = None, cwd: Optional[str] = None,
@@ -1059,10 +1120,11 @@ def _codex_app_server_spec(*, thread_id: Optional[str], cwd: Optional[str],
         if stage_home:
             home["path"] = _stage_app_server_home(client, chat_id)
         if thread_id:
-            # This command runs outside the launch environment, so the home is
-            # pinned explicitly (the staged home or the exam CODEX_HOME).
-            codex_home = (launch_env or {}).get("CODEX_HOME") or home.get("path")
-            _ssh_exec(client, _codex_restore_archive_cmd(thread_id, codex_home=codex_home))
+            # Only this thread's rollout is staged, so app-server never has to
+            # backfill the node's whole session history before `initialize`.
+            codex_home = home.get("path") or (launch_env or {}).get("CODEX_HOME")
+            if codex_home:
+                _ssh_exec(client, _stage_resume_rollout_cmd(thread_id, codex_home))
         _app_server_write_stdin(
             client, chat_id,
             build_codex_app_server_launch(thread_id, cwd, model),
@@ -1090,6 +1152,10 @@ def _codex_app_server_spec(*, thread_id: Optional[str], cwd: Optional[str],
         setup=setup,
         after_initial=after_initial,
         cleanup=cleanup,
+        # No EXIT trap: a crashed app-server must not delete its rollout before
+        # the tail copies it back. The tail removes the home after syncing, and
+        # the next launch recreates it anyway.
+        trap_cleanup=lambda: "true",
         initial_stdout_lines=60,
         initial_wait_seconds=10.0,
     )
@@ -1952,7 +2018,10 @@ async def tail_codex_app_server_output(
             logger.info("interrupt watchdog (codex app-server): killing tmux session cc-{}", chat_id)
             with steer_lock:
                 torn_down = True
+                _sync_app_server_rollouts(client, chat_id)
                 _kill_session_marking_self_killed(client, chat_id, node=node)
+                _sync_app_server_rollouts(client, chat_id)
+                _remove_app_server_home(client, chat_id)
                 try:
                     stdout_ch.channel.close()
                 except Exception:
@@ -1965,14 +2034,19 @@ async def tail_codex_app_server_output(
             sentinel is written. The kill is synchronous: the process is gone
             before closeout can launch a continuation beside it. Killing the
             wrapper also stops the `tail -f` stdin producer, which is the only
-            way app-server's stdin ever closes.
+            way app-server's stdin ever closes. The rollout is copied to the
+            real sessions tree first, and again after the wrapper may have
+            flushed and exited; the staged home is removed after both copies.
             """
+            _sync_app_server_rollouts(client, chat_id)
             try:
                 from agent.detach import _tmux_kill_cmd
 
                 _ssh_exec(client, _tmux_kill_cmd(chat_id, node=node))
             except Exception as exc:
                 logger.warning("codex app-server teardown failed chat_id={}: {}", chat_id, exc)
+            _sync_app_server_rollouts(client, chat_id)
+            _remove_app_server_home(client, chat_id)
             try:
                 stdout_ch.channel.close()
             except Exception:
@@ -2151,14 +2225,24 @@ async def tail_codex_app_server_output(
             elif _tmux_session_alive(client, chat_id, node=node):
                 pass
             else:
+                # The process is gone: publish whatever rollout it wrote
+                # before reporting the failure.
+                _sync_app_server_rollouts(client, chat_id)
+                _remove_app_server_home(client, chat_id)
                 attempt = read_codex_attempt_diagnostic(client, chat_id, stream_error)
+                text = attempt["text"]
+                if (not state["thread_id"] and not converter.has_usable_output
+                        and attempt.get("exit_code") == 0):
+                    # A silent exit 0 is a startup failure, not a finished
+                    # turn: name it instead of "process exited with code 0".
+                    text = APP_SERVER_NO_THREAD_ERROR
                 extra_view.update(
-                    startup_diagnostic=attempt["text"],
+                    startup_diagnostic=text,
                     exit_code=attempt["exit_code"],
                     attempt_stderr=attempt["stderr"],
                 )
                 status = "error"
-                data = {"is_error": True, "result": attempt["text"]}
+                data = {"is_error": True, "result": text}
 
         if owns_client:
             from agent.chat_target import close_owned_client

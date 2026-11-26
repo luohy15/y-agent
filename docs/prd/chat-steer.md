@@ -110,8 +110,12 @@ side-effect guarantee across arbitrary worker/VM crashes.
   because the terminal event is the evidence. Exit is stdin EOF, which the
   teardown produces by killing the wrapper. The staged per-launch `CODEX_HOME`
   reproduces `exec --ignore-user-config` (generated config, no user hooks or
-  MCP, no `auth.json`; the relay key stays in `OPENAI_API_KEY`) and its
-  `sessions` symlink keeps the rollout where the usage closeout reads it.
+  MCP, no `auth.json`; the relay key stays in `OPENAI_API_KEY`). Its sessions
+  directory holds only the resumed thread's rollout, because exposing the
+  node's whole history makes app-server backfill every rollout before it
+  answers `initialize`; the tail copies the rollout back to
+  `$HOME/.codex/sessions` at teardown so usage closeout and the next resume
+  find it.
   A resumed launch maps `thread/resume` `-32600 "no rollout found"` to the
   existing fresh-thread recovery, and a handoff carries thread id, turn id and
   the thread usage total so a re-attached tail can steer without waiting for a

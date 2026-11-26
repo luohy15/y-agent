@@ -196,6 +196,10 @@ class DetachBackendSpec:
     ] = None
     upload_images: bool = True
     cleanup: Optional[Callable[[], str]] = None
+    # Wrapper EXIT command. Defaults to `cleanup`; app-server passes a no-op so
+    # the staged home survives a process crash until the tail has copied the
+    # rollout back (the tail removes it after syncing).
+    trap_cleanup: Optional[Callable[[], str]] = None
     initial_stdout_lines: int = 5
     initial_wait_seconds: float = INITIAL_ID_WAIT_SECONDS
 
@@ -454,7 +458,8 @@ async def _start_detached_tmux(
             stdout_file=stdout_file,
             stderr_file=stderr_file,
             exit_file=exit_file,
-            cleanup=spec.cleanup() if spec.cleanup else None,
+            cleanup=(spec.trap_cleanup() if spec.trap_cleanup is not None
+                     else (spec.cleanup() if spec.cleanup else None)),
             unset_env=unset_env,
         )
 

@@ -491,8 +491,9 @@ The repo no longer contains an in-process agent loop — the worker shells out.
   `codex app-server --listen stdio://` per turn behind the stdin pipe, where a steer is
   a `turn/steer` request and the turn keeps running (todo 4476). The app-server launch
   writes `initialize` + `thread/start|resume` and appends `turn/start` once the thread
-  id is observed; its staged private `CODEX_HOME` reproduces `exec --ignore-user-config`
-  and keeps the rollout in `$HOME/.codex/sessions` through a symlink. `pi`
+  id is observed; its staged private `CODEX_HOME` reproduces `exec --ignore-user-config`,
+  stages only that thread's rollout so a cold launch never backfills the node's whole
+  session history, and copies the rollout back to `$HOME/.codex/sessions` at teardown. `pi`
   (`agent/src/agent/pi_cli.py`, pi.dev 1.5.2) uses
   `anthropic-messages`, a per-launch merged `y-<bot>` models.json provider, and
   `Y_PI_API_KEY` in the environment. It runs `pi --mode rpc` behind a
