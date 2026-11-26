@@ -13,11 +13,6 @@ ATTACHMENTS_DIR = Path(os.environ.get(
     "Y_AGENT_ATTACHMENTS_DIR", "/Users/roy/luohy15/assets/attachments",
 ))
 MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
-DENIED_EXTENSIONS = {
-    ".exe", ".msi", ".msix", ".dll", ".so", ".dylib", ".com", ".scr",
-    ".bat", ".cmd", ".ps1", ".apk", ".app", ".pkg", ".deb", ".rpm",
-    ".dmg", ".iso", ".jar",
-}
 
 _SSH_POOL = None
 
@@ -44,22 +39,20 @@ def _document_suffix(file_name: str) -> str:
 def classify_document(document) -> str | None:
     """Return a rejection code, or None when the document may be stored.
 
-    `too_large` is the 20 MB Telegram bot download cap. `unsupported_type` is
-    the executable/installer denylist. Missing size or name is not a rejection:
-    the downloaded-byte check still applies later.
+    `too_large` is the 20 MB cap, pre-checked from the declared size. No file
+    type is rejected. Missing size or name is not a rejection: the
+    downloaded-byte check still applies later.
     """
     if not isinstance(document, dict):
-        return "unsupported_type"
+        return "download_failed"
     if (_document_size(document) or 0) > MAX_ATTACHMENT_BYTES:
         return "too_large"
-    if _document_suffix(str(document.get("file_name") or "")) in DENIED_EXTENSIONS:
-        return "unsupported_type"
     return None
 
 
 def _safe_suffix(filename: str) -> str:
     suffix = _document_suffix(filename)
-    if suffix in DENIED_EXTENSIONS or not re.fullmatch(r"\.[A-Za-z0-9]+", suffix or ""):
+    if not re.fullmatch(r"\.[A-Za-z0-9]+", suffix or ""):
         return ""
     return suffix
 
@@ -109,8 +102,6 @@ def save_attachment_bytes(content: bytes, filename: str, *, prefix: str, vm_conf
     """Write bytes under the attachments dir. Local first, SSH-push on a read-only FS."""
     if len(content) > MAX_ATTACHMENT_BYTES:
         raise HTTPException(status_code=400, detail="attachment exceeds 20 MB")
-    if _document_suffix(filename) in DENIED_EXTENSIONS:
-        raise HTTPException(status_code=400, detail="unsupported attachment type")
 
     attachment_name = _attachment_name(filename, fallback_stem=prefix)
     assets_dir = ATTACHMENTS_DIR.expanduser().resolve()

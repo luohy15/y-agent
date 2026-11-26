@@ -347,8 +347,6 @@ async def telegram_webhook(request: Request):
 def _document_reply(kind: str) -> str:
     if kind == "too_large":
         return "That file is larger than 20 MB, so it was not saved."
-    if kind == "unsupported_type":
-        return "That file type is not supported."
     return "Could not download that file from Telegram. Nothing was saved."
 
 

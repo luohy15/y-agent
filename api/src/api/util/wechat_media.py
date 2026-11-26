@@ -25,9 +25,7 @@ def _reject_notice(kind, code):
             return "That image is larger than 10 MB, so it was not saved."
         return "That file is larger than 20 MB, so it was not saved."
     if code == "unsupported_type":
-        if kind == IMAGE:
-            return "That image type is not supported."
-        return "That file type is not supported."
+        return "That image type is not supported."
     return f"Could not download that {kind} from WeChat. Nothing was saved."
 
 

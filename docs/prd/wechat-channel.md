@@ -180,10 +180,12 @@ AES-128-ECB with PKCS7 padding; the key is a raw 32-character hex `aeskey` (an
 image's preferred field) or a base64 `aes_key` that decodes either to the 16 raw
 bytes or to 32 hex characters. A JPEG, PNG, GIF or WEBP image is stored
 unchanged; HEIF/HEIC (an iOS original) is re-encoded to an RGB JPEG. Files reuse
-the same classifier and storage path as Telegram, including the executable
-denylist and 20 MB cap. The descriptor is never persisted; only the stored
-paths are, on `Message.images` and `Message.files`. This adds no DDL and no
-tenant-encryption field.
+the same classifier and storage path as Telegram: no file type is rejected, the
+name is sanitized, and the cap is 20 MB. Because those helpers are shared, the
+Telegram document path accepts executable and installer suffixes too now, and
+its former "file type is not supported" reply is gone. The descriptor is never
+persisted; only the stored paths are, on `Message.images` and `Message.files`.
+This adds no DDL and no tenant-encryption field.
 
 A bridge that sends `media_items` requires this API version. An old API rejects
 the payload with 422 and loses that message, so deploy and verify the API before
@@ -345,11 +347,11 @@ Inbound:
    and stored under the image assets directory; a file is stored under the
    attachments directory. A captionless message gets `请看这张图片` or
    `请看这个文件` as its text. Every rejection (fetch, decrypt, store, too
-   large, unsupported type, a jump node without image support, an `agy` chat
-   that refuses images) produces one explicit outbox notice and never a silent
-   drop. Voice, video and other non-image/file items receive one fixed "text
-   only for now" notice and create no turn; their text, media kind and media
-   name are still stored on the inbound receipt so a later quote of that
+   large, unsupported image type, a jump node without image support, an `agy`
+   chat that refuses images) produces one explicit outbox notice and never a
+   silent drop. Voice, video and other non-image/file items receive one fixed
+   "text only for now" notice and create no turn; their text, media kind and
+   media name are still stored on the inbound receipt so a later quote of that
    message can show a media placeholder.
 5. A reply or selected quote goes through the shared
    `storage.service.inbound_quote` formatter: `> [Quoted assistant]: …` for a

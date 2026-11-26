@@ -77,11 +77,13 @@ then the same SSH-push fallback as images. The stored path is not an image
 block. `Message.files` carries it, and both the launch prompt and a mid-turn
 steer append one line per file: `[attached file] <name> (<mime>) at <path>`.
 The cap is 20 MB (pre-checked from `file_size`, re-checked on the downloaded
-bytes). Executable and installer suffixes are rejected. Oversize, blocked, and
-failed transfers get a clear Telegram reply instead of a silent drop. A file
-whose route (`/<chat_id>` or `/<todo_id>`) lands on a jump node is rejected
-the same way, because that node cannot read the EC2 asset path. Web rendering
-of `Message.files` is owned by [chat-core](chat-core.md).
+bytes). Any file type is accepted: the shared inbound document helpers no
+longer filter executable or installer suffixes, so WeChat inbound files behave
+the same way. Oversize, blocked, and failed transfers get a clear Telegram
+reply instead of a silent drop. A file whose route (`/<chat_id>` or
+`/<todo_id>`) lands on a jump node is rejected the same way, because that node
+cannot read the EC2 asset path. Web rendering of `Message.files` is owned by
+[chat-core](chat-core.md).
 
 The `tg_topic` binding table, its repository/service/entity/DTO/API
 registration, forum-topic auto-discovery, thread lookup, and General-topic
