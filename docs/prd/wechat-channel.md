@@ -327,7 +327,17 @@ Inbound:
    resolved against the stored body with the client's `quotemd5`; a miss falls
    back to the full body. A quote whose content is gone, foreign, or from
    another peer becomes `[Quoted earlier message: content unavailable]`, never a
-   silent drop and never another peer's text.
+   silent drop and never another peer's text. Media classification is
+   type-first: an explicit `type` wins (`1` is text even beside an empty media
+   stub, `2` through `5` are image / voice / file / video, any other non-text
+   type is an attachment), and only a zero or absent `type` falls back to the
+   payload key (`image_item` / `voice_item` / `file_item` / `video_item`),
+   where an empty stub counts as absent. So a quoted attachment still renders
+   `[image]` or `[file: <name>]`, and any other non-text payload stays
+   `[attachment]`. The bridge prints one content-free `bridge shape` line per
+   quoted or media message: item type and present key names, plus a nested
+   `ref_msg` block with its keys and its `message_item` type and payload keys,
+   never a value.
 6. Text that starts with `/<chat_id> ` or `/<todo_id> ` goes to that peer
    owner's chat through `accept_user_message` with `source="wechat"` and
    `human_reply=True`. A todo prefix resolves through the shared

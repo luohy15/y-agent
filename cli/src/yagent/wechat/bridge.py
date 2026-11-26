@@ -2,6 +2,7 @@ import fcntl
 import json
 import os
 import re
+import sys
 import tempfile
 import time
 from contextlib import contextmanager, suppress
@@ -47,6 +48,8 @@ def save(path, state):
 
 
 _MEDIA_KINDS = {2: "image", 3: "voice", 4: "file", 5: "video"}
+_PAYLOAD_KINDS = (("image_item", "image"), ("voice_item", "voice"),
+                  ("file_item", "file"), ("video_item", "video"))
 _TEXT_LIMIT = 64000
 _NAME_LIMIT = 1024
 _ID_LIMIT = 256
@@ -69,22 +72,95 @@ def _id_clip(value):
     return _clip(str(value), _ID_LIMIT)
 
 
+def _present(value):
+    """A `None` or empty-dict payload is absent; `0` and `""` stay present."""
+    return value is not None and value != {}
+
+
+def _payload_keys(item):
+    """Present `*_item` payload keys, excluding the text body."""
+    return sorted(key for key, value in item.items()
+                  if key.endswith("_item") and key != "text_item" and _present(value))
+
+
 def _item_media(item):
-    """`(media_kind, media_name)` for a non-text item, else `(None, None)`."""
-    kind = _MEDIA_KINDS.get(item.get("type"))
+    """`(media_kind, media_name)` for one inbound item.
+
+    An explicit `type` wins: `1` is text even beside an empty media stub, `2`
+    through `5` are image / voice / file / video, and any other non-text type
+    is an attachment. Only a zero or absent `type` falls back to the payload
+    key, because live clients quote media without a type; an empty stub does
+    not count, and any other non-text payload stays an attachment.
+    """
+    if not isinstance(item, dict):
+        return None, None
+    item_type = item.get("type")
+    if item_type == 1:
+        return None, None
+    kind = _MEDIA_KINDS.get(item_type)
     if not kind:
-        return ("attachment", None) if item.get("type") not in (None, 1) else (None, None)
+        if item_type not in (None, 0):
+            return "attachment", None
+        kind = next((name for key, name in _PAYLOAD_KINDS if _present(item.get(key))), None)
+        if not kind:
+            return ("attachment", None) if _payload_keys(item) else (None, None)
     if kind == "file":
-        return kind, _clip((item.get("file_item") or {}).get("file_name"), _NAME_LIMIT)
+        file_item = item.get("file_item")
+        if not isinstance(file_item, dict):
+            file_item = {}
+        name = (_clip(file_item.get("file_name"), _NAME_LIMIT)
+                or _clip(file_item.get("name"), _NAME_LIMIT))
+        return kind, name
     return kind, None
 
 
 def _item_text(item):
     """Inline text: a text item's body, else a voice item's transcript."""
-    text = (item.get("text_item") or {}).get("text")
+    if not isinstance(item, dict):
+        return None
+    text_item = item.get("text_item")
+    text = text_item.get("text") if isinstance(text_item, dict) else None
     if not isinstance(text, str) or not text.strip():
-        text = (item.get("voice_item") or {}).get("text")
+        voice_item = item.get("voice_item")
+        text = voice_item.get("text") if isinstance(voice_item, dict) else None
     return _clip(text, _TEXT_LIMIT)
+
+
+def _shape(item):
+    """Diagnostic shape of one item: type, present keys and payload keys."""
+    shape = {"type": item.get("type"),
+             "keys": sorted(key for key, value in item.items() if value is not None)}
+    payload = _payload_keys(item)
+    if payload:
+        shape["payload"] = payload
+    return shape
+
+
+def _ref_shape(item):
+    """One quoted reference: `ref_msg` keys and its message item shape."""
+    ref = item["ref_msg"]
+    shape = {"keys": sorted(key for key, value in ref.items() if value is not None)}
+    message_item = ref.get("message_item")
+    if isinstance(message_item, dict) and message_item:
+        shape["item"] = {"type": message_item.get("type"),
+                         "keys": sorted(key for key, value in message_item.items()
+                                        if value is not None)}
+        payload = _payload_keys(message_item)
+        if payload:
+            shape["payload"] = payload
+    return shape
+
+
+def _log_shape(items):
+    """One content-free journald line per quoted or media message."""
+    refs = [_ref_shape(item) for item in items
+            if isinstance(item, dict) and isinstance(item.get("ref_msg"), dict) and item["ref_msg"]]
+    media = [_shape(item) for item in items
+             if isinstance(item, dict) and _item_media(item)[0] is not None]
+    if not refs and not media:
+        return
+    print("bridge shape", json.dumps({"refs": refs, "media": media}, ensure_ascii=False),
+          file=sys.stderr, flush=True)
 
 
 def _partial_text(value):
@@ -119,15 +195,19 @@ def _quote(item):
     selected-substring payload; `svr_id` is forwarded even when the newer
     client omits the content.
     """
-    ref = item.get("ref_msg") or {}
-    if not ref:
+    if not isinstance(item, dict):
         return None
-    message_item = ref.get("message_item") or {}
+    ref = item.get("ref_msg")
+    if not isinstance(ref, dict) or not ref:
+        return None
+    message_item = ref.get("message_item")
+    if not isinstance(message_item, dict):
+        message_item = {}
     body = _item_text(message_item)
     title = _clip(ref.get("title"), _TEXT_LIMIT)
     media_kind, media_name = _item_media(message_item)
     quote = {}
-    svr_id = _id_clip(ref.get("svr_id"))
+    svr_id = _id_clip(ref.get("svr_id")) or _id_clip(message_item.get("msg_id"))
     if svr_id:
         quote["svr_id"] = svr_id
     if body:
@@ -150,29 +230,35 @@ def inbound(msg, account):
     if not msg.get("from_user_id") or msg.get("message_id") is None:
         raise ValueError("Missing provider message identity")
     items = msg.get("item_list") or []
+    _log_shape(items)
     texts = []
     quote = None
     media_kind, media_name = None, None
+    media = not items
     for item in items:
+        if not isinstance(item, dict):
+            continue
         if quote is None:
             quote = _quote(item)
-        if item.get("type") == 1:
-            texts.append((item.get("text_item") or {}).get("text", ""))
-            continue
-        if item.get("type") == 3:
-            # Keep a voice transcript so an ID-only quote of this message still
-            # shows it; the message itself stays a media notice.
-            texts.append(_item_text(item) or "")
+        kind, name = _item_media(item)
+        if kind is not None:
+            media = True
             if media_kind is None:
-                media_kind, media_name = _item_media(item)
+                media_kind, media_name = kind, name
+            if kind == "voice":
+                # Keep a voice transcript so an ID-only quote of this message
+                # still shows it; the message itself stays a media notice.
+                transcript = _item_text(item)
+                if transcript:
+                    texts.append(transcript)
             continue
-        if media_kind is None:
-            media_kind, media_name = _item_media(item)
+        text = _item_text(item)
+        if text:
+            texts.append(text)
     text = "\n".join(texts)[:_TEXT_LIMIT]
     return {"peer": msg["from_user_id"], "message_id": str(msg["message_id"]),
             "context_token": msg.get("context_token"), "text": text,
-            "media": not items or any(item.get("type") != 1 for item in items),
-            "media_kind": media_kind, "media_name": media_name, "quote": quote}
+            "media": media, "media_kind": media_kind, "media_name": media_name, "quote": quote}
 
 
 def run(path):
