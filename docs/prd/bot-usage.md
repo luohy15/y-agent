@@ -139,9 +139,11 @@ later delivery.
    without me remembering to trigger it.
 6. As a user, I want a manual CLI command to trigger the same sync on demand,
    so that I can refresh the data immediately after heavy usage.
-7. As a web user, I want a refresh button on the usage view that triggers the
-   sync and then revalidates the panel, so that I can see up-to-the-minute
-   numbers without leaving the page.
+7. As a web user, I want the usage view to revalidate itself in the background
+   through the same sync (the five-minute schedule, plus a non-blocking sync
+   when Live opens or regains focus), so that the numbers stay current without
+   a manual control on the page and the CLI sync command remains the only
+   explicit on-demand trigger.
 8. As a user, I want usage dates stamped in my configured local timezone,
    matching the relay's own day boundaries, so that "today" in y-agent and
    "today" on the relay dashboard agree.
@@ -203,7 +205,7 @@ later delivery.
     it is fresh or stale, so that an old successful probe is never mistaken for
     current capacity.
 22. As a web user, I want a manual refresh control for limit-window status
-    that is separate from the spend-data refresh and that actually performs a
+    that is separate from the spend sync and that actually performs a
     fresh read rather than replaying a cached result, so that retrying after a
     failure is meaningful and checking headroom never triggers an unrelated
     spend sync.
@@ -912,9 +914,13 @@ later delivery.
   buckets, so both systems agree on day boundaries.
 - **Triggers.** Three, all through the same service function: a scheduled
   worker-Lambda action every five minutes (`rate(5 minutes)`, todo 4465; before
-  that an hourly cron at minute 50); a CLI sync command; and an authenticated
-  API sync endpoint used by the web Live panel, which returns the sync result
-  envelope so the panel can revalidate afterward. Each run pulls daily for today
+  that an hourly cron at minute 50); the `y usage sync` CLI command, the only
+  explicit on-demand path; and an authenticated API sync endpoint that the web
+  Live panel calls in the background on open and on focus / visibility return,
+  returning the sync result envelope so the panel revalidates stored rows
+  silently. The web view has no refresh button: the background call is
+  non-blocking, a failure shows nothing and keeps the cached rows, and the
+  five-minute schedule is its backstop. Each run pulls daily for today
   and hourly for `[yesterday, today]`, and recomputes the non-relay agy grains;
   the envelope reports one result per grain (`crs`, `crs-hourly`, `agy`).
 - **Stale-gated refresh (`if_stale_seconds`, todo 4465).** The API sync accepts
@@ -924,8 +930,8 @@ later delivery.
   marker is the `user_preference` key `model_usage_sync`
   (`{"last_synced_at": <ISO8601 UTC>}`), stamped when a CRS batch starts so a
   failing relay also cools down. Every sync envelope carries `last_synced_at`.
-  This lets the Live panel fire a non-blocking background refresh on open
-  without repeating the relay calls the 5-minute schedule already made.
+  This lets the Live panel fire a non-blocking background refresh on open or
+  focus without repeating the relay calls the 5-minute schedule already made.
 - **agy closeout rollup (todo 4465).** After writing a completed agy turn the
   worker also calls `sync_backend(user_id, "agy")` best-effort, so `neon` shows
   up in Live immediately and even while the relay is unreachable. The 5-minute
@@ -1668,7 +1674,7 @@ later delivery.
   stable `backend`/`provider` identifiers, never from display text. Provider
   failures are isolated, the envelope's error list shows as a partial-read
   badge, and the limit refresh control is visually and behaviorally separate
-  from spend refresh.
+  from the automatic spend sync (the spend view has no refresh button).
 - **Live visual roles (todo 4152).** Follow D10–D15 in
   [Design Language](design-language.md): one canvas, hairline sections with 16px
   gaps and 12px top padding, `text-xs font-medium uppercase tracking-wide`
@@ -1926,7 +1932,7 @@ later delivery.
   with one unique row per tuple. Recompute replaces one chat's derived facts in
   one transaction; each incremental pass replaces every changed chat, sweeps
   deleted-chat orphans, and advances its chat-update watermark atomically, with
-  an overlap on the next pass. The hourly `sync_model_usage` worker and
+  an overlap on the next pass. The five-minute `sync_model_usage` worker and
   `POST /api/usage/sync` both run that pass for the caller. The web envelope
   adds `activity` with the activity result. An activity failure stays isolated:
   usage results are still returned and `activity` is `{status: error, rows: 0}`.
