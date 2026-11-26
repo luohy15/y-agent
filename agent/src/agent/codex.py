@@ -772,13 +772,16 @@ def _stage_model_catalog(client, cmd: List[str], chat_id: str, catalog_text: str
     cmd.extend(["-c", f'model_catalog_json="{path}"'])
 
 
-def _codex_restore_archive_cmd(thread_id: str) -> str:
+def _codex_restore_archive_cmd(thread_id: str, codex_home: Optional[str] = None) -> str:
     """Best-effort restore of a resumed thread's rollout from the node backup.
 
     The default node's backup preserves the rollout's YYYY/MM/DD path. Nodes
-    without that archive no-op; isolated launches retain their CODEX_HOME.
+    without that archive no-op. ``codex_home`` pins the destination home for a
+    command that runs outside the launch environment (exam isolation); the exec
+    harness leaves it unset and keeps relying on the launch's own CODEX_HOME.
     """
-    return (
+    prefix = f"CODEX_HOME={_shell_quote(codex_home)}; " if codex_home else ""
+    return prefix + (
         f"_y_archive={_shell_quote(CODEX_ARCHIVE_ROOT)}; "
         f"_y_src=$(find \"$_y_archive\" -type f -name {_shell_quote('*-' + thread_id + '.jsonl')} "
         "-print -quit 2>/dev/null); "
@@ -1027,9 +1030,22 @@ def _app_server_build_exec(cmd: List[str], chat_id: str, prompt: str,
     )
 
 
+def _app_server_stop_stdin_cmd(chat_id: str) -> str:
+    """Stop the stdin producer so app-server sees EOF and exits cleanly.
+
+    Used when the two-phase launch could not observe a thread id: a live but
+    turn-less app-server would otherwise wait on the pipe until the hard
+    timeout. app-server flushes any pending JSON-RPC error first, so the tail
+    still reads a refusal written before EOF.
+    """
+    tail_pattern = _shell_quote(f"^tail -f -n \\+1 /tmp/cc-{chat_id}\\.stdin$")
+    return f"pkill -f {tail_pattern} 2>/dev/null || true"
+
+
 def _codex_app_server_spec(*, thread_id: Optional[str], cwd: Optional[str],
                            model: Optional[str], input_uuid: Optional[str],
                            stage_home: bool = True,
+                           launch_env: Optional[Dict[str, str]] = None,
                            model_catalog: Optional[Tuple[List[str], str]] = None) -> "DetachBackendSpec":
     """Launch hooks for one app-server turn (fresh or resumed)."""
     from agent.detach import DetachBackendSpec
@@ -1043,7 +1059,10 @@ def _codex_app_server_spec(*, thread_id: Optional[str], cwd: Optional[str],
         if stage_home:
             home["path"] = _stage_app_server_home(client, chat_id)
         if thread_id:
-            _ssh_exec(client, _codex_restore_archive_cmd(thread_id))
+            # This command runs outside the launch environment, so the home is
+            # pinned explicitly (the staged home or the exam CODEX_HOME).
+            codex_home = (launch_env or {}).get("CODEX_HOME") or home.get("path")
+            _ssh_exec(client, _codex_restore_archive_cmd(thread_id, codex_home=codex_home))
         _app_server_write_stdin(
             client, chat_id,
             build_codex_app_server_launch(thread_id, cwd, model),
@@ -1052,8 +1071,9 @@ def _codex_app_server_spec(*, thread_id: Optional[str], cwd: Optional[str],
     def after_initial(client, chat_id, prompt, images, initial_id):
         if not initial_id:
             logger.warning(
-                "codex app-server thread id not observed chat_id={}; turn not started", chat_id,
+                "codex app-server thread id not observed chat_id={}; stopping stdin", chat_id,
             )
+            _ssh_exec(client, _app_server_stop_stdin_cmd(chat_id))
             return
         _app_server_append_stdin(
             client, chat_id,
@@ -1108,13 +1128,18 @@ async def start_detached_codex_ssh(
 
     app_server = (harness or "").strip().lower() == CODEX_APP_SERVER_HARNESS
     build_catalog = bool(model) and bool(context_window)
+    if app_server and not exam_isolation:
+        # app-server has no --ignore-user-config: the staged home *is* the
+        # isolation, so it must reach the process through the launch env.
+        env = dict(env or {})
+        env["CODEX_HOME"] = codex_app_server_home(chat_id)
 
     def spec_for(catalog=None):
         if app_server:
             return _codex_app_server_spec(
                 thread_id=resume_thread_id, cwd=cwd, model=model,
                 input_uuid=input_uuid, stage_home=not exam_isolation,
-                model_catalog=catalog,
+                launch_env=env, model_catalog=catalog,
             )
         return _codex_spec(catalog)
 
@@ -1508,7 +1533,7 @@ def app_server_item_event(method: str, item: Dict) -> Optional[Dict]:
         return {"type": "item.completed", "item": payload}
 
     if item_type == "fileChange":
-        changes = item.get("changes") if isinstance(item.get("changes"), list) else []
+        changes = _app_server_file_changes(item)
         payload: Dict = {"id": item_id, "type": "file_change", "changes": changes}
         if method == "item/started":
             payload["status"] = "in_progress"
@@ -1518,13 +1543,37 @@ def app_server_item_event(method: str, item: Dict) -> Optional[Dict]:
         payload["status"] = item.get("status")
         diffs = [
             change.get("diff") for change in changes
-            if isinstance(change, dict) and isinstance(change.get("diff"), str) and change.get("diff")
+            if isinstance(change.get("diff"), str) and change.get("diff")
         ]
         if diffs:
             payload["diff"] = "\n".join(diffs)
         return {"type": "item.completed", "item": payload}
 
     return None
+
+
+def _app_server_file_changes(item: Dict) -> List[Dict]:
+    """Normalize v2 `FileUpdateChange` entries into the exec-shaped changes list.
+
+    v2 `PatchChangeKind` is a tagged object (`{"type": "update", ...}`), while
+    the exec item carries the kind as a string. The tagged payload is replaced
+    by its type so the converter's summary renders `update <path>`, not the
+    raw dict.
+    """
+    raw = item.get("changes")
+    changes = raw if isinstance(raw, list) else []
+    normalized = []
+    for change in changes:
+        if not isinstance(change, dict):
+            continue
+        entry = dict(change)
+        kind = entry.get("kind")
+        if isinstance(kind, dict):
+            entry["kind"] = kind.get("type") or "change"
+        elif not isinstance(kind, str):
+            entry["kind"] = entry.get("type") if isinstance(entry.get("type"), str) else "change"
+        normalized.append(entry)
+    return normalized
 
 
 def app_server_turn_event(turn: Dict, usage: Optional[Dict]) -> Optional[Dict]:
@@ -1565,13 +1614,28 @@ def _missing_rollout_stderr_line(thread_id: str) -> str:
     )
 
 
-def _app_server_pending(state: Dict) -> dict:
-    """Handoff state: the ids and thread total a re-attached tail must keep."""
+def _app_server_request_id(value) -> bool:
+    """JSON-RPC `RequestId` is a string or an int64; bool is never an id."""
+    return isinstance(value, str) or (isinstance(value, int) and not isinstance(value, bool))
+
+
+def _app_server_pending(state: Dict, terminal_status: Optional[str] = None,
+                        result_data=None, extra_view: Optional[Dict] = None) -> dict:
+    """Handoff state: ids, thread total and any terminal turn already observed.
+
+    A cancellation can land after the reader handled `turn/completed` (or a
+    fatal request error) but before teardown. Carrying the terminal status and
+    its result lets the next invocation tear the long-lived app-server down
+    instead of tailing past the terminal line into the hard timeout.
+    """
     return {
         "type": APP_SERVER_PENDING_TYPE,
         "thread_id": state.get("thread_id"),
         "turn_id": state.get("turn_id"),
         "usage": state.get("usage"),
+        "terminal_status": terminal_status,
+        "result_data": result_data,
+        "extra_view": dict(extra_view or {}),
     }
 
 
@@ -1626,21 +1690,29 @@ async def tail_codex_app_server_output(
     if isinstance(session_id, str) and session_id:
         state["thread_id"] = session_id
     carried = pending_result if isinstance(pending_result, dict) else None
+    terminal_status: Optional[str] = None
+    extra_view: Dict = {}
+    restored_result = None
     if carried and carried.get("type") == APP_SERVER_PENDING_TYPE:
         for key in ("thread_id", "turn_id", "usage"):
             value = carried.get(key)
             if value is not None:
                 state[key] = value
+        restored_terminal = carried.get("terminal_status")
+        if isinstance(restored_terminal, str) and restored_terminal:
+            terminal_status = restored_terminal
+            restored_result = carried.get("result_data")
+            carried_view = carried.get("extra_view")
+            if isinstance(carried_view, dict):
+                extra_view.update(carried_view)
         carried = None
     if state["thread_id"]:
         converter.thread_id = state["thread_id"]
 
-    result_data = carried
+    result_data = restored_result if terminal_status is not None else carried
     current_offset = offset
     stream_error = None
     poll = None
-    terminal_status: Optional[str] = None
-    extra_view: Dict = {}
     # Guards the steer write and the terminal teardown: a steer must never be
     # appended after the session was torn down.
     steer_lock = threading.RLock()
@@ -1661,7 +1733,10 @@ async def tail_codex_app_server_output(
             "input_groups": ledger.groups,
             "lifecycle_observed": ledger.lifecycle_observed,
             "has_usable_output": converter.has_usable_output,
-            "pending_result": None if is_done else _app_server_pending(state),
+            "pending_result": (None if is_done else _app_server_pending(
+                state, terminal_status=terminal_status, result_data=data,
+                extra_view=extra_view,
+            )),
         }
         view.update(extra_view)
         return view
@@ -1707,12 +1782,16 @@ async def tail_codex_app_server_output(
         if item.get("type") != "userMessage":
             return
         client_id = item.get("clientId")
-        if not isinstance(client_id, str) or client_id not in ledger.groups:
+        if not isinstance(client_id, str):
             return
-        if client_id == launch_input_uuid:
-            # The folded launch prompt retires on turn/completed.
-            return
+        # The lock is the ordering point: `_on_steer` marks the write submitted
+        # while holding it, so a fast response/item cannot miss the group.
         with steer_lock:
+            if client_id not in ledger.groups:
+                return
+            if client_id == launch_input_uuid:
+                # The folded launch prompt retires on turn/completed.
+                return
             ledger.observe_lifecycle({"state": "completed", "command_uuid": client_id})
 
     def _handle_response(request_id: str, result, error) -> Optional[str]:
@@ -1740,11 +1819,13 @@ async def tail_codex_app_server_output(
         if request_id == APP_TURNS_LIST_ID:
             _handle_turns_list(result)
             return None
-        if request_id in ledger.groups:
+        with steer_lock:
+            # Same ordering rule as the item completion: the response may be
+            # read before the steer write's SSH exit status returns.
+            if request_id not in ledger.groups:
+                return None
             state_name = "queued" if error is None else "refused"
-            with steer_lock:
-                ledger.observe_lifecycle({"state": state_name, "command_uuid": request_id})
-            return None
+            ledger.observe_lifecycle({"state": state_name, "command_uuid": request_id})
         return None
 
     def _handle_notification(method: str, params: Dict) -> Optional[str]:
@@ -1763,9 +1844,10 @@ async def tail_codex_app_server_output(
                 state["turn_id"] = turn_id
             return None
         if method == "thread/tokenUsage/updated":
-            # A resume replays the previous turn's notification; only the
-            # current turn's total may feed this turn's usage.
-            if state["turn_id"] and params.get("turnId") != state["turn_id"]:
+            # A resume replays the previous turn's notification before
+            # `turn/started`, so a missing turn id must not consume it: only
+            # the current turn's total may feed this turn's usage.
+            if not state["turn_id"] or params.get("turnId") != state["turn_id"]:
                 return None
             token_usage = params.get("tokenUsage") if isinstance(params.get("tokenUsage"), dict) else {}
             usage = app_server_usage(token_usage.get("total"))
@@ -1818,7 +1900,7 @@ async def tail_codex_app_server_output(
 
     def _handle_message(obj: Dict) -> Optional[str]:
         request_id = obj.get("id")
-        if isinstance(request_id, str) and isinstance(obj.get("method"), str):
+        if _app_server_request_id(request_id) and isinstance(obj.get("method"), str):
             # A server-to-client request (approval / elicitation / auth). None
             # are expected under the staged policy; refuse rather than stall.
             logger.warning(
@@ -1835,6 +1917,14 @@ async def tail_codex_app_server_output(
             return None
         if isinstance(request_id, str) and ("result" in obj or obj.get("error") is not None):
             return _handle_response(request_id, obj.get("result"), obj.get("error"))
+        if not isinstance(obj.get("method"), str):
+            # The shared launcher writes its own error lines into the same
+            # stdout file (e.g. the missing-work-dir result). Surface them
+            # instead of letting the process death hide the cause.
+            if obj.get("type") == "result" and obj.get("is_error"):
+                return _end_error(obj.get("result"))
+            if obj.get("type") == "error" and isinstance(obj.get("message"), str):
+                return _end_error(obj.get("message"))
         method = obj.get("method")
         if isinstance(method, str):
             params = obj.get("params") if isinstance(obj.get("params"), dict) else {}
@@ -1937,6 +2027,17 @@ async def tail_codex_app_server_output(
 
         def _read_lines():
             nonlocal current_offset, stream_error, torn_down
+            if terminal_status is not None:
+                # A handoff carried a terminal turn (the cancellation landed
+                # after `turn/completed` was handled but before teardown was
+                # safe): tear the long-lived app-server down before tailing,
+                # instead of following stdout past the terminal line.
+                with steer_lock:
+                    if reader_stop.is_set():
+                        return "deadline"
+                    torn_down = True
+                    _teardown_session()
+                return None
             try:
                 for raw_line in stdout_ch:
                     if reader_stop.is_set():

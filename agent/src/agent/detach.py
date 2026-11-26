@@ -487,6 +487,13 @@ async def _start_detached_tmux(
             try:
                 spec.after_initial(client, chat_id, prompt, exec_images, initial_id)
             except Exception:
+                # The session was already started in step 4. A failed follow-up
+                # must kill it (and its stdin pipe), then run the backend
+                # cleanup, so no unreported process is left behind.
+                try:
+                    _ssh_exec(client, _tmux_kill_cmd(chat_id, node=node))
+                except Exception:
+                    pass
                 if spec.cleanup:
                     _ssh_exec(client, spec.cleanup())
                 raise

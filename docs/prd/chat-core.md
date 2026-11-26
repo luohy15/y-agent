@@ -369,9 +369,11 @@ mode (`-i`) serves a human at a terminal.
     and keeps that session resumable, and it still pins a chat away from the
     inline query backends. A codex chat stores the Codex thread id; a pi chat
     stores its pi session id; an agy chat stores its Antigravity conversation id. Pi accepts a mid-turn `steer` command on its RPC stdin pipe and keeps the same native session.
-    `codex exec` has no live input channel: a message sent while that turn is
-    running ends the turn, and the same thread resumes with that message as
-    the next prompt (the chat-steer PRD owns the delivery mechanics). The bot
+    A Codex chat steers in place on the `Y_CODEX_HARNESS=app-server` harness
+    (`turn/steer`). On the default `codex exec` harness it has no live input
+    channel: a message sent while that turn is running ends the turn, and the
+    same thread resumes with that message as the next prompt (the chat-steer
+    PRD owns the delivery mechanics). The bot
     itself is not pinned: a chat runs on its own bot until a later message
     names a different one, and that bot change is honored (bot name and tier
     follow it) when the name resolves to a runnable bot on the chat's
@@ -733,7 +735,11 @@ mode (`-i`) serves a human at a terminal.
     thread id <attempted id> (code -32600)`, with exit code 1 and no usable
     stdout. A generic exit 1, an auth failure, a bad model, a missing binary
     or work dir, a timeout, SIGTERM/SIGKILL, or text the assistant wrote do
-    not qualify. The retry reuses the same pending input, skill preamble,
+    not qualify. The Codex app-server harness feeds the same gate: its
+    `thread/resume` `-32600` "no rollout found for thread id <id>" is mapped
+    to that stderr shape before the decision, so the evidence rule does not
+    depend on which harness produced the launch.
+    The retry reuses the same pending input, skill preamble,
     node, cwd, provider, model, effort and trace. The transcript is kept, and
     one assistant note says native continuity was lost. Only that same refused
     id is cleared, and only for the current run; a newer id is left alone. A
