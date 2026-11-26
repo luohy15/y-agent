@@ -309,9 +309,6 @@ async def telegram_webhook(request: Request):
                 await _send_message(telegram_chat_id, f"chat /{route.ref} not found")
                 return {"ok": True}
         elif route.kind == "todo":
-            if not route.body.strip():
-                await _send_message(telegram_chat_id, usage_notice(route.ref))
-                return {"ok": True}
             target_chat, notice = await resolve_todo_route(user.id, route.ref)
             if target_chat is None:
                 await _send_message(telegram_chat_id, notice)
@@ -326,8 +323,10 @@ async def telegram_webhook(request: Request):
         except VoiceRejected as exc:
             await _send_message(telegram_chat_id, voice_notice(exc.code, "telegram"))
             return {"ok": True}
-        except Exception:
-            logger.exception("telegram voice failed")
+        except Exception as exc:
+            # diagnose=True would dump the message/voice locals; log only the
+            # exception type so no caption, file id or token reaches the log.
+            logger.error("telegram voice failed: {}", type(exc).__name__)
             await _send_message(telegram_chat_id, voice_notice("unavailable", "telegram"))
             return {"ok": True}
         body = transcript
@@ -489,8 +488,8 @@ async def _download_telegram_document(document: dict, *, vm_config=None):
                 resp.content, filename, prefix="telegram", vm_config=vm_config,
             )
             return saved, None
-    except Exception as e:
-        logger.exception("telegram document download error: {}", e)
+    except Exception as exc:
+        logger.error("telegram document download error: {}", type(exc).__name__)
         return None, "download_failed"
 
 
@@ -509,6 +508,11 @@ def _voice_fetcher(voice: dict):
         file_id = voice.get("file_id")
         if not file_id or not TELEGRAM_BOT_TOKEN:
             raise VoiceRejected("download_failed")
+        # getFile is a round-trip of its own; reject a declared oversize note
+        # before it when Telegram already told us the byte count.
+        declared = voice.get("file_size")
+        if type(declared) is int and declared > max_bytes:
+            raise VoiceRejected("too_large")
         try:
             async with httpx.AsyncClient(
                 follow_redirects=False, timeout=httpx.Timeout(20, connect=15),
@@ -535,8 +539,10 @@ def _voice_fetcher(voice: dict):
                     return bytes(data)
         except VoiceRejected:
             raise
-        except Exception:
-            logger.exception("telegram voice download failed")
+        except Exception as exc:
+            # The frame holds file_url, which contains the bot token; loguru's
+            # diagnose=True would print it, so log only the exception type.
+            logger.error("telegram voice download failed: {}", type(exc).__name__)
             raise VoiceRejected("download_failed") from None
 
     return fetch
@@ -569,8 +575,8 @@ async def _download_telegram_photos(photo_sizes: list, *, vm_config=None) -> Lis
             ext = file_path.rsplit(".", 1)[-1] if "." in file_path else "jpg"
             saved_path = _save_telegram_image(resp.content, ext, file_id, vm_config=vm_config)
             return [str(saved_path)]
-    except Exception as e:
-        logger.exception("telegram photo download error: {}", e)
+    except Exception as exc:
+        logger.error("telegram photo download error: {}", type(exc).__name__)
         return []
 
 

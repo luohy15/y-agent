@@ -517,8 +517,10 @@ async def _inbound_media(media_handler, user_id, chat, items):
     try:
         images, files, transcript, notices = await media_handler(
             user_id=user_id, chat=chat, items=items)
-    except Exception:
-        logger.exception("wechat inbound media failed")
+    except Exception as exc:
+        # The descriptors carry CDN URLs and AES keys; loguru's default
+        # diagnose=True would dump them, so log only the exception type.
+        logger.error("wechat inbound media failed: {}", type(exc).__name__)
         return [], [], None, ["Could not download that attachment from WeChat. Nothing was saved."]
     images = list(images or [])
     files = list(files or [])

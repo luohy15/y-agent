@@ -68,8 +68,10 @@ async def process_inbound_voice(
         data = await fetch(max_bytes=MAX_VOICE_BYTES)
     except VoiceRejected:
         raise
-    except Exception:
-        logger.exception("inbound voice download failed")
+    except Exception as exc:
+        # loguru's default diagnose=True dumps frame locals: never log the
+        # fetch closure, descriptor or exception, which carry CDN URLs/keys.
+        logger.error("inbound voice download failed: {}", type(exc).__name__)
         raise VoiceRejected("download_failed") from None
     pcm, decoded_ms = await asyncio.to_thread(transcode, data)
     return await _transcribe(user_id, pcm, decoded_ms, label)
@@ -100,6 +102,7 @@ def _require_node(user_id, chat):
 def _require_module(user_id):
     from api.controller.module import default_owner_user_id
     from api.module_runtime import loader
+    from api.module_runtime.errors import ModuleDisabledError
 
     try:
         owner = default_owner_user_id()
@@ -108,8 +111,13 @@ def _require_module(user_id):
         version = loader.resolve_active_version(owner, MODULE_SLUG)
     except VoiceRejected:
         raise
-    except Exception:
-        logger.exception("inbound voice rejected: voice module is unavailable")
+    except ModuleDisabledError:
+        # The dispatcher answers 403 for a disabled module; keep the notice
+        # identical and stay quiet instead of logging a scary traceback.
+        raise VoiceRejected("forbidden") from None
+    except Exception as exc:
+        logger.error("inbound voice rejected: voice module is unavailable ({})",
+                     type(exc).__name__)
         raise VoiceRejected("unavailable") from None
     if user_id != owner and version.dispatch_scope != "authenticated":
         raise VoiceRejected("forbidden")

@@ -107,8 +107,10 @@ async def handle_media(*, user_id, chat, items):
                 images.append(_save_image(content, suffix, user_id))
             except (MediaRejected, ImageRejected) as exc:
                 notices.append(_reject_notice(IMAGE, exc.code))
-            except Exception:
-                logger.exception("wechat inbound image failed")
+            except Exception as exc:
+                # loguru diagnose=True dumps locals (the descriptor carries CDN
+                # URLs and AES keys); log only the exception type.
+                logger.error("wechat inbound image failed: {}", type(exc).__name__)
                 notices.append(_store_notice(IMAGE))
         elif kind == FILE:
             if block:
@@ -125,8 +127,8 @@ async def handle_media(*, user_id, chat, items):
                 files.append(_save_file(data, item.get("file_name") or "file", user_id))
             except MediaRejected as exc:
                 notices.append(_reject_notice(FILE, exc.code))
-            except Exception:
-                logger.exception("wechat inbound file failed")
+            except Exception as exc:
+                logger.error("wechat inbound file failed: {}", type(exc).__name__)
                 notices.append(_store_notice(FILE))
         elif kind == VOICE:
             try:
@@ -136,8 +138,8 @@ async def handle_media(*, user_id, chat, items):
                 )
             except VoiceRejected as exc:
                 notices.append(gateway_voice.voice_notice(exc.code, "wechat"))
-            except Exception:
-                logger.exception("wechat inbound voice failed")
+            except Exception as exc:
+                logger.error("wechat inbound voice failed: {}", type(exc).__name__)
                 notices.append(gateway_voice.voice_notice("unavailable", "wechat"))
             else:
                 transcripts.append(transcript)

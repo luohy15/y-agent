@@ -59,7 +59,9 @@ def transcode(data):
         pcm = pcm[:-1]
     if not pcm:
         raise VoiceRejected("unsupported_type")
-    duration_ms = len(pcm) // _PCM_BYTES_PER_MS
+    # The voice module requires 1..120,000 ms; a valid sub-millisecond clip
+    # would otherwise finalize with 0 and be rejected there.
+    duration_ms = max(1, len(pcm) // _PCM_BYTES_PER_MS)
     if duration_ms > MAX_DURATION_MS:
         raise VoiceRejected("too_long")
     return pcm, duration_ms
@@ -86,8 +88,9 @@ def _check_silk_frames(data):
 
     A malformed length made the bundled decoder crash the whole Lambda, so the
     framing is validated here: every frame has a 2-byte length (payload only)
-    followed by that many bytes, and the chain ends exactly at EOF. Frame count
-    also proves duration without decoding.
+    followed by that many bytes, and the chain ends exactly at EOF (an optional
+    final 0xFFFF sentinel is accepted). Frame count also proves duration
+    without decoding.
     """
     position = 10 if data.startswith(_SILK[0]) else 9
     frames = 0
@@ -95,6 +98,13 @@ def _check_silk_frames(data):
         if position + 2 > len(data):
             raise VoiceRejected("unsupported_type")
         size = int.from_bytes(data[position:position + 2], "little")
+        if size == 0xFFFF:
+            # A standard SILK_V3 stream may end with a 2-byte EOF sentinel;
+            # pysilk handles it, but it is only valid at exact EOF.
+            if frames > 0 and position + 2 == len(data):
+                position += 2
+                break
+            raise VoiceRejected("unsupported_type")
         next_position = position + 2 + size
         if not 1 <= size <= 1024 or next_position > len(data):
             raise VoiceRejected("unsupported_type")
@@ -171,8 +181,10 @@ def _decode_ogg_opus(data):
         if channels == 2:
             decoded = _downmix(decoded)
         pcm.extend(decoded)
-        if len(pcm) > PCM_MAX_BYTES or len(pcm) // 2 > _MAX_PCM_SAMPLES:
+        if len(pcm) > PCM_MAX_BYTES:
             raise VoiceRejected("too_long")
+    # Header pre-skip padding is trimmed before the duration cap, so an exact
+    # 120 s note is not tripped by its decoder lookahead frames.
     trim = pre_skip * SAMPLE_RATE // _OPUS_RATE
     if trim:
         pcm = pcm[min(len(pcm), trim * 2):]
@@ -186,7 +198,11 @@ def _ogg_opus_packets(data):
         raise VoiceRejected("unsupported_type")
     head = packets[0]
     channels = head[9]
-    if channels not in (1, 2):
+    version = head[8]
+    mapping_family = head[18]
+    if channels not in (1, 2) or version >> 4 != 0 or mapping_family != 0:
+        raise VoiceRejected("unsupported_type")
+    if packets[1][:8] != b"OpusTags":
         raise VoiceRejected("unsupported_type")
     return (channels, int.from_bytes(head[10:12], "little")), packets[2:]
 
