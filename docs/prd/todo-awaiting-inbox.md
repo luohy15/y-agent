@@ -615,7 +615,7 @@ no polling, and no worker change. Status stays active. The watchdog is unchanged
 
 Agent notice is compact: one fixed heading line plus optional bounded context
 from the triggering event, written in Chinese. The heading is the literal
-label `【progress】` followed by the todo id, with no name and no space after
+label `【进度】` followed by the todo id, with no name and no space after
 the id. The notice text is a Chinese summary; stored `name` / `desc` /
 `--progress` stay English, so `y todo get` / `y todo list` and cross-session
 handoff reads are unaffected. There is still no literal `todo`, invented
@@ -623,7 +623,7 @@ review/question/stalled label, "needs you", or reply instruction. Missing
 context is valid: the notice is just the heading line.
 
 ```text
-【progress】<id>
+【进度】<id>
 [<中文摘要>]
 ```
 
@@ -664,7 +664,7 @@ parent-chat death dispatch and its manager text remain English.
 **No awaiting notice carries a reply instruction.** The notice names the
 todo; it never tells Roy where to type the answer, and it makes no
 distinction between a human-declared await and a fault claim. Shipped in
-`awaiting_notice_text`: the one-line `【progress】<id>` heading, then `extra`
+`awaiting_notice_text`: the one-line `【进度】<id>` heading, then `extra`
 when present, and nothing else. The chat pointer is not rendered by any
 writer.
 
@@ -716,6 +716,10 @@ though it is no longer expressed as a branch:
    templates and the death inbox prefix are localized; raw error excerpts and
    the parent-chat death dispatch stay English. `--note` on an already-awaiting
    row still sends no second DM.
+8. Todo 4481 follow-up changes only the heading label literal from
+   `【progress】` to `【进度】`, so the notice carries no English fragment.
+   The name stays dropped, the id still gets no space and no `todo` literal,
+   and every rule in step 7 is unchanged.
 
 ### Runtime death delivery
 

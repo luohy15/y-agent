@@ -410,7 +410,7 @@ def awaiting_notice_text(todo: Todo, extra: Optional[str] = None) -> str:
     sentence plus an optional raw error tail. It is never read back from a
     persisted reason field.
     """
-    lines = [f"【progress】{todo.todo_id}"]
+    lines = [f"【进度】{todo.todo_id}"]
     if extra:
         lines.append(extra[:FAULT_TEXT_LIMIT])
     return "\n".join(lines)
