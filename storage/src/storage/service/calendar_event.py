@@ -10,14 +10,20 @@ from storage.repository import todo as todo_repo
 from storage.util import generate_id, get_utc_iso8601_timestamp
 
 
+def _canonical_todo_id(user_id: int, todo_id: str) -> str:
+    """Resolve an owner todo_id or global_id to the stored numeric todo_id."""
+    todo = todo_repo.get_todo(user_id, todo_id)
+    return todo.todo_id if todo is not None else todo_id
+
+
 def _resolve_todo_id(user_id: int, todo_id: Optional[str]) -> Optional[str]:
-    """Validate todo_id exists and return it. Raises ValueError if not found."""
+    """Validate todo_id exists and return its canonical numeric id."""
     if todo_id is None:
         return None
     todo = todo_repo.get_todo(user_id, todo_id)
     if not todo:
         raise ValueError(f"Todo '{todo_id}' not found")
-    return todo_id
+    return todo.todo_id
 
 
 def _get_configured_tz():
@@ -163,6 +169,8 @@ def list_events(
     updated_from: Optional[str] = None,
     updated_to: Optional[str] = None,
 ) -> List[CalendarEvent]:
+    if todo_id is not None:
+        todo_id = _canonical_todo_id(user_id, todo_id)
     return event_repo.list_events(
         user_id, source=source, todo_id=todo_id,
         include_deleted=include_deleted, limit=limit, tag=tag,

@@ -34,6 +34,7 @@ def shared_row(todo, share_id: str, shared_at: str, owner_label: str) -> Dict:
     tags = list(todo.tags) if todo.tags is not None else None
     return {
         "share_id": share_id,
+        "global_id": todo.global_id,
         "name": todo.name,
         "desc": todo.desc,
         "status": todo.status,
@@ -219,7 +220,11 @@ def notify_share(recipient_id: int, owner_label: str, todo_name: str) -> bool:
 
 def revoke_share(owner_id: int, todo_id: str, to: str) -> Dict:
     recipient = lookup_recipient(owner_id, to, admit=False)
-    revoked = share_repo.revoke(owner_id, (todo_id or "").strip(), recipient.id)
+    token = (todo_id or "").strip()
+    todo = todo_repo.get_todo(owner_id, token)
+    if todo is not None:
+        token = todo.todo_id
+    revoked = share_repo.revoke(owner_id, token, recipient.id)
     if revoked is None:
         raise TodoShareError(404, "Share not found")
     return revoked

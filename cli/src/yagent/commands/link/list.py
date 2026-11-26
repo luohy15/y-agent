@@ -11,7 +11,7 @@ from yagent.time_util import _get_configured_tz
 @click.option('--query', '-q', default=None, help='Search by URL or title')
 @time_filter_options
 @click.option('--limit', '-l', default=10000, help='Max raw activities from API')
-@click.option('--todo', '-t', default=None, help='Filter by todo ID')
+@click.option('--todo', '-t', default=None, help='Filter by todo ID or global ID')
 @click.option('--downloaded/--not-downloaded', default=None, help='Filter by downloaded status')
 @click.option('--source', default=None, help='Filter by source channel: sync / rss / fetch')
 @click.option('--tag', default=None, help='Filter by tag')

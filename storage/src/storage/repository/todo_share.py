@@ -45,7 +45,10 @@ def get_pair(
 
 
 def find_live_incoming(recipient_id: int, todo_id: str) -> Optional[Dict]:
-    """Return the live grant a user received for a todo, or None."""
+    """Return the live grant a user received for a todo, or None.
+
+    Accepts the owner's numeric todo_id or the todo's global_id.
+    """
     with get_db() as session:
         row = (
             session.query(TodoShareEntity)
@@ -53,6 +56,17 @@ def find_live_incoming(recipient_id: int, todo_id: str) -> Optional[Dict]:
             .filter(TodoShareEntity.revoked_at.is_(None))
             .first()
         )
+        if row is None and todo_id:
+            row = (
+                session.query(TodoShareEntity)
+                .join(TodoEntity, _live_join())
+                .filter(
+                    TodoShareEntity.recipient_user_id == recipient_id,
+                    TodoShareEntity.revoked_at.is_(None),
+                    TodoEntity.global_id == todo_id,
+                )
+                .first()
+            )
         return _grant(row) if row else None
 
 
@@ -228,6 +242,7 @@ def find_live_incoming_item(recipient_id: int, kind: str, ref_id: str) -> Option
 
 
 def get_visible_incoming(recipient_id: int, share_id: str) -> Optional[Dict]:
+    """Return one live incoming grant by share_id, then by the todo's global_id."""
     with get_db() as session:
         row = (
             session.query(TodoShareEntity)
@@ -240,4 +255,16 @@ def get_visible_incoming(recipient_id: int, share_id: str) -> Optional[Dict]:
             )
             .first()
         )
+        if row is None and share_id:
+            row = (
+                session.query(TodoShareEntity)
+                .join(TodoEntity, _live_join())
+                .filter(
+                    TodoEntity.global_id == share_id,
+                    TodoShareEntity.recipient_user_id == recipient_id,
+                    TodoShareEntity.revoked_at.is_(None),
+                    TodoEntity.status != "deleted",
+                )
+                .first()
+            )
         return _grant(row) if row else None

@@ -5,7 +5,14 @@ from datetime import datetime, timezone
 from typing import List, Optional
 from storage.dto.reminder import Reminder
 from storage.repository import reminder as reminder_repo
+from storage.repository import todo as todo_repo
 from storage.util import generate_id, get_utc_iso8601_timestamp
+
+
+def _canonical_todo_id(user_id: int, todo_id: str) -> str:
+    """Resolve an owner todo_id or global_id to the stored numeric todo_id."""
+    todo = todo_repo.get_todo(user_id, todo_id)
+    return todo.todo_id if todo is not None else todo_id
 
 
 def _get_configured_tz():
@@ -44,6 +51,8 @@ def add_reminder(
     calendar_event_id: Optional[str] = None,
 ) -> Reminder:
     utc_remind_at = _local_to_utc(remind_at)
+    if todo_id is not None:
+        todo_id = _canonical_todo_id(user_id, todo_id)
     reminder = Reminder(
         reminder_id=generate_id(),
         title=title,
@@ -62,6 +71,8 @@ def update_reminder(user_id: int, reminder_id: str, **fields) -> Optional[Remind
     for key, value in fields.items():
         if key == "remind_at" and value is not None:
             value = _local_to_utc(value)
+        elif key == "todo_id" and value is not None:
+            value = _canonical_todo_id(user_id, value)
         if hasattr(reminder, key):
             setattr(reminder, key, value)
     return reminder_repo.save_reminder(user_id, reminder)

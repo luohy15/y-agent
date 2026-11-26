@@ -70,7 +70,7 @@ def assoc_group():
 
 @assoc_group.command("note")
 @click.argument("ids", nargs=-1, required=True)
-@click.option("--todo", "-t", required=True, help="Todo ID to associate with")
+@click.option("--todo", "-t", required=True, help="Todo ID or global ID to associate with")
 def assoc_note(ids, todo):
     """Associate notes with a todo. Local paths are relative to $Y_AGENT_HOME; worktree paths use the main repo."""
     failures = []
@@ -120,7 +120,7 @@ def assoc_entity(ids, note_id, rss_feed_id, activity_id):
 
 @assoc_group.command("link")
 @click.argument("ids", nargs=-1, required=True)
-@click.option("--todo", "-t", required=True, help="Todo ID to associate with")
+@click.option("--todo", "-t", required=True, help="Todo ID or global ID to associate with")
 def assoc_link(ids, todo):
     """Associate links with a todo. Local paths are relative to $Y_AGENT_HOME."""
     activity_ids = []
@@ -146,7 +146,7 @@ def unassoc_group():
 
 @unassoc_group.command("note")
 @click.argument("note_id")
-@click.option("--todo", "-t", required=True, help="Todo ID to disassociate from")
+@click.option("--todo", "-t", required=True, help="Todo ID or global ID to disassociate from")
 def unassoc_note(note_id, todo):
     """Remove association between a note and a todo."""
     api_request("POST", "/api/module/note/todo/delete", json={"note_id": note_id, "todo_id": todo})
@@ -181,7 +181,7 @@ def unassoc_entity(entity_id, note_id, rss_feed_id, activity_id):
 
 @unassoc_group.command("link")
 @click.argument("activity_id")
-@click.option("--todo", "-t", required=True, help="Todo ID to disassociate from")
+@click.option("--todo", "-t", required=True, help="Todo ID or global ID to disassociate from")
 def unassoc_link(activity_id, todo):
     """Remove association between a link activity and a todo."""
     resp = api_request("POST", "/api/link-todo/delete", json={"activity_id": activity_id, "todo_id": todo})

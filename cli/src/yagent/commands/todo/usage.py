@@ -124,12 +124,22 @@ def fetch_usage(todo_id: str) -> dict:
     return resp.json()
 
 
+def _canonical_todo_id(todo_id: str) -> str:
+    """Resolve a per-user todo ID or global ID to the numeric trace ID."""
+    try:
+        resp = api_request("GET", "/api/todo/detail", params={"todo_id": todo_id})
+    except httpx.HTTPStatusError:
+        return todo_id
+    value = (resp.json() or {}).get("todo_id")
+    return value or todo_id
+
+
 @click.command("usage")
 @click.argument("todo_id")
 @click.option("--json", "as_json", is_flag=True, help="Print the raw response instead of the report")
 def todo_usage(todo_id, as_json):
     """Show bot usage for every chat on a todo."""
-    envelope = fetch_usage(todo_id)
+    envelope = fetch_usage(_canonical_todo_id(todo_id))
     if as_json:
         click.echo(json.dumps(envelope, default=str))
         return

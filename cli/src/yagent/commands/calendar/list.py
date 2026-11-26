@@ -9,7 +9,7 @@ from yagent.time_util import utc_to_tz
 @time_filter_options
 @click.option('--limit', '-n', default=50, help='Max results')
 @click.option('--source', default=None, help='Filter by source')
-@click.option('--todo-id', default=None, type=int, help='Filter by linked todo')
+@click.option('--todo-id', default=None, type=str, help='Filter by linked todo ID or global ID')
 @click.option('--include-deleted', is_flag=True, default=False, help='Include deleted events')
 @click.option('--tag', default=None, help='Filter events by entity_tag (exact tag match)')
 def calendar_list(on, from_, to, created_on, created_from, created_to,

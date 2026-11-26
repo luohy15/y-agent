@@ -2,7 +2,7 @@
 
 from datetime import date, timedelta
 from typing import Dict, List, Optional, Tuple
-from sqlalchemy import case, func
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import defer
 from storage.entity.todo import TodoEntity
 from storage.entity.chat import ChatEntity
@@ -70,6 +70,7 @@ def _entity_to_dto(entity: TodoEntity, *, include_history: bool = True) -> Todo:
     return Todo(
         todo_id=entity.todo_id,
         name=entity.name,
+        global_id=entity.global_id,
         desc=entity.desc,
         tags=entity.tags,
         due_date=entity.due_date,
@@ -92,13 +93,27 @@ def _entity_to_dto(entity: TodoEntity, *, include_history: bool = True) -> Todo:
     )
 
 
+def _entity_by_token(session, user_id: int, token: str):
+    """Owner-scoped todo lookup: exact todo_id wins, then the global_id."""
+    row = session.query(TodoEntity).filter_by(user_id=user_id, todo_id=token).first()
+    if row is None and token:
+        row = session.query(TodoEntity).filter_by(user_id=user_id, global_id=token).first()
+    return row
+
+
 def find_handle_state(user_id: int, todo_id: str) -> Tuple[Optional[str], Optional[str]]:
     """Return ``(handle_chat, status)`` for one todo without loading the row body."""
     with get_db() as session:
-        row = session.query(TodoEntity.handle_chat, TodoEntity.status).filter_by(
-            user_id=user_id, todo_id=todo_id,
-        ).first()
-        return (row[0], row[1]) if row else (None, None)
+        tokens = [{"todo_id": todo_id}]
+        if todo_id:
+            tokens.append({"global_id": todo_id})
+        for token in tokens:
+            row = session.query(TodoEntity.handle_chat, TodoEntity.status).filter_by(
+                user_id=user_id, **token,
+            ).first()
+            if row is not None:
+                return row[0], row[1]
+        return None, None
 
 
 class TodoList(list):
@@ -185,11 +200,12 @@ def list_todos(
         if query:
             from storage.crypto.query import active
             if active(session, user_id):
-                q = q.filter(TodoEntity.todo_id == query)
+                q = q.filter(or_(TodoEntity.todo_id == query, TodoEntity.global_id == query))
             else:
                 pattern = f"%{query}%"
                 q = q.filter(
-                    TodoEntity.name.ilike(pattern) | TodoEntity.todo_id.ilike(pattern) | TodoEntity.desc.ilike(pattern)
+                    TodoEntity.name.ilike(pattern) | TodoEntity.todo_id.ilike(pattern)
+                    | TodoEntity.desc.ilike(pattern) | (TodoEntity.global_id == query)
                 )
         if unread:
             unread_exists = (
@@ -269,11 +285,12 @@ def list_todo_ids(
         if query:
             from storage.crypto.query import active
             if active(session, user_id):
-                q = q.filter(TodoEntity.todo_id == query)
+                q = q.filter(or_(TodoEntity.todo_id == query, TodoEntity.global_id == query))
             else:
                 pattern = f"%{query}%"
                 q = q.filter(
-                    TodoEntity.name.ilike(pattern) | TodoEntity.todo_id.ilike(pattern) | TodoEntity.desc.ilike(pattern)
+                    TodoEntity.name.ilike(pattern) | TodoEntity.todo_id.ilike(pattern)
+                    | TodoEntity.desc.ilike(pattern) | (TodoEntity.global_id == query)
                 )
         if unread:
             unread_exists = (
@@ -289,16 +306,23 @@ def list_todo_ids(
 
 def get_todo(user_id: int, todo_id: str) -> Optional[Todo]:
     with get_db() as session:
-        row = session.query(TodoEntity).filter_by(user_id=user_id, todo_id=todo_id).first()
+        row = _entity_by_token(session, user_id, todo_id)
         if row:
             return _entity_to_dto(row)
         return None
 
 
 def lock_todo(session, user_id: int, todo_id: str):
-    """Shared serialization point for todo patches and trace accept/start."""
-    return (session.query(TodoEntity).filter_by(user_id=user_id, todo_id=todo_id)
-            .populate_existing().with_for_update().first())
+    """Shared serialization point for todo patches and trace accept/start.
+
+    Accepts the per-user todo_id (exact match wins) or the global_id.
+    """
+    for token in ([{"todo_id": todo_id}, {"global_id": todo_id}] if todo_id else [{"todo_id": todo_id}]):
+        row = (session.query(TodoEntity).filter_by(user_id=user_id, **token)
+               .populate_existing().with_for_update().first())
+        if row is not None:
+            return row
+    return None
 
 
 def mutate_todo(user_id: int, todo_id: str, mutate, *, lock_tags: bool = False) -> Optional[Todo]:
@@ -318,6 +342,7 @@ def save_todo(user_id: int, todo: Todo) -> Todo:
         todo.tags = tag_repo.require_known_tags(session, user_id, todo.tags)
         tag_repo.sync_tags_locked(session, user_id, "todo", todo.todo_id, todo.tags)
         fields = dict(
+            global_id=todo.global_id,
             name=todo.name,
             desc=todo.desc,
             tags=todo.tags,

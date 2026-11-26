@@ -71,12 +71,13 @@ def _print_shared():
         return
     table = [[
         row.get("share_id") or "-",
+        row.get("global_id") or "-",
         row.get("name") or "-",
         row.get("owner") or "-",
         row.get("status") or "-",
         row.get("shared_at") or "-",
     ] for row in rows]
-    click.echo(tabulate(table, headers=["Share", "Name", "Owner", "Status", "Shared"], tablefmt="simple"))
+    click.echo(tabulate(table, headers=["Share", "Global", "Name", "Owner", "Status", "Shared"], tablefmt="simple"))
 
 
 def _field(todo, key):
@@ -115,6 +116,7 @@ def _render_shared_detail(payload, summary=False, full=False):
     if not isinstance(todo, dict):
         raise click.ClickException("Shared todo detail is missing")
     click.echo(f"Share:     {_field(todo, 'share_id')}")
+    click.echo(f"Global:    {_field(todo, 'global_id')}")
     click.echo(f"Name:      {_field(todo, 'name')}")
     click.echo(f"Status:    {_field(todo, 'status')}")
     click.echo(f"Priority:  {_field(todo, 'priority')}")
@@ -174,7 +176,7 @@ def todo_shared(ctx):
 @click.option("--summary", is_flag=True, default=False, help="Show metadata and item ids/titles only.")
 @click.option("--full", is_flag=True, default=False, help="Include stripped tool result placeholders in chats.")
 def todo_shared_open(share_id, summary, full):
-    """Open one shared todo by share id."""
+    """Open one shared todo by share ID or the todo's global ID."""
     try:
         payload = api_request(
             "GET", "/api/todo/shared/detail", params={"share_id": share_id},

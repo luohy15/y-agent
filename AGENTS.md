@@ -129,6 +129,14 @@ entity + controller + service + CLI slices, and most have a web panel.
   resolves `kind` + `ref_id` (no `share_id`) over their live incoming grants.
   The `share_id` form stays for the Web UI; `y todo get <todo_id>` stays
   owner-scoped and a shared todo opens by `share_id`.
+  A todo also carries a globally unique opaque `todo.global_id` (6 lowercase
+  hex). Owner routes and `--todo` references accept either the per-user numeric
+  `todo_id` or the `global_id` (exact `todo_id` wins), while stored references
+  (note/link relations, reminder, calendar, dev worktree/delivery/release, share
+  grants) stay numeric. Shared reads resolve a live `share_id` first, then the
+  granted todo's `global_id`; the shared payload and `y todo get` expose it.
+  Apply `migration/4467_todo_global_id.sql` (additive, guarded unique
+  constraint) before deploy; the separate backfill needs user approval.
   A logged-in load of a public todo share records a visit (newest 200). Apply
   `migration/4422_todo_share.sql` before deploy, including the additive
   `trace_share.selection` column. The owner share popover manages both audiences;
@@ -510,7 +518,8 @@ By category (all entities get a Repository in `repository/` and a Service in `se
 exceptions noted):
 
 - **Identity / chat**: `user`, `user_access` (admission decision and notice state), `chat`
-- **Tasks / time**: `todo` (coordinator claim columns `leader_chat` / `leader_claimed_at` / `leader_state`, todo 4080), `calendar_event`, `reminder`, `chat_wakeup` (todo 3655),
+- **Tasks / time**: `todo` (per-user numeric `todo_id` plus globally unique opaque
+  `global_id`, coordinator claim columns `leader_chat` / `leader_claimed_at` / `leader_state`, todo 4080), `calendar_event`, `reminder`, `chat_wakeup` (todo 3655),
   `trace_runtime_snapshot` (worker-written per-owner runtime evidence, todo 4070)
 - **Notes / knowledge graph**: `note`, `note_todo_relation`, `entity`,
   `entity_note_relation`, `entity_rss_relation`

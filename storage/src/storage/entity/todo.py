@@ -11,6 +11,9 @@ class TodoEntity(Base, BaseEntity):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey('user.id', ondelete='CASCADE'), nullable=False, index=True)
     todo_id = Column(String, nullable=False)
+    # Globally unique opaque handle (todo 4467). Per-user todo_id stays the
+    # stored reference; NULL is only possible before the backfill runs.
+    global_id = Column(String(6), nullable=True)
     name = Column(String, nullable=False)
     desc = Column(Text, nullable=True)
     tags = Column(JSON, nullable=True)
@@ -32,6 +35,7 @@ class TodoEntity(Base, BaseEntity):
 
     __table_args__ = (
         UniqueConstraint("user_id", "todo_id"),
+        UniqueConstraint("global_id", name="uq_todo_global_id"),
         CheckConstraint(
             "leader_state IS NULL"
             " OR (leader_state = 'claimed' AND leader_chat IS NOT NULL)"

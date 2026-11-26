@@ -36,6 +36,7 @@ class TodoHistoryEntry:
 class Todo:
     todo_id: str
     name: str
+    global_id: Optional[str] = None
     desc: Optional[str] = None
     tags: Optional[List[str]] = None
     due_date: Optional[str] = None
@@ -69,6 +70,7 @@ class Todo:
         return cls(
             todo_id=data['todo_id'],
             name=data['name'],
+            global_id=data.get('global_id'),
             desc=data.get('desc'),
             tags=data.get('tags'),
             due_date=data.get('due_date'),
@@ -108,6 +110,8 @@ class Todo:
             'has_pending_release_waiter': self.has_pending_release_waiter,
             'runtime': self.runtime,
         }
+        if self.global_id is not None:
+            result['global_id'] = self.global_id
         if self.desc is not None:
             result['desc'] = self.desc
         if self.tags is not None:

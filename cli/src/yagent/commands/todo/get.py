@@ -19,37 +19,44 @@ def leader_line(claim: dict) -> str:
     return f"Leader: free{suffix}"
 
 
-def _is_incoming_share(share_id: str) -> bool:
-    token = (share_id or "").strip()
+def _incoming_share_id(todo_id: str) -> str:
+    """Return the live share_id for a shared todo token, matching share or global id."""
+    token = (todo_id or "").strip()
     if not token:
-        return False
+        return ""
     try:
         rows = api_request("GET", "/api/todo/shared").json()
     except (httpx.HTTPError, ValueError, TypeError):
-        return False
+        return ""
     if not isinstance(rows, list):
-        return False
-    return any(
-        isinstance(row, dict) and (row.get("share_id") or "").strip() == token
-        for row in rows
-    )
+        return ""
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if (row.get("share_id") or "").strip() == token or (row.get("global_id") or "").strip() == token:
+            return (row.get("share_id") or "").strip()
+    return ""
 
 
 @click.command('get')
 @click.argument('todo_id')
 def todo_get(todo_id):
-    """Show todo details."""
+    """Show todo details. Accepts the per-user todo ID or its global ID."""
     try:
         resp = api_request("GET", "/api/todo/detail", params={"todo_id": todo_id})
     except httpx.HTTPStatusError as exc:
-        if exc.response is not None and exc.response.status_code == 404 and _is_incoming_share(todo_id):
-            raise click.ClickException(
-                f"not your todo; open it with `y todo shared open {todo_id.strip()}`"
-            ) from exc
+        if exc.response is not None and exc.response.status_code == 404:
+            share_id = _incoming_share_id(todo_id)
+            if share_id:
+                raise click.ClickException(
+                    f"not your todo; open it with `y todo shared open {share_id}`"
+                ) from exc
         raise
     todo = resp.json()
 
     click.echo(f"ID:        {todo['todo_id']}")
+    if todo.get('global_id'):
+        click.echo(f"Global:    {todo['global_id']}")
     click.echo(f"Name:      {todo['name']}")
     click.echo(f"Status:    {todo['status']}")
     wait = todo.get('machine_wait')

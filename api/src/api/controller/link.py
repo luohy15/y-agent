@@ -210,7 +210,7 @@ async def list_links(
     user_id = _get_user_id(request)
     activity_ids = None
     if todo_id:
-        from storage.repository.link_todo_relation import list_by_todo
+        from storage.service.link_todo_relation import list_by_todo
         activity_ids = list_by_todo(user_id, todo_id)
         if not activity_ids:
             return []

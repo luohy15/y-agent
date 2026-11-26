@@ -7,7 +7,7 @@ from yagent.time_util import utc_to_local
 @click.argument('title')
 @click.option('--at', 'remind_at', required=True, help='Remind time (e.g. 2026-04-18T09:00)')
 @click.option('--desc', '-d', default=None, help='Description')
-@click.option('--todo', 'todo_id', default=None, help='Associated todo ID')
+@click.option('--todo', 'todo_id', default=None, help='Associated todo ID or global ID')
 @click.option('--event', 'calendar_event_id', default=None, help='Associated calendar event ID')
 def reminder_add(title, remind_at, desc, todo_id, calendar_event_id):
     """Add a new reminder."""

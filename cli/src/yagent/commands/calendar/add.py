@@ -7,7 +7,7 @@ from yagent.api_client import api_request
 @click.option('--start', required=True, help='Start time (wall clock in --timezone, e.g. 2026-02-16T10:00)')
 @click.option('--end', default=None, help='End time (wall clock in --timezone)')
 @click.option('--desc', default=None, help='Description')
-@click.option('--todo-id', default=None, type=str, help='Link to todo ID')
+@click.option('--todo-id', default=None, type=str, help='Link to todo ID or global ID')
 @click.option('--all-day', is_flag=True, default=False, help='All-day event')
 @click.option('--source', default=None, help='Event source')
 @click.option('--timezone', '-tz', default=None, help='IANA timezone (default UTC)')

@@ -3,6 +3,7 @@
 from typing import List, Optional
 from storage.dto.dev_worktree import DevWorktree, DevWorktreeHistoryEntry
 from storage.repository import dev_worktree as wt_repo
+from storage.repository import todo as todo_repo
 from storage.util import generate_id, get_utc_iso8601_timestamp, get_unix_timestamp
 
 # Omitted limit for anything other than the active registry. Active + omitted
@@ -32,6 +33,14 @@ def resolve_list_limit(status: Optional[str], limit: Optional[int]) -> Optional[
     return limit
 
 
+def _canonical_todo_id(user_id: int, todo_id: Optional[str]) -> Optional[str]:
+    """Resolve an owner todo_id or global_id to the stored numeric todo_id."""
+    if todo_id is None:
+        return None
+    todo = todo_repo.get_todo(user_id, todo_id)
+    return todo.todo_id if todo is not None else todo_id
+
+
 def list_worktrees(user_id: int, status: Optional[str] = None, limit: Optional[int] = None) -> List[DevWorktree]:
     return wt_repo.list_worktrees(
         user_id, status=status, limit=resolve_list_limit(status, limit)
@@ -54,6 +63,7 @@ def create_worktree(
     branch: str,
     todo_id: Optional[str] = None,
 ) -> DevWorktree:
+    todo_id = _canonical_todo_id(user_id, todo_id)
     # Removal soft-deletes the row, so the name stays reserved by the
     # (user_id, name) uniqueness constraint. Recreating that name revives the
     # same row instead of inserting a second one; an active row is a conflict.
@@ -99,6 +109,8 @@ def update_worktree(user_id: int, worktree_id: str, **fields) -> Optional[DevWor
         return None
     changed = []
     for key, value in fields.items():
+        if key == "todo_id":
+            value = _canonical_todo_id(user_id, value)
         if hasattr(wt, key) and getattr(wt, key) != value:
             setattr(wt, key, value)
             changed.append(key)

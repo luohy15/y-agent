@@ -8,7 +8,7 @@ from yagent.api_client import api_request
 @click.option('--start', default=None, help='New start time (wall clock in --timezone)')
 @click.option('--end', default=None, help='New end time (wall clock in --timezone)')
 @click.option('--desc', default=None, help='New description')
-@click.option('--todo-id', default=None, type=str, help='Link to todo ID')
+@click.option('--todo-id', default=None, type=str, help='Link to todo ID or global ID')
 @click.option('--timezone', '-tz', default=None, help='IANA timezone (omitted keeps stored tz)')
 def calendar_update(event_id, summary, start, end, desc, todo_id, timezone):
     """Update a calendar event."""

@@ -5,6 +5,7 @@ import re
 from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 from loguru import logger
+from sqlalchemy.exc import IntegrityError
 from storage.entity.dto import Todo, TodoHistoryEntry
 from storage.database.base import get_db
 from storage.repository import chat as chat_repo
@@ -15,7 +16,7 @@ from storage.repository import trace_runtime as runtime_repo
 from storage.repository import entity_tag as tag_repo
 from storage.service import gateway as gateway_service
 from storage.service.trace_runtime import derive_runtime, machine_wait_live
-from storage.util import get_utc_iso8601_timestamp, get_unix_timestamp, local_today
+from storage.util import generate_id, get_utc_iso8601_timestamp, get_unix_timestamp, local_today
 from storage.todo_sla import OPEN_STATUSES, resolve_sla, is_overdue, format_digest
 
 _CHANGED_NOTE_PREFIX = "changed: "
@@ -136,6 +137,17 @@ def find_todos_by_ids(user_id: int, todo_ids: List[str]) -> dict:
     return todo_repo.find_todos_by_ids(user_id, todo_ids)
 
 
+_GLOBAL_ID_ATTEMPTS = 5
+
+
+def _is_global_id_conflict(exc: IntegrityError) -> bool:
+    """True only for a collision on todo.global_id, never another constraint."""
+    orig = getattr(exc, "orig", None)
+    diag = getattr(orig, "diag", None)
+    constraint = getattr(diag, "constraint_name", None) if diag is not None else None
+    return constraint == "uq_todo_global_id" or "uq_todo_global_id" in str(orig or exc)
+
+
 def create_todo(
     user_id: int,
     name: str,
@@ -161,20 +173,30 @@ def create_todo(
     while next_id in used:
         next_id += 1
 
-    todo = Todo(
-        todo_id=str(next_id),
-        name=name,
-        desc=desc,
-        tags=tags,
-        due_date=due_date,
-        priority=priority,
-        status="pending",
-        pinned=pinned,
-        sla_due_at=sla_due_at,
-        history=[TodoHistoryEntry(timestamp=get_utc_iso8601_timestamp(), unix_timestamp=get_unix_timestamp(), action="created",
-                                  note=f"pinned={pinned!r}, sla_due_at={sla_due_at!r}")],
-    )
-    return todo_repo.save_todo(user_id, todo)
+    history = [TodoHistoryEntry(timestamp=get_utc_iso8601_timestamp(), unix_timestamp=get_unix_timestamp(), action="created",
+                                note=f"pinned={pinned!r}, sla_due_at={sla_due_at!r}")]
+    last_error: Optional[IntegrityError] = None
+    for _ in range(_GLOBAL_ID_ATTEMPTS):
+        todo = Todo(
+            todo_id=str(next_id),
+            name=name,
+            global_id=generate_id(),
+            desc=desc,
+            tags=tags,
+            due_date=due_date,
+            priority=priority,
+            status="pending",
+            pinned=pinned,
+            sla_due_at=sla_due_at,
+            history=history,
+        )
+        try:
+            return todo_repo.save_todo(user_id, todo)
+        except IntegrityError as exc:
+            if not _is_global_id_conflict(exc):
+                raise
+            last_error = exc
+    raise last_error
 
 
 def _changed_progress_value(note: str) -> Optional[str]:
