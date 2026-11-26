@@ -59,11 +59,11 @@ def _headers():
             "X-WECHAT-UIN": base64.b64encode(str(secrets.randbits(32)).encode()).decode()}
 
 
-def qr_start(base=BASE):
+def qr_start(base=BASE, local_tokens=()):
     """One provider QR request, bounded by QR_TIMEOUT."""
     with httpx.Client(follow_redirects=False, timeout=QR_TIMEOUT) as http:
         response = http.post(provider_base(base) + "/ilink/bot/get_bot_qrcode?bot_type=3",
-                             json={"local_token_list": []}, headers=_headers())
+                             json={"local_token_list": list(local_tokens)}, headers=_headers())
         response.raise_for_status()
         data = response.json()
     for key in ("errcode", "ret"):

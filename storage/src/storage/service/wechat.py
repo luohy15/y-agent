@@ -226,9 +226,16 @@ def _rotate_account(account, token, base):
     return secret
 
 
-def _fetch_qr():
+def _local_tokens(account, user_id):
+    """The active bot token a non-maintainer bind may re-attach. Never logged."""
+    if is_maintainer(user_id) or not account or account.status != "active":
+        return []
+    return [account.bot_token] if account.bot_token else []
+
+
+def _fetch_qr(local_tokens=()):
     try:
-        return provider.qr_start()
+        return provider.qr_start(local_tokens=local_tokens)
     except (provider.ProviderError, httpx.HTTPError, ValueError):
         logger.warning("wechat qr start failed")
         raise ChannelError(502, "WeChat provider request failed") from None
@@ -240,7 +247,8 @@ def start(user_id):
         account = lock_channel(db)
         expire_stale_open(db, user_id, now)
         preflight(db, user_id, account)
-    qr = _fetch_qr()
+        local_tokens = _local_tokens(account, user_id)
+    qr = _fetch_qr(local_tokens)
     binding_id = secrets.token_urlsafe(24)
     try:
         with get_db() as db:
