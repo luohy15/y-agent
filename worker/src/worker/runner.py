@@ -37,6 +37,7 @@ ARTIFACT_PLACEHOLDERS = {
 
 REASONING_EFFORT_LEVELS = {"low", "medium", "high", "xhigh", "max"}
 CODEX_REASONING_EFFORT_LEVELS = {"low", "medium", "high", "xhigh"}
+AGY_REASONING_EFFORT_LEVELS = {"low", "medium", "high", "xhigh"}
 SUPPORTED_REASONING_EFFORT_BACKENDS = agent_config.SUPPORTED_REASONING_EFFORT_BACKENDS
 
 
@@ -63,10 +64,14 @@ def resolve_reasoning_effort(messages, backend: str) -> str | None:
     if reasoning_effort is None:
         return None
     if backend not in SUPPORTED_REASONING_EFFORT_BACKENDS:
-        raise ValueError(f"reasoning_effort is only supported for claude_code and codex, not {backend}")
+        raise ValueError(f"reasoning_effort is only supported for claude_code, codex, or agy, not {backend}")
     if backend == "codex" and reasoning_effort not in CODEX_REASONING_EFFORT_LEVELS:
         raise ValueError(
             f"Codex does not support reasoning_effort '{reasoning_effort}'; expected low, medium, high, or xhigh"
+        )
+    if backend == "agy" and reasoning_effort not in AGY_REASONING_EFFORT_LEVELS:
+        raise ValueError(
+            f"agy does not support reasoning_effort '{reasoning_effort}'; expected low, medium, high, or xhigh"
         )
     return reasoning_effort
 
@@ -1280,8 +1285,9 @@ def _build_agy_params(chat, chat_id, user_id, bot_config, vm_name=None,
                       entry=None):
     """Extract prompt, build cmd/env/cwd for agy. Resume only when work_dir still matches.
 
-    No relay credential and no effort flag: the node's existing `agy` login is
-    the whole auth story.
+    No relay credential: the node's existing `agy` login is the whole auth
+    story. The model is the plain id and the declared effort level travels as
+    a separate `--effort` flag.
     """
     from agent.agy import IMAGE_UNSUPPORTED, build_agy_argv
     from agent.chat_target import layout
@@ -1291,12 +1297,12 @@ def _build_agy_params(chat, chat_id, user_id, bot_config, vm_name=None,
     prompt, images = _prompt_from_inputs(selected)
     if images:
         raise ValueError(IMAGE_UNSUPPORTED)
-    resolve_reasoning_effort(selected, "agy")
+    reasoning_effort = resolve_reasoning_effort(selected, "agy")
     node = layout(user_id, getattr(chat, "execution_target", None))
     cwd = work_dir or node.work_dir or os.path.expanduser(os.environ.get("VM_WORK_DIR_CLI") or os.getcwd())
     session_id = agy_resume_conversation(chat.backend, chat.external_id, chat.work_dir == cwd)
     model = _entry_model(entry, bot_config)
-    cmd = build_agy_argv(model, session_id)
+    cmd = build_agy_argv(model, session_id, reasoning_effort)
     last_message_id = messages[-1].id if messages else None
     env = validate_launch_env(getattr(chat, "launch_env", None), strict=False)
     env.update(build_agy_env(chat_id, trace_id, role, last_message_id))

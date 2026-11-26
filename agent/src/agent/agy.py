@@ -317,11 +317,19 @@ class AgyStreamConverter:
         return []
 
 
-def build_agy_argv(model: Optional[str] = None, conversation_id: Optional[str] = None) -> List[str]:
-    """Headless argv without the prompt. `-p` is added by `_agy_build_exec`."""
+def build_agy_argv(model: Optional[str] = None, conversation_id: Optional[str] = None,
+                   effort: Optional[str] = None) -> List[str]:
+    """Headless argv without the prompt. `-p` is added by `_agy_build_exec`.
+
+    The model is the plain id (`gemini-4-neon`); the level is a separate
+    `--effort` flag, because a suffixed id such as `gemini-4-neon-low`
+    conflicts with `--effort`.
+    """
     cmd = ["agy", "--output-format", "stream-json"]
     if model:
         cmd.extend(["--model", model])
+    if effort:
+        cmd.extend(["--effort", effort])
     cmd.append("--dangerously-skip-permissions")
     if conversation_id:
         cmd.extend(["--conversation", conversation_id])

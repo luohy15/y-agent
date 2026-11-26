@@ -431,7 +431,10 @@ The repo no longer contains an in-process agent loop — the worker shells out.
   ends the turn and the continuation resumes its session. Pi usage and effort
   mapping are not implemented. `agy` (`agent/src/agent/agy.py`, Antigravity CLI
   1.5.17) runs `agy -p --output-format stream-json` on the node's own Google
-  login: no relay, no API key, no effort flag. `chat.external_id` is the
+  login: no relay, no API key. Its model id is the plain slug (`gemini-4-neon`)
+  and reasoning effort is a separate `--effort` flag (low through xhigh, no
+  max); a suffixed model id such as `gemini-4-neon-low` conflicts with it.
+  `chat.external_id` is the
   `init` conversation id and later turns resume `--conversation` only when the
   work dir matches; a steer ends the running turn and closeout relaunches the
   conversation. `result.usage` totals the whole conversation, so per-turn rows

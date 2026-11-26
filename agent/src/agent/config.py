@@ -51,8 +51,9 @@ class VmConfigError(ValueError):
     """
 
 
-# Agentic backends that accept a launch effort flag. Codex has no `max`.
-SUPPORTED_REASONING_EFFORT_BACKENDS = {"claude_code", "codex"}
+# Agentic backends that accept a launch effort flag. Codex and agy have no `max`.
+SUPPORTED_REASONING_EFFORT_BACKENDS = {"claude_code", "codex", "agy"}
+NO_MAX_EFFORT_BACKENDS = {"codex": "Codex", "agy": "agy"}
 
 
 def _effective_backend(bot_config: BotConfig) -> str:
@@ -608,10 +609,10 @@ def preflight_launch_effort(user_id: int, effort: str = None, *, chat=None, bot_
     def reject_unsupported(selected: BotConfig) -> None:
         launch = launch_backend(chat_backend or backend, selected)
         if launch not in SUPPORTED_REASONING_EFFORT_BACKENDS:
-            raise ValueError(f"reasoning_effort is only supported for claude_code and codex, not {launch}")
-        if launch == "codex" and effort == "max":
+            raise ValueError(f"reasoning_effort is only supported for claude_code, codex, or agy, not {launch}")
+        if effort == "max" and launch in NO_MAX_EFFORT_BACKENDS:
             raise ValueError(
-                "Codex does not support reasoning_effort 'max'; expected low, medium, high, or xhigh"
+                f"{NO_MAX_EFFORT_BACKENDS[launch]} does not support reasoning_effort 'max'; expected low, medium, high, or xhigh"
             )
 
     chat_bot = getattr(chat, "bot_name", None) if chat is not None else None

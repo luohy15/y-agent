@@ -464,6 +464,11 @@ these columns. The host contract is v27:
 Levels are a nonempty subset of low, medium, high, xhigh, and max, and evidence
 is required when levels are set. None clears the declaration.
 
+Codex and agy accept low, medium, high, and xhigh; only `claude_code` accepts
+max, so an explicit `max` on either fails the launch. agy receives the level as
+a separate `--effort` flag next to the plain model id (`gemini-4-neon`); a
+suffixed id such as `gemini-4-neon-low` conflicts with `--effort` (todo 4460).
+
 The gate runs only when effort is explicit, and it runs before routing is
 persisted. A fresh chat with no bot pin filters the candidate pool by the
 level. An empty pool is an error: there is no tier2 or default fallback. An
@@ -474,7 +479,8 @@ not kept running with the effort. The
 failure is a launch error (`running` false, assistant error text) and does not
 reach the synthetic fallback bot. No effort leaves candidate selection, weighted
 round-robin writes, and argv as they are today. An inline backend that is given
-effort still raises the existing "only supported for claude_code" error.
+effort still raises the existing "only supported for claude_code, codex, or
+agy" error.
 
 The same check runs at admission, before any message is appended and before
 any chat is created. The API answers 422 with the check's detail and writes
