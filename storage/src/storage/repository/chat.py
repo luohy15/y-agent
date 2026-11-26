@@ -10,7 +10,7 @@ from sqlalchemy import and_, case, func, or_, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import defer, load_only
 
-from storage.entity.chat import ChatEntity
+from storage.entity.chat import ChatEntity, ChatVoiceMessageEntity
 from storage.entity.user import UserEntity  # noqa: F401 - needed for ChatEntity FK resolution
 from storage.entity.dto import Chat
 from storage.database.base import get_db
@@ -610,6 +610,25 @@ class EffortOnRunningChat(Exception):
     """Explicit effort cannot join a run that has already started."""
 
 
+def _index_voice_message(session, user_id: int, chat_id: str, message) -> None:
+    """Record the take -> message link beside the appended message (todo 4489).
+
+    A redelivered voice note can present the same take twice; the first link
+    wins, so the unique (user_id, take_id) conflict is swallowed inside a
+    savepoint instead of failing acceptance.
+    """
+    from storage.service.chat import voice_link_payload
+
+    link = voice_link_payload(message)
+    if link is None:
+        return
+    try:
+        with session.begin_nested():
+            session.add(ChatVoiceMessageEntity(user_id=user_id, chat_id=chat_id, **link))
+    except IntegrityError:
+        logger.info("Voice take {} is already linked; keeping the first message", link["take_id"])
+
+
 def accept_or_start_chat(user_id: int, chat_id: str, *, message=None,
                          human_reply=False, trace_id=None, role=None, skill=None,
                          event_id=None, session=None,
@@ -678,6 +697,7 @@ def accept_or_start_chat(user_id: int, chat_id: str, *, message=None,
                 existing.id == message.id for existing in chat.messages)
             if not duplicate:
                 chat.messages.append(message)
+                _index_voice_message(session, user_id, chat_id, message)
         chat.trace_id = effective_trace
         chat.role = resolved_role
         chat.skill = chat.skill or skill or (resolved_role if resolved_role != ROOT_ROLE else None)

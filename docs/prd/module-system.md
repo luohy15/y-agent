@@ -790,6 +790,17 @@ Encrypted or unreadable transcripts have null bounds; a missing or malformed
 endpoint timestamp is null. No chat bodies are returned. Deploy v41 before
 publishing a benchmark module that requires it; no migration.
 
+Backend **v42** (todo 4489) adds `await chat_voice_take_links(user_id,
+take_ids)`. It checks the request owner and rejects more than 100 take IDs or
+an empty string. The result is keyed by take id with `chat_id`, `chat_title`,
+`message_id` and `message_unix_timestamp` (milliseconds); a take with no
+inbound message is absent. No message body is returned. The rows come from the
+host-owned `chat_voice_message` index, written by `accept_or_start_chat` in the
+same transaction as the message append, so a chat scan or decrypt is never
+needed. Apply `migration/4489_chat_voice_message.sql` before deploying v42;
+the Voice module requires v42 and is published after, and rolls back before the
+host drops below v42.
+
 Todo 3068 added the first extension to an *existing* capability rather than a
 new one: `run_vm_command` gained explicit `work_dir` and stdin parameters
 (the underlying local/SSH execution already supported both; the file module

@@ -334,7 +334,8 @@ entity + controller + service + CLI slices, and most have a web panel.
   conventional `common` (vendored at publish). Rollback/activate change code only;
   delete removes deployed metadata/bytes, not source/tables. No worker half:
   deterministic work is `routine` `vm_command`; judgment stays chat dispatch.
-  Backend host contract (`agent.module_host`) is **v41** (v41 adds owner-bound
+  Backend host contract (`agent.module_host`) is **v42** (v42 adds owner-bound
+  `chat_voice_take_links`; v41 adds owner-bound
   `chat_message_bounds`; v40 adds owner-bound
   `channel_list` / `channel_unbind`; v39 added `user_is_admin`; todo 3627's v18 adds
   owner-bound no-wake VM execution; v19 / v20 are todos 3777 / 3781; v21 adds the
@@ -578,7 +579,8 @@ The repo no longer contains an in-process agent loop — the worker shells out.
 By category (all entities get a Repository in `repository/` and a Service in `service/`;
 exceptions noted):
 
-- **Identity / chat**: `user`, `user_access` (admission decision and notice state), `chat`
+- **Identity / chat**: `user`, `user_access` (admission decision and notice state), `chat`,
+  `chat_voice_message` (derived take -> inbound message index, todo 4489)
 - **Tasks / time**: `todo` (per-user numeric `todo_id` plus globally unique opaque
   `global_id`, coordinator claim columns `leader_chat` / `leader_claimed_at` / `leader_state`, todo 4080), `calendar_event`, `reminder`, `chat_wakeup` (todo 3655),
   `trace_runtime_snapshot` (worker-written per-owner runtime evidence, todo 4070)
@@ -691,7 +693,7 @@ Grouped by feature area:
 - `perplexity.py`, `openai_chat.py`, `xai_search.py` — inline single-shot (non-agentic)
   backends; `xai_search.py` serves both `xai_web` and `xai_x`
 - `config.py` — provider factory, bot/vm config resolution
-- `module_host.py` — backend host contract for modules (`BACKEND_CONTRACT_VERSION = 37`:
+- `module_host.py` — backend host contract for modules (`BACKEND_CONTRACT_VERSION = 42`:
   `session`, `run_vm_command` with work_dir/stdin, `cli_user_id`, external-table
   protocol, plus request-scoped `bot_config_*`, `chat_*` with optional
   `sort_by`/`sort_order`, `note_list_at_path`, owner-bound `note_*`, `tag_*`

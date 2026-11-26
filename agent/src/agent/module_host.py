@@ -222,7 +222,11 @@ Apply migration/4401_user_admin.sql before deploying v39, then publish Bot.
 Todo 4409 bumps 39 to 40: channel_list and channel_unbind manage the request
 owner's IM bindings. Deploy v40 before publishing Gateway; no migration.
 Todo 4431 bumps 40 to 41: chat_message_bounds reads owner-scoped transcript
-endpoints without returning message bodies.
+endpoints without returning message bodies. Todo 4489 bumps 41 to 42:
+chat_voice_take_links resolves the inbound message each owned voice take
+produced, keyed by take id, with no message body. Apply
+migration/4489_chat_voice_message.sql before deploying this host; the Voice
+module requires v42 and is published after.
 """
 
 from __future__ import annotations
@@ -241,7 +245,7 @@ from storage.project_key import ProjectKeyError as ProjectKeyError, normalize_pr
 if TYPE_CHECKING:
     from storage.dto.bot import BotConfig
 
-BACKEND_CONTRACT_VERSION = 41
+BACKEND_CONTRACT_VERSION = 42
 
 # Wall-clock budget for the wake="nowait" readiness check (todo 3777).
 NOWAIT_BUDGET_SECONDS = 1.0
@@ -743,6 +747,27 @@ async def chat_message_bounds(
     from storage.service import chat as chat_service
 
     return await asyncio.to_thread(chat_service.chat_message_bounds, user_id, list(chat_ids))
+
+
+async def chat_voice_take_links(
+    user_id: int, take_ids: list[str],
+) -> dict[str, dict[str, Any]]:
+    """Return the inbound message each owned voice take produced, keyed by take id.
+
+    Batched to the Voice list page size (100). A take with no message is
+    absent from the result. The message body is never returned, only the chat
+    id and title, the message id and its time.
+    """
+    _require_chat_owner(user_id)
+    if not isinstance(take_ids, (list, tuple)) or len(take_ids) > 100:
+        raise ValueError("expected a bounded list of take IDs")
+    if any(not isinstance(key, str) or not key or "\0" in key for key in take_ids):
+        raise ValueError("expected nonempty take IDs")
+    if not take_ids:
+        return {}
+    from storage.service import chat as chat_service
+
+    return await asyncio.to_thread(chat_service.voice_take_links, user_id, list(take_ids))
 
 
 async def chat_create_share(

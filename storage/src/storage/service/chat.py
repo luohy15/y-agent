@@ -78,6 +78,78 @@ def chat_message_bounds(user_id: int, chat_ids: list[str]) -> dict:
         }
 
 
+def voice_link_payload(message: Message) -> Optional[Dict]:
+    """Derived index row for an inbound voice message, or None when it has none.
+
+    The message JSON stays the source of truth; this payload carries ids and
+    the message time only, never the message body or an excerpt.
+    """
+    voice = message.voice
+    take_id = voice.get("take_id") if isinstance(voice, dict) else None
+    if not isinstance(take_id, str) or not take_id or "\0" in take_id:
+        return None
+    if not isinstance(message.id, str) or not message.id:
+        return None
+    if not isinstance(message.unix_timestamp, int) or isinstance(message.unix_timestamp, bool):
+        return None
+    return {
+        "take_id": take_id,
+        "message_id": message.id,
+        "message_unix_timestamp": message.unix_timestamp,
+    }
+
+
+def voice_take_links(user_id: int, take_ids: List[str]) -> Dict[str, Dict]:
+    """Map each owned take id to the inbound chat message that produced it.
+
+    Owner-scoped and bounded by the caller. A take with no message (composer
+    dictation, uploaded file, or a message accepted before this index existed)
+    is absent from the result. Never returns the message body.
+    """
+    from sqlalchemy import and_
+    from storage.crypto.orm import open_projected
+    from storage.database.base import get_db
+    from storage.entity.chat import ChatEntity, ChatVoiceMessageEntity
+
+    if not take_ids:
+        return {}
+    with get_db() as session:
+        rows = (
+            session.query(
+                ChatVoiceMessageEntity.take_id,
+                ChatVoiceMessageEntity.chat_id,
+                ChatVoiceMessageEntity.message_id,
+                ChatVoiceMessageEntity.message_unix_timestamp,
+                ChatEntity.title,
+                ChatEntity.enc_version,
+            )
+            .outerjoin(
+                ChatEntity,
+                and_(
+                    ChatEntity.user_id == ChatVoiceMessageEntity.user_id,
+                    ChatEntity.chat_id == ChatVoiceMessageEntity.chat_id,
+                ),
+            )
+            .filter(
+                ChatVoiceMessageEntity.user_id == user_id,
+                ChatVoiceMessageEntity.take_id.in_(take_ids),
+            )
+            .all()
+        )
+        return {
+            row.take_id: {
+                "chat_id": row.chat_id,
+                "chat_title": open_projected(
+                    session, user_id=user_id, table="chat", column="title",
+                    public_id=row.chat_id, enc_version=row.enc_version, value=row.title,
+                ) or "",
+                "message_id": row.message_id,
+                "message_unix_timestamp": row.message_unix_timestamp,
+            }
+            for row in rows
+        }
+
+
 def context_prompt_tokens(chat: Chat) -> Optional[int]:
     """Prefer measured prompt context; retain only the legacy unknown-source fallback."""
     measured = chat.prompt_tokens()

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey, UniqueConstraint, CheckConstraint, Index, text, SmallInteger
+from sqlalchemy import Column, Integer, BigInteger, String, Text, Boolean, ForeignKey, ForeignKeyConstraint, UniqueConstraint, CheckConstraint, Index, text, SmallInteger
 from .base import Base, BaseEntity
 
 
@@ -46,4 +46,35 @@ class ChatEntity(Base, BaseEntity):
         ),
         Index("ix_chat_user_role_trace", "user_id", "role", "trace_id",
               postgresql_where=text("role IS NOT NULL")),
+    )
+
+
+class ChatVoiceMessageEntity(Base, BaseEntity):
+    """Which inbound chat message a voice take produced (todo 4489).
+
+    Derived index for the reverse lookup the Voice panel needs: the only other
+    link is `messages[].voice.take_id` inside `chat.json_content`, which is
+    Text (and field-encrypted when active), so scanning it is neither cheap nor
+    encryption-safe. This row stores ids and the message time only, never the
+    message body or an excerpt; the message JSON stays the source of truth.
+    Written by `accept_or_start_chat` in the same transaction as the append.
+    """
+
+    __tablename__ = "chat_voice_message"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('user.id', ondelete='CASCADE'), nullable=False, index=True)
+    chat_id = Column(String, nullable=False)
+    take_id = Column(String, nullable=False)
+    message_id = Column(String, nullable=False)
+    message_unix_timestamp = Column(BigInteger, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "take_id", name="uq_chat_voice_message_take"),
+        ForeignKeyConstraint(
+            ["user_id", "chat_id"],
+            ["chat.user_id", "chat.chat_id"],
+            ondelete="CASCADE",
+            name="fk_chat_voice_message_chat",
+        ),
     )
