@@ -368,8 +368,7 @@ mode (`-i`) serves a human at a terminal.
     and `agy` (todo 4357; todo 4460). This pins a chat to the runtime that owns its native session
     and keeps that session resumable, and it still pins a chat away from the
     inline query backends. A codex chat stores the Codex thread id; a pi chat
-    stores its pi session id; an agy chat stores its Antigravity conversation id. Pi also ends a running turn on steer and resumes
-    its native session with the pending message.
+    stores its pi session id; an agy chat stores its Antigravity conversation id. Pi accepts a mid-turn `steer` command on its RPC stdin pipe and keeps the same native session.
     `codex exec` has no live input channel: a message sent while that turn is
     running ends the turn, and the same thread resumes with that message as
     the next prompt (the chat-steer PRD owns the delivery mechanics). The bot

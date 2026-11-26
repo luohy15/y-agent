@@ -261,9 +261,10 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
     # already written stays claimed (never write an input twice); only the
     # ledger's own terminal states decide what still needs answering.
     ledger = _load_input_ledger(chat_id, proc)
-    # Build the steer checker. claude_code forwards a steer into the live stdin
-    # pipe. Codex has no live input channel: its tail ends the running turn,
-    # and closeout relaunches the same thread with the message as the prompt.
+    # Build the steer checker. claude_code and pi forward a steer into the live
+    # stdin pipe. Codex and agy have no live input channel: their tail ends the
+    # running turn, and closeout relaunches the same thread with the message as
+    # the prompt.
     from worker.runner import make_steer_checker
     steer_fn = make_steer_checker(chat_id, initial_msg_ids, previously_consumed=ledger.written_ids())
 

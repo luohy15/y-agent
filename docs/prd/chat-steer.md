@@ -118,9 +118,9 @@ worker/VM crashes.
   than killed. A resumed tail seeds the persisted conversation id, so a steer
   arriving right after a Lambda handoff (offset past the old stdout) is accepted
   without waiting for another `init` line. The host's orphan reaper recognizes
-  both the stdin-pipe wrapper and the direct `stdout`/`stderr` redirect wrappers
-  of `codex` / `pi` / `agy`, so a leaked session wrapper is reclaimed regardless
-  of backend.
+  the stdin-pipe wrappers of `claude_code` / `pi` and the direct
+  `stdout`/`stderr` redirect wrappers of `codex` / `agy`, so a leaked session
+  wrapper is reclaimed regardless of backend.
 - **Discovery is not consumption.** The checker claims stable message IDs so
   one ordered writer submits each input once. A failed SSH append releases the
   claim. Teardown never drains or submits new work. Interrupt remains the first

@@ -4,6 +4,7 @@ import asyncio
 import json
 import threading
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 from loguru import logger
 from storage.entity.dto import Message
@@ -13,7 +14,7 @@ from agent.claude_code import (
     _kill_session_marking_self_killed, _consume_self_kill_sentinel,
     _pkill_tail_cmd, _build_tail_cmd,
 )
-from agent.input_ledger import ACKNOWLEDGED, SUBMITTED, InputLedger, native_input_uuid
+from agent.input_ledger import ACKNOWLEDGED, InputLedger, native_input_uuid
 from agent.poll_loop import PollLoop
 from agent.startup_diagnostic import read_attempt_diagnostic
 
@@ -23,15 +24,21 @@ def _complete_launch_group(ledger, launch_input_uuid):
         ledger.observe_lifecycle({"state": "completed", "command_uuid": launch_input_uuid})
 
 
-def _complete_open_groups(ledger):
-    """Retire every input this run wrote and has not resolved.
+def _complete_open_groups(ledger, launch_input_uuid=None):
+    """Retire the inputs pi acknowledged before `agent_settled`.
 
-    `agent_settled` is pi's own declaration that no retry, compaction or queued
-    message remains, so a settle drains the steering queue. Any group still
-    open at that point was queued before the settle and is therefore answered.
+    pi checks its steering queue before emitting `agent_settled`, so a steer
+    whose `success:true` response precedes the settle in stdout was drained.
+    A steer still `SUBMITTED` when the settle is read was written after pi
+    settled (or before pi read it) and was NOT consumed: a successful file
+    write is not evidence of consumption, so it stays outstanding for closeout
+    to re-deliver. A pre-upgrade record may carry no response at all for the
+    launch prompt; complete that group only when no lifecycle was observed.
     """
     for command_uuid, message_ids in ledger.groups.items():
-        if any(ledger.state_of(mid) in (SUBMITTED, ACKNOWLEDGED) for mid in message_ids):
+        acknowledged = any(ledger.state_of(mid) == ACKNOWLEDGED for mid in message_ids)
+        legacy_launch = command_uuid == launch_input_uuid and not ledger.lifecycle_observed
+        if acknowledged or legacy_launch:
             ledger.observe_lifecycle({"state": "completed", "command_uuid": command_uuid})
 
 
@@ -240,6 +247,7 @@ class PiStreamConverter:
         elif event_type in ("agent_start", "auto_retry_start", "auto_compaction_start", "compaction_start"):
             self.end_candidate = None
             self.terminal = False
+            self.settled = False
         else:
             logger.debug("pi unhandled event type: {}", event_type)
 
@@ -302,12 +310,16 @@ def _pi_launch_payload(chat_id: str, prompt: str, images: Optional[List[str]] = 
 
 def _pi_steer_payload(chat_id: str, msg_id: str, text: str,
                       images: Optional[List[str]] = None) -> str:
-    """One `steer` command line; the id is the input's native identity."""
+    """One `steer` command line; the id is the input's native identity.
+
+    No trailing newline: `_on_steer` writes it with `printf '%s\\n'`, and a
+    second newline would make pi emit a `parse` error for the empty line.
+    """
     return json.dumps({
         "id": native_input_uuid(chat_id, msg_id),
         "type": "steer",
         "message": _pi_prompt_text(text, images),
-    }) + "\n"
+    })
 
 
 def _pi_write_stdin(client, chat_id: str, prompt: str, images: Optional[List[str]] = None,
@@ -320,6 +332,45 @@ def _pi_write_stdin(client, chat_id: str, prompt: str, images: Optional[List[str
             f.write(payload)
     finally:
         sftp.close()
+
+
+def _pi_upload_steer_images(client, chat_id: str, msg_id: str,
+                            images: Optional[List[str]]) -> List[str]:
+    """Stage a steer's images on the node under a per-message subdirectory.
+
+    The launch uploads to `/tmp/cc-<chat_id>-images/<index>-<name>`; a steer
+    uses `/tmp/cc-<chat_id>-images/<msg_id>/<index>-<name>` so filenames cannot
+    collide. The next launch removes the whole image directory.
+    """
+    if not images:
+        return []
+    from agent.detach import _download_s3_to_tmp, _is_s3_uri
+
+    remote_dir = f"/tmp/cc-{chat_id}-images/{msg_id}"
+    _ssh_exec(client, f"mkdir -p {_shell_quote(remote_dir)}")
+    sftp = client.open_sftp()
+    staged_files: List[Path] = []
+    try:
+        remote_paths = []
+        for index, image_path in enumerate(images):
+            source = (_download_s3_to_tmp(image_path, chat_id)
+                      if _is_s3_uri(image_path) else Path(image_path).expanduser())
+            if _is_s3_uri(image_path):
+                staged_files.append(source)
+            if not source.exists():
+                remote_paths.append(image_path)
+                continue
+            remote_path = f"{remote_dir}/{index}-{source.name}"
+            sftp.put(str(source), remote_path)
+            remote_paths.append(remote_path)
+        return remote_paths
+    finally:
+        sftp.close()
+        for staged_file in staged_files:
+            try:
+                staged_file.unlink()
+            except FileNotFoundError:
+                pass
 
 
 def _pi_build_exec(cmd: List[str], chat_id: str, prompt: str, images: Optional[List[str]] = None) -> str:
@@ -407,7 +458,7 @@ async def tail_pi_output(
     if result_data and result_data.get("type") == "agent_settled":
         converter.terminal = True
         converter.error = result_data.get("result") if result_data.get("is_error") else None
-        _complete_open_groups(ledger)
+        _complete_open_groups(ledger, launch_input_uuid)
     if _restore_pi_pending(converter, result_data):
         result_data = None
     current_offset = offset
@@ -418,6 +469,9 @@ async def tail_pi_output(
     # input the poll thread is still writing.
     steer_lock = threading.RLock()
     torn_down = False
+    # Set by a Lambda-deadline cancellation before the reader is joined, so no
+    # steer write or settle teardown can land after the handoff snapshot.
+    reader_stop = threading.Event()
 
     def _view(is_done: bool, status: str, data=None) -> dict:
         session_id = converter.session_id
@@ -479,9 +533,15 @@ async def tail_pi_output(
             checker's claim so closeout re-delivers the message.
             """
             with steer_lock:
-                if torn_down or converter.settled:
+                if torn_down or reader_stop.is_set() or converter.settled:
                     return False
-                payload = _pi_steer_payload(chat_id, msg_id, text, images)
+                try:
+                    remote_images = _pi_upload_steer_images(client, chat_id, msg_id, images)
+                except Exception as exc:
+                    logger.warning("pi steer image staging failed chat_id={} message={}: {}",
+                                   chat_id, msg_id, exc)
+                    return False
+                payload = _pi_steer_payload(chat_id, msg_id, text, remote_images)
                 _, write_stdout, _ = client.exec_command(
                     f"printf '%s\\n' {_shell_quote(payload)} >> {_shell_quote(stdin_file)}"
                 )
@@ -523,8 +583,19 @@ async def tail_pi_output(
 
         def _read_lines():
             nonlocal result_data, current_offset, stream_error, torn_down
+            if result_data is not None:
+                # A handoff carried a terminal result: the turn is already over,
+                # so tear the long-lived session down before tailing anything.
+                with steer_lock:
+                    if reader_stop.is_set():
+                        return "deadline"
+                    torn_down = True
+                    _teardown_session()
+                return None
             try:
                 for raw_line in stdout_ch:
+                    if reader_stop.is_set():
+                        return "deadline"
                     line = raw_line.strip() if isinstance(raw_line, str) else raw_line.decode("utf-8", errors="replace").strip()
                     if check_interrupted_fn and check_interrupted_fn():
                         with steer_lock:
@@ -558,6 +629,8 @@ async def tail_pi_output(
                         result_data = {"type": "agent_settled", "is_error": True,
                                        "result": prompt_error}
                         with steer_lock:
+                            if reader_stop.is_set():
+                                return "deadline"
                             torn_down = True
                             _teardown_session()
                         return None
@@ -568,8 +641,10 @@ async def tail_pi_output(
                         result_data = {"type": "agent_settled", "is_error": bool(converter.error),
                                        "result": converter.error or ""}
                         with steer_lock:
+                            if reader_stop.is_set():
+                                return "deadline"
                             torn_down = True
-                            _complete_open_groups(ledger)
+                            _complete_open_groups(ledger, launch_input_uuid)
                             _teardown_session()
                         return None
 
@@ -594,24 +669,38 @@ async def tail_pi_output(
             return None
 
         loop = asyncio.get_event_loop()
-        cancelled_result = None
+        reader = loop.run_in_executor(None, _read_lines)
+        cancelled = False
         try:
-            exit_reason = await loop.run_in_executor(None, _read_lines)
+            exit_reason = await asyncio.shield(reader)
         except asyncio.CancelledError:
             logger.info("tail_pi_output cancelled: chat_id={} offset={}", chat_id, current_offset)
+            reader_stop.set()
             try:
                 stdout_ch.channel.close()
             except Exception:
                 pass
-            cancelled_result = _view(False, "monitoring", result_data)
+            cancelled = True
+            # Closing a channel does not stop a buffered-line callback. Join
+            # the shielded reader before checkpointing its offset and ledger.
+            while not reader.done():
+                try:
+                    await asyncio.shield(reader)
+                except asyncio.CancelledError:
+                    continue
+            reader.result()
 
-        poll.stop()
+        poll.stop(timeout=None)
+        with steer_lock:
+            # Prevent a poll callback waiting behind an in-flight write from
+            # submitting after the handoff snapshot is taken.
+            torn_down = True
 
-        if cancelled_result:
+        if cancelled:
             if owns_client:
                 from agent.chat_target import close_owned_client
                 close_owned_client(client)
-            return cancelled_result
+            return _view(False, "monitoring", result_data)
 
         if (exit_reason is None and result_data is None and converter.end_candidate
                 and stream_error is None
