@@ -485,11 +485,13 @@ The repo no longer contains an in-process agent loop — the worker shells out.
   lives in `agent/src/agent/claude_code.py`; Codex lives in `agent/src/agent/codex.py`
   (restored in todo 4304 on Codex CLI `exec --json`).
   A codex bot must set `base_url` and `api_key`; the key is `OPENAI_API_KEY`, not an argv
-  flag. The thread id is `chat.external_id` and later turns resume it. On the default
-  `exec` harness a message sent while the turn runs ends it, and the continuation
-  resumes the thread with that message; `Y_CODEX_HARNESS=app-server` instead runs one
-  `codex app-server --listen stdio://` per turn behind the stdin pipe, where a steer is
-  a `turn/steer` request and the turn keeps running (todo 4476). The app-server launch
+  flag. The thread id is `chat.external_id` and later turns resume it. The worker
+  deployment sets `Y_CODEX_HARNESS=app-server`, which runs one `codex app-server
+  --listen stdio://` per turn behind the stdin pipe, where a steer is a `turn/steer`
+  request and the turn keeps running (todo 4476). On the fallback `exec` harness
+  (`Y_CODEX_HARNESS=exec`, or unset) there is no live input channel: a message sent
+  while the turn runs ends it, and the continuation resumes the thread with that
+  message. The app-server launch
   writes `initialize` + `thread/start|resume` and appends `turn/start` once the thread
   id is observed; its staged private `CODEX_HOME` reproduces `exec --ignore-user-config`,
   stages only that thread's rollout so a cold launch never backfills the node's whole

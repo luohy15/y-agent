@@ -370,7 +370,8 @@ mode (`-i`) serves a human at a terminal.
     inline query backends. A codex chat stores the Codex thread id; a pi chat
     stores its pi session id; an agy chat stores its Antigravity conversation id. Pi accepts a mid-turn `steer` command on its RPC stdin pipe and keeps the same native session.
     A Codex chat steers in place on the `Y_CODEX_HARNESS=app-server` harness
-    (`turn/steer`). On the default `codex exec` harness it has no live input
+    (`turn/steer`), which the worker deployment sets. On the fallback `codex
+    exec` harness (`Y_CODEX_HARNESS=exec`, or unset) it has no live input
     channel: a message sent while that turn is running ends the turn, and the
     same thread resumes with that message as the next prompt (the chat-steer
     PRD owns the delivery mechanics). The bot

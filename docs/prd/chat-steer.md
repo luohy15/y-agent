@@ -94,10 +94,11 @@ side-effect guarantee across arbitrary worker/VM crashes.
   session header; resume stays `--session <id>` in the same work dir. A steer
   that arrives after the settle is refused and answered by the continuation.
   Interrupt takes priority over steer.
-- **Codex steers on the app-server harness (todo 4476).** With
-  `Y_CODEX_HARNESS=app-server` the launch runs one `codex app-server --listen
-  stdio://` per turn behind the same `tail -f` stdin pipe, and `exec` stays the
-  default until the deployed soak clears it. Setup writes `initialize` plus
+- **Codex steers on the app-server harness (todo 4476).** The worker deployment
+  sets `Y_CODEX_HARNESS=app-server`, so a launch runs one `codex app-server
+  --listen stdio://` per turn behind the same `tail -f` stdin pipe. The `exec`
+  harness remains the fallback for a worker without the variable (or with
+  `Y_CODEX_HARNESS=exec`). Setup writes `initialize` plus
   `thread/start` or `thread/resume`; once the thread id is observed the launch
   appends `turn/start` with the folded prompt and images as `localImage`. A
   steer appends one `turn/steer` request carrying `expectedTurnId` and the
@@ -126,8 +127,9 @@ side-effect guarantee across arbitrary worker/VM crashes.
   new turn event; a tail that lost the turn id asks `thread/turns/list` for the
   `inProgress` turn. v2 notifications are folded into the exec event shapes, so
   usage rows, the rollout closeout and the transcript stay identical.
-- **`codex exec` steer ends the turn instead of writing stdin.** On the default
-  exec harness there is no mid-run input channel: the Codex tail's poll loop
+- **`codex exec` steer ends the turn instead of writing stdin.** On the fallback
+  `exec` harness (`Y_CODEX_HARNESS=exec`, or unset) there is no mid-run input
+  channel: the Codex tail's poll loop
   stops the session when a steer is accepted, retires the run's launch input,
   and reports a completed turn. The locked closeout selects the message as
   pending input and the continuation launches `codex exec resume <thread>` with

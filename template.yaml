@@ -541,6 +541,7 @@ Resources:
           Y_AGENT_RELAY_ORIGINS: !Ref RelayOrigins
           Y_AGENT_TENANT_MASTER_KEY_PARAMETER: !Ref TenantMasterKeyParameter
           Y_AGENT_WORKSPACE: !Ref AgentWorkspace
+          Y_CODEX_HARNESS: app-server
       Layers:
         - !Ref StorageLayer
         - !Ref AgentLayer
