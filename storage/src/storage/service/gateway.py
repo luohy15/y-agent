@@ -152,10 +152,13 @@ def send(user_id, text, reply_chat=None) -> GatewayResult:
             ok = False
         if not ok:
             continue
-        fallback = order[0] if index else None
+        fallback = pref if channel != pref else None
         if fallback:
+            reason = "failed" if pref in order[:index] else "unavailable"
             logger.warning(
-                "gateway fallback user_id={} from={} to={}", user_id, fallback, channel,
+                "gateway fallback user_id={} from={} to={} reason={}",
+                user_id, fallback, channel, reason,
             )
+        logger.info("gateway sent user_id={} channel={} preference={}", user_id, channel, pref)
         return GatewayResult(True, channel=channel, fallback_from=fallback, preference=pref)
     return GatewayResult(False, preference=pref)

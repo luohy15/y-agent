@@ -37,10 +37,17 @@ Availability:
   send`. A missing context token still enqueues `blocked_on_context` and counts
   as accepted; the bridge delivers it after the next inbound message.
 
-A failed preferred attempt logs a warning and returns `fallback_from`. The send
-fails only when neither channel is available or both attempts fail. The HTTP
-send then returns 503. WeChat notifications are text-only. `y telegram send`
-stays the explicit Telegram escape hatch for images and diagnostics.
+Fallback is automatic but never silent. Whenever the channel that delivers is
+not the preferred one, the result carries `fallback_from` naming the preferred
+channel and a warning is logged with the reason (`unavailable` when the
+preference was skipped as unavailable, `failed` when it was attempted and
+returned failure). A successful send logs one info line naming the delivered
+channel and the preference. There is no duplicate fan-out: WeChat delivery is a
+single outbox enqueue committed only on success, so a fallback cannot leave a
+copy on both channels. The send fails only when neither channel is available or
+both attempts fail. The HTTP send then returns 503. WeChat notifications are
+text-only. `y telegram send` stays the explicit Telegram escape hatch for images
+and diagnostics.
 
 `send` accepts an optional `reply_chat`. The chat must already exist for that
 owner; a missing or foreign id returns `chat_not_found` and sends nothing
@@ -97,6 +104,10 @@ No schema migration. The trial is `y gateway config --channel wechat`. Revert is
 - A WeChat send failure followed by a Telegram success reports channel
   `telegram` and `fallback_from=wechat`, and logs a warning. Both attempts
   failing is a failure and does not claim a fallback.
+- An unavailable preferred channel followed by the other channel succeeding
+  reports that other channel and `fallback_from=<preferred>`, and logs a
+  warning naming the reason. Every successful send logs one info line with the
+  delivered channel; no send reaches both channels.
 - Host callers for todo awaiting, the SLA digest, access notices, reminders,
   routine failures, and manager death notices use the gateway.
 - A WeChat manager DM gets one outbox reply and no gateway send. A Telegram
