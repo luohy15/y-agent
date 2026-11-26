@@ -1,7 +1,8 @@
 """`y usage limits [--json] [--refresh]` (todo 2872 sub-task 3, Claude reader
-removed in todo 4138): the two readers -- `codex_usage_api` and
-`xai_billing_credits` (direct HTTP, `_http_readers.py`) -- behind one
-envelope. Emits exactly the `{"providers": [...], "errors": [...]}` shape
+removed in todo 4138): the three readers -- `codex_usage_api` and
+`xai_billing_credits` (direct HTTP, `_http_readers.py`) plus `agy_usage_cli`
+(the Antigravity CLI's own `/usage` subprocess, `_agy_reader.py`) -- behind
+one envelope. Emits exactly the `{"providers": [...], "errors": [...]}` shape
 `storage.service.model_usage_limits.normalize_envelope` expects; this is the
 contract `agent.usage_limits`'s SSH wrapper and `GET /api/usage/limits` are
 built against. No provider-selector flag: callers take the whole envelope.
@@ -22,7 +23,7 @@ import json
 import click
 from loguru import logger
 
-from . import _http_readers
+from . import _agy_reader, _http_readers
 
 _WINDOW_LABELS = (
     ("five_hour", "5 hours"),
@@ -32,13 +33,14 @@ _WINDOW_LABELS = (
 
 
 async def _collect(refresh: bool) -> dict:
-    # `--refresh` stays accepted. The agent retry still passes it, and both
-    # remaining readers always run fresh, so the flag does not change the read.
+    # `--refresh` stays accepted. The agent retry still passes it, and every
+    # reader always runs fresh, so the flag does not change the read.
     del refresh
-    sources = ("codex_usage_api", "xai_billing_credits")
+    sources = ("codex_usage_api", "xai_billing_credits", _agy_reader.SOURCE)
     tasks = (
         asyncio.to_thread(_http_readers.read_codex_provider),
         asyncio.to_thread(_http_readers.read_xai_provider),
+        asyncio.to_thread(_agy_reader.read_agy_provider),
     )
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -56,9 +58,9 @@ async def _collect(refresh: bool) -> dict:
 
 @click.command("limits")
 @click.option("--json", "as_json", is_flag=True, help="Output the raw JSON envelope instead of a table")
-@click.option("--refresh", is_flag=True, help="Accepted for callers; Codex and Grok always run fresh")
+@click.option("--refresh", is_flag=True, help="Accepted for callers; every reader always runs fresh")
 def limits(as_json: bool, refresh: bool):
-    """Read live subscription limit-window usage for Codex and Grok."""
+    """Read live subscription limit-window usage for Codex, Grok, and Gemini (agy)."""
     envelope = asyncio.run(_collect(refresh))
 
     if as_json:

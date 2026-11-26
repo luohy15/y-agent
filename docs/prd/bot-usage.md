@@ -22,8 +22,8 @@ which models dominate spend, how usage trends week over week, and whether a
 given day was heavy or idle, without the numbers silently rolling off. Spend
 history also does not answer the operational question that matters before
 starting another long agent turn: how much of each retained paid subscription
-(GPT (Codex) and Grok) is still available, and when it recovers. Claude
-subscription limits are not part of that status. Those
+(GPT (Codex), Grok, and Gemini (agy)) is still available, and when it recovers.
+Claude subscription limits are not part of that status. Those
 provider-native limits need a current status surface of their own rather than
 being inferred from token or dollar totals. They also should not depend on a
 relay: routing limit status through claude-relay-service made the numbers a
@@ -60,19 +60,21 @@ daily / weekly / monthly granularity), with a Tokens / Cost / Requests metric
 toggle shared across both.
 
 The Live mode of that bot-page Usage view also presents a current
-subscription-limit status section for GPT (Codex) and Grok, read **directly
-from each provider** rather than through any relay. Claude subscription limits
-are not read or shown. Codex still reports rolling windows, `five_hour` /
-`one_week`, in the fetched payload; the Live card draws the weekly window.
-Grok reports its current billing period. Each drawn window shows percent used,
-percent remaining, reset time, freshness, and explicit unavailable / stale /
-re-auth states. The two reads run in the `y` CLI **on the user's VM** (stable
-source IP, already known to these vendors), behind one `y usage limits --json`
+subscription-limit status section for GPT (Codex), Grok, and Gemini (agy),
+read **directly from each provider** rather than through any relay. Claude
+subscription limits are not read or shown. Codex still reports rolling
+windows, `five_hour` / `one_week`, in the fetched payload; the Live card draws
+the weekly window. Grok reports its current billing period, and Gemini (agy)
+reports weekly and 5-hour windows of which the card draws the weekly one. Each
+drawn window shows percent used, percent remaining, reset time, freshness, and
+explicit unavailable / stale / re-auth states. The three reads run in the `y`
+CLI **on the user's VM** (stable source IP, already known to these vendors),
+behind one `y usage limits --json`
 envelope. A 30-minute worker
 schedule SSH-execs that command per user, normalizes the result, and persists
 the latest snapshot in `user_preference` (key `usage_limits_latest`, todo
 3226); ordinary `GET /api/usage/limits` polls read only that persisted
-snapshot and never touch VM, SSH, or CLI. No Codex/Grok subscription request
+snapshot and never touch VM, SSH, or CLI. No Codex/Grok/agy subscription request
 originates from Lambda: those live reads always run on the VM, and only the
 resulting envelope is persisted. A manual `?refresh=true` still performs one bounded live read
 through the same refresh function the schedule uses. Refresh is independent
@@ -90,11 +92,15 @@ credential file** (`~/.codex/auth.json`, `~/.grok/auth.json`) is the single
 source of truth: y-agent reads it live and, when the access token has expired,
 refreshes it at the provider's OAuth endpoint and writes the rotated grant back
 into that same vendor file, in that file's exact original shape: precisely
-what the vendor CLI would have done itself. There is no y-agent credential
+what the vendor CLI would have done itself. Antigravity (agy) is read through
+its own CLI instead: y-agent runs `agy -p "/usage" --output-format json` and
+never reads, copies, or rotates the agy login, so only the agy CLI's own
+credential handling is involved. There is no y-agent credential
 store and no y-agent login command. Subscription-limit refresh handles no
 Anthropic grant: it does not scrape `/usage` and it does not exchange an
 Anthropic token. Claude API spend stays on the relay. Re-authentication for a
-limits card is a **vendor** action (`codex login` / `grok login`), which is
+limits card is a **vendor** action (`codex login` / `grok login`, or running
+`agy` on the VM and signing in), which is
 exactly what the expired-login card tells the user to run.
 
 Session context analysis (todo 3844) explains a single chat's context
@@ -174,19 +180,19 @@ later delivery.
 ### Subscription limit-window status
 
 16. As a web user, I want the Live tab of the bot Usage view to show
-    subscription-limit status for GPT (Codex) and Grok, and not a Claude
-    subscription card, so that I can choose a retained backend with enough
-    available capacity before starting work without adding operational status
-    to the historical Over-time tab. Claude API spend, models, and stored
-    limit history stay.
+    subscription-limit status for GPT (Codex), Grok, and Gemini (agy), and not
+    a Claude subscription card, so that I can choose a retained backend with
+    enough available capacity before starting work without adding operational
+    status to the historical Over-time tab. Claude API spend, models, and
+    stored limit history stay.
 17. As a user, I want each provider's numbers read straight from that provider,
     so that limit status does not depend on a relay service staying deployed,
     configured, and in sync, and so that a provider the relay has no usage
     concept for can still be shown.
 18. As a web user, I want the Live card to show the weekly window for GPT
-    (Codex) and the current billing period for Grok. Codex's 5-hour window
-    stays in the fetched payload and is not drawn. A provider is not given an
-    empty row for a window it does not have.
+    (Codex) and Gemini (agy) and the current billing period for Grok. Codex's
+    and agy's 5-hour windows stay in the fetched payload and are not drawn. A
+    provider is not given an empty row for a window it does not have.
 19. As a web user, I want each window to show percent used, percent remaining,
     and the reset time, so that I can judge both current headroom and how long I
     need to wait for recovery.
@@ -240,8 +246,9 @@ later delivery.
     refresh fails, and never observed half-written by a vendor CLI running at
     the same moment, so that reading a status number can never cost me a login.
 31. As a user, I want an expired or absent login surfaced as an actionable card
-    naming the **vendor** command to re-run (`codex login` or `grok login`),
-    so that I can fix it without knowing y-agent's internals.
+    naming the **vendor** action to take (`codex login`, `grok login`, or
+    running `agy` and signing in), so that I can fix it without knowing
+    y-agent's internals.
 32. As a user, I want a CLI command that reports each provider's credential
     state without ever printing token material, so that I can diagnose a dark
     card from a terminal safely.
@@ -251,15 +258,15 @@ later delivery.
 
 ### Read cost and availability
 
-34. As a user, I want the Codex/Grok subscription calls made from my own VM rather than from
+34. As a user, I want the Codex/Grok/agy subscription calls made from my own VM rather than from
     Lambda, so that requests come from a stable source IP these vendors already
     know instead of shared cloud egress.
 35. As a user, I want a stopped VM to answer the status poll immediately with
     an explicit unreachable state instead of being started, so that opening a
     panel never boots an instance.
-36. As a user, I want both subscription reads (Codex and Grok) to run fresh on
-    each limits command, so that a poll does not replay a cached scrape and
-    freshness never lies about a stale observation.
+36. As a user, I want all three subscription reads (Codex, Grok, and Gemini
+    via agy) to run fresh on each limits command, so that a poll does not
+    replay a cached scrape and freshness never lies about a stale observation.
 
 ### Hourly grain
 
@@ -784,7 +791,7 @@ later delivery.
   balance. No key is returned to the browser or included in logs, notes or
   fixtures. Deployment wiring does not provision a missing provider key.
 - **Scoped Lambda exception.** These API-key balance reads originate from the
-  API Lambda. The stable-source-IP VM requirement applies to Codex/Grok CLI
+  API Lambda. The stable-source-IP VM requirement applies to the Codex/Grok/agy
   subscription reads, not these balance APIs; their existing execution,
   refresh cadence and credential ownership remain unchanged.
 - **Bounded reads and cache.** Providers run concurrently with an 8-second
@@ -1045,12 +1052,14 @@ later delivery.
   explicit manual retry) — so the underlying reads, their VM execution, and
   their error vocabulary are unchanged; see "Persisted snapshot" below for
   the read/refresh/failure/lock contract this introduced.
-- **Two providers, two readers, one envelope (todo 4138).** `codex_usage_api`
-  for openai/codex (authenticated GET of the Codex usage endpoint) and
-  `xai_billing_credits` for xai (authenticated GET of the xAI CLI's billing
-  endpoint, tried in two shapes; see below). The two run concurrently; one
-  reader's failure is isolated into the envelope's `errors[]` and cannot take
-  the other down. There is no provider-selector flag: callers take the whole
+- **Three providers, three readers, one envelope (todo 4138; agy in todo
+  4461).** `codex_usage_api` for openai/codex (authenticated GET of the Codex
+  usage endpoint), `xai_billing_credits` for xai (authenticated GET of the
+  xAI CLI's billing endpoint, tried in two shapes; see below), and
+  `agy_usage_cli` for google/agy (the Antigravity CLI's own `/usage` report,
+  run as a subprocess; see below). The three run concurrently; one reader's
+  failure is isolated into the envelope's `errors[]` and cannot take the
+  others down. There is no provider-selector flag: callers take the whole
   envelope or nothing. The Claude subscription reader, its on-VM scrape cache,
   and `y claude usage` are removed. `normalize_envelope`, `merge_providers`,
   and `read_snapshot` drop `claude_code` rows and errors whose origin is the
@@ -1069,12 +1078,13 @@ later delivery.
   rate-limit windows, keyed on each window's own reported duration and
   **never** on primary/secondary position (a live sample returned the one-week
   window as "primary" with the secondary null); xAI reports one
-  `billing_period` usage row with the period end as its reset. A row is usable
-  when **any** window carries a real percentage. Demanding the 5-hour/1-week
-  pair would leave Grok permanently unavailable. The Live card draws Codex's
-  weekly window and Grok's billing-period window; Codex's 5-hour window stays
-  in the payload. Model-specific extra windows are not collected or served. A
-  provider-specific `extra` map (xAI's `used`/`monthlyLimit`, prepaid balance,
+  `billing_period` usage row with the period end as its reset; agy reports a
+  `five_hour` and a `one_week` bucket. A row is usable when **any** window
+  carries a real percentage. Demanding the 5-hour/1-week pair would leave Grok
+  permanently unavailable. The Live card draws Codex's and agy's weekly window
+  and Grok's billing-period window; the 5-hour windows stay in the payload.
+  Model-specific extra windows are not collected or served. A provider-specific
+  `extra` map (xAI's `used`/`monthlyLimit`, prepaid balance,
   on-demand cap/used, unified-billing flag) may still ride on the window.
 - **xAI's percent has two source shapes, plain-first (todo 3001).** The
   reader is not a single fixed-field parse: it requests the plain
@@ -1090,7 +1100,26 @@ later delivery.
   `?format=credits` view stopped carrying `creditUsagePercent` while the plain
   view's `used`/`monthlyLimit` pair stayed populated (the reverse of the
   shape this reader originally shipped against, todo 2872).
-- **Execution on the VM, not in Lambda.** Both provider HTTP reads live
+- **agy is read through its own CLI (todo 4461).** Antigravity's subscription
+  status is only exposed by its CLI, so `agy_usage_cli` runs
+  `agy -p "/usage" --output-format json` in a subprocess (15s timeout,
+  `cwd=/tmp`) and parses stdout; y-agent never reads or rotates the agy OAuth
+  token and never parses the human-readable `response` text. Only the first
+  group ("Gemini Models") is collected: `used_percent` is
+  `(1 - remaining_fraction) * 100`, finite and clamped to 0..100, with the
+  bucket's `window` (`weekly` / `5h`) mapped to `one_week` / `five_hour`. A
+  `reset_time` of the epoch placeholder (`1970-01-01T00:00:00Z`) or an absent
+  or unparseable value becomes null, never a 1970 countdown. Signed out, the
+  CLI prints "Authentication required..." on stderr and then waits for its own
+  long auth timeout, so a timeout (or any non-zero exit) carrying that text
+  maps to `reauth_required`; an unrecognized or percent-less shape maps to
+  `parse_failed`; a timeout without auth text, a missing binary, or another
+  non-zero exit maps to `transport_error`. The documented exit-2 Gemini
+  API-key shape (not reproducible on the authenticated VM) maps defensively to
+  `not_logged_in`. The read is read-only, spends no model tokens, and needs no
+  cache beyond the existing 30-minute snapshot.
+- **Execution on the VM, not in Lambda.** Every subscription read (the two
+  provider HTTP reads and the agy subprocess) lives
   in `y usage limits [--json] [--refresh]`, which runs on the user's VM. Two
   callers SSH-exec it and normalize the returned envelope: the 30-minute
   worker schedule (`refresh_and_persist_snapshot`, unforced) and
@@ -1115,7 +1144,9 @@ later delivery.
   `agent` would fail its own test job.
 - **Error vocabulary is a closed set of codes, never free text.** The CLI's
   provider-level codes are exactly `not_logged_in`, `reauth_required`,
-  `parse_failed`, `transport_error`. The backend wrapper adds transport-level
+  `parse_failed`, `transport_error`; the three readers add no code of their
+  own (agy's auth wall is `reauth_required`, its exit-2 API-key shape
+  `not_logged_in`). The backend wrapper adds transport-level
   codes `vm_unreachable`, `cli_failed`, `bad_payload`, plus `malformed_item` at
   envelope level, and the persisted snapshot adds two more: the startup-only
   `snapshot_unavailable` (todo 3226: no successful refresh has completed for
@@ -1357,10 +1388,11 @@ later delivery.
   payload can reach an operational line. The run summary is what
   distinguishes "no eligible users" from "reached everyone" from "ran out of
   budget" from "the eligibility query itself timed out".
-- **Never spend tokens for status.** The Anthropic reader launches its
-  ephemeral session with no provider env vars, so it reads the subscription
-  grant, runs no model turn, and cannot disturb concurrent relay-backed agent
-  turns; the other two readers are plain authenticated GETs.
+- **Never spend tokens for status.** The two HTTP readers are plain
+  authenticated GETs and the agy reader is a read-only `/usage` subprocess;
+  neither runs a model turn, and neither can disturb concurrent
+  relay-backed agent turns. (The removed Anthropic reader ran an ephemeral
+  session with no provider env vars the same way.)
 - **Account scope.** Status is account-wide, and the Usage view presents
   exactly one deterministically selected representative per backend, preferring
   a fresh available row with usable windows, then stale usable data, then an
@@ -1415,6 +1447,11 @@ later delivery.
   and live. y-agent keeps **no credential store of its own** and has **no login
   command**: `y usage login` and `$Y_AGENT_HOME/.credentials/provider-usage.json`
   were built, shipped once, and then deliberately deleted.
+- **The agy login is only ever the agy CLI's (todo 4461).** Unlike the two
+  HTTP readers, `agy_usage_cli` never reads, copies, refreshes, or writes the
+  Antigravity credential; it runs the CLI's own `/usage` subprocess and reads
+  only stdout. There is no agy token handling in y-agent to keep in sync, and
+  signing in is done by running `agy` on the VM.
 - **No Anthropic subscription credential.** Subscription-limit refresh does
   not read Anthropic, does not scrape a CLI view, and does not store or
   refresh an Anthropic grant. Claude API spend stays on the relay.
@@ -1451,8 +1488,11 @@ later delivery.
   60-second-polled panel depend on unrelated CLI habits. And since both
   providers rotate the refresh token on use, refreshing *without* writing back
   is precisely what killed the live `codex` login during this work.
-- **Re-auth is always a vendor action.** `codex login` or `grok login`,
-  which is exactly what the `reauth_required` card names.
+- **Re-auth is always a vendor action.** `codex login` or `grok login`, or
+  running `agy` on the VM and signing in, which is exactly what the
+  `reauth_required` card names. The CLI cannot distinguish a missing agy login
+  from an expired one, so that card's copy says "expired or is missing" and
+  names the action.
   `y usage credentials` reports each provider's state (`active` /
   `reauth_required` / `not_logged_in`) by exercising the real refresh path, and
   never prints token material.
@@ -1525,9 +1565,10 @@ later delivery.
   isolated into a per-origin error list rather than failing the whole read.
   Responses omit internal integer ids and never fabricate a current value after
   a failed read: missing or malformed data stays null and visibly unavailable.
-- **Reset times come from the provider payload.** Codex and Grok supply
+- **Reset times come from the provider payload.** Codex, Grok, and agy supply
   `reset_at` on the window. The old Claude overlay text parser is gone
-  (todo 4138). An unparseable reset stays null.
+  (todo 4138). An unparseable reset stays null; so does agy's epoch
+  placeholder, which means "no reset".
 - **Limit-window history (todo 3717).** `GET /api/usage/limit-history` and
   `y usage limit-history` return the same bounded read: every local hour in
   an inclusive range of at most 31 days, up to the current hour, including
@@ -1556,20 +1597,22 @@ later delivery.
   balances in Live, before Today by hour in the wide left column; Model share
   stays right. Narrow panels put Model share first, then balances and limits.
   Limits is not rendered or fetched for Over-time, which remains a
-  historical-spend-only view. GPT (Codex) and Grok each use two lines: provider
-  name, freshness dot, muted `1 week` or `Billing period`, and right-aligned
-  percent used; then a 4px track and full, untruncated reset text. Provider
-  letter chips are removed. The fill is `base0` below 60%, yellow at 60%,
-  orange at 80%; `limit reached` and `not reported` states remain. The row does
-  not draw Codex's 5-hour window. There is no Claude subscription row. A
-  provider that reports no drawn window uses a dedicated "no windows reported"
-  state rather than empty rows. A
-  `reauth_required` provider renders an actionable card naming the vendor login
-  to re-run, distinct from plain unavailable and from `vm_unreachable`. Cards
-  are classified from stable `backend`/`provider` identifiers, never from
-  display text. Provider failures are isolated, the envelope's error list shows
-  as a partial-read badge, and the limit refresh control is visually and
-  behaviorally separate from spend refresh.
+  historical-spend-only view. GPT (Codex), Grok, and Gemini (agy) each use two
+  lines: provider name, freshness dot, muted `1 week` or `Billing period`, and
+  right-aligned percent used; then a 4px track and full, untruncated reset
+  text. Provider letter chips are removed. The fill is `base0` below 60%,
+  yellow at 60%, orange at 80%; `limit reached` and `not reported` states
+  remain. The row does not draw Codex's or agy's 5-hour window. There is no
+  Claude subscription row.
+  A provider that reports no drawn window uses a dedicated "no windows reported"
+  state rather than empty rows. A `reauth_required` provider renders an
+  actionable card naming the vendor action to take, distinct from plain
+  unavailable and from `vm_unreachable`. For agy that copy says the login
+  "expired or is missing" and names running `agy` on
+  the VM. Cards are classified from stable `backend`/`provider` identifiers,
+  never from display text. Provider failures are isolated, the envelope's error
+  list shows as a partial-read badge, and the limit refresh control is visually
+  and behaviorally separate from spend refresh.
 - **Live visual roles (todo 4152).** Follow D10–D15 in
   [Design Language](design-language.md): one canvas, hairline sections with 16px
   gaps and 12px top padding, `text-xs font-medium uppercase tracking-wide`
@@ -2076,7 +2119,7 @@ as decisions.
   user with no successful refresh yet reads a bounded `snapshot_unavailable`
   envelope without any VM probe.
 - **No quota gate (todo 4138).** A successful refresh does not read or write
-  a bot's enabled bit. Codex and Grok rows survive normalize, merge, and
+  a bot's enabled bit. Codex, Grok, and agy rows survive normalize, merge, and
   read; `claude_code` rows and Claude-origin errors do not. History does not
   synthesize a missing Claude backend and does not write extra windows.
   Stored history rows are not deleted. Cadence stays 1800s and read freshness
@@ -2142,7 +2185,7 @@ as decisions.
   but never renders or requests Subscription limits.
 - **Limit-status states** cover fresh, stale, never-observed, provider-error,
   re-auth-required, missing-reset-time, zero-windows-reported, and narrow-panel
-  layouts across both retained backends, with configured-timezone reset labels
+  layouts across the three retained backends, with configured-timezone reset labels
   checked against the absolute API timestamps. These are asserted in component
   tests and fixtures; screenshots are taken only on request, per the house
   policy that agent-driven UI runtime checks are opt-in.
@@ -2184,9 +2227,10 @@ as decisions.
   and build gate the module.
 - **Post-deploy smoke:** trigger a sync, confirm rows appear for the current
   day, spot-check a date's totals against the relay dashboard, then call the
-  deployed limits endpoint and confirm Codex and Grok return with an empty
+  deployed limits endpoint and confirm Codex, Grok, and agy return with an empty
   error list and no Claude subscription row; cross-check the Grok number
-  against the vendor's own billing view, and confirm a relay-backed agent
+  against the vendor's own billing view and the agy weekly percent against
+  `agy -p "/usage"`, and confirm a relay-backed agent
   turn running concurrently is unaffected. `y claude` is not a command. The
   named `fable` bot's enabled bit is unchanged by the refresh.
 - Prior art to mirror: the finance test suite's derived-view style and the
