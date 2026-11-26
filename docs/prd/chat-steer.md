@@ -24,9 +24,9 @@ Sending a message to a running chat requires no special UI or command: the
 message is appended to the chat like any other, but no new worker task is
 enqueued. The already-running worker polls the chat for new user messages every
 couple of seconds and delivers each one into the live agent session. Claude
-Code print mode accepts mid-run input through its stdin pipe. `codex exec` and pi print mode have
-no input channel, so their steer ends the running turn and the same native session
-resumes with the pending message as the next prompt. An accepted message is
+Code print mode accepts mid-run input through its stdin pipe. `codex exec`, pi print mode, and
+`agy -p` have no input channel, so their steer ends the running turn and the
+same native session resumes with the pending message as the next prompt. An accepted message is
 either completed by that session or assigned to one serialized continuation. A
 successful stdin-file write is not evidence of consumption.
 Native per-input lifecycle events, persisted delivery state, and a locked
@@ -95,6 +95,23 @@ worker/VM crashes.
   A transient top-level `error` retry notice earlier in the turn does not block
   the completed steer result or the continuation (todo 4420). `turn.failed`, or
   an `error` the turn never completes past, still blocks that continuation.
+- **`agy` steer ends the turn and reaps its process group (todo 4472).**
+  `agy -p` is sequential turn-per-line, so a steer kills the detached session
+  and closeout relaunches `--conversation <id>` with the pending message.
+  Teardown cannot rely on `tmux kill-session` alone: `agy` ignores SIGHUP, so
+  the kill command first captures each pane's PID (its session and process-group
+  leader on either socket), TERMs those groups, escalates to KILL, and reports
+  `gone` only when no group survives; otherwise closeout must not launch a
+  second `agy` beside the orphan. `agy` flushes a `status: ERROR,
+  finished_reason: interrupted` result while handling that SIGTERM: after an
+  accepted steer it is the expected flush, not a turn failure, and a steer
+  requested once the turn already produced a result or error is refused rather
+  than killed. A resumed tail seeds the persisted conversation id, so a steer
+  arriving right after a Lambda handoff (offset past the old stdout) is accepted
+  without waiting for another `init` line. The host's orphan reaper recognizes
+  both the stdin-pipe wrapper and the direct `stdout`/`stderr` redirect wrappers
+  of `codex` / `pi` / `agy`, so a leaked session wrapper is reclaimed regardless
+  of backend.
 - **Discovery is not consumption.** The checker claims stable message IDs so
   one ordered writer submits each input once. A failed SSH append releases the
   claim. Teardown never drains or submits new work. Interrupt remains the first

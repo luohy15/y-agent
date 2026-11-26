@@ -408,6 +408,7 @@ async def tail_agy_output(
     input_ledger: Optional[InputLedger] = None,
     launch_input_uuid: Optional[str] = None,
     pending_result: Optional[dict] = None,
+    conversation_id: Optional[str] = None,
 ) -> dict:
     """Tail a detached agy process's stdout file via SSH.
 
@@ -415,6 +416,11 @@ async def tail_agy_output(
     relaunches that conversation with the pending message. Interrupt keeps
     priority. A non-SUCCESS result, a detach sentinel, or an exit with no
     result is fatal. A self-kill for steer or interrupt is not a death.
+
+    `conversation_id` seeds the converter with the id persisted by a previous
+    invocation, so a resumed tail (Lambda handoff at `offset > 0`, whose new
+    stdout lines may lag the steer check) accepts a steer immediately instead
+    of waiting for another `init` line.
     """
     from agent.poll_loop import PollLoop
 
@@ -429,6 +435,8 @@ async def tail_agy_output(
     exit_file = f"/tmp/cc-{chat_id}.exit"
 
     converter = AgyStreamConverter(last_message_id=last_message_id)
+    if conversation_id:
+        converter.conversation_id = conversation_id
     ledger = input_ledger if input_ledger is not None else InputLedger(chat_id)
     result_data = pending_result if isinstance(pending_result, dict) else None
     replay = successful_result(result_data)
@@ -486,6 +494,10 @@ async def tail_agy_output(
             nonlocal torn_down
             with steer_lock:
                 if torn_down or not converter.conversation_id:
+                    return False
+                # The turn already produced its own terminal result, so there is
+                # nothing to steer and the kill would only confuse closeout.
+                if result_data is not None or last_error_data is not None:
                     return False
                 if not _kill_session_marking_self_killed(client, chat_id, node=node):
                     return False
@@ -598,7 +610,12 @@ async def tail_agy_output(
                 close_owned_client(client)
             return cancelled_result
 
-        if steered.is_set() and exit_reason != "interrupted" and result_data is None and last_error_data is None:
+        # Steer success is decided by our own teardown: `_on_steer` only tears
+        # down a turn that had no result yet. `agy` flushes a result event with
+        # `status: ERROR, finished_reason: interrupted` while it handles our
+        # SIGTERM, so a `last_error_data` seen after the steer is that flush,
+        # not a turn failure. It must not become a fatal error (todo 4472).
+        if steered.is_set() and exit_reason != "interrupted" and result_data is None:
             _consume_self_kill_sentinel(client, chat_id)
             if owns_client:
                 from agent.chat_target import close_owned_client

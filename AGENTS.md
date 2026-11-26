@@ -447,7 +447,11 @@ The repo no longer contains an in-process agent loop — the worker shells out.
   `chat.external_id` is the
   `init` conversation id and later turns resume `--conversation` only when the
   work dir matches; a steer ends the running turn and closeout relaunches the
-  conversation. `result.usage` totals the whole conversation, so per-turn rows
+  conversation. Teardown reaps the pane's process group (see "Detached execution
+  on EC2"), because `agy` ignores SIGHUP, and its SIGTERM flush of
+  `status: ERROR, finished_reason: interrupted` after an accepted steer is the
+  expected end, not a turn failure. `result.usage` totals the whole
+  conversation, so per-turn rows
   store the reduced delta. agy is row-only: it is not in `AGENTIC_BACKENDS`
   connection entries (which require `base_url`), the resume gate, or the
   context-window badge, and it refuses image input. `gemini_cli`, `grok_build`,
@@ -468,13 +472,20 @@ The repo no longer contains an in-process agent loop — the worker shells out.
   New `cc-*` sessions use `tmux -L y-agent` with `TMUX` unset inside the wrapper;
   liveness, teardown and orphan enumeration also cover the legacy default socket
   during transition. A vanished session without exit status ends as an execution error.
+  Teardown captures each pane's PID (its session and process-group leader on
+  both sockets) before `tmux kill-session`, then TERMs the groups, escalates to
+  KILL, and reports `gone` only when none survives, so a SIGHUP-ignoring backend
+  (`agy`) cannot outlive its turn while the next turn starts beside it (todo 4472).
+  The orphan reaper matches both claude_code's stdin-pipe wrapper and the direct
+  `stdout`/`stderr` redirect wrappers used by `codex` / `pi` / `agy`.
 - **Lambda hand-off** — since Lambda caps at ~15 min, the worker releases its lease
   before the deadline and re-enqueues itself via SQS; the next invocation picks up the
   existing tail offset. `poll_loop.py` unifies the steer / interrupt polling cadence.
 - **Steer** — mid-conversation user messages are delivered to a running Claude Code
-  session through a `tail -f` stdin pipe. `codex exec` has no input channel, so a Codex
-  steer ends the running turn and the closeout continuation resumes the same thread with
-  the message as the next prompt. `y chat stop` is the
+  session through a `tail -f` stdin pipe. `codex exec` and `agy -p` have no input
+  channel, so a Codex or agy steer ends the running turn and the closeout
+  continuation resumes the same thread / `--conversation` with the message as the
+  next prompt. `y chat stop` is the
   explicit interrupt path; an interrupt watchdog thread also fires during LLM waits.
 - **Context monitor** — per-chat token usage is tracked; when a root-role session
   crosses 50% context or 50 turns, it auto-restarts in a fresh chat with a short

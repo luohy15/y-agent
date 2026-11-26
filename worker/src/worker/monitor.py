@@ -291,6 +291,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             input_ledger=ledger,
             launch_input_uuid=launch_input_uuid,
             pending_result=_load_json_field(proc, "pending_result") or None,
+            conversation_id=proc.get("session_id"),
         )
     elif backend_type == "codex":
         from agent.codex import tail_codex_output

@@ -69,9 +69,71 @@ def _tmux_alive_cmd(chat_id: str, node=None) -> str:
     return f"( {_tmux_command(args, node=node)} || {_tmux_command(args, legacy=True, node=node)} )"
 
 
+_TMUX_KILL_SCRIPT = """\
+set +e
+_t="$1"
+_s="$2"
+_pids=""
+for _sock in y-agent default; do
+  for _p in $("$_t" -L "$_sock" list-panes -t "=$_s" -F "#{pane_pid}" 2>/dev/null); do
+    _pids="$_pids $_p"
+  done
+done
+"$_t" -L y-agent kill-session -t "=$_s" 2>/dev/null
+"$_t" -L default kill-session -t "=$_s" 2>/dev/null
+_alive=""
+for _p in $_pids; do
+  case "$_p" in ""|*[!0-9]*|0|1) continue;; esac
+  _alive="$_alive $_p"
+  kill -TERM "-$_p" 2>/dev/null
+done
+_i=0
+while [ "$_i" -lt 15 ] && [ -n "$_alive" ]; do
+  _next=""
+  for _p in $_alive; do
+    kill -0 "-$_p" 2>/dev/null && _next="$_next $_p"
+  done
+  _alive="$_next"
+  [ -n "$_alive" ] && sleep 0.2
+  _i=$((_i + 1))
+done
+for _p in $_alive; do
+  kill -KILL "-$_p" 2>/dev/null
+done
+_i=0
+while [ "$_i" -lt 5 ] && [ -n "$_alive" ]; do
+  _next=""
+  for _p in $_alive; do
+    kill -0 "-$_p" 2>/dev/null && _next="$_next $_p"
+  done
+  _alive="$_next"
+  [ -n "$_alive" ] && sleep 0.2
+  _i=$((_i + 1))
+done
+[ -z "$_alive" ] || exit 1
+( "$_t" -L y-agent has-session -t "=$_s" 2>/dev/null || "$_t" -L default has-session -t "=$_s" 2>/dev/null ) && exit 1
+exit 0
+"""
+
+
 def _tmux_kill_cmd(chat_id: str, node=None) -> str:
-    args = f"kill-session -t {_shell_quote(f'=cc-{chat_id}')} 2>/dev/null"
-    return f"( {_tmux_command(args, node=node)}; {_tmux_command(args, legacy=True, node=node)} )"
+    """Kill the session and every process group its panes started.
+
+    `tmux kill-session` only sends SIGHUP to the pane, so a backend that ignores
+    SIGHUP (Antigravity's `agy`) survives as a PPID=1 orphan while the next turn
+    launches a second process on the same conversation (todo 4472). Capture each
+    pane's PID (its session and process-group leader) on both sockets, kill the
+    session, then TERM the captured groups and escalate to KILL. Guard `0`/`1`/
+    non-numeric panes so a bad PID cannot signal the caller's own group or init.
+    Exit 0 only when the session and every captured group are gone.
+
+    POSIX `sh -c` so the same script runs under zsh / bash / sh on Linux and macOS.
+    """
+    binary = node.tmux_binary if node is not None else "tmux"
+    return (
+        f"sh -c {_shell_quote(_TMUX_KILL_SCRIPT)} sh "
+        f"{_shell_quote(binary)} {_shell_quote(f'cc-{chat_id}')}"
+    )
 
 
 def _reap_orphan_wrappers_cmd(min_age_s: float = ORPHAN_WRAPPER_MIN_AGE_SECONDS, stdin_prefix: str = "/tmp/cc-") -> str:

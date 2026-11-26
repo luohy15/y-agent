@@ -804,18 +804,24 @@ def _tmux_session_alive(client, chat_id: str, node=None) -> bool:
 def _kill_and_verify_cmd(chat_id: str, node=None) -> str:
     """Marker + kill + cleanup, then a tmux liveness check.
 
-    The marker+kill+cleanup chain is unchanged: `.killed` is written before
-    `tmux kill-session` (`&&`), and stdin/exit/MCP cleanup always runs. The
-    trailing `has-session` prints `gone` only when `cc-<chat_id>` is gone.
+    `.killed` is written before the kill, and stdin/exit/MCP cleanup always
+    runs. `_tmux_kill_cmd` now also reaps the pane's process group, so its exit
+    code carries the real teardown result: print `gone` only when that command
+    exited 0 (no surviving process group) and `cc-<chat_id>` is absent. A
+    session that is absent while a captured group still lives, or a failed
+    kill command, prints `alive` so the caller retries instead of starting a
+    second process beside the orphan (todo 4472).
     """
     from agent.detach import _tmux_alive_cmd, _tmux_kill_cmd
     from agent.mcp.staging import cleanup_command
 
     return (
         f"touch /tmp/cc-{chat_id}.killed && {_tmux_kill_cmd(chat_id, node=node)}; "
+        f"_KRC=$?; "
         f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.exit 2>/dev/null; "
         + cleanup_command(chat_id)
-        + f"; {_tmux_alive_cmd(chat_id, node=node)} && echo alive || echo gone"
+        + f"; {_tmux_alive_cmd(chat_id, node=node)} && echo alive || "
+        f'{{ [ "$_KRC" -eq 0 ] && echo gone || echo alive; }}'
     )
 
 
