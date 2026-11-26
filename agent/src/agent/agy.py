@@ -462,6 +462,9 @@ async def tail_agy_output(
             "conversation_id": conversation_id,
             "thread_id": conversation_id,
             "session_id": conversation_id,
+            # Runtime `init` model, so usage rows join activity on the model that
+            # actually answered rather than a bot config that may have changed.
+            "model": converter.model,
             "is_done": is_done,
             "result_data": data,
             "usage": converter.usage,

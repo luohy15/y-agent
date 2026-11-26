@@ -878,14 +878,21 @@ later delivery.
   same per-key relay stats as Claude and Codex. One pipe, one parser. The
   sequencing rule was: never remove a working ingestion path until the
   replacement is confirmed capturing usage end-to-end.
-- **Non-relay source: agy turns (todo 4463).** Antigravity (agy) never goes
+- **Non-relay source: agy turns (todo 4463, tombstones fixed in todo 4483).**
+  Antigravity (agy) never goes
   through the relay, so its turns are invisible to the CRS pull. The worker
-  already stores one `chat_request_usage` row per agy turn (backend `agy`,
-  turn-delta counters, chat/session/model/requested_at). `sync_backend()`
+  stores one `chat_request_usage` row per agy launch that produced output
+  (backend `agy`, chat/session/model/requested_at), whatever its terminal
+  status: a steered or interrupted launch streamed assistant messages but no
+  SUCCESS result, so it has no conversation total and its row carries NULL
+  counters with `usage_state='missing'` instead of being dropped. The row is
+  stamped with the runtime `init` model (falling back to the bot config) so
+  usage and activity join on the same id, and a counter-less row never anchors
+  the next turn's delta. `sync_backend()`
   recomputes `source='agy'` `scope='aggregate'` rows from those turns at both
   grains for local yesterday and today: counters are summed, `requests` is
-  the number of turn rows (one `agy -p` turn each; internal vendor calls per
-  turn are not observable), `all_tokens = input + output + cache_read` to
+  the number of launch rows (one `agy -p` launch each; internal vendor calls
+  per turn are not observable), `all_tokens = input + output + cache_read` to
   match the relay's allTokens, `provider` stays the vendor (`google` for a
   Gemini model id), and cost is 0 with `cost_basis='unknown'`. agy reports no
   cache-write counter, so `cache_create_tokens` is 0 and the UI renders it
@@ -893,7 +900,11 @@ later delivery.
   idempotent; history older than the recompute window is not backfilled.
   `chat_request_usage.backend` names the backend (`claude_code` stamped by the
   transcript upload, `codex` / `agy` by the worker turn writer); rows written
-  before that column existed stay NULL rather than being guessed.
+  before that column existed stay NULL rather than being guessed. One launch is
+  one request and one answered prompt group is one turn, so per (day, model)
+  Requests >= Turns; the five-minute sync compares the two over the last two
+  local days and logs a bounded warning plus `counter_mismatches` in its
+  envelope when a turn lost its row.
 - **One sealed relay credential per user (relay source only).** The CRS pull
   reads today's per-model counters using only the caller's credential for the
   primary relay. Without that credential the CRS grains are unavailable; the

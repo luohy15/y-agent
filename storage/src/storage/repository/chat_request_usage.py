@@ -604,15 +604,22 @@ def latest_session_rows(user_id: int, chat_id: str, session_id: str, session=Non
 
 
 def latest_usage_row(user_id: int, chat_id: str, session_id: str, exclude_request_id: str):
-    """Newest usage row for this owner, chat and session, excluding one request.
+    """Newest row with a usable counter for this owner, chat and session.
 
-    Order is requested_at descending, then id descending. The timestamp cast
-    keeps chronological order when fractional precision differs. Returns the
-    counter and cumulative columns, or None.
+    A request-only row (steered or interrupted turn, todo 4483) has NULL
+    counters and no cumulative total, so it cannot anchor a delta: skip it and
+    return the newest row that carries either. Order is requested_at
+    descending, then id descending. The timestamp cast keeps chronological
+    order when fractional precision differs. Returns the counter and cumulative
+    columns, or None.
     """
     if not user_id or not chat_id or not session_id or not exclude_request_id:
         return None
     requested_at = cast(ChatRequestUsageEntity.requested_at, DateTime(timezone=True))
+    usable = [
+        getattr(ChatRequestUsageEntity, name).isnot(None)
+        for name in COUNTERS + CUMULATIVE
+    ]
     with get_db() as session:
         row = session.scalars(
             select(ChatRequestUsageEntity)
@@ -621,6 +628,7 @@ def latest_usage_row(user_id: int, chat_id: str, session_id: str, exclude_reques
                 ChatRequestUsageEntity.chat_id == chat_id,
                 ChatRequestUsageEntity.session_id == session_id,
                 ChatRequestUsageEntity.request_id != exclude_request_id,
+                or_(*usable),
             )
             .order_by(desc(requested_at), desc(ChatRequestUsageEntity.id))
             .limit(1)

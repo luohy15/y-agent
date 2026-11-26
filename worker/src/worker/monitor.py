@@ -479,6 +479,13 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
         if result["status"] == "error":
             fresh = await persist_terminal(chat_id, proc, result)
             if fresh:
+                # An errored agy launch that still streamed output answered a
+                # prompt, so it keeps its observed Request (todo 4483).
+                if backend_type == "agy":
+                    agy_turn = _prepare_agy_turn_usage(user_id, chat_id, result, proc)
+                    _record_agy_turn_usage(user_id, fresh, agy_turn)
+                    if agy_turn:
+                        _rollup_agy_usage(user_id, chat_id)
                 await deliver_death(chat_id, proc, "error", (result.get("result_data") or {}).get("result"))
             return
 
@@ -734,37 +741,45 @@ def _record_codex_turn_usage(user_id: int, chat, codex_turn):
 
 
 def _prepare_agy_turn_usage(user_id: int, chat_id: str, result: dict, proc: dict):
-    """Turn delta, conversation total and final-request occupancy for one agy turn.
+    """Turn delta, conversation total and final-request occupancy for one agy launch.
 
-    `result.usage` totals the whole conversation (verified on agy 1.5.17: turn 2
-    reports turn 1 plus itself), so it is stored as the cumulative side and
-    reduced against this thread's previous row. A failure returns None and
-    leaves the stored badge alone.
+    Every launch that produced output is one observed Request, whatever its
+    terminal status: a steered or interrupted turn streams assistant messages
+    but no SUCCESS result, so it has no conversation total to reduce and writes
+    a row with NULL counters (`usage_state='missing'`) rather than being
+    dropped. `result.usage` totals the whole conversation (verified on agy
+    1.5.17: turn 2 reports turn 1 plus itself), so it is stored as the
+    cumulative side and reduced against this thread's previous row. A failure
+    or a launch with no usable output returns None and leaves the stored badge
+    alone.
     """
-    data = result.get("result_data")
-    if result.get("status") != "completed":
+    if not result.get("has_usable_output"):
         return None
     try:
         from datetime import datetime, timezone
         from agent.agy import normalize_usage, successful_result
         from storage.service import bot_config, chat_request_usage
 
-        inner = successful_result(data)
-        if inner is None:
-            return None
         session_id = (result.get("conversation_id") or result.get("session_id")
                       or proc.get("session_id"))
         started_at = proc.get("started_at")
         if not isinstance(session_id, str) or not session_id or not isinstance(started_at, (int, float)):
             logger.warning("agy usage missing identity: chat_id={}", chat_id)
             return None
-        config = bot_config.get_config(user_id, proc.get("bot_name"))
-        raw_model = getattr(config, "model", None) if config else None
-        model = raw_model.strip('"').strip() if isinstance(raw_model, str) else ""
+        runtime_model = result.get("model")
+        if isinstance(runtime_model, str) and runtime_model.strip():
+            model = runtime_model.strip()
+        else:
+            config = bot_config.get_config(user_id, proc.get("bot_name"))
+            raw_model = getattr(config, "model", None) if config else None
+            model = raw_model.strip('"').strip() if isinstance(raw_model, str) else ""
         if not model:
             logger.warning("agy usage missing identity: chat_id={}", chat_id)
             return None
-        current = normalize_usage(inner.get("usage"))
+        # Only a SUCCESS result carries the conversation total; a steer or
+        # interrupt leaves no counters to record.
+        inner = successful_result(result.get("result_data"))
+        current = normalize_usage(inner.get("usage")) if inner is not None else normalize_usage(None)
         counters = {name: current.get(name) for name in chat_request_usage.COUNTERS}
         request_id = f"agy-{chat_id}-{started_at}"
         anchor = chat_request_usage.previous_anchor(user_id, chat_id, session_id, request_id)
@@ -776,7 +791,7 @@ def _prepare_agy_turn_usage(user_id: int, chat_id: str, result: dict, proc: dict
             request_usage = None
         return {
             "delta": delta,
-            "cumulative": counters,
+            "cumulative": counters if inner is not None else None,
             "request_usage": request_usage,
             "usage_state": "observed" if any(v is not None for v in delta.values()) else "missing",
             "session_id": session_id,
@@ -1236,11 +1251,16 @@ def _apply_agy_completion(fresh, result: dict, result_data: dict, proc: dict, ch
     if agy_turn:
         # The final request's own counters are the closest thing to occupancy;
         # the turn delta is the fallback when no step usage survived a handoff.
+        # A request-only row (steered or interrupted launch) has no counters, so
+        # it must leave the stored badge untouched rather than NULL it out.
         usage = agy_turn.get("request_usage") or agy_turn.get("delta") or {}
-        fresh.input_tokens = usage.get("input_tokens")
-        fresh.output_tokens = usage.get("output_tokens")
-        fresh.cache_read_input_tokens = usage.get("cache_read_tokens")
-        fresh.cache_creation_input_tokens = usage.get("cache_creation_tokens")
+        if any(usage.get(name) is not None for name in (
+            "input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens",
+        )):
+            fresh.input_tokens = usage.get("input_tokens")
+            fresh.output_tokens = usage.get("output_tokens")
+            fresh.cache_read_input_tokens = usage.get("cache_read_tokens")
+            fresh.cache_creation_input_tokens = usage.get("cache_creation_tokens")
     if result.get("status") == "error":
         error_text = (result_data.get("result") if isinstance(result_data, dict) else None) or "Antigravity CLI exited with an error."
         fresh.messages.append(Message(
