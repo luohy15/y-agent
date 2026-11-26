@@ -19,6 +19,7 @@ import datetime
 import json
 import os
 import uuid
+from dataclasses import dataclass
 
 from loguru import logger
 
@@ -55,10 +56,23 @@ def voice_notice(code, channel=None):
     return _NOTICES.get(code) or "Could not process that voice message."
 
 
+@dataclass(frozen=True)
+class InboundVoice:
+    """One archived take plus the transcript the user message carries."""
+
+    text: str
+    take_id: str
+    duration_ms: int
+
+    def as_message_voice(self):
+        """The `messages[].voice` reference the web player resolves (todo 4489)."""
+        return {"take_id": self.take_id, "duration_ms": self.duration_ms}
+
+
 async def process_inbound_voice(
     *, user_id, chat, fetch, duration_ms=None, label, channel=None,
 ):
-    """Transcribe one inbound voice note and return its text.
+    """Transcribe one inbound voice note and return its take and text.
 
     `fetch(max_bytes)` is the channel's downloader and returns decrypted bytes.
     Everything that can be judged without the audio is checked first.
@@ -138,7 +152,12 @@ async def _transcribe(user_id, pcm, duration_ms, label):
     if result.get("status") == "transcribed":
         text = result.get("polished_text") or result.get("raw_text")
         if isinstance(text, str) and text.strip():
-            return text.strip()
+            stored_ms = result.get("duration_ms")
+            return InboundVoice(
+                text=text.strip(),
+                take_id=take_id,
+                duration_ms=stored_ms if type(stored_ms) is int else duration_ms,
+            )
         raise VoiceRejected("empty_transcript")
     if result.get("error") == "not_configured":
         raise VoiceRejected("not_configured")

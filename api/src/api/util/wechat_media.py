@@ -82,15 +82,17 @@ def _voice_fetch(item):
 
 
 async def handle_media(*, user_id, chat, items):
-    """Return `(image_paths, file_paths, transcript, notices)` for one message.
+    """Return `(image_paths, file_paths, transcript, voice, notices)` for one message.
 
-    Voice is plain text and needs no EC2 disk asset, so a jump node or an
-    `agy` chat accepts it even though it still refuses images.
+    `voice` is the take reference (`take_id`, `duration_ms`) when exactly one
+    voice note produced the transcript, else None: the message carries one
+    play control. Voice is plain text and needs no EC2 disk asset, so a jump
+    node or an `agy` chat accepts it even though it still refuses images.
     """
     images, files, notices = [], [], []
-    transcripts = []
+    transcripts, voices = [], []
     if not items:
-        return images, files, None, notices
+        return images, files, None, None, notices
     block = _node_block(user_id, chat)
     images_refused = getattr(chat, "backend", None) == AGY_BACKEND
     for item in items:
@@ -132,7 +134,7 @@ async def handle_media(*, user_id, chat, items):
                 notices.append(_store_notice(FILE))
         elif kind == VOICE:
             try:
-                transcript = await gateway_voice.process_inbound_voice(
+                voice = await gateway_voice.process_inbound_voice(
                     user_id=user_id, chat=chat, fetch=_voice_fetch(item),
                     duration_ms=item.get("duration_ms"), label="wechat", channel="wechat",
                 )
@@ -142,7 +144,8 @@ async def handle_media(*, user_id, chat, items):
                 logger.error("wechat inbound voice failed: {}", type(exc).__name__)
                 notices.append(gateway_voice.voice_notice("unavailable", "wechat"))
             else:
-                transcripts.append(transcript)
+                transcripts.append(voice.text)
+                voices.append(voice.as_message_voice())
         else:
             notices.append("That attachment type is not supported.")
-    return images, files, "\n".join(transcripts) or None, notices
+    return images, files, "\n".join(transcripts) or None, voices[0] if len(voices) == 1 else None, notices

@@ -316,7 +316,7 @@ async def telegram_webhook(request: Request):
         else:
             target_chat = find_latest_chat_by_role(user.id, "manager")
         try:
-            transcript = await process_inbound_voice(
+            voice_result = await process_inbound_voice(
                 user_id=user.id, chat=target_chat, fetch=_voice_fetcher(voice),
                 duration_ms=_voice_duration_ms(voice), label="telegram", channel="telegram",
             )
@@ -329,14 +329,15 @@ async def telegram_webhook(request: Request):
             logger.error("telegram voice failed: {}", type(exc).__name__)
             await _send_message(telegram_chat_id, voice_notice("unavailable", "telegram"))
             return {"ok": True}
-        body = transcript
+        body = voice_result.text
         if route.body.strip():
-            body = f"{route.body}\n\n{transcript}"
+            body = f"{route.body}\n\n{voice_result.text}"
         body = _with_reply_context(body, reply_context)
+        message_voice = voice_result.as_message_voice()
         if route.kind in ("chat", "todo"):
             return await _handle_routed_message(
-                telegram_chat_id, telegram_user_id, target_chat.id, body)
-        return await _handle_message(telegram_chat_id, telegram_user_id, body)
+                telegram_chat_id, telegram_user_id, target_chat.id, body, voice=message_voice)
+        return await _handle_message(telegram_chat_id, telegram_user_id, body, voice=message_voice)
 
     if not text:
         logger.info("telegram webhook: empty text")
@@ -638,7 +639,7 @@ async def _handle_clear(telegram_chat_id, telegram_user_id):
     return {"ok": True}
 
 
-async def _handle_routed_message(telegram_chat_id, telegram_user_id, target_chat_id: str, text: str, images: Optional[List[str]] = None, files: Optional[List[str]] = None):
+async def _handle_routed_message(telegram_chat_id, telegram_user_id, target_chat_id: str, text: str, images: Optional[List[str]] = None, files: Optional[List[str]] = None, voice: Optional[dict] = None):
     r"""Route a Telegram message to an explicit chat by id.
 
     Triggered when the DM matches `^/<6hex>\s+...`. Looks up the chat scoped
@@ -675,7 +676,7 @@ async def _handle_routed_message(telegram_chat_id, telegram_user_id, target_chat
     try:
         await chat_service.deliver_user_message(
             user.id, target_chat, text,
-            images=images, files=files, source="telegram", human_reply=True,
+            images=images, files=files, voice=voice, source="telegram", human_reply=True,
             trace_id=target_chat.trace_id, role=target_chat.role,
             skill=target_chat.skill,
             work_dir=target_chat.work_dir,
@@ -687,7 +688,7 @@ async def _handle_routed_message(telegram_chat_id, telegram_user_id, target_chat
     return {"ok": True}
 
 
-async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images: Optional[List[str]] = None, files: Optional[List[str]] = None):
+async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images: Optional[List[str]] = None, files: Optional[List[str]] = None, voice: Optional[dict] = None):
     logger.info("_handle_message: telegram_chat_id={} telegram_user_id={} text_len={} images={} files={}", telegram_chat_id, telegram_user_id, len(text or ""), len(images) if images else 0, len(files) if files else 0)
     user = get_user_by_telegram_id(telegram_user_id)
     if not user:
@@ -722,7 +723,7 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
         try:
             await chat_service.deliver_user_message(
                 user.id, chat, text,
-                images=images, files=files, source="telegram", human_reply=True,
+                images=images, files=files, voice=voice, source="telegram", human_reply=True,
                 role=role, work_dir=chat.work_dir,
             )
         except chat_service.resume_gate.ChatReadOnly as exc:
@@ -748,6 +749,8 @@ async def _handle_message(telegram_chat_id, telegram_user_id, text: str, images:
         msg_dict["images"] = images
     if files:
         msg_dict["files"] = files
+    if voice:
+        msg_dict["voice"] = voice
     user_msg = Message.from_dict(msg_dict)
 
     def build(chat_id: str):

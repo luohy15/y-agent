@@ -52,6 +52,7 @@ class Message:
     links: Optional[List[str]] = None
     images: Optional[List[str]] = None
     files: Optional[List[str]] = None
+    voice: Optional[Dict] = None
     telegram_delivered_images: Optional[List[str]] = None
     model: Optional[str] = None
     provider: Optional[str] = None
@@ -93,6 +94,7 @@ class Message:
             links=data.get('links'),
             images=data.get('images'),
             files=data.get('files'),
+            voice=data.get('voice'),
             telegram_delivered_images=data.get('telegram_delivered_images') or [],
             model=data.get('model'),
             id=data.get('id'),
@@ -131,6 +133,8 @@ class Message:
             result['images'] = self.images
         if self.files is not None:
             result['files'] = self.files
+        if self.voice is not None:
+            result['voice'] = self.voice
         if self.telegram_delivered_images is not None:
             result['telegram_delivered_images'] = self.telegram_delivered_images
         if self.model is not None:

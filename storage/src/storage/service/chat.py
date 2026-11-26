@@ -4,7 +4,7 @@ import sys
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import boto3
 from loguru import logger
@@ -514,6 +514,7 @@ async def accept_user_message(
     human_reply: bool = False,
     images: Optional[List[str]] = None,
     files: Optional[List[str]] = None,
+    voice: Optional[Dict] = None,
     reasoning_effort: Optional[str] = None,
     source: Optional[str] = None,
     event_id: Optional[str] = None,
@@ -550,6 +551,8 @@ async def accept_user_message(
         msg_dict["images"] = images
     if files:
         msg_dict["files"] = files
+    if voice:
+        msg_dict["voice"] = voice
     if reasoning_effort is not None:
         msg_dict["reasoning_effort"] = reasoning_effort
     if source is not None:
@@ -620,6 +623,7 @@ async def deliver_user_message(
     human_reply: bool = False,
     images: Optional[List[str]] = None,
     files: Optional[List[str]] = None,
+    voice: Optional[Dict] = None,
     reasoning_effort: Optional[str] = None,
     source: Optional[str] = None,
     bot_name: Optional[str] = None,
@@ -644,7 +648,7 @@ async def deliver_user_message(
     """
     acceptance = await accept_user_message(
         user_id, chat, content, human_reply=human_reply, images=images, files=files,
-        reasoning_effort=reasoning_effort, source=source, event_id=event_id,
+        voice=voice, reasoning_effort=reasoning_effort, source=source, event_id=event_id,
         trace_id=trace_id, role=role, skill=skill, bot_name=bot_name, bot_tier=bot_tier,
     )
     if not acceptance.already_running:

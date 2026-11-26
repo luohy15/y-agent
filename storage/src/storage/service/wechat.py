@@ -509,26 +509,27 @@ def _enqueue_notices(db, account, peer, event, user_id, notices):
 
 
 async def _inbound_media(media_handler, user_id, chat, items):
-    """`(image_paths, file_paths, transcript, notices)` for one message's media."""
+    """`(image_paths, file_paths, transcript, voice, notices)` for one message."""
     if not items:
-        return [], [], None, []
+        return [], [], None, None, []
     if media_handler is None:
-        return [], [], None, ["Attachments are not supported right now."]
+        return [], [], None, None, ["Attachments are not supported right now."]
     try:
-        images, files, transcript, notices = await media_handler(
+        images, files, transcript, voice, notices = await media_handler(
             user_id=user_id, chat=chat, items=items)
     except Exception as exc:
         # The descriptors carry CDN URLs and AES keys; loguru's default
         # diagnose=True would dump them, so log only the exception type.
         logger.error("wechat inbound media failed: {}", type(exc).__name__)
-        return [], [], None, ["Could not download that attachment from WeChat. Nothing was saved."]
+        return [], [], None, None, ["Could not download that attachment from WeChat. Nothing was saved."]
     images = list(images or [])
     files = list(files or [])
     transcript = transcript if isinstance(transcript, str) and transcript.strip() else None
+    voice = voice if isinstance(voice, dict) and voice.get("take_id") else None
     notices = [notice for notice in (notices or []) if notice]
     if not (images or files or transcript or notices):
         notices = ["Could not download that attachment from WeChat. Nothing was saved."]
-    return images, files, transcript, notices
+    return images, files, transcript, voice, notices
 
 
 async def inbound(db, account, message_id, peer, text, context_token, media,
@@ -601,7 +602,7 @@ async def inbound(db, account, message_id, peer, text, context_token, media,
         if target is not None:
             # The target is resolved before any fetch: a bad or absent target
             # keeps its notice and downloads nothing.
-            images, files, transcript, notices = await _inbound_media(
+            images, files, transcript, voice, notices = await _inbound_media(
                 media_handler, active.user_id, target, media_items)
             _enqueue_notices(db, account, peer, event, active.user_id, notices)
             body = route.body
@@ -613,7 +614,7 @@ async def inbound(db, account, message_id, peer, text, context_token, media,
             try:
                 accepted = await chats.accept_user_message(
                     active.user_id, target, format_quoted_message(body, quote_context),
-                    images=images or None, files=files or None,
+                    images=images or None, files=files or None, voice=voice,
                     source="wechat", human_reply=True, session=db,
                     event_id=f"wc_{active.generation}_{event}")
                 if not accepted.already_running:
@@ -632,7 +633,7 @@ async def inbound(db, account, message_id, peer, text, context_token, media,
                     create_time=timestamp, update_time=timestamp, running=False)
         chat_repo._insert_chat_sync(active.user_id, chat, session=db)
         chat_repo.release_role(active.user_id, "manager", except_chat_id=chat.id, session=db)
-    images, files, transcript, notices = await _inbound_media(
+    images, files, transcript, voice, notices = await _inbound_media(
         media_handler, active.user_id, chat, media_items)
     _enqueue_notices(db, account, peer, event, active.user_id, notices)
     if transcript:
@@ -650,7 +651,7 @@ async def inbound(db, account, message_id, peer, text, context_token, media,
         accepted = await chats.accept_user_message(
             active.user_id, chat,
             "load manager skill" if reset else format_quoted_message(body, quote_context),
-            images=images or None, files=files or None,
+            images=images or None, files=files or None, voice=voice,
             role="manager", source=None if reset else "wechat", human_reply=True, session=db,
             event_id=f"wc_{active.generation}_{event}")
         if not accepted.already_running:

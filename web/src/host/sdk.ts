@@ -25,6 +25,7 @@ import { usePanelLocation } from "./panelLocation";
 import { useTabDirty, useTabRefresh } from "./tabRefresh";
 import { navigateTo } from "./navigation";
 import { readThemeColors, useThemeColors } from "./theme";
+import { useUserPreference } from "../hooks/useUserPreference";
 import { optimisticListMutate } from "../utils/optimisticMutate";
 import { PatchDiff } from "@pierre/diffs/react";
 import ArtifactView from "../components/ArtifactView";
@@ -77,6 +78,12 @@ export const hostSdk = {
   // theme.ts (resolved colors, for libraries that cannot take a CSS var)
   useThemeColors,
   readThemeColors,
+
+  // hooks/useUserPreference.ts (contract v35, todo 4489) — one debounced,
+  // conflict-safe sync of a `user_preference` row per key. A module keeps its
+  // own UI state and treats `serverValue` as the synced copy, so the 4453/4468
+  // offline/conflict logic never gets copied across the module boundary.
+  useUserPreference,
 
   // badges.tsx
   TRACE_BADGE,
@@ -231,6 +238,11 @@ export function ModuleIcon({ icon }: { icon?: string | null }) {
 }
 
 export type { ThemeColors } from "./theme";
+export type {
+  SyncStatus,
+  UseUserPreferenceOptions,
+  UseUserPreferenceResult,
+} from "../hooks/useUserPreference";
 export type { ArtifactType, ArtifactMode } from "../components/ArtifactView";
 export type {
   TraceViewProps,
@@ -252,6 +264,7 @@ export type {
   ChatMessageRole,
   PresentedCitationLink,
   PresentedFileReference,
+  PresentedVoice,
   ResolveFileReference,
   PresentedContentState,
   LoadPresentedContent,

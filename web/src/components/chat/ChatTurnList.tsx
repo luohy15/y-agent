@@ -6,6 +6,7 @@ import ChatMessagePresentation, {
   type GetPresentedContent,
   type LoadPresentedContent,
   type PresentedCitationLink,
+  type PresentedVoice,
   type ResolveFileReference,
 } from "./ChatMessagePresentation";
 import { defaultToolIcon, expandProcess, groupTurns, toolIconMap, type GroupableMessage } from "./turnGrouping";
@@ -20,6 +21,7 @@ export interface ChatTurnMessage extends GroupableMessage {
   timestamp?: string;
   images?: string[];
   files?: string[];
+  voice?: PresentedVoice;
   links?: PresentedCitationLink[];
   contentTruncated?: boolean;
   contentLength?: number;
@@ -45,12 +47,14 @@ export interface ChatTurnListProps {
   onOpenArtifact?: (type: ArtifactType, spec: string) => void;
   onLoadFullContent?: LoadPresentedContent;
   getFullContent?: GetPresentedContent;
+  /** Play-control capability for `message.voice`; absent = text only. */
+  voiceControl?: (voice: PresentedVoice) => ReactNode;
 }
 
-type Capabilities = Pick<ChatTurnListProps, "resolveFileReference" | "onOpenFile" | "onSelectChat" | "onSelectTrace" | "onOpenArtifact" | "onLoadFullContent" | "getFullContent">;
+type Capabilities = Pick<ChatTurnListProps, "resolveFileReference" | "onOpenFile" | "onSelectChat" | "onSelectTrace" | "onOpenArtifact" | "onLoadFullContent" | "getFullContent" | "voiceControl">;
 
 function Bubble({ message, caps, dimmed, onShowSources }: { message: ChatTurnMessage; caps: Capabilities; dimmed?: boolean; onShowSources?: ChatMessagePresentationProps["onShowSources"] }) {
-  return <ChatMessagePresentation role={message.role} content={message.content} images={message.images} files={message.files} links={message.links} toolName={message.toolName} arguments={message.arguments} timestamp={message.timestamp} dimmed={dimmed} toolCallId={message.toolCallId} contentTruncated={message.contentTruncated} contentLength={message.contentLength} onShowSources={onShowSources} {...caps} />;
+  return <ChatMessagePresentation role={message.role} content={message.content} images={message.images} files={message.files} voice={message.voice} links={message.links} toolName={message.toolName} arguments={message.arguments} timestamp={message.timestamp} dimmed={dimmed} toolCallId={message.toolCallId} contentTruncated={message.contentTruncated} contentLength={message.contentLength} onShowSources={onShowSources} {...caps} />;
 }
 
 function FileToolGroup({ kind, messages, startIndex, caps }: { kind: string; messages: ChatTurnMessage[]; startIndex: number; caps: Capabilities }) {

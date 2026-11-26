@@ -24,6 +24,12 @@ export interface PresentedFileReference {
   line?: number;
 }
 
+/** The stored take one inbound voice note produced (todo 4489). */
+export interface PresentedVoice {
+  take_id: string;
+  duration_ms: number;
+}
+
 export type ResolveFileReference = (
   href?: string | null,
   options?: { allowRelative?: boolean },
@@ -37,6 +43,7 @@ export interface ChatMessagePresentationProps {
   timestamp?: string;
   images?: string[];
   files?: string[];
+  voice?: PresentedVoice;
   links?: PresentedCitationLink[];
   dimmed?: boolean;
   toolCallId?: string;
@@ -50,6 +57,11 @@ export interface ChatMessagePresentationProps {
   onSelectTrace?: (traceId: string) => void;
   onOpenArtifact?: (type: ArtifactType, spec: string) => void;
   resolveFileReference?: ResolveFileReference;
+  /**
+   * Renders the play control for `voice`. Absent capability = text only, so
+   * public/share/fallback views never gain voice logic (contract v35).
+   */
+  voiceControl?: (voice: PresentedVoice) => ReactNode;
 }
 
 export type { PresentedContentState, LoadPresentedContent, GetPresentedContent };
@@ -163,7 +175,7 @@ function artifactKey(type: ArtifactType, spec: string): string {
 
 const USER_MSG_MAX_LINES = 3;
 
-function UserMessage({ content, images, files, timestamp, onSelectChat, onSelectTrace }: Pick<ChatMessagePresentationProps, "content" | "images" | "files" | "timestamp" | "onSelectChat" | "onSelectTrace">) {
+function UserMessage({ content, images, files, voice, voiceControl, timestamp, onSelectChat, onSelectTrace }: Pick<ChatMessagePresentationProps, "content" | "images" | "files" | "voice" | "voiceControl" | "timestamp" | "onSelectChat" | "onSelectTrace">) {
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [clamped, setClamped] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -185,6 +197,7 @@ function UserMessage({ content, images, files, timestamp, onSelectChat, onSelect
           <div className="min-w-0 flex-1">
             <div ref={contentRef} className={`y-chat-message-text text-sol-base1 whitespace-pre-wrap break-words min-w-0${!expanded && clamped ? " line-clamp-3" : ""}`}>{displayContent}</div>
             {clamped && <button type="button" onClick={() => setExpanded(!expanded)} className="text-sol-blue text-xs mt-0.5 hover:underline cursor-pointer">{expanded ? "Show less" : "Show more"}</button>}
+            {voice && voiceControl ? voiceControl(voice) : null}
             <ChatMessageImages images={images} />
             <ChatMessageFiles files={files} />
           </div>
@@ -217,9 +230,9 @@ function SourceDisclosure({ links, onShowSources, rawLinks }: { links: Normalize
 
 export default function ChatMessagePresentation(props: ChatMessagePresentationProps) {
   const {
-    role, content, images, files, links, toolName, arguments: args, timestamp, dimmed, toolCallId,
+    role, content, images, files, voice, links, toolName, arguments: args, timestamp, dimmed, toolCallId,
     contentTruncated, contentLength, onLoadFullContent, getFullContent, onOpenFile, onShowSources,
-    onSelectChat, onSelectTrace, onOpenArtifact, resolveFileReference,
+    onSelectChat, onSelectTrace, onOpenArtifact, resolveFileReference, voiceControl,
   } = props;
   const [artifactMode, setArtifactMode] = useState<Record<string, ArtifactMode>>({});
   if (role === "system") return <div data-testid="message-system" className="self-center text-sol-base01 y-chat-system-text py-1">{content}</div>;
@@ -240,7 +253,7 @@ export default function ChatMessagePresentation(props: ChatMessagePresentationPr
       />
     );
   }
-  if (role === "user") return <UserMessage content={content} images={images} files={files} timestamp={timestamp} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} />;
+  if (role === "user") return <UserMessage content={content} images={images} files={files} voice={voice} voiceControl={voiceControl} timestamp={timestamp} onSelectChat={onSelectChat} onSelectTrace={onSelectTrace} />;
 
   const markdownContent = preprocessCitationLinks(content, links);
   const citationLinks = normalizeLinks(links);
@@ -299,6 +312,7 @@ export default function ChatMessagePresentation(props: ChatMessagePresentationPr
           } as any}
         >{markdownContent}</ReactMarkdown>
         <SourceDisclosure links={citationLinks} onShowSources={onShowSources} rawLinks={links} />
+        {voice && voiceControl ? voiceControl(voice) : null}
         <ChatMessageImages images={images} />
         <ChatMessageFiles files={files} />
       </div>

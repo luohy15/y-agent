@@ -97,6 +97,13 @@ a value that starts with `<svg` as that glyph. An older host treats the markup
 as an unknown registry key and falls back to `box`. A module that publishes an
 SVG icon sets `min_host_version: 27`.
 Contract v34 (todo 4441) drops the reply-chat field from `TodoInfo`. Older bundles still mount.
+Contract v35 (todo 4489) adds one `@y/host` export, `useUserPreference` (one
+debounced, conflict-safe sync of a `user_preference` row per key), plus optional
+`voice` and `voiceControl` on `ChatMessagePresentationProps` / `ChatTurnMessage`
+and `voiceControl` on `ChatTurnListProps`. The host renders the control only when
+a module supplies it, so public/share/fallback views stay text-only. Deploy host
+v35 before publishing a chat module that renders a voice play control or calls
+`useUserPreference`; that module sets `min_host_version: 35`.
 See `docs/prd/module-system.md`, *The `shell`
 surface and the renderer seam*, before bundling anything heavy into a module.
 

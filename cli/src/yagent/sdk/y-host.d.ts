@@ -251,6 +251,25 @@ declare module "@y/host" {
   export function useThemeColors(): ThemeColors;
   export function readThemeColors(): ThemeColors;
 
+  // hooks/useUserPreference.ts (contract v35, todo 4489) — one synced
+  // `user_preference` row per key: debounced PUT with conflict retry, offline
+  // and page-hide flush. `serverValue` is the last known server copy;
+  // `loaded` turns true after the first GET settles either way.
+  export type SyncStatus = "idle" | "loading" | "syncing" | "synced" | "error" | "offline";
+  export interface UseUserPreferenceOptions {
+    enabled: boolean;
+    debounceMs?: number;
+  }
+  export interface UseUserPreferenceResult<T> {
+    serverValue: T | null;
+    loaded: boolean;
+    status: SyncStatus;
+    setValue: (value: T | null) => void;
+    /** Force a pending write now. Resolves true when the value reached the server. */
+    flush: () => Promise<boolean>;
+  }
+  export function useUserPreference<T>(key: string, options: UseUserPreferenceOptions): UseUserPreferenceResult<T>;
+
   // badges.tsx
   export const TRACE_BADGE: string;
   export const CHAT_BADGE: string;
@@ -499,6 +518,11 @@ declare module "@y/host" {
   }
   export type LoadPresentedContent = (toolCallId: string) => void;
   export type GetPresentedContent = (toolCallId: string) => PresentedContentState | undefined;
+  /** The stored take one inbound voice note produced (contract v35, todo 4489). */
+  export interface PresentedVoice {
+    take_id: string;
+    duration_ms: number;
+  }
   export interface ChatMessagePresentationProps {
     role: ChatMessageRole;
     content: string;
@@ -507,6 +531,7 @@ declare module "@y/host" {
     timestamp?: string;
     images?: string[];
     files?: string[];
+    voice?: PresentedVoice;
     links?: Array<string | { url: string; title?: string; snippet?: string; last_updated?: string }>;
     dimmed?: boolean;
     toolCallId?: string;
@@ -520,6 +545,8 @@ declare module "@y/host" {
     onSelectTrace?: (traceId: string) => void;
     onOpenArtifact?: (type: ArtifactType, spec: string) => void;
     resolveFileReference?: (href?: string | null, options?: { allowRelative?: boolean }) => { path: string; line?: number } | null;
+    /** Play-control capability for `voice`; absent = text only. */
+    voiceControl?: (voice: PresentedVoice) => any;
   }
   export function ChatMessagePresentation(props: ChatMessagePresentationProps): any;
 
@@ -533,6 +560,7 @@ declare module "@y/host" {
     timestamp?: string;
     images?: string[];
     files?: string[];
+    voice?: PresentedVoice;
     links?: ChatMessagePresentationProps["links"];
     contentTruncated?: boolean;
     contentLength?: number;
@@ -557,6 +585,8 @@ declare module "@y/host" {
     onOpenArtifact?: (type: ArtifactType, spec: string) => void;
     onLoadFullContent?: LoadPresentedContent;
     getFullContent?: GetPresentedContent;
+    /** Play-control capability for `message.voice`; absent = text only. */
+    voiceControl?: (voice: PresentedVoice) => any;
   }
   export function ChatTurnList(props: ChatTurnListProps): any;
 
