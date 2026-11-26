@@ -896,6 +896,35 @@ def codex_app_server_home(chat_id: str) -> str:
     return f"/tmp/cc-{chat_id}{APP_SERVER_HOME_SUFFIX}"
 
 
+def _salvage_app_server_home_cmd(chat_id: str) -> str:
+    """Copy any retained home's rollouts to the resume source, failing loudly."""
+    staged = _shell_quote(codex_app_server_home(chat_id) + "/sessions")
+    return (
+        f"_y_src={staged}; "
+        "if [ -d \"$_y_src\" ] && find \"$_y_src\" -type f -name '*.jsonl' -print -quit | grep -q .; then "
+        "_y_dst=\"${CODEX_HOME:-$HOME/.codex}/sessions\"; "
+        "mkdir -p \"$_y_dst\" || exit 1; "
+        "find \"$_y_src\" -type f -name '*.jsonl' -print | while IFS= read -r _y_f; do "
+        "_y_rel=${_y_f#\"$_y_src\"/}; "
+        "mkdir -p \"$_y_dst/$(dirname \"$_y_rel\")\" || exit 1; "
+        "cp -p \"$_y_f\" \"$_y_dst/$_y_rel\" || exit 1; "
+        "done || exit 1; "
+        "fi"
+    )
+
+
+def _salvage_app_server_home(client, chat_id: str) -> None:
+    """Publish a retained home's rollouts before the next launch wipes it.
+
+    A hard timeout whose copy-out failed (destination unreadable, node
+    pressure) leaves the previous attempt's home behind. The next same-chat
+    launch must not delete that rollout before resume looks for it, so copy
+    every rollout into the resume source first. A failed copy raises: staging
+    aborts with the home intact instead of wiping the only copy.
+    """
+    _ssh_exec(client, _salvage_app_server_home_cmd(chat_id))
+
+
 def _stage_app_server_home(client, chat_id: str) -> str:
     """Create this launch's CODEX_HOME: generated config + an empty sessions dir.
 
@@ -907,8 +936,13 @@ def _stage_app_server_home(client, chat_id: str) -> str:
     and the tail copies the result back (`_sync_app_server_rollouts_cmd`).
     No auth.json is staged: the relay credential comes from the provider's
     `env_key`.
+
+    A home retained from a previous attempt (for example a hard timeout whose
+    copy failed) is salvaged into the resume source before the wipe; if that
+    salvage fails the wipe never happens.
     """
     home = codex_app_server_home(chat_id)
+    _salvage_app_server_home(client, chat_id)
     _ssh_exec(
         client,
         f"rm -rf {_shell_quote(home)} && mkdir -p {_shell_quote(home + '/sessions')}",
@@ -1146,6 +1180,7 @@ def _codex_app_server_spec(*, thread_id: Optional[str], cwd: Optional[str],
         path = home.get("path")
         return f"rm -rf {_shell_quote(path)}" if path else "true"
 
+    from agent.tmp_guard import CODEX_APP_SERVER_DISK_FLOOR_BYTES
     return DetachBackendSpec(
         build_exec=_app_server_build_exec,
         parse_initial=_app_server_parse_initial,
@@ -1158,6 +1193,8 @@ def _codex_app_server_spec(*, thread_id: Optional[str], cwd: Optional[str],
         trap_cleanup=lambda: "true",
         initial_stdout_lines=60,
         initial_wait_seconds=10.0,
+        # Staging this harness's private CODEX_HOME costs ~96 MB before launch.
+        free_space_floor_bytes=CODEX_APP_SERVER_DISK_FLOOR_BYTES,
     )
 
 

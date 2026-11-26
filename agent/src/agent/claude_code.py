@@ -490,6 +490,10 @@ RESUME_REFUSED_MARKER = "No conversation found with session ID"
 # `_claude_build_exec`) died while claude was still running. Mapped to a named
 # error in `_no_result_error_message` instead of the generic startup wording.
 STDOUT_READER_FAILED_EXIT = 200
+# What the reader, and then `echo $EC > .exit`, print when the run dir fills up.
+# It is the one reliable trace left on a full disk, so the no-result diagnosis
+# reads it instead of blaming a vanished session (todo 4487).
+ENOSPC_MARKER = "No space left on device"
 # grep BRE for claude's per-delta progress lines, which are dropped at the source.
 THINKING_TOKENS_LINE_RE = '^{"type":"system","subtype":"thinking_tokens"[,}]'
 
@@ -713,46 +717,47 @@ def _resume_refused_message(backend: str, suffix: str = "") -> str:
     )
 
 
-def _no_result_error_message(client, chat_id: str, backend: str, stream_error: Optional[Exception] = None,
-                             resume_refused: bool = False, node=None) -> str:
-    """Build a precise error message for a tmux session that ended without ever
-    emitting a final result event.
+def _read_attempt_stderr_tail(client, chat_id: str, limit: int = 4000) -> str:
+    """Best-effort tail of this attempt's stderr, for the no-result classifier.
 
-    The detach launcher writes the subprocess exit code to
-    `/tmp/cc-<chat_id>.exit` (`echo $EC > exit_file`). That code tells us *why*
-    the process is gone — e.g. a SIGTERM/SIGKILL from an external reaper or the
-    OOM killer (a common false alarm previously mis-reported as a resume
-    failure) vs. a genuine startup/resume error. Fall back to a generic message
-    when the exit file is missing, empty, or unparseable.
-
-    `resume_refused` (from `_resume_refused`) beats the exit code: it names the
-    actual cause instead of leaving the reader to guess, and it tells them the
-    handle is being dropped rather than retried.
+    The attempt's stderr is reset before every launch, so anything here belongs
+    to the turn that just ended. A read failure is simply "no evidence".
     """
-    suffix = _stream_error_suffix(stream_error)
-    if resume_refused:
-        return _resume_refused_message(backend, suffix)
+    try:
+        return _ssh_exec(client, f"tail -c {int(limit)} /tmp/cc-{chat_id}.stderr 2>/dev/null")
+    except Exception:
+        return ""
+
+
+def _classify_no_result_message(backend: str, chat_id: str, exit_raw: str,
+                                stderr_text: str = "", session_alive: Optional[bool] = None,
+                                suffix: str = "") -> str:
+    """Pure: map the exit record and stderr tail to the user-visible message.
+
+    An absent/empty exit record plus an ENOSPC line is disk exhaustion that also
+    swallowed the exit write, not a vanished session. The reserved reader-exit
+    code keeps naming the reader and adds the same cause (todo 4487).
+    """
     generic = (
         f"{backend} exited before producing output — likely a session resume "
         f"failure or startup error.{suffix}"
     )
-    exit_file = f"/tmp/cc-{chat_id}.exit"
-    try:
-        raw = _ssh_exec(client, f"cat {_shell_quote(exit_file)} 2>/dev/null").strip()
-    except Exception as e:
-        return (
-            f"{backend} exited before producing output: exit status unreadable "
-            f"(ssh error: {type(e).__name__}: {e}).{suffix}"
-        )
-    if not raw:
-        if not _tmux_session_alive(client, chat_id, node=node):
+    no_space = ENOSPC_MARKER in (stderr_text or "")
+    if not exit_raw:
+        if no_space:
+            return (
+                f"{backend} exited before producing output: the execution node's /tmp ran out "
+                f"of space ({ENOSPC_MARKER}), so /tmp/cc-{chat_id}.exit could not be written. "
+                f"The turn ended because the disk was full.{suffix}"
+            )
+        if session_alive is False:
             return (
                 f"{backend}: tmux session vanished without exit status: "
                 f"wrapper or tmux server killed externally.{suffix}"
             )
         return generic
     try:
-        code = int(raw)
+        code = int(exit_raw)
     except ValueError:
         return generic
 
@@ -767,6 +772,13 @@ def _no_result_error_message(client, chat_id: str, backend: str, stream_error: O
             f"(9) — likely killed by an external reaper/OOM, not a resume failure.{suffix}"
         )
     if code == STDOUT_READER_FAILED_EXIT:
+        if no_space:
+            return (
+                f"{backend} exited before producing output: its stdout reader died mid-turn "
+                f"because the execution node's /tmp ran out of space ({ENOSPC_MARKER}). The `grep` "
+                f"stage writing /tmp/cc-{chat_id}.stdout stopped reading, so the turn was ended "
+                f"instead of being left to the hard timeout.{suffix}"
+            )
         return (
             f"{backend} exited before producing output: its stdout reader died mid-turn. "
             f"The `grep` stage writing /tmp/cc-{chat_id}.stdout stopped reading (for "
@@ -779,6 +791,48 @@ def _no_result_error_message(client, chat_id: str, backend: str, stream_error: O
             f"{code} — likely a startup or resume error.{suffix}"
         )
     return generic
+
+
+def _no_result_error_message(client, chat_id: str, backend: str, stream_error: Optional[Exception] = None,
+                             resume_refused: bool = False, node=None) -> str:
+    """Gather SSH evidence for a session that ended without a final result event.
+
+    The detach launcher writes the subprocess exit code to
+    `/tmp/cc-<chat_id>.exit` (`echo $EC > exit_file`). That code tells us *why*
+    the process is gone — e.g. a SIGTERM/SIGKILL from an external reaper or the
+    OOM killer (a common false alarm previously mis-reported as a resume
+    failure) vs. a genuine startup/resume error. An absent or empty exit record
+    is not automatically a vanished session: on a full run dir the write itself
+    fails, so the stderr tail is read for ENOSPC evidence.
+    `_classify_no_result_message` owns the wording and the fallbacks.
+
+    `resume_refused` (from `_resume_refused`) beats the exit code: it names the
+    actual cause instead of leaving the reader to guess, and it tells them the
+    handle is being dropped rather than retried.
+    """
+    suffix = _stream_error_suffix(stream_error)
+    if resume_refused:
+        return _resume_refused_message(backend, suffix)
+    exit_file = f"/tmp/cc-{chat_id}.exit"
+    try:
+        # A missing record is the same evidence as an empty one. `|| true`
+        # keeps cat's own nonzero status from reading as an SSH failure, while
+        # a real transport failure still raises from exec_command.
+        raw = _ssh_exec(client, f"cat {_shell_quote(exit_file)} 2>/dev/null || true").strip()
+    except Exception as e:
+        return (
+            f"{backend} exited before producing output: exit status unreadable "
+            f"(ssh error: {type(e).__name__}: {e}).{suffix}"
+        )
+    stderr_text = ""
+    if not raw or raw == str(STDOUT_READER_FAILED_EXIT):
+        stderr_text = _read_attempt_stderr_tail(client, chat_id)
+    session_alive = None
+    if not raw:
+        session_alive = _tmux_session_alive(client, chat_id, node=node)
+    return _classify_no_result_message(
+        backend, chat_id, raw, stderr_text, session_alive, suffix,
+    )
 
 
 def _tmux_session_alive(client, chat_id: str, node=None) -> bool:

@@ -22,11 +22,22 @@ descendants) is TERMed, then anything still alive after the grace period is
 KILLed. The session/descendant reach also covers a `nohup` daemon started
 inside a leaked turn, since it shares the wrapper's session.
 
-Prints one line: `reaped=<targets> survivors=<pids>` or `reaped=0 skipped=<why>`.
+For every reaped chat whose tmux session is no longer live, the staged
+`cc-<chat_id>.codex-home` goes with it: a KILLed wrapper cannot run its EXIT
+trap, so that ~96 MB staging would otherwise outlive the turn and feed the next
+run-dir exhaustion (todo 4487). The removal takes the chat's `.cc-<chat>.lock`
+and probes that chat's session only after the lock is held; the host-wide
+sample taken while reaping is never authoritative. Nothing is removed when the
+session is present or unreadable, or when the lock is busy.
+
+Prints one line: `reaped=<targets> survivors=<pids> cleaned=<chats>` or
+`reaped=0 skipped=<why>`.
 """
 
+import fcntl
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -119,6 +130,120 @@ def live_pane_pids(procs=None):
     return panes
 
 
+def _socket_absent(stderr_text):
+    """True only for a socket tmux confirmed has no server.
+
+    A permission or protocol error must not read as an empty socket: that would
+    hide live sessions and expose their staging to deletion (todo 4487 review).
+    """
+    text = (stderr_text or "").lower()
+    return "no server running" in text or "no such file or directory" in text
+
+
+def live_session_names():
+    """Chat session names on both sockets, or None when the live set is untrustworthy."""
+    names = set()
+    for socket in ("y-agent", "default"):
+        try:
+            out = subprocess.run(
+                ["tmux", "-L", socket, "list-sessions", "-F", "#{session_name}"],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if out.returncode != 0:
+            if not _socket_absent(out.stderr.decode("utf-8", "replace")):
+                return None
+            continue
+        names.update(line for line in out.stdout.decode("utf-8", "replace").splitlines() if line)
+    return names
+
+
+_CHAT_ID_RE = re.compile(r"/tmp/cc-([A-Za-z0-9_.-]+)\.(?:stdin|stdout|stderr)'")
+
+
+def wrapper_chat_id(argv):
+    """The chat id a wrapper's inner command stages under, or None."""
+    if len(argv) < 3:
+        return None
+    match = _CHAT_ID_RE.search(argv[2])
+    return match.group(1) if match else None
+
+
+def _preserve_codex_rollouts(home):
+    """Copy a staged home's rollouts back; False when anything could not copy.
+
+    4476's app-server EXIT trap is a no-op and the tail syncs the rollout only
+    at teardown. A leaked wrapper has no tail left, so the reaper copies each
+    `*.jsonl` to `$HOME/.codex/sessions` before removing the home; a failed
+    copy keeps the home (the launch-time GC retries later).
+    """
+    src = os.path.join(home, "sessions")
+    if not os.path.isdir(src) or os.path.islink(src):
+        return True
+    dst_root = os.path.join(
+        os.environ.get("CODEX_HOME") or os.path.expanduser("~/.codex"), "sessions",
+    )
+    preserved = True
+    for root, _dirs, files in os.walk(src, followlinks=False):
+        for name in files:
+            if not name.endswith(".jsonl"):
+                continue
+            source = os.path.join(root, name)
+            target = os.path.join(dst_root, os.path.relpath(source, src))
+            try:
+                os.makedirs(os.path.dirname(target), exist_ok=True)
+                shutil.copy2(source, target)
+            except OSError:
+                preserved = False
+    return preserved
+
+
+def _remove_codex_home(chat_id):
+    """Delete one chat's staged codex home; True when one was removed.
+
+    Takes the chat's `.cc-<chat_id>.lock` first and only then probes that
+    chat's session: a session present under the lock, or an unreadable probe,
+    skips the removal, and the lock is released on every path. The host-wide
+    sample from before the lock never authorizes anything. The home is removed
+    only after its rollouts have been copied back; a failed copy keeps it.
+    """
+    if not chat_id:
+        return False
+    try:
+        fd = os.open(f"/tmp/.cc-{chat_id}.lock", os.O_CREAT | os.O_RDWR, 0o600)
+    except OSError:
+        return False
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(fd)
+        return False
+    try:
+        sessions = live_session_names()
+        if sessions is None or f"cc-{chat_id}" in sessions:
+            return False
+        path = f"/tmp/cc-{chat_id}.codex-home"
+        try:
+            if not os.path.isdir(path) or os.path.islink(path):
+                return False
+            if not _preserve_codex_rollouts(path):
+                return False
+            shutil.rmtree(path, ignore_errors=True)
+            return not os.path.lexists(path)
+        except OSError:
+            return False
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        except OSError:
+            pass
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+
+
 def _tree(procs, leader, uid):
     """(pid, start) for every same-UID process in leader's group, session or descendants."""
     members = {p for p, i in procs.items() if i[4] == uid and (i[1] == leader or i[2] == leader)}
@@ -196,7 +321,14 @@ def reap(min_age_s, stdin_prefix, grace_s=5.0):
         time.sleep(0.2)
         remaining = alive_members()
     survivors = ",".join(str(p) for p, _ in sorted(remaining)) or "-"
-    return f"reaped={len(targets)} survivors={survivors}"
+    cleaned = 0
+    chat_ids = {wrapper_chat_id(procs[pid][5]) for pid in targets}
+    for chat_id in sorted(chat_ids - {None}):
+        # The removal re-acquires the chat lock and re-probes under it, so a
+        # session that appeared since the host-wide sample still wins.
+        if _remove_codex_home(chat_id):
+            cleaned += 1
+    return f"reaped={len(targets)} survivors={survivors} cleaned={cleaned}"
 
 
 if __name__ == "__main__":

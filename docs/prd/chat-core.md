@@ -669,9 +669,51 @@ mode (`-i`) serves a human at a terminal.
   the CLI is still running (for example `/tmp` fills up), the wrapper kills the
   stdin tail so the CLI sees EOF, exits with the reserved code 200, and the run
   reaches a terminal error naming the stdout reader instead of idling to the
-  one-hour hard timeout. When the disk is too full to record that exit code,
-  the ending tmux session still terminalizes the run through the existing
-  vanished-session path.
+  one-hour hard timeout. A full run dir is also diagnosed as what it is: when
+  the exit record is absent or empty (the write itself failed) or carries the
+  reserved code, a `No space left on device` line in that attempt's stderr
+  makes the terminal error name `/tmp` disk exhaustion and the unwritable exit
+  record; the "tmux session vanished" wording is used only without that
+  evidence (todo 4487).
+- **Run-dir growth is bounded and checked before a launch** (todo 4487): every
+  detached launch first sweeps harness-owned attempt data under the node's run
+  dir. A chat's `cc-*` group is deleted as a whole, oldest first, until the
+  total is back under 1 GiB; a group is skipped while its `cc-<chat>` tmux
+  session is live on either socket or while any member is younger than 60
+  minutes, and a chat's staged `y-mcp-*` directories travel with its group
+  (unmapped ones only after 24 hours). The sweep never fails a launch. A
+  socket tmux confirms has no server counts as empty, but any other tmux
+  failure makes the live set unknown and deletes nothing. Eligibility is
+  lock-authoritative: launch staging and every destructive path (terminal
+  cleanup, GC, reaper) take one advisory lock per chat, and nothing measured
+  before the lock authorizes a deletion. GC orders candidates from a coarse
+  snapshot only, then re-lists, re-stats and re-probes the chat under its lock;
+  the reaper probes that chat's session only after locking; terminal cleanup
+  reads mtime and identity only after locking. A busy lock keeps the group for
+  a later pass. Launch staging has no unlocked path and touches no shared
+  path before ownership is confirmed: the stale-session teardown, attempt-log
+  reset, floor-refusal record, and staging all happen only inside the lock. An
+  unconfirmed lock acquisition fails the launch with a terminal error naming
+  the chat, leaving an existing same-chat session and its attempt files intact. Only bytes actually removed count
+  toward the budget, so an undeletable group does not stop later
+  reclaimable ones. After
+  the sweep, a launch needs 500 MB free, or 700 MB for the codex app-server
+  harness that stages a ~96 MB home; below the floor it refuses with a
+  terminal, result-shaped error naming the free MB and the floor instead of
+  starting a turn that cannot write its logs (if even that record cannot be
+  written, the refusal is raised through the launch error path instead). A
+  turn that ends (completed, errored, interrupted, or hard-timed-out) removes
+  its staged images, codex home and MCP directories that predate its terminal
+  state and runs under the same per-chat lock, so a next turn's staging is
+  kept. Every removal of a staged Codex home first copies its rollout back to
+  `$HOME/.codex/sessions` (the app-server EXIT trap is a no-op in todo 4476),
+  and a failed copy keeps the home, so a hard timeout, the reaper or the
+  budget GC never deletes the only resumable rollout. A launch that finds such
+  a retained home salvages its rollouts into the resume source before
+  recreating the home, and a failed salvage aborts staging with the home
+  intact. The orphan reaper removes
+  the codex home of a
+  wrapper it kills when no live session of that chat remains.
 - **Session continuity**: the backend's native session id lives in the chat's
   `external_id`; a follow-up resumes it only when the chat's stored work dir
   matches the resolved cwd, otherwise a fresh session starts. Work-dir

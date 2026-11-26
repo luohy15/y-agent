@@ -215,6 +215,25 @@ def _turn_message_patch(fresh) -> dict:
     return patch
 
 
+def _cleanup_attempt_artifacts(client, chat_id: str, before: float):
+    """Drop per-chat staging that predates this turn's terminal state (todo 4487).
+
+    Images, a codex home and MCP staging otherwise wait for the same chat's next
+    launch, which may never come. `before` bounds the deletion: a new turn that
+    stages the same chat during closeout creates newer files and keeps them.
+    Best effort: a cleanup error never changes the turn's terminal outcome, and
+    the launch-time GC still bounds leftovers.
+    """
+    if client is None:
+        return
+    try:
+        from agent.claude_code import _ssh_exec
+        from agent.detach import attempt_artifact_cleanup_cmd
+        _ssh_exec(client, attempt_artifact_cleanup_cmd(chat_id, before))
+    except Exception as e:
+        logger.warning("attempt artifact cleanup failed: chat_id={} error={}", chat_id, e)
+
+
 async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadline_at: float, ssh_pool=None):
     """Tail a single detached process and handle completion."""
     from agent.chat_target import layout
@@ -367,6 +386,10 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
             pending_context_usage=_load_json_field(proc, "pending_context_usage") or None,
         )
 
+    # Staging boundary: from this instant the run is over, so anything a later
+    # turn stages for this chat belongs to that turn and must survive cleanup.
+    terminal_at = time.time()
+
     if result["is_done"] and result["status"] != "error":
         from worker.process_manager import begin_closeout
         if not begin_closeout(chat_id, proc, result):
@@ -422,6 +445,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                 return
             if not fresh or fresh.interrupted:
                 await persist_terminal(chat_id, proc, {"status": "interrupted"}, outcome="interrupted")
+                _cleanup_attempt_artifacts(client, chat_id, terminal_at)
                 return
             if not claim_resume(chat_id, proc, lambda_req_id):
                 return
@@ -487,6 +511,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                     if agy_turn:
                         _rollup_agy_usage(user_id, chat_id)
                 await deliver_death(chat_id, proc, "error", (result.get("result_data") or {}).get("result"))
+            _cleanup_attempt_artifacts(client, chat_id, terminal_at)
             return
 
         # One closeout: retire this run's generation, then decide busy-vs-idle
@@ -609,6 +634,7 @@ async def _tail_and_process(chat_id: str, proc: dict, lambda_req_id: str, deadli
                 node, backend_type,
                 (result.get("result_data") or {}).get("session_id") or updated_session_id,
             )
+            _cleanup_attempt_artifacts(client, chat_id, terminal_at)
         else:
             complete_process(chat_id, status=result["status"])
 
@@ -1448,6 +1474,10 @@ async def _handle_timeout(chat_id: str, proc: dict, ssh_pool=None, result: dict 
     from agent.chat_target import layout
     from storage.service import chat as chat_service
 
+    # Staging boundary for the cleanup below: this run is over from here on, so
+    # a later turn's staging must not be removed (todo 4487 review).
+    terminal_at = time.time()
+
     from worker.death_delivery import current_run
     owner_chat = await chat_service.get_chat(proc["user_id"], chat_id)
     if (not owner_chat or (owner_chat.role != "manager" and owner_chat.trace_id != proc.get("trace_id"))
@@ -1460,9 +1490,10 @@ async def _handle_timeout(chat_id: str, proc: dict, ssh_pool=None, result: dict 
         node = layout(user_id, proc.get("target_id") or "default", allow_disabled=True)
         client = ssh_pool.get_or_create(node) if ssh_pool else None
         if client:
-            from agent.detach import _tmux_kill_cmd
+            from agent.detach import _tmux_kill_cmd, attempt_artifact_cleanup_cmd
             client.exec_command(
                 f"{_tmux_kill_cmd(chat_id, node=node)}; "
+                f"{attempt_artifact_cleanup_cmd(chat_id, terminal_at)}; "
                 f"rm -f /tmp/cc-{chat_id}.stdin /tmp/cc-{chat_id}.stdout /tmp/cc-{chat_id}.stderr /tmp/cc-{chat_id}.exit 2>/dev/null"
             )
             logger.info("hard timeout: killed tmux session for chat_id={}", chat_id)

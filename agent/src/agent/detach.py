@@ -26,6 +26,11 @@ from agent.claude_code import (
     _ssh_exec,
     parse_stream_line,
 )
+from agent.tmp_guard import (
+    DEFAULT_BUDGET_BYTES,
+    DISK_FLOOR_BYTES,
+    MIN_GROUP_AGE_SECONDS,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -144,6 +149,153 @@ def _reap_orphan_wrappers_cmd(min_age_s: float = ORPHAN_WRAPPER_MIN_AGE_SECONDS,
     return f"python3 -c {_shell_quote(source)} {_shell_quote(str(min_age_s))} {_shell_quote(stdin_prefix)}"
 
 
+class InsufficientDiskSpace(RuntimeError):
+    """A measured run-dir shortfall the launch refused to start on.
+
+    Raised through the launch error path when the run dir is too full to hold
+    the refusal record itself; its text is the whole diagnostic.
+    """
+
+
+class StagingLockUnavailable(RuntimeError):
+    """The per-chat staging lock could not be confirmed; nothing was staged."""
+
+    def __init__(self, chat_id: str, cause: str):
+        self.chat_id = chat_id
+        self.cause = cause
+        super().__init__(
+            f"staging lock unavailable for chat {chat_id} ({cause}); "
+            f"nothing was uploaded, staged, or started."
+        )
+
+
+def _gc_attempts_cmd(run_dir: str, floor_bytes: int, tmux_binary: str = "tmux") -> str:
+    """Remote command that bounds harness-owned attempt data, then reports free space.
+
+    One call does both so the launch preflight stays one SSH round trip: the
+    sweep runs first, then the floor is measured against the reclaimed room.
+    """
+    from agent import tmp_guard
+
+    source = Path(tmp_guard.__file__).read_text()
+    argv = [
+        "gc",
+        "--run-dir", run_dir,
+        "--budget", str(DEFAULT_BUDGET_BYTES),
+        "--min-age", str(MIN_GROUP_AGE_SECONDS),
+        "--tmux", tmux_binary,
+        "--floor", str(floor_bytes),
+    ]
+    return f"python3 -c {_shell_quote(source)} " + " ".join(_shell_quote(part) for part in argv)
+
+
+def _free_bytes_line(line: str) -> Optional[int]:
+    """Parse the `free=<bytes>` field out of a `tmp_guard` free line."""
+    for part in line.split():
+        if part.startswith("free="):
+            try:
+                return int(part[len("free="):])
+            except ValueError:
+                return None
+    return None
+
+
+# Holds a per-chat advisory lock until stdin closes. Shares the lock file with
+# `tmp_guard` (GC / terminal cleanup) and the orphan reaper, so launch staging
+# and every destructive check-and-delete are mutually exclusive.
+_CHAT_LOCK_HELPER = (
+    "import fcntl,sys;"
+    "f=open(sys.argv[1],'a');"
+    "fcntl.flock(f, fcntl.LOCK_EX);"
+    "sys.stdout.write('locked\\n');"
+    "sys.stdout.flush();"
+    "sys.stdin.read()"
+)
+
+
+@contextmanager
+def _chat_lock(client, chat_id: str, run_dir: str):
+    """Hold the per-chat staging lock for the duration of the block.
+
+    Every artifact a launch creates (stdin, images, codex home, MCP dirs) is
+    written inside this block, so a destructive path's check-and-unlink cannot
+    interleave with a replacement generation (todo 4487 review round 2). The
+    block is only entered with confirmed ownership: a timeout, a missing
+    `locked` line or a helper error raises `StagingLockUnavailable` before
+    anything is staged. There is no unlocked staging path.
+    """
+    lock = f"{run_dir}/.cc-{chat_id}.lock"
+    cmd = f"python3 -c {_shell_quote(_CHAT_LOCK_HELPER)} {_shell_quote(lock)}"
+    stdin = stdout = None
+    try:
+        stdin, stdout, _stderr = client.exec_command(cmd, timeout=30)
+        if stdout.readline().strip() != "locked":
+            raise RuntimeError("lock helper did not confirm")
+    except Exception as exc:
+        if stdout is not None:
+            try:
+                stdout.channel.close()
+            except Exception:
+                pass
+        raise StagingLockUnavailable(chat_id, f"{type(exc).__name__}: {exc}") from exc
+    try:
+        yield
+    finally:
+        try:
+            stdin.close()
+        except Exception:
+            pass
+        try:
+            stdout.channel.recv_exit_status()
+        except Exception:
+            pass
+
+
+async def _await_attempt_stdout(client, stdout_file: str, wait_seconds: float):
+    """Wait until the wrapper has created its stdout redirect.
+
+    The launch keeps the chat lock until the wrapper's first redirect exists,
+    so that creation cannot interleave with a destructive check-and-delete. A
+    timeout is not fatal: the initial-id sniff still reports what it sees.
+    """
+    probe = f"test -f {_shell_quote(stdout_file)} && echo ok || echo no"
+    deadline = time.monotonic() + min(max(wait_seconds, 0.5), 5.0)
+    while True:
+        try:
+            if _ssh_exec(client, probe).strip() == "ok":
+                return
+        except Exception:
+            return
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        await asyncio.sleep(min(0.05, remaining))
+
+
+def attempt_artifact_cleanup_cmd(chat_id: str, before: Optional[float] = None,
+                                 run_dir: str = "/tmp") -> str:
+    """Remove per-chat staging a finished turn no longer needs.
+
+    `before` is the instant the turn reached a terminal state. The remote
+    helper removes only entries older than it, so a new turn that stages the
+    same chat during closeout keeps its own generation. The tmux wrapper's EXIT
+    trap removes a backend's own staging, but a killed wrapper, a hard timeout,
+    or a full run dir can leave images, a codex home or MCP staging behind until
+    the same chat happens to launch again.
+    """
+    from agent import tmp_guard
+
+    source = Path(tmp_guard.__file__).read_text()
+    stamp = time.time() if before is None else before
+    argv = [
+        "clean",
+        "--run-dir", run_dir,
+        "--chat", chat_id,
+        "--before", f"{float(stamp):.3f}",
+    ]
+    return f"python3 -c {_shell_quote(source)} " + " ".join(_shell_quote(part) for part in argv)
+
+
 @contextmanager
 def _with_ssh_client(node, ssh_client=None):
     """Yield a paramiko SSHClient for `node`, connecting if not passed.
@@ -202,6 +354,9 @@ class DetachBackendSpec:
     trap_cleanup: Optional[Callable[[], str]] = None
     initial_stdout_lines: int = 5
     initial_wait_seconds: float = INITIAL_ID_WAIT_SECONDS
+    # Free bytes the launch requires under the node's run dir after the GC.
+    # A backend that stages its own runtime raises it (codex app-server).
+    free_space_floor_bytes: int = DISK_FLOOR_BYTES
 
 
 def _upload_images(client, chat_id: str, images: Optional[List[str]]) -> Optional[List[str]]:
@@ -377,6 +532,8 @@ async def _start_detached_tmux(
     """Shared skeleton for starting a detached tmux session over SSH.
 
     Steps:
+      0. Acquire the per-chat staging lock. An unconfirmed acquisition aborts
+         the launch before anything on the node is killed, removed or written.
       1. Kill any stale `cc-<chat_id>` tmux session and remove this attempt's
          stdin/stdout/stderr/exit files, plus any leftover `.killed` sentinel
          from a prior turn's steer/interrupt teardown (see
@@ -396,86 +553,98 @@ async def _start_detached_tmux(
         stderr_file = f"/tmp/cc-{chat_id}.stderr"
         exit_file = f"/tmp/cc-{chat_id}.exit"
 
-        # 1. Stale session cleanup, then drop this attempt's log files before
-        # any preflight (including the missing-cwd path below) so a previous
-        # run's stderr cannot be read as this failure.
-        from agent.mcp.staging import cleanup_command
-        _ssh_exec(
-            client,
-            f"{_tmux_kill_cmd(chat_id, node=node)}; "
-            f"{reset_attempt_logs_shell(chat_id)}; "
-            f"rm -f /tmp/cc-{chat_id}.killed /tmp/cc-{chat_id}.claude-ec 2>/dev/null; "
-            f"rm -rf /tmp/cc-{chat_id}-images 2>/dev/null; "
-            + cleanup_command(chat_id),
-        )
-        # Host-wide guard: wrappers whose tmux session is gone but whose
-        # process tree survived (todo 3819). Never fails the launch.
-        # The reaper reads /proc, so it does not run on macOS.
-        if node.reaper:
+        # Everything that touches this chat's shared paths runs only after the
+        # lock is confirmed: the host-wide reaper, the stale-session teardown,
+        # the log reset, the staging, the tmux start, and the floor refusal
+        # record. A competing launch that cannot take the lock must leave the
+        # holder's files and session untouched (todo 4487 review round 4).
+        with _chat_lock(client, chat_id, node.tmp_dir):
+            # Host-wide guard: wrappers whose tmux session is gone but whose
+            # process tree survived (todo 3819). Never fails the launch. It
+            # takes each chat's own lock before removing that chat's staged
+            # home, so it never touches a launch that holds the lock.
+            # The reaper reads /proc, so it does not run on macOS.
+            if node.reaper:
+                try:
+                    reaped = _ssh_exec(client, _reap_orphan_wrappers_cmd()).strip()
+                    if reaped and reaped != "reaped=0":
+                        logger.warning("reaped orphaned session wrappers on launch of %s: %s", session_name, reaped)
+                except Exception as exc:
+                    logger.warning("orphaned session wrapper reap failed on launch of %s: %s", session_name, exc)
+
+            # 1. Stale session cleanup, then drop this attempt's log files
+            # before any preflight (including the missing-cwd path below) so a
+            # previous run's stderr cannot be read as this failure.
+            from agent.mcp.staging import cleanup_command
+            _ssh_exec(
+                client,
+                f"{_tmux_kill_cmd(chat_id, node=node)}; "
+                f"{reset_attempt_logs_shell(chat_id)}; "
+                f"rm -f /tmp/cc-{chat_id}.killed /tmp/cc-{chat_id}.claude-ec 2>/dev/null; "
+                f"rm -rf /tmp/cc-{chat_id}-images 2>/dev/null; "
+                + cleanup_command(chat_id),
+            )
+
+            # Bound the host's harness-owned attempt data, then refuse to
+            # stage a turn that has no room for its own logs (todo 4487). A
+            # sweep error never blocks a launch; a measured shortfall does,
+            # because the turn would otherwise die part-way with a misleading
+            # error.
+            free_bytes = None
             try:
-                reaped = _ssh_exec(client, _reap_orphan_wrappers_cmd()).strip()
-                if reaped and reaped != "reaped=0":
-                    logger.warning("reaped orphaned session wrappers on launch of %s: %s", session_name, reaped)
+                out = _ssh_exec(
+                    client,
+                    _gc_attempts_cmd(node.tmp_dir, spec.free_space_floor_bytes, node.tmux_binary),
+                )
+                for line in out.splitlines():
+                    if line.startswith("gc "):
+                        logger.info("run-dir gc on launch of %s: %s", session_name, line)
+                    elif line.startswith("free="):
+                        free_bytes = _free_bytes_line(line)
             except Exception as exc:
-                logger.warning("orphaned session wrapper reap failed on launch of %s: %s", session_name, exc)
-
-        exec_images = _upload_images(client, chat_id, images) if spec.upload_images else images
-
-        # 2. Per-backend setup (e.g. write SFTP stdin file for claude)
-        if spec.setup:
-            try:
-                spec.setup(client, chat_id, prompt, exec_images)
-            except Exception:
-                if spec.cleanup:
-                    _ssh_exec(client, spec.cleanup())
-                raise
-
-        if cwd:
-            cwd_exists = _ssh_exec(client, f"test -d {_shell_quote(cwd)} && echo ok || echo missing").strip() == "ok"
-            if not cwd_exists:
-                message = f"work_dir not found: {cwd}"
+                logger.warning("run-dir gc/floor check failed on launch of %s: %s", session_name, exc)
+            if free_bytes is not None and free_bytes < spec.free_space_floor_bytes:
+                message = (
+                    f"insufficient free space under {node.tmp_dir} on the execution node: "
+                    f"{free_bytes // (1024 * 1024)} MB free, below the "
+                    f"{spec.free_space_floor_bytes // (1024 * 1024)} MB launch floor. "
+                    f"Nothing was started; free space on the node and retry."
+                )
                 error_obj = (
                     {"type": "result", "is_error": True, "result": message}
                     if spec.setup
                     else {"type": "error", "message": message}
                 )
-                _ssh_exec(
-                    client,
-                    f"printf '%s\\n' {_shell_quote(json.dumps(error_obj))} > {_shell_quote(stdout_file)}; "
-                    f"echo 1 > {_shell_quote(exit_file)}",
-                )
-                if spec.cleanup:
-                    _ssh_exec(client, spec.cleanup())
+                # The refusal must survive an exhausted filesystem: try the
+                # usual terminal record, but if that write fails too, carry the
+                # measured refusal through the launch error path instead of
+                # losing it.
+                recorded = False
+                try:
+                    _ssh_exec(
+                        client,
+                        f"printf '%s\\n' {_shell_quote(json.dumps(error_obj))} > {_shell_quote(stdout_file)} && "
+                        f"echo 1 > {_shell_quote(exit_file)}",
+                    )
+                    recorded = True
+                except Exception as exc:
+                    logger.warning("disk-floor refusal record unwritable on launch of %s: %s", session_name, exc)
+                if not recorded:
+                    raise InsufficientDiskSpace(message)
                 return None
 
-        # 3. Assemble tmux inner command
-        exec_cmd = spec.build_exec(cmd, chat_id, prompt, exec_images)
-        inner = assemble_inner(
-            env=env,
-            cwd=cwd,
-            exec_cmd=exec_cmd,
-            heartbeat=node.heartbeat,
-            stdout_file=stdout_file,
-            stderr_file=stderr_file,
-            exit_file=exit_file,
-            cleanup=(spec.trap_cleanup() if spec.trap_cleanup is not None
-                     else (spec.cleanup() if spec.cleanup else None)),
-            unset_env=unset_env,
-        )
-
-        tmux_cmd = (
-            f"{_tmux_command('new-session', node=node)} -d -s {_shell_quote(session_name)} "
-            f"{_shell_quote(inner)}"
-        )
-
-        # 4. Start tmux session. A zero exit here means tmux accepted the
-        # session command. It does not mean the wrapped process is healthy.
-        try:
-            _ssh_exec(client, tmux_cmd)
-        except Exception:
-            if spec.cleanup:
-                _ssh_exec(client, spec.cleanup())
-            raise
+            # 2-4. Staging, setup, and the tmux start continue under the lock.
+            # Every destructive path (terminal cleanup, GC, reaper) takes the
+            # same lock, so no replacement generation can be created between
+            # such a path's check and its unlink. The lock is held until the
+            # wrapper's own redirect files exist.
+            staged, exec_images = _stage_turn(
+                client, node, spec, chat_id, cmd, prompt, cwd, env, images, unset_env,
+                stdout_file, stderr_file, exit_file, session_name,
+            )
+            if not staged:
+                return None
+            await _await_attempt_stdout(client, stdout_file, spec.initial_wait_seconds)
 
         # 5. Sniff initial stdout for session/thread id. The budget matches
         # the previous fixed sleep; a ready id returns on the first read.
@@ -503,6 +672,77 @@ async def _start_detached_tmux(
                     _ssh_exec(client, spec.cleanup())
                 raise
         return initial_id
+
+
+def _stage_turn(client, node, spec: DetachBackendSpec, chat_id: str, cmd, prompt: str,
+                cwd: Optional[str], env, images, unset_env, stdout_file: str,
+                stderr_file: str, exit_file: str, session_name: str):
+    """Upload images, run setup, and start the tmux session.
+
+    Runs inside the per-chat staging lock. Returns `(ok, exec_images)`; `ok` is
+    False when the missing-work-dir record was written instead of a launch.
+    """
+    exec_images = _upload_images(client, chat_id, images) if spec.upload_images else images
+
+    # Per-backend setup (e.g. write SFTP stdin file for claude)
+    if spec.setup:
+        try:
+            spec.setup(client, chat_id, prompt, exec_images)
+        except Exception:
+            if spec.cleanup:
+                _ssh_exec(client, spec.cleanup())
+            raise
+
+    if cwd:
+        cwd_exists = _ssh_exec(client, f"test -d {_shell_quote(cwd)} && echo ok || echo missing").strip() == "ok"
+        if not cwd_exists:
+            message = f"work_dir not found: {cwd}"
+            error_obj = (
+                {"type": "result", "is_error": True, "result": message}
+                if spec.setup
+                else {"type": "error", "message": message}
+            )
+            _ssh_exec(
+                client,
+                f"printf '%s\\n' {_shell_quote(json.dumps(error_obj))} > {_shell_quote(stdout_file)}; "
+                f"echo 1 > {_shell_quote(exit_file)}",
+            )
+            if spec.cleanup:
+                _ssh_exec(client, spec.cleanup())
+            return False, exec_images
+
+    # Assemble tmux inner command
+    exec_cmd = spec.build_exec(cmd, chat_id, prompt, exec_images)
+    inner = assemble_inner(
+        env=env,
+        cwd=cwd,
+        exec_cmd=exec_cmd,
+        heartbeat=node.heartbeat,
+        stdout_file=stdout_file,
+        stderr_file=stderr_file,
+        exit_file=exit_file,
+        # Wrapper EXIT trap: `trap_cleanup` when the backend sets one (codex
+        # app-server keeps its staged home until the tail syncs, todo 4476),
+        # otherwise the backend's own cleanup.
+        cleanup=(spec.trap_cleanup() if spec.trap_cleanup is not None
+                 else (spec.cleanup() if spec.cleanup else None)),
+        unset_env=unset_env,
+    )
+
+    tmux_cmd = (
+        f"{_tmux_command('new-session', node=node)} -d -s {_shell_quote(session_name)} "
+        f"{_shell_quote(inner)}"
+    )
+
+    # Start tmux session. A zero exit here means tmux accepted the session
+    # command. It does not mean the wrapped process is healthy.
+    try:
+        _ssh_exec(client, tmux_cmd)
+    except Exception:
+        if spec.cleanup:
+            _ssh_exec(client, spec.cleanup())
+        raise
+    return True, exec_images
 
 
 async def _await_initial_id(
