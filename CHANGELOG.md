@@ -40,6 +40,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Saved view (4468)**: the open tab, panel selection and file workspace persist per user through user preference and restore on reload.
 - **Gateway fallback visibility (4466)**: a send delivered on the non-preferred channel records `fallback_from` with a reason and logs the channel used, so an automatic fallback is never silent.
 - **Chinese awaiting notices (4481)**: an awaiting gateway DM now renders as `【进度】<id>` with the caller's Chinese summary, and the watchdog and session-end fault sentences are localized. The manager DM and parent-chat death dispatch stay English.
+- **WeChat per-user bot account (4496)**: each admitted user binds their own iLink bot from `y login` (or `y wechat bind`), and every QR scan mints a new bot. One relay bridge polls every active account in one process, with one thread and cursor per account, authenticated by `Y_AGENT_WECHAT_BRIDGE_KEY`; `POST /api/wechat/bridge/accounts` returns the active inventory, and a user never receives their bot token. Unbind and revoke affect only the caller's own peer and account. Apply `migration/4496_wechat_per_user_account.sql` before enabling the multi-account routes.
 
 ### Changed
 
@@ -47,6 +48,7 @@ that Sunday, when it is stamped with the next version and date. Backlog between
 - **Todo handle chat (4441)**: the awaiting pointer becomes `handle_chat`, the one conversation a todo opens into. It now survives pending, active and awaiting; only completed or deleted clears it. `y todo status <id> awaiting --chat <id>` moves it, an awaiting write without a chat leaves it, and `y todo get` (as `Handle:`) and the list Chat column read it.
 - **Codex window for unknown models (4435)**: a model slug the Codex CLI does not know now clones the first bundled catalog template that exists (`gpt-5.2`, then `gpt-5.5`, otherwise the first entry except `codex-auto-review`) and still reports its real `model_context_window`, so those bots keep a usable context badge instead of depending on one template being present. Recognized slugs keep their own prompt.
 - **Codex app-server default (4476)**: the worker template sets `Y_CODEX_HARNESS=app-server`, so mid-turn steer is the deployed default. The code default stays `exec`, and `Y_CODEX_HARNESS=exec` (or unset) rolls back.
+- **Bot usage reset display (4488)**: each subscription-limit window shows the time until its reset as days and hours (`resets in 2d 5h`), recomputed on refresh, and the cell header shows only `limit reached` or `reset due` instead of repeating the percent.
 
 ### Fixed
 
