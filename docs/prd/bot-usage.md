@@ -67,8 +67,10 @@ windows, `five_hour` / `one_week`, in the fetched payload; the Live limits row
 draws the weekly window. Grok reports its current billing period, and Gemini
 (agy) reports weekly and 5-hour windows, both of which the agy cell draws, the
 5-hour window first. Each drawn window shows percent used, percent remaining,
-and an absolute reset time in the configured timezone; freshness and explicit
-unavailable / stale / re-auth states stay at the cell level. The three reads
+and a relative remaining time until its reset; freshness and explicit
+unavailable / stale / re-auth states stay at the cell level, and the cell
+header carries `limit reached` or `reset due` only, never a repeated percent.
+The three reads
 run in the `y` CLI **on the user's VM** (stable source IP, already known to
 these vendors), behind one `y usage limits --json`
 envelope. A 30-minute worker
@@ -201,10 +203,9 @@ later delivery.
 19. As a web user, I want each window to show percent used, percent remaining,
     and the reset time, so that I can judge both current headroom and how long I
     need to wait for recovery.
-20. As a web user, I want reset times rendered as an absolute date and time in
-    my configured timezone, so that provider timestamps are immediately
-    actionable without manual conversion and without a ticking countdown that
-    goes stale between polls.
+20. As a web user, I want each window's reset shown as the remaining days and
+    hours from now, so that I can judge the wait without converting timezones
+    and without a ticking countdown that goes stale between polls.
 21. As a web user, I want the status to show when it was observed and whether
     it is fresh or stale, so that an old successful probe is never mistaken for
     current capacity.
@@ -1684,22 +1685,22 @@ later delivery.
   same form as Account balances: GPT (Codex), Grok, and Gemini (agy) are equal
   cells on one line at a 640px section width and above, separated by vertical
   hairline dividers, and stack as hairline rows below it. Each cell keeps, in
-  order, the provider name with its freshness dot and a right-aligned summary,
-  then one block per drawn window: a muted `5 hours`, `1 week`, or
-  `Billing period` label on the left with the right-aligned percent used, a
-  4px track, and a reset line. The summary is `limit reached` when any window
-  is exhausted with its reset still ahead, else `reset due` when a reset time
-  has already passed, else the highest drawn percent used, else `not
-  reported`. The reset line reads `reset MM-DD HH:mm` in the response
-  `timezone` (the configured deployment timezone, Asia/Shanghai here) or
-  `reset unavailable` when it is null or unparseable, and its title keeps the
-  ISO timestamp; there is no relative countdown. Codex and Grok each draw one
-  window; Gemini (agy) draws `5 hours` then `1 week`. The dot is green when
-  fresh, yellow when stale or awaiting re-login, and red when unavailable.
+  order, the provider name with its freshness dot and a right-aligned status
+  that appears only as `limit reached` when any window is exhausted with its
+  reset still ahead or `reset due` when a reset time has already passed. Each
+  drawn window is one block: a muted `5 hours`, `1 week`, or `Billing period`
+  label on the left with the right-aligned percent used, a 4px track, and a
+  reset line reading a relative remaining time in days and hours (for example
+  `resets in 2d 5h`) or `reset unavailable` when it is null or unparseable.
+  The remaining time is recomputed only when the panel refreshes, so it never
+  ticks, and the line's title keeps the absolute ISO timestamp. Codex and Grok
+  each draw one window; Gemini (agy) draws `5 hours` then `1 week`. The dot is
+  green when fresh, yellow when stale or awaiting re-login, and red when
+  unavailable.
   Provider letter chips are removed. The fill is `base0` below 60%, yellow at
   60%, orange at 80%. `limit reached` appears only while the observation
-  still predates the reset; once the reset time is in the past the same window
-  reads `reset due` with an `awaiting refresh` hint instead, because the
+  still predates the reset; once the reset time is in the past the cell reads
+  `reset due` with an `awaiting refresh` hint instead, because the
   stored snapshot is older than the window it describes. The panel polls the
   persisted snapshot every 60 seconds, while the underlying read refreshes on
   the 30-minute sweep or a manual retry, so a `reset due` cell clears only
@@ -2312,8 +2313,9 @@ as decisions.
   but never renders or requests Subscription limits.
 - **Limit-status states** cover fresh, stale, never-observed, provider-error,
   re-auth-required, missing-reset-time, zero-windows-reported, and narrow-panel
-  layouts across the three retained backends, with configured-timezone reset labels
-  checked against the absolute API timestamps. These are asserted in component
+  layouts across the three retained backends, with relative remaining-time
+  reset labels checked against the absolute API timestamps. These are asserted
+  in component
   tests and fixtures; screenshots are taken only on request, per the house
   policy that agent-driven UI runtime checks are opt-in.
 - **Limit-window history (todo 3717).** Unit coverage, no database: an
