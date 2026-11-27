@@ -71,11 +71,16 @@ jobs:
         id: config
         env:
           CONFIG: ${{ secrets.CONFIG }}
+          Y_AGENT_WECHAT_BRIDGE_KEY: ${{ secrets.WECHAT_BRIDGE_KEY }}
         run: |
           echo "$CONFIG" | jq -r 'to_entries | .[] | "\(.key)=\(.value)"' >> $GITHUB_ENV
           echo "$CONFIG" | jq -r '.[]' | while read -r value; do
             [ -n "$value" ] && echo "::add-mask::$value"
           done
+          if [ -n "$Y_AGENT_WECHAT_BRIDGE_KEY" ]; then
+            echo "::add-mask::$Y_AGENT_WECHAT_BRIDGE_KEY"
+            echo "Y_AGENT_WECHAT_BRIDGE_KEY=$Y_AGENT_WECHAT_BRIDGE_KEY" >> $GITHUB_ENV
+          fi
 
       - name: Export dependencies
         run: |
@@ -110,6 +115,7 @@ jobs:
           [ -n "$OPENROUTER_API_KEY" ] && PARAM_OVERRIDES+=("OpenRouterApiKey=$OPENROUTER_API_KEY")
           [ -n "$OPENROUTER_INFERENCE_API_KEY" ] && PARAM_OVERRIDES+=("OpenRouterInferenceApiKey=$OPENROUTER_INFERENCE_API_KEY")
           [ -n "$DEEPSEEK_API_KEY" ] && PARAM_OVERRIDES+=("DeepSeekApiKey=$DEEPSEEK_API_KEY")
+          [ -n "$Y_AGENT_WECHAT_BRIDGE_KEY" ] && PARAM_OVERRIDES+=("WechatBridgeKey=$Y_AGENT_WECHAT_BRIDGE_KEY")
           [ -n "$Y_AGENT_MCP_GATEWAY_URL" ] && PARAM_OVERRIDES+=("McpGatewayUrl=$Y_AGENT_MCP_GATEWAY_URL")
           [ -n "$Y_AGENT_WORKSPACE" ] && PARAM_OVERRIDES+=("AgentWorkspace=$Y_AGENT_WORKSPACE")
 
